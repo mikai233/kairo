@@ -9,11 +9,11 @@ use crate::{
     CoordinatorStateSnapshot, EntityRef, GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan,
     HandOff, HandOffPlan, HostShard, HostShardPlan, LeastShardAllocationStrategy,
     RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionDropReason, RegionRoutePlan,
-    RememberCoordinatorStoreState, RememberShardStoreState, RememberShardUpdate,
+    RememberCoordinatorStoreState, RememberShardStoreState, RememberShardUpdate, ShardActor,
     ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorMsg,
-    ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan,
+    ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
     ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
-    ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
+    ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
     default_shard_id_for, remember_entity_key_index, remember_entity_key_index_for,
     remember_entity_shard_key, shard_id_for, stable_hash_entity_id,
 };
@@ -1482,6 +1482,206 @@ fn shard_runtime_starts_entity_on_first_message_and_then_delivers_directly() {
         runtime.entity_state(&"entity-1".to_string()),
         Some(ShardEntityState::Active)
     );
+}
+
+#[test]
+fn shard_actor_starts_entity_then_delivers_directly() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-deliver").unwrap();
+    let shard = kit
+        .system()
+        .spawn("shard", ShardActor::<String>::props("shard-1", 10))
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let state = kit.create_probe::<ShardSnapshot>("state").unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: crate::EntityDelivery::new("entity-1", "first".to_string()),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "second".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "second".to_string()),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: vec!["entity-1".to_string()],
+            entity_count: 1,
+            total_buffered: 0,
+            handoff_in_progress: false,
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn shard_actor_buffers_passivating_entity_and_restarts_on_termination() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-passivation").unwrap();
+    let shard = kit
+        .system()
+        .spawn("shard", ShardActor::<String>::props("shard-1", 10))
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let passivation = kit
+        .create_probe::<crate::PassivatePlan<String>>("passivation")
+        .unwrap();
+    let termination = kit
+        .create_probe::<crate::EntityTerminatedPlan<String>>("termination")
+        .unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    deliveries.expect_msg(Duration::from_millis(500)).unwrap();
+    shard
+        .tell(ShardMsg::Passivate {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+            reply_to: passivation.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        passivation.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::PassivatePlan::SendStop {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+        }
+    );
+
+    for message in ["second", "third"] {
+        shard
+            .tell(ShardMsg::Deliver {
+                message: ShardingEnvelope::new("entity-1", message.to_string()),
+                reply_to: deliveries.actor_ref(),
+            })
+            .unwrap();
+        assert_eq!(
+            deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+            ShardDeliverPlan::Buffered {
+                entity_id: "entity-1".to_string(),
+            }
+        );
+    }
+
+    shard
+        .tell(ShardMsg::EntityTerminated {
+            entity_id: "entity-1".to_string(),
+            reply_to: termination.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        termination.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::EntityTerminatedPlan::Restart {
+            buffered: vec![
+                crate::EntityDelivery::new("entity-1", "second".to_string()),
+                crate::EntityDelivery::new("entity-1", "third".to_string()),
+            ],
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn shard_actor_handoff_tracks_stopper_and_completion() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-handoff").unwrap();
+    let shard = kit
+        .system()
+        .spawn("shard", ShardActor::<String>::props("shard-1", 10))
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let handoff = kit
+        .create_probe::<ShardHandOffPlan<String>>("handoff")
+        .unwrap();
+    let stopper = kit.create_probe::<bool>("stopper").unwrap();
+    let state = kit.create_probe::<ShardSnapshot>("state").unwrap();
+
+    for entity in ["entity-b", "entity-a"] {
+        shard
+            .tell(ShardMsg::Deliver {
+                message: ShardingEnvelope::new(entity, "message".to_string()),
+                reply_to: deliveries.actor_ref(),
+            })
+            .unwrap();
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap();
+    }
+
+    shard
+        .tell(ShardMsg::HandOff {
+            stop_message: "stop".to_string(),
+            reply_to: handoff.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        handoff.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardHandOffPlan::StartEntityStopper {
+            shard: "shard-1".to_string(),
+            entities: vec!["entity-a".to_string(), "entity-b".to_string()],
+            stop_message: "stop".to_string(),
+        }
+    );
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .handoff_in_progress
+    );
+
+    shard
+        .tell(ShardMsg::HandOffStopperTerminated {
+            reply_to: stopper.actor_ref(),
+        })
+        .unwrap();
+    assert!(stopper.expect_msg(Duration::from_millis(500)).unwrap());
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        !state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .handoff_in_progress
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

@@ -152,6 +152,10 @@ impl<M> ShardRuntime<M> {
         self.message_buffers.values().map(VecDeque::len).sum()
     }
 
+    pub fn handoff_in_progress(&self) -> bool {
+        self.handoff_in_progress
+    }
+
     pub fn set_preparing_for_shutdown(&mut self, preparing: bool) {
         self.preparing_for_shutdown = preparing;
     }

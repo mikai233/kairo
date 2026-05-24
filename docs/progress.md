@@ -411,6 +411,12 @@ Implemented:
   passivation sends the configured stop message once, termination removes or
   restarts entities depending on buffered messages, and shard handoff emits
   stopper or stopped plans.
+- `kairo-cluster-sharding` now has an actor-backed shard boundary that wraps
+  the focused shard runtime in synchronous actor turns, accepts explicit
+  delivery, passivation, entity-termination, handoff, handoff-stopper
+  completion, and shutdown-preparation commands, and replies with
+  deterministic entity delivery, passivation, restart, handoff, and state
+  snapshot plans.
 - `kairo-cluster-sharding` now has focused remember-entity store state for the
   coordinator's add-only remembered shard set and each shard's started/stopped
   entity set, including Pekko-compatible five-key partitioning based on stable
@@ -560,9 +566,8 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
-- Actor-backed sharding shard wiring, coordinator rebalance timers,
-  transport-backed handoff delivery, and distributed-data-backed
-  remember-entity store actors.
+- Sharding coordinator rebalance timers, transport-backed handoff delivery,
+  and distributed-data-backed remember-entity store actors.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

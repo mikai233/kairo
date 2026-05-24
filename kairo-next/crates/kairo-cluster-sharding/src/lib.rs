@@ -14,6 +14,7 @@ mod protocol;
 mod region_actor;
 mod region_runtime;
 mod remember;
+mod shard_actor;
 mod shard_runtime;
 
 pub use allocation::{LeastShardAllocationStrategy, ShardAllocationStrategy, ShardAllocations};
@@ -50,6 +51,7 @@ pub use remember::{
     RememberShardStoreState, RememberShardUpdate, RememberShardUpdateDone, RememberedShards,
     remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
 };
+pub use shard_actor::{ShardActor, ShardMsg, ShardSnapshot};
 pub use shard_runtime::{
     EntityDelivery, EntityTerminatedPlan, PassivateIgnoreReason, PassivatePlan, ShardDeliverPlan,
     ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardRuntime,
