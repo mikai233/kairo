@@ -176,6 +176,10 @@ Implemented:
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
+- `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
+  explicit codecs and serializer ids for the initial region/coordinator
+  registration, shard-home, host-shard, start, handoff, and stopped protocol
+  messages.
 - Serialization tests cover rolling-version decode behavior by proving codecs
   receive the wire `version` and can decode older payload shapes under the same
   stable manifest.
@@ -262,8 +266,8 @@ Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
-- Full actor-system local/remote provider integration, cluster/sharding
-  protocol codecs, optional codec helper crates, transport-backed associations,
+- Full actor-system local/remote provider integration, cluster protocol codecs,
+  optional codec helper crates, transport-backed associations,
   actor-system-backed inbound target resolution, and broader cross-crate
   compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,

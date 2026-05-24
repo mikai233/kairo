@@ -1,5 +1,6 @@
 //! Cluster sharding API surface and protocols.
 
+mod codec;
 mod entity_ref;
 mod entity_type;
 mod envelope;
@@ -7,6 +8,14 @@ mod errors;
 mod hashing;
 mod protocol;
 
+pub use codec::{
+    BEGIN_HANDOFF_ACK_SERIALIZER_ID, BEGIN_HANDOFF_SERIALIZER_ID, BeginHandOffAckCodec,
+    BeginHandOffCodec, GET_SHARD_HOME_SERIALIZER_ID, GetShardHomeCodec, HANDOFF_SERIALIZER_ID,
+    HOST_SHARD_SERIALIZER_ID, HandOffCodec, HostShardCodec, REGISTER_ACK_SERIALIZER_ID,
+    REGISTER_SERIALIZER_ID, RegisterAckCodec, RegisterCodec, SHARD_HOME_SERIALIZER_ID,
+    SHARD_STARTED_SERIALIZER_ID, SHARD_STOPPED_SERIALIZER_ID, ShardHomeCodec, ShardStartedCodec,
+    ShardStoppedCodec, register_sharding_protocol_codecs,
+};
 pub use entity_ref::EntityRef;
 pub use entity_type::EntityTypeKey;
 pub use envelope::ShardingEnvelope;

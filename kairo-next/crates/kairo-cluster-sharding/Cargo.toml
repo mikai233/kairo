@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+bytes = { workspace = true }
 kairo-actor = { workspace = true }
 kairo-cluster = { workspace = true }
 kairo-distributed-data = { workspace = true }
