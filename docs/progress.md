@@ -222,6 +222,10 @@ Implemented:
 - `DeltaReceiveTracker` tracks receive-side per-replica/key delta sequence
   numbers and models Pekko-style duplicate, missing, invalid-range, and
   in-order apply decisions before the transport loop is wired in.
+- `DeltaReceiveTracker::apply_propagation` decodes complete remote delta
+  propagation messages with a CRDT codec, applies each in-order delta, records
+  decode failures separately from causal-range statuses, and summarizes
+  reply-requested propagations as ack or nack.
 - `ReplicatorActor<D>` records local update deltas into the propagation log and
   exposes explicit target-node configuration, propagation collection, and
   cleanup messages for the future remote transport loop.

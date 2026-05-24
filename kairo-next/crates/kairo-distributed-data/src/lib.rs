@@ -38,7 +38,10 @@ pub use crdt_codec::{
 };
 pub use data::{DeltaReplicatedData, ReplicatedData, ReplicatedDelta};
 pub use delta::{DeltaPropagation, DeltaPropagationEntry, DeltaPropagationLog};
-pub use delta_receive::{DeltaReceiveStatus, DeltaReceiveTracker};
+pub use delta_receive::{
+    DeltaPropagationReceiveReport, DeltaReceiveFailure, DeltaReceiveReply, DeltaReceiveStatus,
+    DeltaReceiveTracker,
+};
 pub use delta_transport::{
     DeltaPropagationTarget, DeltaPropagationTransport, DeltaTransportFailure, DeltaTransportReport,
 };

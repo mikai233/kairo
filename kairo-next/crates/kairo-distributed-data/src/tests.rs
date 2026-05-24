@@ -7,11 +7,12 @@ use kairo_cluster::UniqueAddress;
 
 use crate::{
     ConsistencyError, CrdtDataCodec, CrdtError, DataEnvelope, DeltaPropagationLog,
-    DeltaPropagationTarget, DeltaPropagationTransport, DeltaReceiveStatus, DeltaReceiveTracker,
-    DeltaReplicatedData, DeltaTransportFailure, GCounter, GCounterCodec, GSet, GSetStringCodec,
-    GetResponse, PNCounter, PNCounterCodec, ReadConsistency, ReplicaId, ReplicatedData,
-    ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorKey, ReplicatorState,
-    UpdateResponse, WriteConsistency, decode_delta_propagation, encode_delta_propagation,
+    DeltaPropagationTarget, DeltaPropagationTransport, DeltaReceiveFailure, DeltaReceiveReply,
+    DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData, DeltaTransportFailure, GCounter,
+    GCounterCodec, GSet, GSetStringCodec, GetResponse, PNCounter, PNCounterCodec, ReadConsistency,
+    ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorKey,
+    ReplicatorState, UpdateResponse, WriteConsistency, decode_delta_propagation,
+    encode_delta_propagation,
 };
 
 fn replica(id: &str) -> ReplicaId {
@@ -531,6 +532,103 @@ fn delta_receive_tracker_reports_missing_and_invalid_ranges() {
             to_version: 1,
             ..
         }
+    ));
+}
+
+#[test]
+fn delta_receive_tracker_applies_propagation_and_summarizes_ack() {
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("remote");
+    let mut log = DeltaPropagationLog::new([replica("local")]);
+    log.record_delta(key.clone(), Some(delta_counter("a", 2)));
+    let propagation = log.collect_propagations().into_values().next().unwrap();
+    let wire =
+        encode_delta_propagation(remote.clone(), true, &propagation, &GCounterCodec).unwrap();
+    let mut state = ReplicatorState::<GCounter>::new();
+    let mut tracker = DeltaReceiveTracker::new();
+
+    let report = tracker.apply_propagation(&mut state, &wire, &GCounterCodec);
+
+    assert_eq!(report.from(), &remote);
+    assert!(report.reply_requested());
+    assert!(report.is_success());
+    assert!(matches!(report.reply(), Some(DeltaReceiveReply::Ack(_))));
+    assert_eq!(report.failures(), &[]);
+    assert!(matches!(
+        report.statuses(),
+        [DeltaReceiveStatus::Applied {
+            previous_version: 0,
+            to_version: 1,
+            changed: true,
+            ..
+        }]
+    ));
+    assert_eq!(state.get_local(&key).data().unwrap().value().unwrap(), 2);
+
+    let duplicate = tracker.apply_propagation(&mut state, &wire, &GCounterCodec);
+    assert!(duplicate.is_success());
+    assert!(matches!(
+        duplicate.statuses(),
+        [DeltaReceiveStatus::AlreadyHandled {
+            current_version: 1,
+            to_version: 1,
+            ..
+        }]
+    ));
+    assert!(matches!(duplicate.reply(), Some(DeltaReceiveReply::Ack(_))));
+}
+
+#[test]
+fn delta_receive_tracker_summarizes_missing_or_decode_failure_as_nack() {
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("remote");
+    let encoded = GCounterCodec.serialize(&delta_counter("a", 3)).unwrap();
+    let missing_wire = crate::ReplicatorDeltaPropagation {
+        from: remote.clone(),
+        reply: true,
+        deltas: vec![crate::ReplicatorDelta::new(key.as_str(), encoded, 3, 3)],
+    };
+    let mut state = ReplicatorState::<GCounter>::new();
+    let mut tracker = DeltaReceiveTracker::new();
+
+    let missing_report = tracker.apply_propagation(&mut state, &missing_wire, &GCounterCodec);
+
+    assert!(!missing_report.is_success());
+    assert!(matches!(
+        missing_report.statuses(),
+        [DeltaReceiveStatus::Missing {
+            expected_from_version: 1,
+            from_version: 3,
+            ..
+        }]
+    ));
+    assert!(matches!(
+        missing_report.reply(),
+        Some(DeltaReceiveReply::Nack(_))
+    ));
+
+    let decode_failure_wire = crate::ReplicatorDeltaPropagation {
+        from: remote,
+        reply: true,
+        deltas: vec![crate::ReplicatorDelta {
+            key: "bad-counter".to_string(),
+            crdt_manifest: crate::GSET_STRING_MANIFEST.to_string(),
+            crdt_version: crate::CRDT_CODEC_VERSION,
+            payload: bytes::Bytes::new(),
+            from_version: 1,
+            to_version: 1,
+        }],
+    };
+    let decode_report = tracker.apply_propagation(&mut state, &decode_failure_wire, &GCounterCodec);
+
+    assert!(!decode_report.is_success());
+    assert!(matches!(
+        decode_report.failures(),
+        [DeltaReceiveFailure::DecodeFailed { key, .. }] if key == "bad-counter"
+    ));
+    assert!(matches!(
+        decode_report.reply(),
+        Some(DeltaReceiveReply::Nack(_))
     ));
 }
 

@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::{DeltaReplicatedData, ReplicaId, ReplicatorKey, ReplicatorState};
+use crate::{
+    CrdtDataCodec, DeltaReplicatedData, ReplicaId, ReplicatorDeltaAck, ReplicatorDeltaNack,
+    ReplicatorDeltaPropagation, ReplicatorKey, ReplicatorState, decode_delta,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeltaReceiveStatus {
@@ -33,6 +36,65 @@ pub enum DeltaReceiveStatus {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeltaPropagationReceiveReport {
+    from: ReplicaId,
+    reply_requested: bool,
+    statuses: Vec<DeltaReceiveStatus>,
+    failures: Vec<DeltaReceiveFailure>,
+}
+
+impl DeltaPropagationReceiveReport {
+    pub fn from(&self) -> &ReplicaId {
+        &self.from
+    }
+
+    pub fn reply_requested(&self) -> bool {
+        self.reply_requested
+    }
+
+    pub fn statuses(&self) -> &[DeltaReceiveStatus] {
+        &self.statuses
+    }
+
+    pub fn failures(&self) -> &[DeltaReceiveFailure] {
+        &self.failures
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.failures.is_empty()
+            && self.statuses.iter().all(|status| {
+                matches!(
+                    status,
+                    DeltaReceiveStatus::Applied { .. } | DeltaReceiveStatus::AlreadyHandled { .. }
+                )
+            })
+    }
+
+    pub fn reply(&self) -> Option<DeltaReceiveReply> {
+        if !self.reply_requested {
+            return None;
+        }
+
+        if self.is_success() {
+            Some(DeltaReceiveReply::Ack(ReplicatorDeltaAck))
+        } else {
+            Some(DeltaReceiveReply::Nack(ReplicatorDeltaNack))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeltaReceiveFailure {
+    DecodeFailed { key: String, reason: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeltaReceiveReply {
+    Ack(ReplicatorDeltaAck),
+    Nack(ReplicatorDeltaNack),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct DeltaReceiveTracker {
     versions: BTreeMap<(ReplicaId, ReplicatorKey), u64>,
@@ -57,6 +119,46 @@ impl DeltaReceiveTracker {
     pub fn forget_key(&mut self, key: &ReplicatorKey) {
         self.versions
             .retain(|(_, existing_key), _| existing_key != key);
+    }
+
+    pub fn apply_propagation<D, Codec>(
+        &mut self,
+        state: &mut ReplicatorState<D>,
+        propagation: &ReplicatorDeltaPropagation,
+        codec: &Codec,
+    ) -> DeltaPropagationReceiveReport
+    where
+        D: DeltaReplicatedData,
+        Codec: CrdtDataCodec<D::Delta>,
+    {
+        let mut statuses = Vec::with_capacity(propagation.deltas.len());
+        let mut failures = Vec::new();
+
+        for delta in &propagation.deltas {
+            match decode_delta(delta, codec) {
+                Ok(decoded) => {
+                    statuses.push(self.apply_delta(
+                        state,
+                        propagation.from.clone(),
+                        decoded.key().clone(),
+                        decoded.from_version(),
+                        decoded.to_version(),
+                        decoded.into_delta(),
+                    ));
+                }
+                Err(error) => failures.push(DeltaReceiveFailure::DecodeFailed {
+                    key: delta.key.clone(),
+                    reason: error.to_string(),
+                }),
+            }
+        }
+
+        DeltaPropagationReceiveReport {
+            from: propagation.from.clone(),
+            reply_requested: propagation.reply,
+            statuses,
+            failures,
+        }
     }
 
     pub fn apply_delta<D>(
