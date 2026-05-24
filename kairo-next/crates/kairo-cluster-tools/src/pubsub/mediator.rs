@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_actor::{Actor, ActorRef, ActorResult, Context, Recipient, SendError, Signal};
-use kairo_cluster::UniqueAddress;
+use kairo_cluster::{ClusterEvent, MemberEvent, UniqueAddress};
 
 use crate::{
     CurrentTopics, LocalPubSub, LocalPubSubMsg, PubSubDeliveryPlan, PubSubDeliveryReport,
@@ -49,6 +49,9 @@ where
     },
     RemoveRemoteMediator {
         node: UniqueAddress,
+    },
+    ApplyClusterEvent {
+        event: ClusterEvent,
     },
     Subscribe {
         topic: TopicName,
@@ -168,8 +171,10 @@ where
                 ));
             }
             DistributedPubSubMediatorMsg::RemoveRemoteMediator { node } => {
-                self.delivery.remove_remote_target(&node);
-                self.registry.remove_node(&node);
+                self.remove_remote_node(&node);
+            }
+            DistributedPubSubMediatorMsg::ApplyClusterEvent { event } => {
+                self.apply_cluster_event(ctx, event)?;
             }
             DistributedPubSubMediatorMsg::Subscribe {
                 topic,
@@ -403,6 +408,44 @@ where
         if !self.local.contains_subscriber_path(subscriber.path()) {
             ctx.unwatch(subscriber);
         }
+    }
+
+    fn apply_cluster_event(
+        &mut self,
+        ctx: &mut Context<DistributedPubSubMediatorMsg<M>>,
+        event: ClusterEvent,
+    ) -> ActorResult {
+        match event {
+            ClusterEvent::Member(MemberEvent::Left(member))
+            | ClusterEvent::Member(MemberEvent::Downed(member)) => {
+                self.remove_remote_node(&member.unique_address);
+            }
+            ClusterEvent::Member(MemberEvent::Removed { member, .. }) => {
+                if &member.unique_address == self.registry.self_node() {
+                    ctx.stop(ctx.myself())?;
+                } else {
+                    self.remove_remote_node(&member.unique_address);
+                }
+            }
+            ClusterEvent::Member(
+                MemberEvent::Joined(_)
+                | MemberEvent::WeaklyUp(_)
+                | MemberEvent::Up(_)
+                | MemberEvent::Exited(_),
+            )
+            | ClusterEvent::Reachability(_)
+            | ClusterEvent::LeaderChanged { .. }
+            | ClusterEvent::RoleLeaderChanged { .. }
+            | ClusterEvent::SeenChanged { .. }
+            | ClusterEvent::ReachabilityChanged { .. }
+            | ClusterEvent::MemberTombstonesChanged { .. } => {}
+        }
+        Ok(())
+    }
+
+    fn remove_remote_node(&mut self, node: &UniqueAddress) {
+        self.delivery.remove_remote_target(node);
+        self.registry.remove_node(node);
     }
 
     fn sync_registry(&mut self, before: BTreeMap<TopicName, BTreeSet<String>>) {

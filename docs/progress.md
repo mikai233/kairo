@@ -702,6 +702,10 @@ Implemented:
   and unregisters local topics/groups from subscription changes, merges remote
   registry deltas, routes broadcast publishes to local or remote mediators, and
   exposes deterministic registry/state snapshots for tests.
+- `kairo-cluster-tools` distributed pubsub mediator now consumes cluster member
+  lifecycle events for node removal, dropping remote mediator routes and
+  registry buckets when members leave, are downed, or are removed, and it routes
+  one-message-per-group publishes across local and remote mediator targets.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -733,8 +737,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton remote routing and full distributed pubsub mediator
-  lifecycle over cluster events and remote transport.
+- Cluster singleton remote routing and distributed pubsub mediator remote
+  transport integration.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.
