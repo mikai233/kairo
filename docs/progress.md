@@ -34,6 +34,9 @@ Implemented:
 - System stop drains queued user messages to dead letters before delivery.
 - Duplicate live names under `/user` are rejected; stopped names can be reused
   with a new path incarnation.
+- Local actor refs, child links, and reserved names are removed before
+  `PostStop`-side completion is observable, so name reuse is deterministic
+  once the stopped hook has run.
 - User actor names follow stable actor path element validation; `$`-prefixed
   names are reserved for internal actors such as anonymous children.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop

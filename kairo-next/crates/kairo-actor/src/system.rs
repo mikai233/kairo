@@ -531,16 +531,16 @@ fn run_actor<A>(
     }
 
     stop_children(&system_inner, actor_ref.path.as_str());
-    let _ = actor.signal(&mut context, Signal::PostStop);
     system_inner.registry.remove_ref(actor_ref.path());
-    actor_ref.target.terminated.mark_stopped();
-    system_inner.death_watch.remove_watcher(actor_ref.path());
-    system_inner.death_watch.notify(actor_ref.path());
-    system_inner.receptionist.remove_actor(actor_ref.path());
     system_inner.registry.release_name(&registry_key);
     system_inner
         .registry
         .remove_child(parent_path.as_str(), actor_ref.path());
+    let _ = actor.signal(&mut context, Signal::PostStop);
+    actor_ref.target.terminated.mark_stopped();
+    system_inner.death_watch.remove_watcher(actor_ref.path());
+    system_inner.death_watch.notify(actor_ref.path());
+    system_inner.receptionist.remove_actor(actor_ref.path());
 }
 
 fn process_dequeued<A>(
