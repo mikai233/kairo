@@ -539,6 +539,12 @@ Implemented:
   coordinator acknowledges it, expose registration status in region snapshots,
   and use the registered typed region target for coordinator-driven local
   handoff without requiring callers to send explicit registration messages.
+- `kairo-cluster-sharding` shard coordinator runtime and actors now allocate
+  remembered but unallocated shard homes after remembered-shard loading or
+  local region registration, mirroring Pekko's remembered-entity coordinator
+  behavior. Allocated remembered shards are persisted idempotently and, when a
+  typed local handoff transport is available, dispatched back to the selected
+  region as `HostShard` so the region starts hosting the remembered shard.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -684,7 +690,7 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
-- Sharding remember-entity stores still need automatic coordinator/region/shard
+- Sharding remember-entity stores still need automatic region/shard
   orchestration, including restart backoff policy integration and broader
   cluster-event-driven coordinator discovery beyond explicitly supplied local
   coordinator refs.

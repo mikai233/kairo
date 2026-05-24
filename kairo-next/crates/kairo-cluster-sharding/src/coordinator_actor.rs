@@ -325,7 +325,7 @@ where
                 let _ = reply_to.tell(result);
             }
             ShardCoordinatorMsg::RegisterLocalRegion { target, reply_to } => {
-                let result = self.register_local_region(target);
+                let result = self.register_local_region(ctx, target)?;
                 let _ = reply_to.tell(result);
             }
             ShardCoordinatorMsg::PlanRebalance { reply_to } => {
@@ -427,6 +427,7 @@ where
         };
         self.runtime.merge_remembered_shards(remembered.shards);
         self.waiting_for_remember_store_load = false;
+        self.allocate_remembered_shard_homes(ctx)?;
         Ok(())
     }
 
@@ -435,11 +436,22 @@ where
         ctx: &Context<ShardCoordinatorMsg<M>>,
         result: &Result<GetShardHomePlan, ShardingError>,
     ) -> ActorResult {
-        let Ok(GetShardHomePlan::Allocated {
+        let Ok(plan) = result else {
+            return Ok(());
+        };
+        self.persist_allocated_shard_plan(ctx, plan)
+    }
+
+    fn persist_allocated_shard_plan(
+        &self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
+        plan: &GetShardHomePlan,
+    ) -> ActorResult {
+        let GetShardHomePlan::Allocated {
             event: CoordinatorEvent::ShardHomeAllocated { shard, region: _ },
             host_region: _,
             host_shard: _,
-        }) = result
+        } = plan
         else {
             return Ok(());
         };
@@ -466,19 +478,39 @@ where
 
     fn register_local_region(
         &mut self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
         target: HandoffRegionTarget<M>,
-    ) -> Result<CoordinatorStateSnapshot, ShardingError> {
+    ) -> Result<Result<CoordinatorStateSnapshot, ShardingError>, ActorError> {
         let region = target.region().clone();
-        if !self.runtime.state().allocations().contains_region(&region) {
-            self.runtime
-                .apply_event(CoordinatorEvent::ShardRegionRegistered {
-                    region: region.clone(),
-                })?;
+        if !self.runtime.state().allocations().contains_region(&region)
+            && let Err(error) = self
+                .runtime
+                .apply_event(CoordinatorEvent::ShardRegionRegistered { region })
+        {
+            return Ok(Err(error));
         }
         if let Some(handoff) = &mut self.handoff {
             handoff.register_region_target(target);
         }
-        Ok(CoordinatorStateSnapshot::from(&self.runtime))
+        self.allocate_remembered_shard_homes(ctx)?;
+        Ok(Ok(CoordinatorStateSnapshot::from(&self.runtime)))
+    }
+
+    fn allocate_remembered_shard_homes(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
+    ) -> ActorResult {
+        let plans = self
+            .runtime
+            .allocate_remembered_shard_homes("coordinator", self.strategy.as_ref())
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        for plan in &plans {
+            self.persist_allocated_shard_plan(ctx, plan)?;
+            if let Some(handoff) = &self.handoff {
+                handoff.dispatch_host_shard(ctx, plan)?;
+            }
+        }
+        Ok(())
     }
 
     fn apply_handoff_worker_done(

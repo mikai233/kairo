@@ -123,6 +123,23 @@ impl CoordinatorRuntime {
             .collect()
     }
 
+    pub fn allocate_remembered_shard_homes<S>(
+        &mut self,
+        requester: impl Into<RegionId>,
+        strategy: &S,
+    ) -> Result<Vec<GetShardHomePlan>, ShardingError>
+    where
+        S: ShardAllocationStrategy + ?Sized,
+    {
+        let requester = requester.into();
+        let requests = self.remembered_shard_home_requests();
+        let mut plans = Vec::with_capacity(requests.len());
+        for request in requests {
+            plans.push(self.request_shard_home(requester.clone(), request.shard_id, strategy)?);
+        }
+        Ok(plans)
+    }
+
     pub fn into_state(self) -> CoordinatorState {
         self.state
     }
