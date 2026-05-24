@@ -11,6 +11,11 @@ pub enum ShardingError {
     RegionProxyAlreadyRegistered(String),
     UnknownShard(String),
     ShardAlreadyAllocated(String),
+    InconsistentShardHome {
+        shard: String,
+        current_region: String,
+        new_region: String,
+    },
 }
 
 impl Display for ShardingError {
@@ -33,6 +38,14 @@ impl Display for ShardingError {
             Self::ShardAlreadyAllocated(shard) => {
                 write!(f, "shard {shard} is already allocated")
             }
+            Self::InconsistentShardHome {
+                shard,
+                current_region,
+                new_region,
+            } => write!(
+                f,
+                "shard {shard} home changed unexpectedly from {current_region} to {new_region}"
+            ),
         }
     }
 }

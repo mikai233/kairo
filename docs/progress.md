@@ -293,6 +293,11 @@ Implemented:
   shard is rebalancing, ignores requests before region registration completes,
   excludes graceful-shutdown and terminating regions from new allocations, and
   emits `HostShard` plans after successful least-shard allocation.
+- `kairo-cluster-sharding` now has a focused shard-region runtime planner that
+  buffers unknown shard messages, requests shard homes once per buffered shard,
+  forwards buffered messages when a remote home is learned, starts local shards
+  for local homes or `HostShard`, drops handoff buffers to preserve ordering,
+  and emits explicit handoff ack/stopped plans.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.

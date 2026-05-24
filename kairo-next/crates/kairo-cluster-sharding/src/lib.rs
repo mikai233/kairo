@@ -10,6 +10,7 @@ mod envelope;
 mod errors;
 mod hashing;
 mod protocol;
+mod region_runtime;
 
 pub use allocation::{LeastShardAllocationStrategy, ShardAllocationStrategy, ShardAllocations};
 pub use codec::{
@@ -30,6 +31,10 @@ pub use hashing::{DEFAULT_SHARD_COUNT, default_shard_id_for, shard_id_for, stabl
 pub use protocol::{
     BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
     ShardHome, ShardStarted, ShardStopped,
+};
+pub use region_runtime::{
+    BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
+    ShardRegionRuntime, ShardStartedPlan,
 };
 
 pub type EntityId = String;
