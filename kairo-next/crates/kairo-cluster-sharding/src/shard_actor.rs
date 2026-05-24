@@ -4,17 +4,19 @@ use std::time::Duration;
 use kairo_actor::{Actor, ActorRef, ActorResult, AskError, Context, Props};
 
 use crate::shard_loading::ShardRememberLoadState;
-use crate::shard_store::ShardRememberStore;
+use crate::shard_store::{LocalShardRememberStoreProvider, ShardRememberStore};
 use crate::{
-    EntityId, EntityTerminatedPlan, PassivatePlan, RememberShardStoreMsg, RememberShardUpdate,
-    RememberShardUpdateDone, RememberUpdateDonePlan, RememberedEntities, RememberedEntitiesPlan,
-    ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardRuntime, ShardingEnvelope, ShardingError,
+    EntityId, EntityTerminatedPlan, PassivatePlan, RememberShardStoreMsg, RememberShardStoreState,
+    RememberShardUpdate, RememberShardUpdateDone, RememberUpdateDonePlan, RememberedEntities,
+    RememberedEntitiesPlan, ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardRuntime,
+    ShardingEnvelope, ShardingError,
 };
 
 pub struct ShardActor<M> {
     runtime: ShardRuntime<M>,
     remember_load: ShardRememberLoadState<M>,
     remember_store: Option<ShardRememberStore>,
+    local_remember_store_provider: Option<LocalShardRememberStoreProvider>,
 }
 
 impl<M> ShardActor<M> {
@@ -23,6 +25,7 @@ impl<M> ShardActor<M> {
             runtime: ShardRuntime::new(shard_id, buffer_capacity),
             remember_load: ShardRememberLoadState::ready(),
             remember_store: None,
+            local_remember_store_provider: None,
         }
     }
 
@@ -34,6 +37,7 @@ impl<M> ShardActor<M> {
             runtime: ShardRuntime::new_with_remember_entities(shard_id, buffer_capacity),
             remember_load: ShardRememberLoadState::ready(),
             remember_store: None,
+            local_remember_store_provider: None,
         }
     }
 
@@ -45,6 +49,7 @@ impl<M> ShardActor<M> {
             runtime: ShardRuntime::new_with_remember_entities(shard_id, buffer_capacity),
             remember_load: ShardRememberLoadState::loading(),
             remember_store: None,
+            local_remember_store_provider: None,
         }
     }
 
@@ -58,6 +63,24 @@ impl<M> ShardActor<M> {
             runtime: ShardRuntime::new_with_remember_entities(shard_id, buffer_capacity),
             remember_load: ShardRememberLoadState::loading(),
             remember_store: Some(ShardRememberStore::new(remember_store, timeout)),
+            local_remember_store_provider: None,
+        }
+    }
+
+    pub fn new_with_local_remember_store(
+        buffer_capacity: usize,
+        store_state: RememberShardStoreState,
+        timeout: Duration,
+    ) -> Self {
+        let shard_id = store_state.shard_id().clone();
+        Self {
+            runtime: ShardRuntime::new_with_remember_entities(shard_id, buffer_capacity),
+            remember_load: ShardRememberLoadState::loading(),
+            remember_store: None,
+            local_remember_store_provider: Some(LocalShardRememberStoreProvider::new(
+                store_state,
+                timeout,
+            )),
         }
     }
 
@@ -103,6 +126,19 @@ impl<M> ShardActor<M> {
         let shard_id = shard_id.into();
         Props::new(move || {
             Self::new_with_remember_store(shard_id, buffer_capacity, remember_store, timeout)
+        })
+    }
+
+    pub fn props_with_local_remember_store(
+        buffer_capacity: usize,
+        store_state: RememberShardStoreState,
+        timeout: Duration,
+    ) -> Props<Self>
+    where
+        M: Send + 'static,
+    {
+        Props::new(move || {
+            Self::new_with_local_remember_store(buffer_capacity, store_state, timeout)
         })
     }
 
@@ -175,6 +211,7 @@ where
     type Msg = ShardMsg<M>;
 
     fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.spawn_local_remember_store_if_needed(ctx)?;
         self.request_remember_store_load(ctx)
     }
 
@@ -316,6 +353,17 @@ where
         if let Some(store) = &self.remember_store {
             store.load(ctx)?;
         }
+        Ok(())
+    }
+
+    fn spawn_local_remember_store_if_needed(&mut self, ctx: &Context<ShardMsg<M>>) -> ActorResult {
+        if self.remember_store.is_some() {
+            return Ok(());
+        }
+        let Some(provider) = &mut self.local_remember_store_provider else {
+            return Ok(());
+        };
+        self.remember_store = Some(provider.spawn(ctx)?);
         Ok(())
     }
 

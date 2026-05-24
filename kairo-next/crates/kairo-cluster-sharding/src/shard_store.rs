@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use kairo_actor::{ActorRef, ActorResult, Context};
+use kairo_actor::{ActorError, ActorRef, ActorResult, Context};
 
 use crate::{
-    RememberShardStoreMsg, RememberShardUpdate, RememberShardUpdateDone, RememberedEntities,
-    ShardMsg, ShardingError,
+    RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreState, RememberShardUpdate,
+    RememberShardUpdateDone, RememberedEntities, ShardMsg, ShardingError,
 };
 
 #[derive(Clone)]
@@ -52,5 +52,34 @@ impl ShardRememberStore {
                 result,
             },
         )
+    }
+}
+
+pub(crate) struct LocalShardRememberStoreProvider {
+    state: Option<RememberShardStoreState>,
+    timeout: Duration,
+}
+
+impl LocalShardRememberStoreProvider {
+    pub(crate) fn new(state: RememberShardStoreState, timeout: Duration) -> Self {
+        Self {
+            state: Some(state),
+            timeout,
+        }
+    }
+
+    pub(crate) fn spawn<M>(
+        &mut self,
+        ctx: &Context<ShardMsg<M>>,
+    ) -> Result<ShardRememberStore, ActorError>
+    where
+        M: Send + 'static,
+    {
+        let state = self
+            .state
+            .take()
+            .expect("local remember store provider can spawn only once");
+        let store = ctx.spawn("remember-store", RememberShardStoreActor::props(state))?;
+        Ok(ShardRememberStore::new(store, self.timeout))
     }
 }
