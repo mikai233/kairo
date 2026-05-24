@@ -178,7 +178,6 @@ impl DeadLetters {
     }
 }
 
-#[derive(Debug)]
 pub struct ActorRef<M> {
     path: ActorPath,
     mailbox: Arc<Mailbox<M>>,
@@ -196,6 +195,15 @@ impl<M> Clone for ActorRef<M> {
             dead_letters: self.dead_letters.clone(),
             _message: PhantomData,
         }
+    }
+}
+
+impl<M> fmt::Debug for ActorRef<M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ActorRef")
+            .field("path", &self.path)
+            .field("stopped", &self.stopped.load(Ordering::Acquire))
+            .finish_non_exhaustive()
     }
 }
 
@@ -609,6 +617,20 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_live_actor_name_is_rejected() {
+        let system = ActorSystem::builder("test").build().unwrap();
+        let _counter = system
+            .spawn("counter", Props::new(|| Counter { value: 0 }))
+            .unwrap();
+
+        let error = system
+            .spawn("counter", Props::new(|| Counter { value: 0 }))
+            .unwrap_err();
+
+        assert!(matches!(error, ActorError::DuplicateName(name) if name == "counter"));
+    }
+
+    #[test]
     fn stop_prevents_later_user_message_delivery() {
         let system = ActorSystem::builder("test").build().unwrap();
         let counter = system
@@ -676,6 +698,40 @@ mod tests {
 
         stopped_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(actor.is_stopped());
+    }
+
+    #[test]
+    fn stopped_actor_name_can_be_reused_with_new_incarnation() {
+        let system = ActorSystem::builder("test").build().unwrap();
+        let (first_stopped_tx, first_stopped_rx) = mpsc::channel();
+        let first = system
+            .spawn(
+                "probe",
+                Props::new(move || StopProbe {
+                    stopped: first_stopped_tx,
+                }),
+            )
+            .unwrap();
+        let first_path = first.path().clone();
+
+        system.stop(&first);
+        first_stopped_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap();
+
+        let (second_stopped_tx, _second_stopped_rx) = mpsc::channel();
+        let second = system
+            .spawn(
+                "probe",
+                Props::new(move || StopProbe {
+                    stopped: second_stopped_tx,
+                }),
+            )
+            .unwrap();
+
+        assert_ne!(&first_path, second.path());
+        assert!(first_path.as_str().contains("/user/probe#"));
+        assert!(second.path().as_str().contains("/user/probe#"));
     }
 
     struct BlockingStart {

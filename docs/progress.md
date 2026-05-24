@@ -13,8 +13,10 @@ Implemented:
 - `ActorSystem::stop` can stop an idle local actor through the system lane.
 - Sends after stop are rejected and recorded as dead letters.
 - System stop drains queued user messages to dead letters before delivery.
+- Duplicate live names under `/user` are rejected; stopped names can be reused
+  with a new path incarnation.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop
-  dead letters.
+  dead letters, duplicate names, and path incarnation reuse.
 
 Not yet implemented:
 
