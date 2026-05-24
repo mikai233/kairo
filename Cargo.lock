@@ -90,9 +90,11 @@ dependencies = [
 name = "kairo-cluster-tools"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "kairo-actor",
  "kairo-cluster",
  "kairo-distributed-data",
+ "kairo-serialization",
  "kairo-testkit",
 ]
 

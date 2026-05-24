@@ -706,6 +706,11 @@ Implemented:
   lifecycle events for node removal, dropping remote mediator routes and
   registry buckets when members leave, are downed, or are removed, and it routes
   one-message-per-group publishes across local and remote mediator targets.
+- `kairo-cluster-tools` now declares stable remote metadata and explicit codecs
+  for distributed pubsub gossip status and delta messages, including
+  `UniqueAddress`, bucket versions, topic/group registry entries, tombstones,
+  and known-version maps without relying on Rust type names, discriminants, or
+  memory layout.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -737,8 +742,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton remote routing and distributed pubsub mediator remote
-  transport integration.
+- Cluster singleton remote routing and distributed pubsub mediator transport
+  wiring beyond stable status/delta codecs.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.
