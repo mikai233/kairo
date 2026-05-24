@@ -252,6 +252,12 @@ Implemented:
   registered remote protocol codecs to the stable `/system/remote-watch`
   recipient path on the target address, observes local timer/failure-detector
   effects explicitly, and propagates missing-codec or outbound failures.
+- `kairo-remote` now has a focused remote death-watch inbound protocol
+  delivery adapter that maps decoded remote watch/unwatch/heartbeat/heartbeat
+  ack messages into the actor-backed remote watcher, derives remote addresses
+  from stable sender actor-ref wire data, replies to inbound heartbeats with
+  local UID heartbeat acknowledgements, and drives re-watch effects from
+  heartbeat acks with new remote UIDs.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.

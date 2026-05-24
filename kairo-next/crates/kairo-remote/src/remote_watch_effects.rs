@@ -6,7 +6,7 @@ use kairo_serialization::{
 
 use crate::{
     RemoteDeathWatchEffect, RemoteDeathWatchEffectSink, RemoteError, RemoteHeartbeat,
-    RemoteOutbound, Result, UnwatchRemote, WatchRemote,
+    RemoteHeartbeatAck, RemoteOutbound, Result, UnwatchRemote, WatchRemote,
 };
 
 const REMOTE_WATCHER_PATH: &str = "/system/remote-watch";
@@ -28,6 +28,7 @@ pub struct RemoteDeathWatchOutboundSink {
     registry: Arc<Registry>,
     outbound: Arc<dyn RemoteOutbound>,
     observer: Arc<dyn RemoteDeathWatchEffectObserver>,
+    local_watcher: Option<ActorRefWireData>,
 }
 
 impl RemoteDeathWatchOutboundSink {
@@ -48,6 +49,21 @@ impl RemoteDeathWatchOutboundSink {
             registry,
             outbound,
             observer,
+            local_watcher: None,
+        }
+    }
+
+    pub fn with_local_watcher(
+        registry: Arc<Registry>,
+        outbound: Arc<dyn RemoteOutbound>,
+        observer: Arc<dyn RemoteDeathWatchEffectObserver>,
+        local_watcher: ActorRefWireData,
+    ) -> Self {
+        Self {
+            registry,
+            outbound,
+            observer,
+            local_watcher: Some(local_watcher),
         }
     }
 
@@ -61,6 +77,10 @@ impl RemoteDeathWatchOutboundSink {
 
     pub fn observer(&self) -> &Arc<dyn RemoteDeathWatchEffectObserver> {
         &self.observer
+    }
+
+    pub fn local_watcher(&self) -> Option<&ActorRefWireData> {
+        self.local_watcher.as_ref()
     }
 
     fn send_watch(&self, message: WatchRemote) -> Result<()> {
@@ -78,13 +98,21 @@ impl RemoteDeathWatchOutboundSink {
         self.send_remote(recipient, message)
     }
 
+    fn send_heartbeat_ack(&self, address: &str, message: &RemoteHeartbeatAck) -> Result<()> {
+        let recipient = watcher_recipient_for_address(address)?;
+        self.send_remote(recipient, message)
+    }
+
     fn send_remote<M>(&self, recipient: ActorRefWireData, message: &M) -> Result<()>
     where
         M: RemoteMessage,
     {
         let serialized = self.registry.serialize(message)?;
-        self.outbound
-            .send(RemoteEnvelope::new(recipient, None, serialized))
+        self.outbound.send(RemoteEnvelope::new(
+            recipient,
+            self.local_watcher.clone(),
+            serialized,
+        ))
     }
 }
 
@@ -98,6 +126,9 @@ impl RemoteDeathWatchEffectSink for RemoteDeathWatchOutboundSink {
                 RemoteDeathWatchEffect::SendUnwatchRemote(message) => self.send_unwatch(message)?,
                 RemoteDeathWatchEffect::SendHeartbeat { address, message } => {
                     self.send_heartbeat(&address, &message)?
+                }
+                RemoteDeathWatchEffect::SendHeartbeatAck { address, message } => {
+                    self.send_heartbeat_ack(&address, &message)?
                 }
                 RemoteDeathWatchEffect::StartHeartbeat { .. }
                 | RemoteDeathWatchEffect::StopHeartbeat { .. }
@@ -214,6 +245,10 @@ mod tests {
         ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
     }
 
+    fn local_watcher() -> ActorRefWireData {
+        ActorRefWireData::new("kairo://local@127.0.0.1:25521/system/remote-watch").unwrap()
+    }
+
     #[test]
     fn watcher_recipient_uses_stable_system_actor_path() {
         let recipient = watcher_recipient_for_address("kairo://remote@127.0.0.1:25520").unwrap();
@@ -303,6 +338,38 @@ mod tests {
         assert_eq!(
             envelopes[0].message.manifest.as_str(),
             WatchRemote::MANIFEST
+        );
+    }
+
+    #[test]
+    fn outbound_sink_serializes_heartbeat_ack_with_local_watcher_sender() {
+        let outbound = Arc::new(CollectingOutbound::default());
+        let sink = RemoteDeathWatchOutboundSink::with_local_watcher(
+            registry(),
+            outbound.clone() as Arc<dyn RemoteOutbound>,
+            Arc::new(IgnoreRemoteDeathWatchEffects) as Arc<dyn RemoteDeathWatchEffectObserver>,
+            local_watcher(),
+        );
+
+        sink.apply(vec![RemoteDeathWatchEffect::SendHeartbeatAck {
+            address: "kairo://remote@127.0.0.1:25520".to_string(),
+            message: RemoteHeartbeatAck { uid: 42 },
+        }])
+        .unwrap();
+
+        let envelopes = outbound.envelopes();
+        assert_eq!(envelopes.len(), 1);
+        assert_eq!(
+            envelopes[0].recipient.path(),
+            "kairo://remote@127.0.0.1:25520/system/remote-watch"
+        );
+        assert_eq!(
+            envelopes[0].sender.as_ref().map(ActorRefWireData::path),
+            Some("kairo://local@127.0.0.1:25521/system/remote-watch")
+        );
+        assert_eq!(
+            envelopes[0].message.manifest.as_str(),
+            RemoteHeartbeatAck::MANIFEST
         );
     }
 

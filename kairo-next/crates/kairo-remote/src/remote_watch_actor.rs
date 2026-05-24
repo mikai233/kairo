@@ -3,8 +3,8 @@ use std::sync::Arc;
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 
 use crate::{
-    RemoteDeathWatchEffect, RemoteDeathWatchState, RemoteError, RemoteHeartbeatAck, UnwatchRemote,
-    WatchRemote,
+    RemoteDeathWatchEffect, RemoteDeathWatchState, RemoteError, RemoteHeartbeat,
+    RemoteHeartbeatAck, UnwatchRemote, WatchRemote,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +19,11 @@ pub enum RemoteDeathWatchCommand {
     Watch(WatchRemote),
     Unwatch(UnwatchRemote),
     HeartbeatTick {
+        local_uid: u64,
+    },
+    Heartbeat {
+        address: String,
+        heartbeat: RemoteHeartbeat,
         local_uid: u64,
     },
     HeartbeatAck {
@@ -96,6 +101,14 @@ impl Actor for RemoteDeathWatchActor {
             RemoteDeathWatchCommand::HeartbeatTick { local_uid } => {
                 self.apply_effects(self.state.heartbeat_due(local_uid))
             }
+            RemoteDeathWatchCommand::Heartbeat {
+                address,
+                heartbeat: _,
+                local_uid,
+            } => self.apply_effects(vec![RemoteDeathWatchEffect::SendHeartbeatAck {
+                address,
+                message: RemoteHeartbeatAck { uid: local_uid },
+            }]),
             RemoteDeathWatchCommand::HeartbeatAck { address, ack } => {
                 let effects = self.state.heartbeat_ack(address, ack.uid);
                 self.apply_effects(effects)

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_serialization::ActorRefWireData;
 
-use crate::{AddressTerminated, RemoteHeartbeat, UnwatchRemote, WatchRemote};
+use crate::{AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, UnwatchRemote, WatchRemote};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteDeathWatchEffect {
@@ -20,6 +20,10 @@ pub enum RemoteDeathWatchEffect {
     SendHeartbeat {
         address: String,
         message: RemoteHeartbeat,
+    },
+    SendHeartbeatAck {
+        address: String,
+        message: RemoteHeartbeatAck,
     },
     RewatchRemote(WatchRemote),
     AddressTerminated(AddressTerminated),
