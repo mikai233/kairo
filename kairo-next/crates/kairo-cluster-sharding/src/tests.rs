@@ -20,13 +20,13 @@ use crate::{
     RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
     RememberShardStoreState, RememberShardUpdate, RememberUpdateDonePlan, RememberedEntities,
     RememberedEntitiesPlan, ShardActor, ShardAllocationStrategy, ShardAllocations,
-    ShardCoordinatorActor, ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason,
-    ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg, ShardRebalancePlan,
-    ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
-    ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
-    default_shard_id_for, remember_coordinator_shards_key, remember_entity_key_index,
-    remember_entity_key_index_for, remember_entity_shard_key, remember_entity_shard_replicator_key,
-    shard_id_for, stable_hash_entity_id,
+    ShardCoordinatorActor, ShardCoordinatorBootstrap, ShardCoordinatorMsg, ShardDeliverPlan,
+    ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
+    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot,
+    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
+    ShardingError, default_shard_id_for, remember_coordinator_shards_key,
+    remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
+    remember_entity_shard_replicator_key, shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -2564,21 +2564,6 @@ fn handoff_worker_completes_store_backed_region_shard_handoff() {
 
 #[test]
 fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
-    let mut state = CoordinatorState::new();
-    for region in ["region-a", "region-b"] {
-        state
-            .apply(CoordinatorEvent::ShardRegionRegistered {
-                region: region.to_string(),
-            })
-            .unwrap();
-    }
-    state
-        .apply(CoordinatorEvent::ShardHomeAllocated {
-            shard: "shard-1".to_string(),
-            region: "region-a".to_string(),
-        })
-        .unwrap();
-
     let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-handoff-worker").unwrap();
     let region_a = kit
         .system()
@@ -2620,9 +2605,18 @@ fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
         .unwrap();
     host.expect_msg(Duration::from_millis(500)).unwrap();
 
-    let mut transport = HandoffTransport::new();
-    transport.insert_target(HandoffRegionTarget::new("region-a", region_a.clone()));
-    transport.insert_target(HandoffRegionTarget::new("region-b", region_b.clone()));
+    let bootstrap = ShardCoordinatorBootstrap::local_regions([
+        HandoffRegionTarget::new("region-a", region_a.clone()),
+        HandoffRegionTarget::new("region-b", region_b.clone()),
+    ])
+    .unwrap();
+    let (mut state, transport) = bootstrap.into_parts();
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
 
     let coordinator = kit
         .system()
@@ -2696,6 +2690,47 @@ fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
             .contains("shard-1"),
         "new owner region should receive HostShard after reallocation"
     );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn coordinator_bootstrap_builds_state_and_transport_from_local_regions() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-bootstrap").unwrap();
+    let region_a = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_shards("region-a", 10, 10),
+        )
+        .unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_shards("region-b", 10, 10),
+        )
+        .unwrap();
+
+    let bootstrap = ShardCoordinatorBootstrap::local_regions([
+        HandoffRegionTarget::new("region-a", region_a.clone()),
+        HandoffRegionTarget::new("region-b", region_b),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        bootstrap.region_ids().cloned().collect::<Vec<_>>(),
+        vec!["region-a".to_string(), "region-b".to_string()]
+    );
+    assert_eq!(bootstrap.handoff_transport().target_count(), 2);
+
+    let duplicate = ShardCoordinatorBootstrap::local_regions([
+        HandoffRegionTarget::new("region-a", region_a.clone()),
+        HandoffRegionTarget::new("region-a", region_a),
+    ]);
+    assert!(matches!(
+        duplicate,
+        Err(ShardingError::RegionAlreadyRegistered(region)) if region == "region-a"
+    ));
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

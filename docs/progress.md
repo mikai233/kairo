@@ -523,6 +523,11 @@ Implemented:
   shard-home allocation path after successful worker completion and dispatches
   `HostShard` to the newly selected region through the structured handoff
   transport.
+- `kairo-cluster-sharding` now has a focused local coordinator bootstrap
+  helper that builds coordinator region state and handoff transport targets
+  from typed local shard-region refs, rejects duplicate region IDs, and lets
+  coordinator-driven handoff tests use structured bootstrap data instead of
+  duplicating manual state/transport wiring.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -670,7 +675,8 @@ Not yet implemented:
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need automatic coordinator/region/shard
   orchestration, including restart backoff policy integration and broader
-  region/coordinator bootstrap wiring.
+  actor-backed region registration/bootstrap beyond local static topology
+  helpers.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

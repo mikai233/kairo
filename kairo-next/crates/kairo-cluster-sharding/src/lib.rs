@@ -1,6 +1,7 @@
 //! Cluster sharding API surface and protocols.
 
 mod allocation;
+mod bootstrap;
 mod codec;
 mod coordinator;
 mod coordinator_actor;
@@ -30,6 +31,7 @@ mod shard_runtime;
 mod shard_store;
 
 pub use allocation::{LeastShardAllocationStrategy, ShardAllocationStrategy, ShardAllocations};
+pub use bootstrap::ShardCoordinatorBootstrap;
 pub use codec::{
     BEGIN_HANDOFF_ACK_SERIALIZER_ID, BEGIN_HANDOFF_SERIALIZER_ID, BeginHandOffAckCodec,
     BeginHandOffCodec, GET_SHARD_HOME_SERIALIZER_ID, GetShardHomeCodec, HANDOFF_SERIALIZER_ID,
