@@ -24,6 +24,7 @@ mod replica;
 mod replicator_actor;
 mod response;
 mod state;
+mod wire;
 
 #[cfg(test)]
 mod tests;
@@ -88,3 +89,7 @@ pub use replica::ReplicaId;
 pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};
 pub use response::{GetResponse, ReplicatorChange, UpdateOutcome, UpdateResponse};
 pub use state::ReplicatorState;
+pub use wire::{
+    ReplicatorSerializedMessage, ReplicatorWireCodecs, ReplicatorWireError, ReplicatorWireInbound,
+    ReplicatorWireOutbound, ReplicatorWireReplies,
+};
