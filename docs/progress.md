@@ -352,6 +352,11 @@ Implemented:
   emit full-state retry effects for delta NACKs, and read aggregators merge
   source-tagged read results once per replica before reporting success,
   not-found, decode failure, or timeout.
+- `kairo-distributed-data` now has a focused remote-envelope bridge that wraps
+  stable replicator payloads in `RemoteEnvelope` recipient/sender metadata,
+  preserving the sender actor-ref wire data needed to correlate remote
+  ACK/NACK/read-result replies with actor-backed aggregators without adding
+  request ids to the ddata payload manifests.
 - `DeltaReceiveTracker` tracks receive-side per-replica/key delta sequence
   numbers and models Pekko-style duplicate, missing, invalid-range, and
   in-order apply decisions before the transport loop is wired in.
@@ -765,9 +770,9 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, wiring actor-backed aggregators into the
-  public replicator update/get paths, pruning scheduling, and gossip-backed
-  replication.
+  propagation/direct read/write, actor-system lifetime management for
+  temporary aggregation actors in public update/get paths, pruning scheduling,
+  and gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

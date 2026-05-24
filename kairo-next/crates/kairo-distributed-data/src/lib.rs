@@ -21,6 +21,7 @@ mod orset;
 mod pncounter;
 mod protocol;
 mod read_write_receive;
+mod remote_envelope;
 mod replica;
 mod replicator_actor;
 mod reply_wire;
@@ -91,6 +92,10 @@ pub use protocol::{
     ReplicatorWriteAck, ReplicatorWriteNack,
 };
 pub use read_write_receive::{DirectReadResult, DirectWriteResult, apply_write, serve_read};
+pub use remote_envelope::{
+    ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeError, ReplicatorRemoteEnvelopeInbound,
+    ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteInboundMessage, ReplicatorRemoteTarget,
+};
 pub use replica::ReplicaId;
 pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};
 pub use reply_wire::{

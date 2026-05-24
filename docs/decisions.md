@@ -634,3 +634,34 @@ Consequences:
   available without adding a random dependency.
 - Jitter can be added later as an explicit settings field without changing the
   child-watch and delayed-restart state machine.
+
+## ADR-0026: Distributed-Data Reply Correlation Uses RemoteEnvelope Sender
+
+Status: Accepted
+
+Context:
+Pekko's distributed-data read/write aggregators send `Read`, `Write`, and
+`DeltaPropagation` messages as actors and receive `ReadResult`, `WriteAck`,
+`WriteNack`, or `DeltaNack` replies through the normal sender actor-ref
+mechanism. Kairo's stable replicator protocol payloads intentionally carry
+CRDT and replica metadata, but adding operation ids to those payloads now
+would create another wire contract before the remoting envelope correlation
+path is used.
+
+Decision:
+Distributed-data request and reply correlation follows the remoting boundary:
+the ddata payload stays focused on replicator semantics, while
+`RemoteEnvelope.sender` carries the local aggregator actor ref when a remote
+request expects replies. Remote replies target that sender actor ref. A focused
+ddata remote-envelope bridge preserves recipient and optional sender
+`ActorRefWireData` while serializing registered replicator protocol messages.
+
+Consequences:
+- Aggregator actor paths provide the correlation identity, matching Pekko's
+  observable sender-based reply flow without adding request ids to every
+  replicator payload.
+- Stable ddata manifests remain unchanged; transport wiring composes payload
+  codecs with the existing remote envelope metadata.
+- Later actor-system provider integration must ensure temporary aggregation
+  actors are resolvable for the lifetime of the operation and removed when the
+  operation completes or times out.
