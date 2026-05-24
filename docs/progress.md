@@ -425,6 +425,10 @@ Implemented:
   gossip slice with explicit peer recipients, deterministic status ticks,
   status/delta exchange, known-peer filtering for inbound deltas, peer removal
   pruning, and delta-count inspection.
+- The `kairo` facade now has a `config` feature with format-neutral
+  `KairoSettings` structs and a TOML loader for the initial `[actor]`,
+  `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
+  sections, including explicit type/value validation and unknown-key rejection.
 
 Not yet implemented:
 

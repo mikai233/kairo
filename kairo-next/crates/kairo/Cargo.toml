@@ -15,11 +15,13 @@ kairo-distributed-data = { workspace = true, optional = true }
 kairo-cluster-sharding = { workspace = true, optional = true }
 kairo-cluster-tools = { workspace = true, optional = true }
 kairo-testkit = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
 
 [features]
-default = ["actor", "macros"]
+default = ["actor", "macros", "config"]
 actor = ["dep:kairo-actor"]
 macros = ["dep:kairo-actor-macros"]
+config = ["dep:toml"]
 serialization = ["dep:kairo-serialization"]
 remote = ["actor", "serialization", "dep:kairo-remote"]
 cluster = ["remote", "dep:kairo-cluster"]
@@ -27,4 +29,4 @@ distributed-data = ["cluster", "dep:kairo-distributed-data"]
 cluster-sharding = ["cluster", "distributed-data", "dep:kairo-cluster-sharding"]
 cluster-tools = ["cluster", "distributed-data", "dep:kairo-cluster-tools"]
 testkit = ["actor", "dep:kairo-testkit"]
-full = ["actor", "macros", "serialization", "remote", "cluster", "distributed-data", "cluster-sharding", "cluster-tools", "testkit"]
+full = ["actor", "macros", "config", "serialization", "remote", "cluster", "distributed-data", "cluster-sharding", "cluster-tools", "testkit"]
