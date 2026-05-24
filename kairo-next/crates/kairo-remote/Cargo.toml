@@ -1,0 +1,10 @@
+[package]
+name = "kairo-remote"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kairo-actor = { workspace = true }
+kairo-serialization = { workspace = true }

@@ -1,0 +1,30 @@
+[package]
+name = "kairo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kairo-actor = { workspace = true, optional = true }
+kairo-actor-macros = { workspace = true, optional = true }
+kairo-serialization = { workspace = true, optional = true }
+kairo-remote = { workspace = true, optional = true }
+kairo-cluster = { workspace = true, optional = true }
+kairo-distributed-data = { workspace = true, optional = true }
+kairo-cluster-sharding = { workspace = true, optional = true }
+kairo-cluster-tools = { workspace = true, optional = true }
+kairo-testkit = { workspace = true, optional = true }
+
+[features]
+default = ["actor", "macros"]
+actor = ["dep:kairo-actor"]
+macros = ["dep:kairo-actor-macros"]
+serialization = ["dep:kairo-serialization"]
+remote = ["actor", "serialization", "dep:kairo-remote"]
+cluster = ["remote", "dep:kairo-cluster"]
+distributed-data = ["cluster", "dep:kairo-distributed-data"]
+cluster-sharding = ["cluster", "distributed-data", "dep:kairo-cluster-sharding"]
+cluster-tools = ["cluster", "distributed-data", "dep:kairo-cluster-tools"]
+testkit = ["actor", "dep:kairo-testkit"]
+full = ["actor", "macros", "serialization", "remote", "cluster", "distributed-data", "cluster-sharding", "cluster-tools", "testkit"]

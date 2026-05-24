@@ -1,0 +1,10 @@
+[package]
+name = "kairo-cluster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+kairo-actor = { workspace = true }
+kairo-remote = { workspace = true }
