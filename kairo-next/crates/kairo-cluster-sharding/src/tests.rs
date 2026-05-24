@@ -782,6 +782,138 @@ fn coordinator_actor_plans_rebalance_and_defers_shard_home_requests() {
 }
 
 #[test]
+fn coordinator_actor_rebalance_tick_uses_allocation_strategy() {
+    let mut state = CoordinatorState::new();
+    for region in ["region-a", "region-b"] {
+        state
+            .apply(CoordinatorEvent::ShardRegionRegistered {
+                region: region.to_string(),
+            })
+            .unwrap();
+    }
+    for shard in ["s1", "s2"] {
+        state
+            .apply(CoordinatorEvent::ShardHomeAllocated {
+                shard: shard.to_string(),
+                region: "region-a".to_string(),
+            })
+            .unwrap();
+    }
+
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-rebalance-tick").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props(state, FixedRebalanceStrategy::new(["s1"])),
+        )
+        .unwrap();
+    let rebalance = kit
+        .create_probe::<Result<RebalancePlan, ShardingError>>("rebalance")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RebalanceTick {
+            reply_to: Some(rebalance.actor_ref()),
+        })
+        .unwrap();
+
+    assert!(matches!(
+        rebalance
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        RebalancePlan::Started { ref shards } if shards.len() == 1 && shards[0].shard == "s1"
+    ));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn coordinator_actor_rebalance_timer_starts_and_cancels_with_shutdown_preparation() {
+    let mut state = CoordinatorState::new();
+    for region in ["region-a", "region-b"] {
+        state
+            .apply(CoordinatorEvent::ShardRegionRegistered {
+                region: region.to_string(),
+            })
+            .unwrap();
+    }
+    for shard in ["s1", "s2"] {
+        state
+            .apply(CoordinatorEvent::ShardHomeAllocated {
+                shard: shard.to_string(),
+                region: "region-a".to_string(),
+            })
+            .unwrap();
+    }
+
+    let (kit, time) =
+        kairo_testkit::ActorSystemTestKit::with_manual_time("coordinator-rebalance-timer").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_rebalance_interval(
+                state,
+                FixedRebalanceStrategy::new(["s1"]),
+                Duration::from_secs(1),
+            ),
+        )
+        .unwrap();
+    let snapshot = kit
+        .create_probe::<CoordinatorStateSnapshot>("snapshot")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::SetPreparingForShutdown { preparing: true })
+        .unwrap();
+    time.advance(Duration::from_secs(1));
+    coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: snapshot.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        snapshot
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .rebalance_in_progress
+            .is_empty()
+    );
+
+    coordinator
+        .tell(ShardCoordinatorMsg::SetPreparingForShutdown { preparing: false })
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: snapshot.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        snapshot
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .rebalance_in_progress
+            .is_empty()
+    );
+    time.advance(Duration::from_secs(1));
+    coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: snapshot.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        snapshot
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .rebalance_in_progress
+            .get("s1"),
+        Some(&Vec::<String>::new())
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_runtime_defers_requests_during_rebalance() {
     let strategy = LeastShardAllocationStrategy::default();
     let mut runtime = coordinator_runtime_with_regions(["region-a"]);

@@ -398,6 +398,10 @@ Implemented:
   accepts explicit registration, shutdown marker, shard-home request,
   rebalance planning, and rebalance-completion commands, and replies with
   deterministic allocation, rebalance, completion, and state snapshot results.
+- `kairo-cluster-sharding` shard coordinator actors can now run Pekko-style
+  fixed-delay rebalance ticks, expose manual tick messages for deterministic
+  tests, track in-progress rebalances in snapshots, and cancel/restart the
+  rebalance timer when shutdown preparation changes.
 - `kairo-cluster-sharding` now has a focused shard-region runtime planner that
   buffers unknown shard messages, requests shard homes once per buffered shard,
   forwards buffered messages when a remote home is learned, starts local shards
@@ -573,8 +577,8 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
-- Sharding coordinator rebalance timers, transport-backed handoff delivery,
-  and distributed-data-backed remember-entity store persistence.
+- Sharding transport-backed handoff delivery and distributed-data-backed
+  remember-entity store persistence.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

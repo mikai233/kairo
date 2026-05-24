@@ -149,6 +149,10 @@ impl CoordinatorRuntime {
         self.rebalance_in_progress.get(shard)
     }
 
+    pub fn rebalance_in_progress(&self) -> &BTreeMap<ShardId, BTreeSet<RegionId>> {
+        &self.rebalance_in_progress
+    }
+
     pub fn plan_rebalance<S>(&mut self, strategy: &S) -> Result<RebalancePlan, ShardingError>
     where
         S: ShardAllocationStrategy + ?Sized,
