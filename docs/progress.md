@@ -152,6 +152,13 @@ Implemented:
 - Serialization tests cover rolling-version decode behavior by proving codecs
   receive the wire `version` and can decode older payload shapes under the same
   stable manifest.
+- `kairo-cluster-sharding` is split into focused API modules for entity refs,
+  type keys, envelopes, hashing, errors, and protocol metadata.
+- `ShardingEnvelope<M>` carries entity ids outside business messages, and
+  `EntityRef<M>` wraps plain business messages in that envelope before sending
+  to the region.
+- Shard IDs use documented 64-bit FNV-1a over entity id bytes with
+  `hash % shard_count`; `DEFAULT_SHARD_COUNT` is 100.
 
 Not yet implemented:
 
@@ -159,6 +166,8 @@ Not yet implemented:
 - Parent-level supervision escalation and restart limits/backoff.
 - Concrete actor-system/provider actor-ref resolution, protocol codecs,
   optional codec helper crates, and broader cross-crate compatibility fixtures.
+- Sharding region, shard, coordinator allocation, handoff, passivation,
+  rebalancing, and remember-entity storage.
 
 ## Last Validation
 

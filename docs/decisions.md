@@ -447,3 +447,28 @@ Consequences:
   at the behavior implementation point.
 - The structs are metadata contracts only for now; state machines, codecs, and
   rolling-version migrations remain separate implementation slices.
+
+## ADR-0019: Shard IDs Use FNV-1a Over Entity IDs
+
+Status: Accepted
+
+Context:
+The roadmap requires sharded business messages to avoid embedded entity IDs by
+default and requires shard IDs to use a documented stable hash, not Rust's
+`DefaultHasher`. Pekko's typed sharding routes through a `ShardingEnvelope`
+containing the entity id and the business message, then maps entity ids to
+shard ids with a configured number of shards.
+
+Decision:
+`kairo-cluster-sharding` introduces `ShardingEnvelope<M>` and changes
+`EntityRef<M>` to send `ShardingEnvelope<M>` to the region while accepting plain
+business messages from users. Shard ids are computed with 64-bit FNV-1a over
+the UTF-8 entity id bytes and `hash % shard_count`, with a documented default
+shard count of 100.
+
+Consequences:
+- User business messages do not need to carry entity ids.
+- Shard allocation does not depend on Rust `DefaultHasher`, type names, enum
+  discriminants, or process-local hash seeding.
+- Future region/coordinator code can reuse the same stable hashing helper and
+  expose configurable shard counts without changing the hash algorithm.
