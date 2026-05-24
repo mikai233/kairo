@@ -22,6 +22,17 @@ impl WireWriter {
         Ok(())
     }
 
+    pub fn write_optional_string(&mut self, value: Option<&str>) -> Result<()> {
+        match value {
+            Some(value) => {
+                self.bytes.push(1);
+                self.write_string(value)?;
+            }
+            None => self.bytes.push(0),
+        }
+        Ok(())
+    }
+
     pub fn write_u64(&mut self, value: u64) {
         self.bytes.extend_from_slice(&value.to_be_bytes());
     }
@@ -61,6 +72,16 @@ impl<'a> WireReader<'a> {
         String::from_utf8(bytes.to_vec()).map_err(|error| {
             SerializationError::Message(format!("wire string is not utf-8: {error}"))
         })
+    }
+
+    pub fn read_optional_string(&mut self) -> Result<Option<String>> {
+        match self.read_u8()? {
+            0 => Ok(None),
+            1 => self.read_string().map(Some),
+            other => Err(SerializationError::Message(format!(
+                "invalid optional string marker {other}"
+            ))),
+        }
     }
 
     pub fn read_optional_u64(&mut self) -> Result<Option<u64>> {

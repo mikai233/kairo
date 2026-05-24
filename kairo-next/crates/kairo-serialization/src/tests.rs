@@ -387,6 +387,8 @@ fn actor_ref_resolution_goes_through_provider_trait() {
 fn wire_helpers_use_length_prefixed_strings_and_big_endian_numbers() {
     let mut writer = WireWriter::new();
     writer.write_string("abc").unwrap();
+    writer.write_optional_string(Some("host")).unwrap();
+    writer.write_optional_string(None).unwrap();
     writer.write_u64(0x0102_0304_0506_0708);
     writer.write_optional_u64(Some(9));
     writer.write_optional_u64(None);
@@ -395,12 +397,18 @@ fn wire_helpers_use_length_prefixed_strings_and_big_endian_numbers() {
     assert_eq!(
         bytes.as_ref(),
         &[
-            0, 0, 0, 3, b'a', b'b', b'c', 1, 2, 3, 4, 5, 6, 7, 8, 1, 0, 0, 0, 0, 0, 0, 0, 9, 0,
+            0, 0, 0, 3, b'a', b'b', b'c', 1, 0, 0, 0, 4, b'h', b'o', b's', b't', 0, 1, 2, 3, 4, 5,
+            6, 7, 8, 1, 0, 0, 0, 0, 0, 0, 0, 9, 0,
         ]
     );
 
     let mut reader = WireReader::new(&bytes);
     assert_eq!(reader.read_string().unwrap(), "abc");
+    assert_eq!(
+        reader.read_optional_string().unwrap(),
+        Some("host".to_string())
+    );
+    assert_eq!(reader.read_optional_string().unwrap(), None);
     assert_eq!(reader.read_u64().unwrap(), 0x0102_0304_0506_0708);
     assert_eq!(reader.read_optional_u64().unwrap(), Some(9));
     assert_eq!(reader.read_optional_u64().unwrap(), None);

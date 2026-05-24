@@ -57,6 +57,9 @@ Implemented:
   module instead of being embedded in the system runtime loop.
 - `ActorPath` now stores structured address, path segments, and incarnation UID
   metadata while preserving the stable display string.
+- `Address` exposes explicit construction plus protocol, system, host, and
+  port accessors so remote and cluster codecs can round-trip structured node
+  addresses without relying on path string parsing as their primary API.
 - Local death watch is available through `Context::watch`,
   `Context::watch_with`, and `Context::unwatch`.
 - `Signal::Terminated` is delivered once to local watchers after the watched
@@ -131,8 +134,8 @@ Implemented:
   messages.
 - `kairo-serialization::WireWriter` and `WireReader` provide a small shared
   stable binary helper for explicit system-protocol codecs, using
-  length-prefixed UTF-8 strings and big-endian numeric fields instead of Rust
-  memory layout.
+  length-prefixed UTF-8 strings, optional strings, and big-endian numeric
+  fields instead of Rust memory layout.
 - `Registry` implements explicit codec registration, outbound type lookup, and
   inbound `(serializer_id, manifest)` lookup.
 - Serialization registration rejects empty manifests, duplicate serializer ids,
@@ -261,15 +264,19 @@ Implemented:
   event-publisher updates. Cluster `Join`, `Welcome`, and `GossipEnvelope`
   protocol structs now carry the membership data needed by those transitions
   while retaining stable manifests.
+- `kairo-cluster::register_cluster_control_codecs` registers stable explicit
+  codecs and serializer ids for the initial heartbeat, heartbeat response, and
+  join control messages. Full gossip/welcome payload codecs remain separate
+  follow-up work.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
-- Full actor-system local/remote provider integration, cluster protocol codecs,
-  optional codec helper crates, transport-backed associations,
-  actor-system-backed inbound target resolution, and broader cross-crate
-  compatibility fixtures.
+- Full actor-system local/remote provider integration, full cluster
+  gossip/welcome protocol codecs, optional codec helper crates,
+  transport-backed associations, actor-system-backed inbound target resolution,
+  and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

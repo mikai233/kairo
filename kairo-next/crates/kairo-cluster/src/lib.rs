@@ -1,6 +1,7 @@
 //! Gossip-based cluster membership and cluster events.
 
 mod cluster;
+mod codec;
 mod convergence;
 mod downing;
 mod event_publisher;
@@ -18,6 +19,10 @@ mod reachability;
 mod vector_clock;
 
 pub use cluster::{Cluster, ClusterError};
+pub use codec::{
+    HEARTBEAT_RSP_SERIALIZER_ID, HEARTBEAT_SERIALIZER_ID, HeartbeatCodec, HeartbeatRspCodec,
+    JOIN_SERIALIZER_ID, JoinCodec, register_cluster_control_codecs,
+};
 pub use convergence::{Convergence, ConvergenceBlocker};
 pub use downing::{
     DowningDecision, DowningHook, DowningPlan, NoDowning, SplitBrainResolverHook,

@@ -9,6 +9,20 @@ pub struct Address {
 }
 
 impl Address {
+    pub fn new(
+        protocol: impl Into<String>,
+        system: impl Into<String>,
+        host: Option<String>,
+        port: Option<u16>,
+    ) -> Self {
+        Self {
+            protocol: protocol.into(),
+            system: system.into(),
+            host,
+            port,
+        }
+    }
+
     pub fn local(system: impl Into<String>) -> Self {
         Self {
             protocol: "kairo".to_string(),
@@ -24,6 +38,14 @@ impl Address {
 
     pub fn system(&self) -> &str {
         &self.system
+    }
+
+    pub fn host(&self) -> Option<&str> {
+        self.host.as_deref()
+    }
+
+    pub fn port(&self) -> Option<u16> {
+        self.port
     }
 }
 
