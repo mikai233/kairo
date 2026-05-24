@@ -16,6 +16,8 @@ pub enum ActorError {
     TerminationTimeout,
     #[error("dispatcher throughput must be greater than zero")]
     InvalidThroughput,
+    #[error("actor `{actor}` is not self or a direct child of `{owner}`")]
+    InvalidStopTarget { actor: String, owner: String },
 }
 
 pub struct SendError<M> {

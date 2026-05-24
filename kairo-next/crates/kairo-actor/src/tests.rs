@@ -26,7 +26,7 @@ impl Actor for Counter {
                     .send(self.value)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
-            CounterMsg::Stop => ctx.stop(ctx.myself()),
+            CounterMsg::Stop => ctx.stop(ctx.myself())?,
         }
         Ok(())
     }
@@ -460,6 +460,144 @@ fn context_children_and_child_lookup_reflect_live_children() {
     assert_eq!(
         missing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         None
+    );
+}
+
+enum ChildStopMsg {
+    SpawnChild {
+        stopped: mpsc::Sender<()>,
+        reply_to: mpsc::Sender<ActorPath>,
+    },
+    StopChild {
+        reply_to: mpsc::Sender<()>,
+    },
+    StopOther {
+        other: ActorRef<()>,
+        reply_to: mpsc::Sender<String>,
+    },
+    ChildPath(mpsc::Sender<Option<ActorPath>>),
+    Ping(mpsc::Sender<&'static str>),
+}
+
+struct ChildStoppingParent {
+    child: Option<ActorRef<()>>,
+}
+
+impl Actor for ChildStoppingParent {
+    type Msg = ChildStopMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            ChildStopMsg::SpawnChild { stopped, reply_to } => {
+                let child = ctx.spawn("child", Props::new(move || StopProbe { stopped }))?;
+                reply_to
+                    .send(child.path().clone())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                self.child = Some(child);
+            }
+            ChildStopMsg::StopChild { reply_to } => {
+                if let Some(child) = self.child.clone() {
+                    ctx.stop(child)?;
+                }
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ChildStopMsg::StopOther { other, reply_to } => {
+                let error = ctx.stop(other).unwrap_err();
+                reply_to
+                    .send(error.to_string())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ChildStopMsg::ChildPath(reply_to) => {
+                let path = ctx.child("child").map(|child| child.path().clone());
+                reply_to
+                    .send(path)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ChildStopMsg::Ping(reply_to) => {
+                reply_to
+                    .send("alive")
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn context_stop_can_stop_direct_child_without_stopping_parent() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (child_stopped_tx, child_stopped_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (stop_tx, stop_rx) = mpsc::channel();
+    let (child_lookup_tx, child_lookup_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnChild {
+            stopped: child_stopped_tx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent
+        .tell(ChildStopMsg::StopChild { reply_to: stop_tx })
+        .unwrap();
+    stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    child_stopped_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    parent.tell(ChildStopMsg::Ping(ping_tx)).unwrap();
+    parent
+        .tell(ChildStopMsg::ChildPath(child_lookup_tx))
+        .unwrap();
+
+    assert_eq!(
+        ping_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "alive"
+    );
+    assert_eq!(
+        child_lookup_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        None
+    );
+    assert!(
+        child_path
+            .as_str()
+            .starts_with(&format!("{}/child#", parent.path()))
+    );
+}
+
+#[test]
+fn context_stop_rejects_actor_that_is_not_self_or_direct_child() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let other = system.spawn("other", Props::new(|| Noop)).unwrap();
+    let (error_tx, error_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::StopOther {
+            other,
+            reply_to: error_tx,
+        })
+        .unwrap();
+    parent.tell(ChildStopMsg::Ping(ping_tx)).unwrap();
+
+    let error = error_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(error.contains("is not self or a direct child"));
+    assert_eq!(
+        ping_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "alive"
     );
 }
 

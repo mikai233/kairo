@@ -108,6 +108,16 @@ impl ActorSystem {
             })
     }
 
+    pub(crate) fn is_child_of(&self, parent_path: &ActorPath, child_path: &ActorPath) -> bool {
+        self.inner
+            .children
+            .lock()
+            .expect("actor children registry poisoned")
+            .get(parent_path.as_str())
+            .map(|children| children.iter().any(|child| child.path() == child_path))
+            .unwrap_or(false)
+    }
+
     pub fn spawn<A>(
         &self,
         name: impl AsRef<str>,

@@ -64,3 +64,25 @@ Consequences:
   dispatcher contract; later M1/M2 work can introduce system lanes, throughput
   limits, supervision, and deterministic test dispatchers behind the same typed
   ref surface.
+
+## ADR-0004: Actor Context Stop Uses Self Or Direct Child Targets
+
+Status: Accepted
+
+Context:
+Pekko typed `ActorContext.stop` accepts a child actor ref and rejects refs that
+are not direct children. Kairo's initial public contract also uses
+`ctx.stop(ctx.myself())` as the explicit self-stop mechanism instead of typed
+behavior returns.
+
+Decision:
+`Context::stop` accepts any typed `ActorRef<N>` but only stops the current actor
+or a direct child of the current actor. Invalid targets return an explicit
+`ActorError::InvalidStopTarget`.
+
+Consequences:
+- Child actors can be stopped without sharing the parent's message protocol.
+- Actors cannot silently stop siblings or unrelated local actors through their
+  context.
+- Kairo preserves its Rust-first self-stop API while keeping Pekko's direct
+  child restriction for child stops.

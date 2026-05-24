@@ -195,7 +195,7 @@ impl Actor for Counter {
         match msg {
             CounterCmd::Increment => self.value += 1,
             CounterCmd::Get { reply_to } => reply_to.tell(CounterValue(self.value))?,
-            CounterCmd::Stop => ctx.stop(ctx.myself()),
+            CounterCmd::Stop => ctx.stop(ctx.myself())?,
         }
         Ok(())
     }

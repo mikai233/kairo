@@ -19,6 +19,9 @@ Implemented:
   available for local actors.
 - `Context::parent`, `Context::children`, and `Context::child` expose local
   actor-tree introspection.
+- `Context::stop` can stop the current actor or a typed direct child actor ref
+  without stopping the parent, and returns an explicit error for invalid
+  targets.
 - `ActorSystemBuilder::dispatcher_throughput` configures local mailbox batch
   throughput before worker yield.
 - Stopping a local actor recursively requests child stops and runs the parent's
@@ -32,8 +35,8 @@ Implemented:
   dead letters, duplicate names, path incarnation reuse, context system access,
   child spawning, parent/child stop ordering, recipient behavior, and
   `PostStop` signal delivery, missing-ref dead letters, and dispatcher
-  throughput settings, actor-system termination, and context parent/child
-  introspection.
+  throughput settings, actor-system termination, context parent/child
+  introspection, context child stop, and invalid context stop targets.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
 

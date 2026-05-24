@@ -93,10 +93,19 @@ impl<M: Send + 'static> Context<M> {
             .spawn_anonymous_under(self.myself.path().as_str(), props)
     }
 
-    pub fn stop(&mut self, actor: ActorRef<M>) {
+    pub fn stop<N: Send + 'static>(&mut self, actor: ActorRef<N>) -> ActorResult {
         if actor.path() == self.myself.path() {
             self.stop_requested = true;
             actor.request_stop();
+            Ok(())
+        } else if self.system.is_child_of(self.myself.path(), actor.path()) {
+            actor.request_stop();
+            Ok(())
+        } else {
+            Err(ActorError::InvalidStopTarget {
+                actor: actor.path().to_string(),
+                owner: self.myself.path().to_string(),
+            })
         }
     }
 }
