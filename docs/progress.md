@@ -161,6 +161,10 @@ Implemented:
   paths instead of silently treating them as remote refs.
 - `RemoteAssociation` records the initial association state transitions for
   idle, handshaking, active, quarantined, and closed remoting links.
+- `kairo-remote::register_remote_protocol_codecs` registers stable explicit
+  codecs and serializer ids for remote watch, unwatch, heartbeat,
+  heartbeat-ack, and address-terminated system messages using length-prefixed
+  actor-ref paths and big-endian numeric fields.
 - Serialization tests cover rolling-version decode behavior by proving codecs
   receive the wire `version` and can decode older payload shapes under the same
   stable manifest.
@@ -247,9 +251,10 @@ Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
-- Full actor-system local/remote provider integration, protocol codecs,
-  optional codec helper crates, transport-backed associations, inbound
-  dispatch, and broader cross-crate compatibility fixtures.
+- Full actor-system local/remote provider integration, cluster/ddata/sharding
+  protocol codecs, optional codec helper crates, transport-backed
+  associations, inbound dispatch, and broader cross-crate compatibility
+  fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

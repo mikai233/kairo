@@ -1,6 +1,7 @@
 //! Remote actor references, associations, transports, and remote death watch.
 
 mod association;
+mod codec;
 mod error;
 mod outbound;
 mod protocol;
@@ -9,6 +10,12 @@ mod remote_ref;
 mod settings;
 
 pub use association::{AssociationState, RemoteAssociation};
+pub use codec::{
+    ADDRESS_TERMINATED_SERIALIZER_ID, AddressTerminatedCodec, REMOTE_HEARTBEAT_ACK_SERIALIZER_ID,
+    REMOTE_HEARTBEAT_SERIALIZER_ID, RemoteHeartbeatAckCodec, RemoteHeartbeatCodec,
+    UNWATCH_REMOTE_SERIALIZER_ID, UnwatchRemoteCodec, WATCH_REMOTE_SERIALIZER_ID, WatchRemoteCodec,
+    register_remote_protocol_codecs,
+};
 pub use error::{RemoteError, Result};
 pub use kairo_actor::ActorPath;
 pub use kairo_serialization::{RemoteEnvelope, SerializedMessage};
