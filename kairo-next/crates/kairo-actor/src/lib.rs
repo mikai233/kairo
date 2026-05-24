@@ -7,6 +7,7 @@ mod error;
 mod mailbox;
 mod path;
 mod refs;
+mod registry;
 mod signal;
 mod system;
 

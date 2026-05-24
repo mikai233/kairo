@@ -39,6 +39,8 @@ Implemented:
   introspection, context child stop, and invalid context stop targets.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
+- Local actor name and child-tree bookkeeping now lives in a focused registry
+  module instead of being embedded in the system runtime loop.
 
 Not yet implemented:
 

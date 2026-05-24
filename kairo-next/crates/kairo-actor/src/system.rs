@@ -1,6 +1,5 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -10,7 +9,8 @@ use crate::dispatcher::DispatcherSettings;
 use crate::error::ActorError;
 use crate::mailbox::{Dequeued, Mailbox, SystemMessage};
 use crate::path::{ActorPath, Address};
-use crate::refs::{ActorRef, AnyActorRef, LocalActorHandle, TerminationLatch};
+use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
+use crate::registry::ActorRegistry;
 use crate::signal::Signal;
 
 #[derive(Debug, Clone)]
@@ -26,8 +26,7 @@ pub(crate) struct ActorSystemInner {
     next_anonymous: AtomicU64,
     terminating: AtomicBool,
     terminated: AtomicBool,
-    names: Mutex<HashMap<String, u64>>,
-    children: Mutex<HashMap<String, Vec<LocalActorHandle>>>,
+    registry: ActorRegistry,
     dispatcher: DispatcherSettings,
     dead_letters: DeadLetters,
 }
@@ -80,42 +79,15 @@ impl ActorSystem {
     }
 
     pub(crate) fn children_of(&self, parent_path: &ActorPath) -> Vec<AnyActorRef> {
-        self.inner
-            .children
-            .lock()
-            .expect("actor children registry poisoned")
-            .get(parent_path.as_str())
-            .map(|children| {
-                children
-                    .iter()
-                    .map(|child| AnyActorRef::from_path(child.path().clone()))
-                    .collect()
-            })
-            .unwrap_or_default()
+        self.inner.registry.children_of(parent_path)
     }
 
     pub(crate) fn child_of(&self, parent_path: &ActorPath, name: &str) -> Option<AnyActorRef> {
-        self.inner
-            .children
-            .lock()
-            .expect("actor children registry poisoned")
-            .get(parent_path.as_str())
-            .and_then(|children| {
-                children
-                    .iter()
-                    .find(|child| child_name(parent_path, child.path()) == Some(name))
-                    .map(|child| AnyActorRef::from_path(child.path().clone()))
-            })
+        self.inner.registry.child_of(parent_path, name)
     }
 
     pub(crate) fn is_child_of(&self, parent_path: &ActorPath, child_path: &ActorPath) -> bool {
-        self.inner
-            .children
-            .lock()
-            .expect("actor children registry poisoned")
-            .get(parent_path.as_str())
-            .map(|children| children.iter().any(|child| child.path() == child_path))
-            .unwrap_or(false)
+        self.inner.registry.is_child_of(parent_path, child_path)
     }
 
     pub fn spawn<A>(
@@ -146,13 +118,9 @@ impl ActorSystem {
 
         let uid = self.inner.next_uid.fetch_add(1, Ordering::Relaxed);
         let registry_key = format!("{parent_path}/{name}");
-        {
-            let mut names = self.inner.names.lock().expect("actor registry poisoned");
-            if names.contains_key(&registry_key) {
-                return Err(ActorError::DuplicateName(name.to_string()));
-            }
-            names.insert(registry_key.clone(), uid);
-        }
+        self.inner
+            .registry
+            .reserve_name(registry_key.clone(), uid, name)?;
 
         let mailbox = Arc::new(Mailbox::default());
         let path = ActorPath::new(format!("{parent_path}/{name}#{uid}"));
@@ -174,12 +142,8 @@ impl ActorSystem {
         let parent_path = parent_path.to_string();
         let parent_path_for_thread = parent_path.clone();
         self.inner
-            .children
-            .lock()
-            .expect("actor children registry poisoned")
-            .entry(parent_path.clone())
-            .or_default()
-            .push(actor_ref.to_local_handle());
+            .registry
+            .add_child(parent_path.clone(), actor_ref.to_local_handle());
 
         if let Err(error) = thread::Builder::new()
             .name(format!("kairo-actor-{actor_name}"))
@@ -195,12 +159,10 @@ impl ActorSystem {
                 );
             })
         {
+            self.inner.registry.release_name(&registry_key);
             self.inner
-                .names
-                .lock()
-                .expect("actor registry poisoned")
-                .remove(&registry_key);
-            remove_child_from_parent(&self.inner, &parent_path, actor_ref.path());
+                .registry
+                .remove_child(&parent_path, actor_ref.path());
             return Err(ActorError::Message(format!(
                 "failed to spawn actor thread: {error}"
             )));
@@ -316,12 +278,10 @@ fn run_actor<A>(
     stop_children(&system_inner, actor_ref.path.as_str());
     let _ = actor.signal(&mut context, Signal::PostStop);
     actor_ref.target.terminated.mark_stopped();
+    system_inner.registry.release_name(&registry_key);
     system_inner
-        .names
-        .lock()
-        .expect("actor registry poisoned")
-        .remove(&registry_key);
-    remove_child_from_parent(&system_inner, &parent_path, actor_ref.path());
+        .registry
+        .remove_child(&parent_path, actor_ref.path());
 }
 
 fn process_dequeued<A>(
@@ -347,12 +307,6 @@ where
     }
 }
 
-fn child_name<'a>(parent_path: &ActorPath, child_path: &'a ActorPath) -> Option<&'a str> {
-    let rest = child_path.as_str().strip_prefix(parent_path.as_str())?;
-    let rest = rest.strip_prefix('/')?;
-    rest.split_once('#').map(|(name, _)| name)
-}
-
 fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) {
     let _ = stop_children_with_timeout(system_inner, parent_path, Duration::MAX);
 }
@@ -362,12 +316,7 @@ fn stop_children_with_timeout(
     parent_path: &str,
     timeout: Duration,
 ) -> Result<(), ActorError> {
-    let children = system_inner
-        .children
-        .lock()
-        .expect("actor children registry poisoned")
-        .remove(parent_path)
-        .unwrap_or_default();
+    let children = system_inner.registry.take_children(parent_path);
 
     for child in &children {
         child.request_stop();
@@ -385,21 +334,4 @@ fn stop_children_with_timeout(
         }
     }
     Ok(())
-}
-
-fn remove_child_from_parent(
-    system_inner: &ActorSystemInner,
-    parent_path: &str,
-    child_path: &ActorPath,
-) {
-    let mut children = system_inner
-        .children
-        .lock()
-        .expect("actor children registry poisoned");
-    if let Some(siblings) = children.get_mut(parent_path) {
-        siblings.retain(|child| child.path() != child_path);
-        if siblings.is_empty() {
-            children.remove(parent_path);
-        }
-    }
 }
