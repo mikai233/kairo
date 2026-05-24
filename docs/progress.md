@@ -421,6 +421,10 @@ Implemented:
   that sends planned publish effects to local or remote mediator recipients,
   reports missing/send failures explicitly, and uses group-specific mediator
   commands so one-message-per-group delivery reaches only selected groups.
+- `kairo-cluster-tools` now has an actor-backed distributed pubsub registry
+  gossip slice with explicit peer recipients, deterministic status ticks,
+  status/delta exchange, known-peer filtering for inbound deltas, peer removal
+  pruning, and delta-count inspection.
 
 Not yet implemented:
 

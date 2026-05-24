@@ -7,8 +7,9 @@ mod topic;
 pub use pubsub::{
     CurrentTopics, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, PubSubBucket,
     PubSubDeliveryFailure, PubSubDeliveryPlan, PubSubDeliveryReport, PubSubDeliveryTarget,
-    PubSubDeliveryTransport, PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey,
-    PubSubRegistryState, PubSubRemoteTarget, PubSubSubscribeAck, PubSubTopicReport,
+    PubSubDeliveryTransport, PubSubGossipActor, PubSubGossipMsg, PubSubGossipPeer,
+    PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey, PubSubRegistryState,
+    PubSubRemoteTarget, PubSubSubscribeAck, PubSubTopicReport,
 };
 pub use singleton::{
     SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange,

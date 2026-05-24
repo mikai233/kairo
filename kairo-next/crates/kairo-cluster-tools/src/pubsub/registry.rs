@@ -161,6 +161,12 @@ impl PubSubRegistryState {
         self.buckets.get(&node_key(owner))
     }
 
+    pub fn remove_node(&mut self, owner: &UniqueAddress) {
+        if owner != &self.self_node {
+            self.buckets.remove(&node_key(owner));
+        }
+    }
+
     pub fn register_local_topic(&mut self, topic: TopicName) {
         self.put_local(PubSubRegistryKey::topic(topic), true);
     }
