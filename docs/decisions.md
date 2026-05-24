@@ -154,4 +154,5 @@ Consequences:
 - Cancelled and replaced timer messages are discarded before user `receive`.
 - Timer messages remain local typed messages and require no serialization.
 - Active timers are cancelled when the owning actor stops.
-- Repeating timers can build on the same key/generation envelope mechanism.
+- Fixed-delay repeating timers use the same key/generation envelope mechanism.
+- Fixed-rate timers can be added later without changing the mailbox envelope.

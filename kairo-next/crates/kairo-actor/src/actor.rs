@@ -119,7 +119,30 @@ impl<M: Send + 'static> Context<M> {
             message,
         );
         self.timers
-            .start(key.as_str().to_string(), generation, cancellable);
+            .start(key.as_str().to_string(), generation, false, cancellable);
+    }
+
+    pub fn start_timer_with_fixed_delay(
+        &mut self,
+        key: impl Into<TimerKey>,
+        initial_delay: Duration,
+        delay: Duration,
+        message: M,
+    ) where
+        M: Clone,
+    {
+        let key = key.into();
+        let generation = self.timers.next_generation();
+        let cancellable = self.system.schedule_timer_with_fixed_delay(
+            initial_delay,
+            delay,
+            self.myself.clone(),
+            key.as_str().to_string(),
+            generation,
+            message,
+        );
+        self.timers
+            .start(key.as_str().to_string(), generation, true, cancellable);
     }
 
     pub fn cancel_timer(&mut self, key: impl AsRef<str>) {

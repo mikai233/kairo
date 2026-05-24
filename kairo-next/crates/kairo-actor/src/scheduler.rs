@@ -37,6 +37,10 @@ impl Cancellable {
         self.state.load(Ordering::Acquire) == COMPLETED
     }
 
+    fn is_active(&self) -> bool {
+        self.state.load(Ordering::Acquire) == SCHEDULED
+    }
+
     fn complete(&self) -> bool {
         self.state
             .compare_exchange(SCHEDULED, COMPLETED, Ordering::AcqRel, Ordering::Acquire)
@@ -102,6 +106,33 @@ impl Scheduler {
                 }
             })
             .expect("failed to spawn timer task");
+        cancellable
+    }
+
+    pub(crate) fn schedule_timer_with_fixed_delay<M>(
+        &self,
+        initial_delay: Duration,
+        delay: Duration,
+        target: ActorRef<M>,
+        key: String,
+        generation: u64,
+        message: M,
+    ) -> Cancellable
+    where
+        M: Clone + Send + 'static,
+    {
+        let cancellable = Cancellable::new();
+        let task = cancellable.clone();
+        thread::Builder::new()
+            .name("kairo-timer-fixed-delay".to_string())
+            .spawn(move || {
+                thread::sleep(initial_delay);
+                while task.is_active() {
+                    target.send_timer(TimerEnvelope::new(key.clone(), generation, message.clone()));
+                    thread::sleep(delay);
+                }
+            })
+            .expect("failed to spawn fixed-delay timer task");
         cancellable
     }
 }

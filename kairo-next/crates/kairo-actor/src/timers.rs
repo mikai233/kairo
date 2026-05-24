@@ -40,6 +40,7 @@ pub(crate) struct TimerState {
 #[derive(Debug)]
 struct TimerEntry {
     generation: u64,
+    repeat: bool,
     cancellable: Cancellable,
 }
 
@@ -49,7 +50,13 @@ impl TimerState {
         self.next_generation
     }
 
-    pub(crate) fn start(&mut self, key: String, generation: u64, cancellable: Cancellable) {
+    pub(crate) fn start(
+        &mut self,
+        key: String,
+        generation: u64,
+        repeat: bool,
+        cancellable: Cancellable,
+    ) {
         if let Some(existing) = self.active.remove(&key) {
             existing.cancellable.cancel();
         }
@@ -57,6 +64,7 @@ impl TimerState {
             key,
             TimerEntry {
                 generation,
+                repeat,
                 cancellable,
             },
         );
@@ -85,7 +93,9 @@ impl TimerState {
         if existing.generation != generation {
             return false;
         }
-        self.active.remove(key);
+        if !existing.repeat {
+            self.active.remove(key);
+        }
         true
     }
 }
