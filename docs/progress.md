@@ -414,6 +414,9 @@ Implemented:
   state with Pekko-style versioned owner buckets, present/tombstone entries,
   peer-version delta collection, delta merge, tombstone pruning, broadcast
   target planning, and deterministic one-target-per-group planning.
+- `kairo-cluster-tools` now has a transport-neutral pubsub delivery planner
+  that converts distributed topic registrations into explicit local and remote
+  delivery targets for broadcast and one-message-per-group publishes.
 
 Not yet implemented:
 

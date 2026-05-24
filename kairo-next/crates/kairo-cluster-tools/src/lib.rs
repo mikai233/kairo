@@ -5,9 +5,9 @@ mod singleton;
 mod topic;
 
 pub use pubsub::{
-    CurrentTopics, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, PubSubBucket,
-    PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey, PubSubRegistryState,
-    PubSubSubscribeAck, PubSubTopicReport,
+    CurrentTopics, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, PubSubBucket, PubSubDeliveryPlan,
+    PubSubDeliveryTarget, PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey,
+    PubSubRegistryState, PubSubSubscribeAck, PubSubTopicReport,
 };
 pub use singleton::{
     SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange,

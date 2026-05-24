@@ -6,10 +6,10 @@ use kairo_cluster::{ClusterEvent, Member, MemberEvent, MemberStatus, UniqueAddre
 use kairo_testkit::ActorSystemTestKit;
 
 use crate::{
-    CurrentTopics, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, LocalTopic, PubSubRegistryKey,
-    PubSubRegistryState, PubSubSubscribeAck, PubSubTopicReport, SingletonManagerEffect,
-    SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange, SingletonOldestTracker,
-    SingletonScope, TopicName, TopicPublishMode,
+    CurrentTopics, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, LocalTopic, PubSubDeliveryPlan,
+    PubSubDeliveryTarget, PubSubRegistryKey, PubSubRegistryState, PubSubSubscribeAck,
+    PubSubTopicReport, SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState,
+    SingletonOldestChange, SingletonOldestTracker, SingletonScope, TopicName, TopicPublishMode,
 };
 
 #[test]
@@ -674,6 +674,85 @@ fn pubsub_registry_prunes_old_tombstones_without_dropping_present_entries() {
             .contains_key(&PubSubRegistryKey::topic(orders))
     );
     assert!(bucket.entries.contains_key(&PubSubRegistryKey::topic(jobs)));
+}
+
+#[test]
+fn pubsub_delivery_plan_splits_broadcast_between_local_and_remote_nodes() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let topic = TopicName::new("orders");
+    let mut local = PubSubRegistryState::new(node_a.clone());
+    let mut remote = PubSubRegistryState::new(node_b.clone());
+
+    local.register_local_topic(topic.clone());
+    remote.register_local_topic(topic.clone());
+    local.merge_delta(remote.collect_delta(&BTreeMap::new(), 10));
+
+    let plan = PubSubDeliveryPlan::for_registry(&local, topic.clone(), TopicPublishMode::Broadcast);
+
+    assert_eq!(plan.topic, topic);
+    assert_eq!(plan.mode, TopicPublishMode::Broadcast);
+    assert_eq!(
+        plan.targets,
+        vec![
+            PubSubDeliveryTarget::LocalTopic,
+            PubSubDeliveryTarget::RemoteTopic {
+                node: node_b.clone(),
+            },
+        ]
+    );
+    assert!(plan.has_local_target());
+    assert_eq!(plan.remote_nodes(), vec![node_b]);
+}
+
+#[test]
+fn pubsub_delivery_plan_uses_one_target_per_group() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let node_c = node("c", 3);
+    let topic = TopicName::new("jobs");
+    let mut local = PubSubRegistryState::new(node_b.clone());
+    let mut oldest_remote = PubSubRegistryState::new(node_a.clone());
+    let mut other_remote = PubSubRegistryState::new(node_c.clone());
+
+    local.register_local_group(topic.clone(), "red");
+    oldest_remote.register_local_group(topic.clone(), "red");
+    other_remote.register_local_group(topic.clone(), "blue");
+    local.merge_delta(oldest_remote.collect_delta(&BTreeMap::new(), 10));
+    local.merge_delta(other_remote.collect_delta(&BTreeMap::new(), 10));
+
+    let plan =
+        PubSubDeliveryPlan::for_registry(&local, topic.clone(), TopicPublishMode::OnePerGroup);
+
+    assert_eq!(
+        plan.targets,
+        vec![
+            PubSubDeliveryTarget::RemoteGroup {
+                group: "blue".to_string(),
+                node: node_c.clone(),
+            },
+            PubSubDeliveryTarget::RemoteGroup {
+                group: "red".to_string(),
+                node: node_a.clone(),
+            },
+        ]
+    );
+    assert!(!plan.has_local_target());
+    assert_eq!(plan.remote_nodes(), vec![node_c, node_a]);
+}
+
+#[test]
+fn pubsub_delivery_plan_reports_empty_when_registry_has_no_topic() {
+    let local = PubSubRegistryState::new(node("a", 1));
+    let plan = PubSubDeliveryPlan::for_registry(
+        &local,
+        TopicName::new("missing"),
+        TopicPublishMode::Broadcast,
+    );
+
+    assert!(plan.is_empty());
+    assert!(!plan.has_local_target());
+    assert!(plan.remote_nodes().is_empty());
 }
 
 fn member(unique_address: UniqueAddress, status: MemberStatus, up_number: u64) -> Member {
