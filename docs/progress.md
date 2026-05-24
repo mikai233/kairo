@@ -212,6 +212,11 @@ Implemented:
   publisher that stores the latest gossip, publishes `ClusterEvent` diffs to
   typed subscribers, supports initial state replay as events, handles explicit
   event publication, unsubscribe, and current-state snapshot requests.
+- `kairo-cluster::Cluster` provides the first public cluster subscription
+  facade over the event publisher, including snapshot-first typed subscriptions
+  through `ClusterSubscriptionEvent`, replay-as-events subscriptions,
+  event-only subscriptions, unsubscribe, current-state requests, and explicit
+  publisher-unavailable errors.
 
 Not yet implemented:
 
@@ -221,8 +226,8 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
-- Cluster membership actors, public cluster subscription facade, remote-backed
-  heartbeat receiver routing, and concrete downing providers.
+- Cluster membership actors, remote-backed heartbeat receiver routing, and
+  concrete downing providers.
 
 ## Last Validation
 

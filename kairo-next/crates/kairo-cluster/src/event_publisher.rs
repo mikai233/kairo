@@ -10,6 +10,19 @@ pub enum SubscriptionInitialState {
     Events,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClusterSubscriptionInitialState {
+    None,
+    Snapshot,
+    Events,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClusterSubscriptionEvent {
+    CurrentState(CurrentClusterState),
+    Event(ClusterEvent),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CurrentClusterState {
     pub members: Vec<Member>,
@@ -68,6 +81,13 @@ pub enum ClusterEventPublisherMsg {
     Unsubscribe {
         subscriber: ActorRef<ClusterEvent>,
     },
+    SubscribeCluster {
+        subscriber: ActorRef<ClusterSubscriptionEvent>,
+        initial_state: ClusterSubscriptionInitialState,
+    },
+    UnsubscribeCluster {
+        subscriber: ActorRef<ClusterSubscriptionEvent>,
+    },
     SendCurrentState {
         reply_to: ActorRef<CurrentClusterState>,
     },
@@ -77,6 +97,7 @@ pub struct ClusterEventPublisher {
     self_node: UniqueAddress,
     gossip: Gossip,
     subscribers: Vec<ActorRef<ClusterEvent>>,
+    cluster_subscribers: Vec<ActorRef<ClusterSubscriptionEvent>>,
 }
 
 impl ClusterEventPublisher {
@@ -85,6 +106,7 @@ impl ClusterEventPublisher {
             self_node,
             gossip: Gossip::new(),
             subscribers: Vec::new(),
+            cluster_subscribers: Vec::new(),
         }
     }
 
@@ -114,6 +136,40 @@ impl ClusterEventPublisher {
             .retain(|existing| existing.path() != subscriber.path());
     }
 
+    fn subscribe_cluster(
+        &mut self,
+        subscriber: ActorRef<ClusterSubscriptionEvent>,
+        initial_state: ClusterSubscriptionInitialState,
+    ) {
+        if !self
+            .cluster_subscribers
+            .iter()
+            .any(|existing| existing.path() == subscriber.path())
+        {
+            self.cluster_subscribers.push(subscriber.clone());
+        }
+
+        match initial_state {
+            ClusterSubscriptionInitialState::None => {}
+            ClusterSubscriptionInitialState::Snapshot => {
+                let _ = subscriber.tell(ClusterSubscriptionEvent::CurrentState(
+                    CurrentClusterState::from_gossip(&self.gossip, &self.self_node),
+                ));
+            }
+            ClusterSubscriptionInitialState::Events => {
+                let empty = Gossip::new();
+                for event in ClusterEvents::diff(&empty, &self.gossip, &self.self_node) {
+                    let _ = subscriber.tell(ClusterSubscriptionEvent::Event(event));
+                }
+            }
+        }
+    }
+
+    fn unsubscribe_cluster(&mut self, subscriber: &ActorRef<ClusterSubscriptionEvent>) {
+        self.cluster_subscribers
+            .retain(|existing| existing.path() != subscriber.path());
+    }
+
     fn publish_changes(&mut self, new_gossip: Gossip) {
         let events = ClusterEvents::diff(&self.gossip, &new_gossip, &self.self_node);
         self.gossip = new_gossip;
@@ -125,6 +181,11 @@ impl ClusterEventPublisher {
     fn publish(&mut self, event: ClusterEvent) {
         self.subscribers
             .retain(|subscriber| subscriber.tell(event.clone()).is_ok());
+        self.cluster_subscribers.retain(|subscriber| {
+            subscriber
+                .tell(ClusterSubscriptionEvent::Event(event.clone()))
+                .is_ok()
+        });
     }
 }
 
@@ -140,6 +201,13 @@ impl Actor for ClusterEventPublisher {
                 initial_state,
             } => self.subscribe(subscriber, initial_state),
             ClusterEventPublisherMsg::Unsubscribe { subscriber } => self.unsubscribe(&subscriber),
+            ClusterEventPublisherMsg::SubscribeCluster {
+                subscriber,
+                initial_state,
+            } => self.subscribe_cluster(subscriber, initial_state),
+            ClusterEventPublisherMsg::UnsubscribeCluster { subscriber } => {
+                self.unsubscribe_cluster(&subscriber);
+            }
             ClusterEventPublisherMsg::SendCurrentState { reply_to } => {
                 let _ = reply_to.tell(CurrentClusterState::from_gossip(
                     &self.gossip,
@@ -271,6 +339,105 @@ mod tests {
             .unwrap();
         publisher
             .tell(ClusterEventPublisherMsg::Unsubscribe {
+                subscriber: subscriber.actor_ref(),
+            })
+            .unwrap();
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishEvent(
+                ClusterEvent::LeaderChanged { leader: None },
+            ))
+            .unwrap();
+
+        subscriber.expect_no_msg(Duration::from_millis(50)).unwrap();
+    }
+
+    #[test]
+    fn cluster_subscription_snapshot_sends_current_state_and_later_events() {
+        let kit = ActorSystemTestKit::new("cluster-event-publisher-cluster-snapshot").unwrap();
+        let self_node = node("self", 1);
+        let node_b = node("b", 2);
+        let publisher = spawn_publisher(&kit, self_node.clone(), "publisher");
+        let subscriber = kit
+            .create_probe::<ClusterSubscriptionEvent>("cluster-events")
+            .unwrap();
+        let gossip = Gossip::from_members([member(self_node.clone(), MemberStatus::Up)]);
+
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
+            .unwrap();
+        publisher
+            .tell(ClusterEventPublisherMsg::SubscribeCluster {
+                subscriber: subscriber.actor_ref(),
+                initial_state: ClusterSubscriptionInitialState::Snapshot,
+            })
+            .unwrap();
+
+        let ClusterSubscriptionEvent::CurrentState(state) =
+            subscriber.expect_msg(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("expected current cluster state");
+        };
+        assert_eq!(state.members.len(), 1);
+
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(
+                Gossip::from_members([
+                    member(self_node, MemberStatus::Up),
+                    member(node_b, MemberStatus::Up),
+                ]),
+            ))
+            .unwrap();
+
+        assert!(matches!(
+            subscriber.expect_msg(Duration::from_secs(1)).unwrap(),
+            ClusterSubscriptionEvent::Event(ClusterEvent::Member(MemberEvent::Up(_)))
+        ));
+    }
+
+    #[test]
+    fn cluster_subscription_as_events_replays_current_state_as_events() {
+        let kit = ActorSystemTestKit::new("cluster-event-publisher-cluster-events").unwrap();
+        let self_node = node("self", 1);
+        let publisher = spawn_publisher(&kit, self_node.clone(), "publisher");
+        let subscriber = kit
+            .create_probe::<ClusterSubscriptionEvent>("cluster-events")
+            .unwrap();
+
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(
+                Gossip::from_members([member(self_node, MemberStatus::Up)]),
+            ))
+            .unwrap();
+        publisher
+            .tell(ClusterEventPublisherMsg::SubscribeCluster {
+                subscriber: subscriber.actor_ref(),
+                initial_state: ClusterSubscriptionInitialState::Events,
+            })
+            .unwrap();
+
+        assert!(matches!(
+            subscriber.expect_msg(Duration::from_secs(1)).unwrap(),
+            ClusterSubscriptionEvent::Event(ClusterEvent::Member(MemberEvent::Up(_)))
+        ));
+    }
+
+    #[test]
+    fn unsubscribe_cluster_stops_later_delivery() {
+        let kit = ActorSystemTestKit::new("cluster-event-publisher-unsubscribe-cluster").unwrap();
+        let self_node = node("self", 1);
+        let publisher = spawn_publisher(&kit, self_node, "publisher");
+        let subscriber = kit
+            .create_probe::<ClusterSubscriptionEvent>("cluster-events")
+            .unwrap();
+
+        publisher
+            .tell(ClusterEventPublisherMsg::SubscribeCluster {
+                subscriber: subscriber.actor_ref(),
+                initial_state: ClusterSubscriptionInitialState::None,
+            })
+            .unwrap();
+        publisher
+            .tell(ClusterEventPublisherMsg::UnsubscribeCluster {
                 subscriber: subscriber.actor_ref(),
             })
             .unwrap();

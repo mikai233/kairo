@@ -528,3 +528,28 @@ Consequences:
   is a transport addressing concern, not membership authority.
 - The route table can be replaced or populated by remote association/provider
   code later without changing the heartbeat state machine or wire manifests.
+
+## ADR-0022: Cluster Subscription Snapshots Use A Typed Sum Protocol
+
+Status: Accepted
+
+Context:
+Pekko's cluster subscription API can send `CurrentClusterState` as the first
+message and later send cluster domain events to the same untyped `ActorRef`.
+Kairo's public boundary is `ActorRef<M>`, so a subscriber that wants both the
+initial snapshot and later events needs one explicit protocol type.
+
+Decision:
+Kairo exposes a public `Cluster` facade around the event publisher. The default
+`Cluster::subscribe` sends an initial snapshot and later events through
+`ActorRef<ClusterSubscriptionEvent>`, where `ClusterSubscriptionEvent` is a
+typed sum of `CurrentState(CurrentClusterState)` and `Event(ClusterEvent)`.
+Callers that only want domain events can still use `subscribe_events` with an
+`ActorRef<ClusterEvent>`.
+
+Consequences:
+- The default subscription behavior preserves Pekko's snapshot-first public
+  semantics without introducing erased messages as the user API.
+- Event-only subscribers keep a narrower `ActorRef<ClusterEvent>` protocol.
+- The facade remains a lightweight handle over the cluster event publisher
+  until full membership actors own the publisher lifecycle.

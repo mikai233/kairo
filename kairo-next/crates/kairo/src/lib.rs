@@ -24,6 +24,12 @@ pub mod prelude {
     pub use kairo_actor::prelude::*;
     #[cfg(feature = "macros")]
     pub use kairo_actor_macros::*;
+    #[cfg(feature = "cluster")]
+    pub use kairo_cluster::{
+        Cluster, ClusterError, ClusterEvent, ClusterSubscriptionEvent,
+        ClusterSubscriptionInitialState, CurrentClusterState, Member, MemberEvent, MemberStatus,
+        ReachabilityEvent, UniqueAddress,
+    };
     #[cfg(feature = "serialization")]
     pub use kairo_serialization::{
         DynCodec, Manifest, MessageCodec, RemoteMessage, SerializationError, SerializationRegistry,
