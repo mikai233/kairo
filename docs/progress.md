@@ -13,17 +13,19 @@ Implemented:
 - `ActorSystem::stop` can stop an idle local actor through the system lane.
 - `Context::system`, `Context::spawn`, and `Context::spawn_anonymous` are
   available for local actors.
+- Stopping a local actor recursively requests child stops and runs the parent's
+  `stopped` hook after children have terminated.
 - Sends after stop are rejected and recorded as dead letters.
 - System stop drains queued user messages to dead letters before delivery.
 - Duplicate live names under `/user` are rejected; stopped names can be reused
   with a new path incarnation.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop
   dead letters, duplicate names, path incarnation reuse, context system access,
-  and child spawning.
+  child spawning, and parent/child stop ordering.
 
 Not yet implemented:
 
-- Parent/child stop ordering and full actor tree lifecycle semantics.
+- Full actor tree lifecycle semantics beyond recursive local stop.
 - Dispatcher throughput controls.
 - External `ActorSystem` stop APIs and coordinated shutdown.
 - Death watch, supervision, timers, ask, adapters, event stream, receptionist,

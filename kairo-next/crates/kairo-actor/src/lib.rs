@@ -182,6 +182,7 @@ pub struct ActorRef<M> {
     path: ActorPath,
     mailbox: Arc<Mailbox<M>>,
     stopped: Arc<AtomicBool>,
+    terminated: Arc<TerminationLatch>,
     dead_letters: DeadLetters,
     _message: PhantomData<fn(M)>,
 }
@@ -192,6 +193,7 @@ impl<M> Clone for ActorRef<M> {
             path: self.path.clone(),
             mailbox: self.mailbox.clone(),
             stopped: Arc::clone(&self.stopped),
+            terminated: Arc::clone(&self.terminated),
             dead_letters: self.dead_letters.clone(),
             _message: PhantomData,
         }
@@ -243,14 +245,27 @@ impl<M: Send + 'static> ActorRef<M> {
         self.stopped.load(Ordering::Acquire)
     }
 
+    pub fn wait_for_stop(&self, timeout: Duration) -> bool {
+        self.terminated.wait(timeout)
+    }
+
     fn request_stop(&self) {
         if !self.stopped.swap(true, Ordering::AcqRel) {
             self.mailbox.enqueue_system(SystemMessage::Stop);
         }
     }
+
+    fn to_local_handle(&self) -> LocalActorHandle {
+        let actor = self.clone();
+        LocalActorHandle {
+            path: self.path.clone(),
+            terminated: Arc::clone(&self.terminated),
+            stop: Arc::new(move || actor.request_stop()),
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AnyActorRef {
     path: ActorPath,
 }
@@ -258,6 +273,86 @@ pub struct AnyActorRef {
 impl AnyActorRef {
     pub fn path(&self) -> &ActorPath {
         &self.path
+    }
+}
+
+impl fmt::Debug for AnyActorRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AnyActorRef")
+            .field("path", &self.path)
+            .finish()
+    }
+}
+
+#[derive(Clone)]
+struct LocalActorHandle {
+    path: ActorPath,
+    terminated: Arc<TerminationLatch>,
+    stop: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl fmt::Debug for LocalActorHandle {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LocalActorHandle")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LocalActorHandle {
+    fn path(&self) -> &ActorPath {
+        &self.path
+    }
+
+    fn request_stop(&self) {
+        (self.stop)();
+    }
+
+    fn wait_for_stop(&self) {
+        self.terminated.wait_unbounded();
+    }
+}
+
+#[derive(Debug, Default)]
+struct TerminationLatch {
+    stopped: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl TerminationLatch {
+    fn mark_stopped(&self) {
+        let mut stopped = self.stopped.lock().expect("termination latch poisoned");
+        *stopped = true;
+        self.changed.notify_all();
+    }
+
+    fn wait(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut stopped = self.stopped.lock().expect("termination latch poisoned");
+        while !*stopped {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (next_stopped, wait) = self
+                .changed
+                .wait_timeout(stopped, remaining)
+                .expect("termination latch poisoned");
+            stopped = next_stopped;
+            if wait.timed_out() && !*stopped {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn wait_unbounded(&self) {
+        let mut stopped = self.stopped.lock().expect("termination latch poisoned");
+        while !*stopped {
+            stopped = self
+                .changed
+                .wait(stopped)
+                .expect("termination latch poisoned");
+        }
     }
 }
 
@@ -434,6 +529,7 @@ struct ActorSystemInner {
     next_uid: AtomicU64,
     next_anonymous: AtomicU64,
     names: Mutex<HashMap<String, u64>>,
+    children: Mutex<HashMap<String, Vec<LocalActorHandle>>>,
     dead_letters: DeadLetters,
 }
 
@@ -494,10 +590,12 @@ impl ActorSystem {
         let mailbox = Arc::new(Mailbox::default());
         let path = ActorPath::new(format!("{parent_path}/{name}#{uid}"));
         let stopped = Arc::new(AtomicBool::new(false));
+        let terminated = Arc::new(TerminationLatch::default());
         let actor_ref = ActorRef {
             path: path.clone(),
             mailbox,
             stopped: Arc::clone(&stopped),
+            terminated: Arc::clone(&terminated),
             dead_letters: self.inner.dead_letters.clone(),
             _message: PhantomData,
         };
@@ -507,6 +605,15 @@ impl ActorSystem {
         let actor_name = name.to_string();
         let registry_key_for_thread = registry_key.clone();
         let thread_system = self.clone();
+        let parent_path = parent_path.to_string();
+        let parent_path_for_thread = parent_path.clone();
+        self.inner
+            .children
+            .lock()
+            .expect("actor children registry poisoned")
+            .entry(parent_path.clone())
+            .or_default()
+            .push(actor_ref.to_local_handle());
 
         if let Err(error) = thread::Builder::new()
             .name(format!("kairo-actor-{actor_name}"))
@@ -514,11 +621,11 @@ impl ActorSystem {
                 run_actor(
                     props,
                     thread_ref,
-                    stopped,
                     dead_letters,
                     system_inner,
                     registry_key_for_thread,
                     thread_system,
+                    parent_path_for_thread,
                 );
             })
         {
@@ -527,6 +634,7 @@ impl ActorSystem {
                 .lock()
                 .expect("actor registry poisoned")
                 .remove(&registry_key);
+            remove_child_from_parent(&self.inner, &parent_path, actor_ref.path());
             return Err(ActorError::Message(format!(
                 "failed to spawn actor thread: {error}"
             )));
@@ -574,11 +682,11 @@ fn validate_actor_name(name: &str) -> Result<(), ActorError> {
 fn run_actor<A>(
     props: Props<A>,
     actor_ref: ActorRef<A::Msg>,
-    stopped: Arc<AtomicBool>,
     dead_letters: DeadLetters,
     system_inner: Arc<ActorSystemInner>,
     registry_key: String,
     thread_system: ActorSystem,
+    parent_path: String,
 ) where
     A: Actor,
 {
@@ -590,17 +698,17 @@ fn run_actor<A>(
     };
 
     if actor.started(&mut context).is_err() || context.stop_requested {
-        stopped.store(true, Ordering::Release);
+        actor_ref.stopped.store(true, Ordering::Release);
     }
 
-    while !stopped.load(Ordering::Acquire) {
+    while !actor_ref.stopped.load(Ordering::Acquire) {
         match actor_ref.mailbox.dequeue() {
             Dequeued::System(SystemMessage::Stop) | Dequeued::Closed => {
-                stopped.store(true, Ordering::Release);
+                actor_ref.stopped.store(true, Ordering::Release);
             }
             Dequeued::User(message) => {
                 if actor.receive(&mut context, message).is_err() || context.stop_requested {
-                    stopped.store(true, Ordering::Release);
+                    actor_ref.stopped.store(true, Ordering::Release);
                 }
             }
         }
@@ -611,12 +719,49 @@ fn run_actor<A>(
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
     }
 
+    stop_children(&system_inner, actor_ref.path.as_str());
     let _ = actor.stopped(&mut context);
+    actor_ref.terminated.mark_stopped();
     system_inner
         .names
         .lock()
         .expect("actor registry poisoned")
         .remove(&registry_key);
+    remove_child_from_parent(&system_inner, &parent_path, actor_ref.path());
+}
+
+fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) {
+    let children = system_inner
+        .children
+        .lock()
+        .expect("actor children registry poisoned")
+        .remove(parent_path)
+        .unwrap_or_default();
+
+    for child in &children {
+        child.request_stop();
+    }
+
+    for child in children {
+        child.wait_for_stop();
+    }
+}
+
+fn remove_child_from_parent(
+    system_inner: &ActorSystemInner,
+    parent_path: &str,
+    child_path: &ActorPath,
+) {
+    let mut children = system_inner
+        .children
+        .lock()
+        .expect("actor children registry poisoned");
+    if let Some(siblings) = children.get_mut(parent_path) {
+        siblings.retain(|child| child.path() != child_path);
+        if siblings.is_empty() {
+            children.remove(parent_path);
+        }
+    }
 }
 
 pub mod prelude {
@@ -940,5 +1085,86 @@ mod tests {
             reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
             "test"
         );
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum StopEvent {
+        Child,
+        Parent,
+    }
+
+    struct LifecycleChild {
+        events: mpsc::Sender<StopEvent>,
+    }
+
+    impl Actor for LifecycleChild {
+        type Msg = ();
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+            Ok(())
+        }
+
+        fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+            self.events
+                .send(StopEvent::Child)
+                .map_err(|error| ActorError::Message(error.to_string()))
+        }
+    }
+
+    struct LifecycleParent {
+        ready: mpsc::Sender<()>,
+        events: mpsc::Sender<StopEvent>,
+    }
+
+    impl Actor for LifecycleParent {
+        type Msg = ();
+
+        fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+            let events = self.events.clone();
+            ctx.spawn(
+                "child",
+                Props::new(move || LifecycleChild {
+                    events: events.clone(),
+                }),
+            )?;
+            self.ready
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))
+        }
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+            Ok(())
+        }
+
+        fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+            self.events
+                .send(StopEvent::Parent)
+                .map_err(|error| ActorError::Message(error.to_string()))
+        }
+    }
+
+    #[test]
+    fn parent_stop_waits_for_children_before_stopped_hook() {
+        let system = ActorSystem::builder("test").build().unwrap();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (events_tx, events_rx) = mpsc::channel();
+        let parent = system
+            .spawn(
+                "parent",
+                Props::new(move || LifecycleParent {
+                    ready: ready_tx,
+                    events: events_tx,
+                }),
+            )
+            .unwrap();
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        system.stop(&parent);
+
+        let first = events_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let second = events_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(first, StopEvent::Child);
+        assert_eq!(second, StopEvent::Parent);
+        assert!(parent.wait_for_stop(Duration::from_secs(1)));
     }
 }
