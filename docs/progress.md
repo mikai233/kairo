@@ -78,6 +78,10 @@ Implemented:
 - `ActorSystem::event_stream` and `Context::event_stream` expose a local typed
   event stream for exact Rust event types.
 - Event-stream subscription state lives in a focused `event_stream` module.
+- `Context::spawn_task` starts external local work with only a typed self ref,
+  and `Context::pipe_to_self` maps task success or failure back into the
+  actor's protocol through the normal mailbox.
+- Task bridge state and handles live in a focused `tasks` module.
 
 Not yet implemented:
 

@@ -5,6 +5,7 @@ use crate::refs::{ActorRef, AnyActorRef};
 use crate::scheduler::Cancellable;
 use crate::signal::Signal;
 use crate::system::ActorSystem;
+use crate::tasks::{self, TaskHandle};
 use crate::timers::{TimerEnvelope, TimerKey, TimerState};
 use std::time::Duration;
 
@@ -80,6 +81,23 @@ impl<M: Send + 'static> Context<M> {
 
     pub fn event_stream(&self) -> EventStream {
         self.system.event_stream()
+    }
+
+    pub fn spawn_task<F>(&self, task: F) -> Result<TaskHandle, ActorError>
+    where
+        F: FnOnce(ActorRef<M>) + Send + 'static,
+    {
+        tasks::spawn_task(self.myself.clone(), task)
+    }
+
+    pub fn pipe_to_self<T, E, F, Map>(&self, task: F, map: Map) -> Result<TaskHandle, ActorError>
+    where
+        T: Send + 'static,
+        E: Send + 'static,
+        F: FnOnce() -> Result<T, E> + Send + 'static,
+        Map: FnOnce(Result<T, E>) -> M + Send + 'static,
+    {
+        tasks::pipe_to_self(self.myself.clone(), task, map)
     }
 
     pub fn watch<N: Send + 'static>(&mut self, actor: &ActorRef<N>) -> ActorResult {

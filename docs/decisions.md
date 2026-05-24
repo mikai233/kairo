@@ -177,3 +177,28 @@ Consequences:
 - Subscribers only receive events matching their exact Rust message type.
 - Broader class/subtype-style matching is deferred until there is a concrete
   Rust design need for it.
+
+## ADR-0009: Pipe-To-Self Uses Task Handles And Mailbox Reentry
+
+Status: Accepted
+
+Context:
+Pekko typed `pipeToSelf` adapts a completed future result into the actor's
+protocol and sends it back to `self`, so actor state only changes during a
+later mailbox turn. Kairo must preserve that observable behavior without adding
+`AsyncActor` or requiring an async runtime in the initial local actor design.
+
+Decision:
+Kairo's initial `Context::pipe_to_self` and `Context::spawn_task` APIs start a
+local dependency-free task thread and return a `TaskHandle`. The task receives
+or captures only an `ActorRef<M>`, and completion sends a typed message back
+through the normal actor mailbox. `pipe_to_self` requires the task closure to
+return `Result<T, E>` so success and failure can both be mapped into the
+actor's protocol.
+
+Consequences:
+- Actor state is never borrowed across external work.
+- Completed task results follow normal mailbox ordering after enqueue.
+- Local messages still require no serialization.
+- A later async executor or deterministic testkit backend can replace the task
+  runner without changing the typed mailbox reentry contract.

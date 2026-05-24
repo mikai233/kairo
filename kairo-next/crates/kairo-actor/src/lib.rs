@@ -13,6 +13,7 @@ mod registry;
 mod scheduler;
 mod signal;
 mod system;
+mod tasks;
 mod timers;
 
 pub use actor::{Actor, Context, Props};
@@ -25,13 +26,14 @@ pub use refs::{ActorRef, AnyActorRef, IgnoreRef, Recipient};
 pub use scheduler::Cancellable;
 pub use signal::Signal;
 pub use system::{ActorSystem, ActorSystemBuilder};
+pub use tasks::TaskHandle;
 pub use timers::TimerKey;
 
 pub mod prelude {
     pub use crate::{
         Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, Cancellable, Context,
         DeadLetter, DeadLetters, DispatcherSettings, EventStream, IgnoreRef, Props, Recipient,
-        Signal, TimerKey,
+        Signal, TaskHandle, TimerKey,
     };
 }
 

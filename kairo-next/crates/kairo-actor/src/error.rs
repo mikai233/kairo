@@ -14,6 +14,8 @@ pub enum ActorError {
     SystemTerminating,
     #[error("actor system termination timed out")]
     TerminationTimeout,
+    #[error("failed to spawn actor task: {0}")]
+    TaskSpawn(String),
     #[error("dispatcher throughput must be greater than zero")]
     InvalidThroughput,
     #[error("actor `{actor}` is not self or a direct child of `{owner}`")]
