@@ -236,6 +236,10 @@ Implemented:
   `ReplicatorDeltaPropagation` in one synchronous actor turn using an explicit
   CRDT delta codec and returns a `DeltaPropagationReceiveReport` for ack/nack
   mapping.
+- `kairo-distributed-data` now has focused read/write aggregation state
+  machines with Pekko-style majority/min-cap/additional quorum calculation,
+  reachable-first primary/secondary replica selection, write ack/nack progress,
+  timeout reporting, and read-result CRDT merge behavior.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, and stopped protocol
