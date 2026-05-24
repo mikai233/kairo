@@ -47,6 +47,7 @@ dependencies = [
  "kairo-actor",
  "kairo-remote",
  "kairo-serialization",
+ "kairo-testkit",
 ]
 
 [[package]]

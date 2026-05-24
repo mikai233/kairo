@@ -2,6 +2,7 @@
 
 mod convergence;
 mod downing;
+mod event_publisher;
 mod events;
 mod failure_detector;
 mod gossip;
@@ -15,6 +16,9 @@ mod vector_clock;
 
 pub use convergence::{Convergence, ConvergenceBlocker};
 pub use downing::{DowningDecision, DowningHook, DowningPlan, NoDowning, StaticDowningHook};
+pub use event_publisher::{
+    ClusterEventPublisher, ClusterEventPublisherMsg, CurrentClusterState, SubscriptionInitialState,
+};
 pub use events::{ClusterEvent, ClusterEvents, MemberEvent, ReachabilityEvent};
 pub use failure_detector::{
     DeadlineFailureDetector, DeadlineFailureDetectorSettings, FailureDetectorError,

@@ -202,6 +202,10 @@ Implemented:
   deterministic ring ordering, configured receiver limits, unreachable receiver
   inclusion, and continued monitoring of removed-but-unavailable receivers until
   recovery.
+- `kairo-cluster::ClusterEventPublisher` is an actor-backed cluster event
+  publisher that stores the latest gossip, publishes `ClusterEvent` diffs to
+  typed subscribers, supports initial state replay as events, handles explicit
+  event publication, unsubscribe, and current-state snapshot requests.
 
 Not yet implemented:
 
@@ -211,8 +215,8 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
-- Cluster membership actors, heartbeat sender/receiver actor I/O, actor-backed
-  cluster event subscription/publication, and concrete downing providers.
+- Cluster membership actors, heartbeat sender/receiver actor I/O, public
+  cluster subscription facade, and concrete downing providers.
 
 ## Last Validation
 
