@@ -214,6 +214,10 @@ Implemented:
   decodes stream bytes, dispatches complete frame payloads with their stable
   stream id, propagates handler failures, and detects truncated inbound
   streams before TCP socket wiring is introduced.
+- `kairo-remote` now has a focused association-guarded outbound wrapper that
+  composes association state with any transport outbound, allows sends while
+  idle/handshaking/active, rejects quarantined or closed associations before
+  forwarding, and propagates inner transport failures explicitly.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
