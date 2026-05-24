@@ -129,6 +129,21 @@ impl<M: Send + 'static> LocalPubSub<M> {
         }
     }
 
+    pub fn publish_group(&mut self, topic: &TopicName, group: &str, message: M) -> PubSubTopicReport
+    where
+        M: Clone,
+    {
+        let report = self
+            .topics
+            .get_mut(topic)
+            .map(|topic_state| topic_state.publish_group(group, message))
+            .unwrap_or_else(TopicPublishReport::empty_for_no_subscribers);
+        PubSubTopicReport {
+            topic: topic.clone(),
+            report,
+        }
+    }
+
     fn topic_mut(&mut self, topic: TopicName) -> &mut LocalTopic<M> {
         self.topics
             .entry(topic.clone())

@@ -64,6 +64,12 @@ where
         mode: TopicPublishMode,
         reply_to: Option<ActorRef<PubSubTopicReport>>,
     },
+    PublishGroup {
+        topic: TopicName,
+        group: String,
+        message: M,
+        reply_to: Option<ActorRef<PubSubTopicReport>>,
+    },
     GetTopics {
         reply_to: ActorRef<CurrentTopics>,
     },
@@ -140,6 +146,17 @@ where
                 reply_to,
             } => {
                 let report = self.state.publish(&topic, message, mode);
+                if let Some(reply_to) = reply_to {
+                    let _ = reply_to.tell(report);
+                }
+            }
+            LocalPubSubMsg::PublishGroup {
+                topic,
+                group,
+                message,
+                reply_to,
+            } => {
+                let report = self.state.publish_group(&topic, &group, message);
                 if let Some(reply_to) = reply_to {
                     let _ = reply_to.tell(report);
                 }

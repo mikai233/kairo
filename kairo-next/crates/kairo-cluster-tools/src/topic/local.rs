@@ -156,6 +156,19 @@ impl<M: Send + 'static> LocalTopic<M> {
         }
     }
 
+    pub fn publish_group(&mut self, group: &str, message: M) -> TopicPublishReport
+    where
+        M: Clone,
+    {
+        let mut report = TopicPublishReport::empty_for_no_subscribers();
+        if let Some(group) = self.groups.get_mut(group)
+            && let Some(subscriber) = group.next_subscriber()
+        {
+            record_delivery(&mut report, &subscriber, message);
+        }
+        report
+    }
+
     fn publish_broadcast(&self, message: M) -> TopicPublishReport
     where
         M: Clone,

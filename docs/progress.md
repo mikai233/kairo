@@ -417,6 +417,10 @@ Implemented:
 - `kairo-cluster-tools` now has a transport-neutral pubsub delivery planner
   that converts distributed topic registrations into explicit local and remote
   delivery targets for broadcast and one-message-per-group publishes.
+- `kairo-cluster-tools` now has a transport-neutral pubsub delivery transport
+  that sends planned publish effects to local or remote mediator recipients,
+  reports missing/send failures explicitly, and uses group-specific mediator
+  commands so one-message-per-group delivery reaches only selected groups.
 
 Not yet implemented:
 
