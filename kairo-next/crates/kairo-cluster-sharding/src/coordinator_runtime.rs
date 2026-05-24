@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    CoordinatorEvent, CoordinatorState, HostShard, RegionId, ShardAllocationStrategy,
-    ShardAllocations, ShardId, ShardingError,
+    BeginHandOff, CoordinatorEvent, CoordinatorState, GetShardHome, HostShard, RegionId,
+    ShardAllocationStrategy, ShardAllocations, ShardId, ShardingError,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,12 +35,53 @@ pub enum GetShardHomeIgnoreReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RebalancePlan {
+    Started { shards: Vec<ShardRebalancePlan> },
+    Skipped { reason: RebalanceSkipReason },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShardRebalancePlan {
+    pub shard: ShardId,
+    pub from_region: RegionId,
+    pub participants: BTreeSet<RegionId>,
+    pub begin_handoff: BeginHandOff,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RebalanceSkipReason {
+    PreparingForShutdown,
+    NoShardRegions,
+    StrategySelectedNoShards,
+    SelectedShardsMissingHomes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RebalanceCompletionPlan {
+    Deallocated {
+        shard: ShardId,
+        event: CoordinatorEvent,
+        pending_requesters: Vec<RegionId>,
+        retry_get_shard_home: GetShardHome,
+    },
+    Cleared {
+        shard: ShardId,
+        pending_requesters: Vec<RegionId>,
+    },
+    TimedOut {
+        shard: ShardId,
+        pending_requesters: Vec<RegionId>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoordinatorRuntime {
     state: CoordinatorState,
     all_regions_registered: bool,
     graceful_shutdown_regions: BTreeSet<RegionId>,
     terminating_regions: BTreeSet<RegionId>,
     rebalance_in_progress: BTreeMap<ShardId, BTreeSet<RegionId>>,
+    preparing_for_shutdown: bool,
 }
 
 impl CoordinatorRuntime {
@@ -51,6 +92,7 @@ impl CoordinatorRuntime {
             graceful_shutdown_regions: BTreeSet::new(),
             terminating_regions: BTreeSet::new(),
             rebalance_in_progress: BTreeMap::new(),
+            preparing_for_shutdown: false,
         }
     }
 
@@ -68,6 +110,10 @@ impl CoordinatorRuntime {
 
     pub fn set_all_regions_registered(&mut self, all_regions_registered: bool) {
         self.all_regions_registered = all_regions_registered;
+    }
+
+    pub fn set_preparing_for_shutdown(&mut self, preparing_for_shutdown: bool) {
+        self.preparing_for_shutdown = preparing_for_shutdown;
     }
 
     pub fn mark_graceful_shutdown(&mut self, region: impl Into<RegionId>) {
@@ -101,6 +147,107 @@ impl CoordinatorRuntime {
 
     pub fn pending_rebalance_requesters(&self, shard: &ShardId) -> Option<&BTreeSet<RegionId>> {
         self.rebalance_in_progress.get(shard)
+    }
+
+    pub fn plan_rebalance<S>(&mut self, strategy: &S) -> Result<RebalancePlan, ShardingError>
+    where
+        S: ShardAllocationStrategy,
+    {
+        if self.preparing_for_shutdown {
+            return Ok(RebalancePlan::Skipped {
+                reason: RebalanceSkipReason::PreparingForShutdown,
+            });
+        }
+
+        let active_allocations = self.active_allocations();
+        if active_allocations.region_count() == 0 {
+            return Ok(RebalancePlan::Skipped {
+                reason: RebalanceSkipReason::NoShardRegions,
+            });
+        }
+
+        let in_progress = self
+            .rebalance_in_progress
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let selected = strategy.rebalance(&active_allocations, &in_progress)?;
+        if selected.is_empty() {
+            return Ok(RebalancePlan::Skipped {
+                reason: RebalanceSkipReason::StrategySelectedNoShards,
+            });
+        }
+
+        let participants = self.rebalance_participants();
+        let mut plans = Vec::new();
+        for shard in selected {
+            if self.rebalance_in_progress.contains_key(&shard) {
+                continue;
+            }
+            if let Some(from_region) = self.state.shard_home(&shard).cloned() {
+                self.begin_rebalance(shard.clone());
+                plans.push(ShardRebalancePlan {
+                    begin_handoff: BeginHandOff {
+                        shard_id: shard.clone(),
+                    },
+                    participants: participants.clone(),
+                    shard,
+                    from_region,
+                });
+            }
+        }
+
+        if plans.is_empty() {
+            Ok(RebalancePlan::Skipped {
+                reason: RebalanceSkipReason::SelectedShardsMissingHomes,
+            })
+        } else {
+            Ok(RebalancePlan::Started { shards: plans })
+        }
+    }
+
+    pub fn complete_rebalance(
+        &mut self,
+        shard: impl Into<ShardId>,
+        ok: bool,
+    ) -> Result<RebalanceCompletionPlan, ShardingError> {
+        let shard = shard.into();
+        if !self.rebalance_in_progress.contains_key(&shard) {
+            return Ok(RebalanceCompletionPlan::Cleared {
+                shard,
+                pending_requesters: Vec::new(),
+            });
+        }
+
+        if !ok {
+            let pending_requesters = self.clear_rebalance(&shard);
+            return Ok(RebalanceCompletionPlan::TimedOut {
+                shard,
+                pending_requesters,
+            });
+        }
+
+        if self.state.shard_home(&shard).is_some() {
+            let event = CoordinatorEvent::ShardHomeDeallocated {
+                shard: shard.clone(),
+            };
+            self.state.apply(event.clone())?;
+            let pending_requesters = self.clear_rebalance(&shard);
+            Ok(RebalanceCompletionPlan::Deallocated {
+                retry_get_shard_home: GetShardHome {
+                    shard_id: shard.clone(),
+                },
+                event,
+                pending_requesters,
+                shard,
+            })
+        } else {
+            let pending_requesters = self.clear_rebalance(&shard);
+            Ok(RebalanceCompletionPlan::Cleared {
+                shard,
+                pending_requesters,
+            })
+        }
     }
 
     pub fn request_shard_home<S>(
@@ -182,5 +329,14 @@ impl CoordinatorRuntime {
             active.remove_region(region);
         }
         active
+    }
+
+    fn rebalance_participants(&self) -> BTreeSet<RegionId> {
+        self.state
+            .allocations()
+            .regions()
+            .chain(self.state.proxies().iter())
+            .cloned()
+            .collect()
     }
 }

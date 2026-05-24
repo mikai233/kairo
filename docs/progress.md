@@ -293,6 +293,11 @@ Implemented:
   shard is rebalancing, ignores requests before region registration completes,
   excludes graceful-shutdown and terminating regions from new allocations, and
   emits `HostShard` plans after successful least-shard allocation.
+- `kairo-cluster-sharding` coordinator runtime now plans rebalance workers from
+  the shard allocation strategy, marks selected owned shards in progress,
+  includes registered regions and proxies as `BeginHandOff` participants,
+  deallocates shard homes on successful completion, retries pending
+  `GetShardHome` requests, and clears in-progress state on timeout.
 - `kairo-cluster-sharding` now has a focused shard-region runtime planner that
   buffers unknown shard messages, requests shard homes once per buffered shard,
   forwards buffered messages when a remote home is learned, starts local shards
@@ -390,7 +395,7 @@ Not yet implemented:
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
 - Actor-backed sharding region/shard/coordinator wiring, coordinator rebalance
-  scheduling, transport-backed handoff delivery, and remember-entity storage.
+  timers, transport-backed handoff delivery, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.

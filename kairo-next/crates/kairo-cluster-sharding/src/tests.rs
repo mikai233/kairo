@@ -7,10 +7,11 @@ use kairo_actor::{Actor, ActorError, ActorResult, ActorSystem, Context, Props};
 use crate::{
     BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState, EntityRef,
     GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan, HandOff, HandOffPlan, HostShard,
-    HostShardPlan, LeastShardAllocationStrategy, RegionDropReason, RegionRoutePlan,
-    ShardAllocationStrategy, ShardAllocations, ShardDeliverPlan, ShardDropReason, ShardEntityState,
-    ShardHandOffPlan, ShardHomePlan, ShardRegionRuntime, ShardRuntime, ShardStarted, ShardStopped,
-    ShardingEnvelope, ShardingError, default_shard_id_for, shard_id_for, stable_hash_entity_id,
+    HostShardPlan, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
+    RebalanceSkipReason, RegionDropReason, RegionRoutePlan, ShardAllocationStrategy,
+    ShardAllocations, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
+    ShardHomePlan, ShardRegionRuntime, ShardRuntime, ShardStarted, ShardStopped, ShardingEnvelope,
+    ShardingError, default_shard_id_for, shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -509,6 +510,188 @@ fn coordinator_runtime_ignores_unknown_shard_when_no_active_region_exists() {
             shard: "shard-1".to_string(),
             reason: GetShardHomeIgnoreReason::NoActiveRegions,
         }
+    );
+}
+
+#[test]
+fn coordinator_runtime_plans_rebalance_workers_for_selected_owned_shards() {
+    let strategy = LeastShardAllocationStrategy::new(1, 1.0).unwrap();
+    let mut runtime = coordinator_runtime_with_regions(["region-a", "region-b"]);
+    runtime
+        .apply_event(CoordinatorEvent::ShardRegionProxyRegistered {
+            proxy: "proxy-a".to_string(),
+        })
+        .unwrap();
+    for shard in ["1", "2", "3", "4"] {
+        runtime
+            .apply_event(CoordinatorEvent::ShardHomeAllocated {
+                shard: shard.to_string(),
+                region: "region-a".to_string(),
+            })
+            .unwrap();
+    }
+
+    let plan = runtime.plan_rebalance(&strategy).unwrap();
+
+    assert_eq!(
+        plan,
+        RebalancePlan::Started {
+            shards: vec![crate::ShardRebalancePlan {
+                shard: "1".to_string(),
+                from_region: "region-a".to_string(),
+                participants: BTreeSet::from([
+                    "proxy-a".to_string(),
+                    "region-a".to_string(),
+                    "region-b".to_string(),
+                ]),
+                begin_handoff: crate::BeginHandOff {
+                    shard_id: "1".to_string(),
+                },
+            }],
+        }
+    );
+    assert_eq!(
+        runtime.pending_rebalance_requesters(&"1".to_string()),
+        Some(&BTreeSet::new())
+    );
+}
+
+#[test]
+fn coordinator_runtime_skips_rebalance_when_preparing_for_shutdown() {
+    let strategy = LeastShardAllocationStrategy::default();
+    let mut runtime = coordinator_runtime_with_regions(["region-a"]);
+    runtime.set_preparing_for_shutdown(true);
+
+    assert_eq!(
+        runtime.plan_rebalance(&strategy).unwrap(),
+        RebalancePlan::Skipped {
+            reason: RebalanceSkipReason::PreparingForShutdown,
+        }
+    );
+}
+
+#[test]
+fn coordinator_runtime_skips_rebalance_when_strategy_selects_no_shards() {
+    let strategy = LeastShardAllocationStrategy::default();
+    let mut runtime = coordinator_runtime_with_regions(["region-a", "region-b"]);
+
+    assert_eq!(
+        runtime.plan_rebalance(&strategy).unwrap(),
+        RebalancePlan::Skipped {
+            reason: RebalanceSkipReason::StrategySelectedNoShards,
+        }
+    );
+}
+
+#[test]
+fn coordinator_runtime_ignores_strategy_selected_shards_without_homes() {
+    let strategy = FixedRebalanceStrategy::new(["missing"]);
+    let mut runtime = coordinator_runtime_with_regions(["region-a"]);
+
+    assert_eq!(
+        runtime.plan_rebalance(&strategy).unwrap(),
+        RebalancePlan::Skipped {
+            reason: RebalanceSkipReason::SelectedShardsMissingHomes,
+        }
+    );
+}
+
+#[test]
+fn coordinator_runtime_deallocates_successful_rebalance_and_returns_pending_requesters() {
+    let strategy = LeastShardAllocationStrategy::new(1, 1.0).unwrap();
+    let mut runtime = coordinator_runtime_with_regions(["region-a", "region-b"]);
+    for shard in ["1", "2", "3", "4"] {
+        runtime
+            .apply_event(CoordinatorEvent::ShardHomeAllocated {
+                shard: shard.to_string(),
+                region: "region-a".to_string(),
+            })
+            .unwrap();
+    }
+    assert!(matches!(
+        runtime.plan_rebalance(&strategy).unwrap(),
+        RebalancePlan::Started { .. }
+    ));
+    assert_eq!(
+        runtime
+            .request_shard_home("requester-a", "1", &strategy)
+            .unwrap(),
+        GetShardHomePlan::Deferred {
+            shard: "1".to_string(),
+            requester: "requester-a".to_string(),
+        }
+    );
+
+    let completion = runtime.complete_rebalance("1", true).unwrap();
+
+    assert_eq!(
+        completion,
+        RebalanceCompletionPlan::Deallocated {
+            shard: "1".to_string(),
+            event: CoordinatorEvent::ShardHomeDeallocated {
+                shard: "1".to_string(),
+            },
+            pending_requesters: vec!["requester-a".to_string()],
+            retry_get_shard_home: GetShardHome {
+                shard_id: "1".to_string(),
+            },
+        }
+    );
+    assert_eq!(runtime.state().shard_home(&"1".to_string()), None);
+    assert_eq!(runtime.pending_rebalance_requesters(&"1".to_string()), None);
+}
+
+#[test]
+fn coordinator_runtime_timeout_clears_rebalance_without_deallocating() {
+    let strategy = LeastShardAllocationStrategy::new(1, 1.0).unwrap();
+    let mut runtime = coordinator_runtime_with_regions(["region-a", "region-b"]);
+    for shard in ["1", "2", "3", "4"] {
+        runtime
+            .apply_event(CoordinatorEvent::ShardHomeAllocated {
+                shard: shard.to_string(),
+                region: "region-a".to_string(),
+            })
+            .unwrap();
+    }
+    runtime.plan_rebalance(&strategy).unwrap();
+    runtime
+        .request_shard_home("requester-a", "1", &strategy)
+        .unwrap();
+
+    assert_eq!(
+        runtime.complete_rebalance("1", false).unwrap(),
+        RebalanceCompletionPlan::TimedOut {
+            shard: "1".to_string(),
+            pending_requesters: vec!["requester-a".to_string()],
+        }
+    );
+    assert_eq!(
+        runtime.state().shard_home(&"1".to_string()),
+        Some(&"region-a".to_string())
+    );
+    assert_eq!(runtime.pending_rebalance_requesters(&"1".to_string()), None);
+}
+
+#[test]
+fn coordinator_runtime_completion_without_in_progress_rebalance_is_ignored() {
+    let mut runtime = coordinator_runtime_with_regions(["region-a"]);
+    runtime
+        .apply_event(CoordinatorEvent::ShardHomeAllocated {
+            shard: "1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        runtime.complete_rebalance("1", true).unwrap(),
+        RebalanceCompletionPlan::Cleared {
+            shard: "1".to_string(),
+            pending_requesters: Vec::new(),
+        }
+    );
+    assert_eq!(
+        runtime.state().shard_home(&"1".to_string()),
+        Some(&"region-a".to_string())
     );
 }
 
@@ -1060,6 +1243,37 @@ fn coordinator_runtime_with_regions<const N: usize>(regions: [&str; N]) -> Coord
             .unwrap();
     }
     CoordinatorRuntime::new(state)
+}
+
+struct FixedRebalanceStrategy {
+    shards: BTreeSet<String>,
+}
+
+impl FixedRebalanceStrategy {
+    fn new<const N: usize>(shards: [&str; N]) -> Self {
+        Self {
+            shards: shards.into_iter().map(str::to_string).collect(),
+        }
+    }
+}
+
+impl ShardAllocationStrategy for FixedRebalanceStrategy {
+    fn allocate_shard(
+        &self,
+        _requester: &String,
+        _shard: &String,
+        _current: &ShardAllocations,
+    ) -> Result<String, ShardingError> {
+        Err(ShardingError::NoShardRegions)
+    }
+
+    fn rebalance(
+        &self,
+        _current: &ShardAllocations,
+        _in_progress: &BTreeSet<String>,
+    ) -> Result<BTreeSet<String>, ShardingError> {
+        Ok(self.shards.clone())
+    }
 }
 
 struct RegionProbe {

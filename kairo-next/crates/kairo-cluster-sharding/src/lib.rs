@@ -23,7 +23,10 @@ pub use codec::{
     ShardStoppedCodec, register_sharding_protocol_codecs,
 };
 pub use coordinator::{CoordinatorEvent, CoordinatorState};
-pub use coordinator_runtime::{CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan};
+pub use coordinator_runtime::{
+    CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan, RebalanceCompletionPlan,
+    RebalancePlan, RebalanceSkipReason, ShardRebalancePlan,
+};
 pub use entity_ref::EntityRef;
 pub use entity_type::EntityTypeKey;
 pub use envelope::ShardingEnvelope;
