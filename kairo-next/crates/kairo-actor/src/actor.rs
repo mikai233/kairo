@@ -1,5 +1,6 @@
 use crate::error::{ActorError, ActorResult};
-use crate::refs::ActorRef;
+use crate::path::ActorPath;
+use crate::refs::{ActorRef, AnyActorRef};
 use crate::signal::Signal;
 use crate::system::ActorSystem;
 
@@ -46,6 +47,7 @@ impl<A> Props<A> {
 #[derive(Debug)]
 pub struct Context<M> {
     pub(crate) myself: ActorRef<M>,
+    pub(crate) parent: ActorPath,
     pub(crate) system: ActorSystem,
     pub(crate) stop_requested: bool,
 }
@@ -57,6 +59,18 @@ impl<M: Send + 'static> Context<M> {
 
     pub fn system(&self) -> &ActorSystem {
         &self.system
+    }
+
+    pub fn parent(&self) -> AnyActorRef {
+        AnyActorRef::from_path(self.parent.clone())
+    }
+
+    pub fn children(&self) -> Vec<AnyActorRef> {
+        self.system.children_of(self.myself.path())
+    }
+
+    pub fn child(&self, name: &str) -> Option<AnyActorRef> {
+        self.system.child_of(self.myself.path(), name)
     }
 
     pub fn spawn<A>(

@@ -177,6 +177,10 @@ pub struct AnyActorRef {
 }
 
 impl AnyActorRef {
+    pub(crate) fn from_path(path: ActorPath) -> Self {
+        Self { path }
+    }
+
     pub fn path(&self) -> &ActorPath {
         &self.path
     }

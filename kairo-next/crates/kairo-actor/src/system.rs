@@ -10,7 +10,7 @@ use crate::dispatcher::DispatcherSettings;
 use crate::error::ActorError;
 use crate::mailbox::{Dequeued, Mailbox, SystemMessage};
 use crate::path::{ActorPath, Address};
-use crate::refs::{ActorRef, LocalActorHandle, TerminationLatch};
+use crate::refs::{ActorRef, AnyActorRef, LocalActorHandle, TerminationLatch};
 use crate::signal::Signal;
 
 #[derive(Debug, Clone)]
@@ -77,6 +77,35 @@ impl ActorSystem {
 
     pub fn missing_ref<M>(&self, path: impl Into<String>) -> ActorRef<M> {
         ActorRef::missing(ActorPath::new(path), self.inner.dead_letters.clone())
+    }
+
+    pub(crate) fn children_of(&self, parent_path: &ActorPath) -> Vec<AnyActorRef> {
+        self.inner
+            .children
+            .lock()
+            .expect("actor children registry poisoned")
+            .get(parent_path.as_str())
+            .map(|children| {
+                children
+                    .iter()
+                    .map(|child| AnyActorRef::from_path(child.path().clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn child_of(&self, parent_path: &ActorPath, name: &str) -> Option<AnyActorRef> {
+        self.inner
+            .children
+            .lock()
+            .expect("actor children registry poisoned")
+            .get(parent_path.as_str())
+            .and_then(|children| {
+                children
+                    .iter()
+                    .find(|child| child_name(parent_path, child.path()) == Some(name))
+                    .map(|child| AnyActorRef::from_path(child.path().clone()))
+            })
     }
 
     pub fn spawn<A>(
@@ -237,6 +266,7 @@ fn run_actor<A>(
     let throughput = thread_system.dispatcher_settings().throughput();
     let mut context = Context {
         myself: actor_ref.clone(),
+        parent: ActorPath::new(parent_path.clone()),
         system: thread_system,
         stop_requested: false,
     };
@@ -305,6 +335,12 @@ where
             true
         }
     }
+}
+
+fn child_name<'a>(parent_path: &ActorPath, child_path: &'a ActorPath) -> Option<&'a str> {
+    let rest = child_path.as_str().strip_prefix(parent_path.as_str())?;
+    let rest = rest.strip_prefix('/')?;
+    rest.split_once('#').map(|(name, _)| name)
 }
 
 fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) {

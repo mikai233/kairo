@@ -296,6 +296,12 @@ enum ParentMsg {
     SpawnNamed(mpsc::Sender<ActorPath>),
     SpawnAnonymous(mpsc::Sender<(ActorPath, ActorPath)>),
     SystemName(mpsc::Sender<String>),
+    ParentPath(mpsc::Sender<ActorPath>),
+    Children(mpsc::Sender<Vec<ActorPath>>),
+    ChildNamed {
+        name: String,
+        reply_to: mpsc::Sender<Option<ActorPath>>,
+    },
 }
 
 struct Parent;
@@ -321,6 +327,27 @@ impl Actor for Parent {
             ParentMsg::SystemName(reply_to) => {
                 reply_to
                     .send(ctx.system().name().to_string())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ParentMsg::ParentPath(reply_to) => {
+                reply_to
+                    .send(ctx.parent().path().clone())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ParentMsg::Children(reply_to) => {
+                let paths = ctx
+                    .children()
+                    .into_iter()
+                    .map(|child| child.path().clone())
+                    .collect();
+                reply_to
+                    .send(paths)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ParentMsg::ChildNamed { name, reply_to } => {
+                let path = ctx.child(&name).map(|child| child.path().clone());
+                reply_to
+                    .send(path)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
         }
@@ -377,6 +404,62 @@ fn context_exposes_actor_system_handle() {
     assert_eq!(
         reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         "test"
+    );
+}
+
+#[test]
+fn context_parent_points_to_user_root_for_top_level_actor() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system.spawn("parent", Props::new(|| Parent)).unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    parent.tell(ParentMsg::ParentPath(reply_tx)).unwrap();
+
+    assert_eq!(
+        reply_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .as_str(),
+        "kairo://test/user"
+    );
+}
+
+#[test]
+fn context_children_and_child_lookup_reflect_live_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system.spawn("parent", Props::new(|| Parent)).unwrap();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (children_tx, children_rx) = mpsc::channel();
+    let (child_tx, child_rx) = mpsc::channel();
+    let (missing_tx, missing_rx) = mpsc::channel();
+
+    parent.tell(ParentMsg::SpawnNamed(spawn_tx)).unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(ParentMsg::Children(children_tx)).unwrap();
+    let children = children_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent
+        .tell(ParentMsg::ChildNamed {
+            name: "child".to_string(),
+            reply_to: child_tx,
+        })
+        .unwrap();
+    parent
+        .tell(ParentMsg::ChildNamed {
+            name: "missing".to_string(),
+            reply_to: missing_tx,
+        })
+        .unwrap();
+
+    assert!(children.contains(&child_path));
+    assert_eq!(
+        child_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Some(child_path)
+    );
+    assert_eq!(
+        missing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        None
     );
 }
 
