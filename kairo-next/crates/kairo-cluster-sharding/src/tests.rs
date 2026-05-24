@@ -16,15 +16,15 @@ use crate::{
     RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
     RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
     RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
-    RememberShardStoreState, RememberShardUpdate, RememberedEntities, RememberedEntitiesPlan,
-    ShardActor, ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor,
-    ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
-    ShardHomePlan, ShardMsg, ShardRebalancePlan, ShardRegionActor, ShardRegionMsg,
-    ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime, ShardSnapshot, ShardStarted,
-    ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError, default_shard_id_for,
-    remember_coordinator_shards_key, remember_entity_key_index, remember_entity_key_index_for,
-    remember_entity_shard_key, remember_entity_shard_replicator_key, shard_id_for,
-    stable_hash_entity_id,
+    RememberShardStoreState, RememberShardUpdate, RememberUpdateDonePlan, RememberedEntities,
+    RememberedEntitiesPlan, ShardActor, ShardAllocationStrategy, ShardAllocations,
+    ShardCoordinatorActor, ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason,
+    ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg, ShardRebalancePlan,
+    ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
+    ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
+    default_shard_id_for, remember_coordinator_shards_key, remember_entity_key_index,
+    remember_entity_key_index_for, remember_entity_shard_key, remember_entity_shard_replicator_key,
+    shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -2314,6 +2314,132 @@ fn shard_actor_recovers_remembered_entities_before_delivery() {
             entity_count: 2,
             total_buffered: 0,
             handoff_in_progress: false,
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn shard_runtime_remember_entities_writes_start_before_delivery() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+
+    let update = RememberShardUpdate::new(["entity-1".to_string()], std::iter::empty::<String>());
+    assert_eq!(
+        runtime.deliver(ShardingEnvelope::new("entity-1", "first".to_string())),
+        ShardDeliverPlan::RememberUpdate {
+            update: update.clone(),
+        }
+    );
+    assert!(runtime.remember_update_in_progress());
+    assert_eq!(runtime.entity_state(&"entity-1".to_string()), None);
+    assert_eq!(runtime.buffered_count(&"entity-1".to_string()), 1);
+
+    assert_eq!(
+        runtime.remember_update_done(update),
+        RememberUpdateDonePlan {
+            deliveries: vec![crate::EntityDelivery::new("entity-1", "first".to_string())],
+            next_update: None,
+        }
+    );
+    assert!(!runtime.remember_update_in_progress());
+    assert_eq!(
+        runtime.entity_state(&"entity-1".to_string()),
+        Some(ShardEntityState::Active)
+    );
+}
+
+#[test]
+fn shard_runtime_batches_remember_starts_while_update_is_in_progress() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    let entity_1_update =
+        RememberShardUpdate::new(["entity-1".to_string()], std::iter::empty::<String>());
+    let entity_2_update =
+        RememberShardUpdate::new(["entity-2".to_string()], std::iter::empty::<String>());
+
+    assert_eq!(
+        runtime.deliver(ShardingEnvelope::new("entity-1", "first".to_string())),
+        ShardDeliverPlan::RememberUpdate {
+            update: entity_1_update.clone(),
+        }
+    );
+    assert_eq!(
+        runtime.deliver(ShardingEnvelope::new("entity-2", "second".to_string())),
+        ShardDeliverPlan::Buffered {
+            entity_id: "entity-2".to_string(),
+        }
+    );
+    assert_eq!(runtime.total_buffered_count(), 2);
+
+    assert_eq!(
+        runtime.remember_update_done(entity_1_update),
+        RememberUpdateDonePlan {
+            deliveries: vec![crate::EntityDelivery::new("entity-1", "first".to_string())],
+            next_update: Some(entity_2_update.clone()),
+        }
+    );
+    assert_eq!(
+        runtime.entity_state(&"entity-1".to_string()),
+        Some(ShardEntityState::Active)
+    );
+    assert_eq!(runtime.entity_state(&"entity-2".to_string()), None);
+    assert!(runtime.remember_update_in_progress());
+
+    assert_eq!(
+        runtime.remember_update_done(entity_2_update),
+        RememberUpdateDonePlan {
+            deliveries: vec![crate::EntityDelivery::new("entity-2", "second".to_string())],
+            next_update: None,
+        }
+    );
+    assert_eq!(
+        runtime.entity_state(&"entity-2".to_string()),
+        Some(ShardEntityState::Active)
+    );
+    assert_eq!(runtime.total_buffered_count(), 0);
+}
+
+#[test]
+fn shard_actor_completes_remember_update_before_buffered_delivery() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-remember-update").unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_entities("shard-1", 10),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let done = kit
+        .create_probe::<RememberUpdateDonePlan<String>>("remember-done")
+        .unwrap();
+    let update = RememberShardUpdate::new(["entity-1".to_string()], std::iter::empty::<String>());
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: update.clone(),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::RememberUpdateDone {
+            update,
+            reply_to: done.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        done.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberUpdateDonePlan {
+            deliveries: vec![crate::EntityDelivery::new("entity-1", "first".to_string())],
+            next_update: None,
         }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();

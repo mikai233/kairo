@@ -19,6 +19,7 @@ mod remember_actor;
 mod remember_ddata;
 mod remember_shard_ddata;
 mod shard_actor;
+mod shard_remember;
 mod shard_runtime;
 
 pub use allocation::{LeastShardAllocationStrategy, ShardAllocationStrategy, ShardAllocations};
@@ -74,8 +75,8 @@ pub use remember_shard_ddata::{
 pub use shard_actor::{ShardActor, ShardMsg, ShardSnapshot};
 pub use shard_runtime::{
     EntityDelivery, EntityTerminatedPlan, PassivateIgnoreReason, PassivatePlan,
-    RememberedEntitiesPlan, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
-    ShardRuntime,
+    RememberUpdateDonePlan, RememberedEntitiesPlan, ShardDeliverPlan, ShardDropReason,
+    ShardEntityState, ShardHandOffPlan, ShardRuntime,
 };
 
 pub type EntityId = String;

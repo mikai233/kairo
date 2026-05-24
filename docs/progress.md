@@ -456,6 +456,10 @@ Implemented:
   remembered entity IDs after store load, deterministically mark them active,
   return startup plans for recovered entities, ignore empty IDs, and deliver
   later messages to recovered entities without treating them as first starts.
+- `kairo-cluster-sharding` shard runtime and actor protocols can now enable
+  remember-entity start writes, buffer first deliveries until the remember
+  store confirms the start, and batch additional first-delivery starts into the
+  next deterministic remember-store update.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -603,7 +607,7 @@ Not yet implemented:
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need automatic coordinator/region/shard
   orchestration, including actor-spawned store providers, load-time stashing,
-  remember-update batching, timeouts, and restart-on-store-failure behavior.
+  stop-update batching, timeouts, and restart-on-store-failure behavior.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

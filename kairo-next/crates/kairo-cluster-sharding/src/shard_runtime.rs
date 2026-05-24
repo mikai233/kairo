@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::{EntityId, ShardId, ShardStopped, ShardingEnvelope};
+use crate::shard_remember::ShardRememberState;
+use crate::{EntityId, RememberShardUpdate, ShardId, ShardStopped, ShardingEnvelope};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityDelivery<M> {
@@ -39,6 +40,9 @@ pub enum ShardEntityState {
 pub enum ShardDeliverPlan<M> {
     StartEntity {
         delivery: EntityDelivery<M>,
+    },
+    RememberUpdate {
+        update: RememberShardUpdate,
     },
     Deliver {
         delivery: EntityDelivery<M>,
@@ -114,11 +118,18 @@ pub struct RememberedEntitiesPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RememberUpdateDonePlan<M> {
+    pub deliveries: Vec<EntityDelivery<M>>,
+    pub next_update: Option<RememberShardUpdate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShardRuntime<M> {
     shard_id: ShardId,
     buffer_capacity: usize,
     entities: BTreeMap<EntityId, ShardEntityState>,
     message_buffers: BTreeMap<EntityId, VecDeque<M>>,
+    remember: ShardRememberState,
     preparing_for_shutdown: bool,
     handoff_in_progress: bool,
 }
@@ -130,8 +141,19 @@ impl<M> ShardRuntime<M> {
             buffer_capacity,
             entities: BTreeMap::new(),
             message_buffers: BTreeMap::new(),
+            remember: ShardRememberState::disabled(),
             preparing_for_shutdown: false,
             handoff_in_progress: false,
+        }
+    }
+
+    pub fn new_with_remember_entities(
+        shard_id: impl Into<ShardId>,
+        buffer_capacity: usize,
+    ) -> Self {
+        Self {
+            remember: ShardRememberState::enabled(),
+            ..Self::new(shard_id, buffer_capacity)
         }
     }
 
@@ -161,6 +183,14 @@ impl<M> ShardRuntime<M> {
 
     pub fn handoff_in_progress(&self) -> bool {
         self.handoff_in_progress
+    }
+
+    pub fn remember_entities(&self) -> bool {
+        self.remember.is_enabled()
+    }
+
+    pub fn remember_update_in_progress(&self) -> bool {
+        self.remember.update_in_progress()
     }
 
     pub fn set_preparing_for_shutdown(&mut self, preparing: bool) {
@@ -219,13 +249,40 @@ impl<M> ShardRuntime<M> {
                     message,
                 },
             },
-            None => {
-                self.entities
-                    .insert(entity_id.clone(), ShardEntityState::Active);
-                ShardDeliverPlan::StartEntity {
-                    delivery: EntityDelivery::new(entity_id, message),
-                }
+            None if self.remember_entities() => {
+                self.buffer_new_remembered_entity(entity_id, message)
             }
+            None => self.start_entity(entity_id, message),
+        }
+    }
+
+    pub fn remember_update_done(
+        &mut self,
+        update: RememberShardUpdate,
+    ) -> RememberUpdateDonePlan<M> {
+        let mut deliveries = Vec::new();
+        for entity_id in update.started() {
+            if entity_id.is_empty() {
+                continue;
+            }
+            self.entities
+                .insert(entity_id.clone(), ShardEntityState::Active);
+            deliveries.extend(
+                self.drain_buffer(entity_id)
+                    .into_iter()
+                    .map(|message| EntityDelivery::new(entity_id.clone(), message)),
+            );
+        }
+
+        for entity_id in update.stopped() {
+            self.entities.remove(entity_id);
+            self.message_buffers.remove(entity_id);
+        }
+
+        let next_update = self.remember.complete_update(&update);
+        RememberUpdateDonePlan {
+            deliveries,
+            next_update,
         }
     }
 
@@ -332,6 +389,32 @@ impl<M> ShardRuntime<M> {
             .or_default()
             .push_back(message);
         Ok(())
+    }
+
+    fn buffer_new_remembered_entity(
+        &mut self,
+        entity_id: EntityId,
+        message: M,
+    ) -> ShardDeliverPlan<M> {
+        match self.buffer_message(&entity_id, message) {
+            Ok(()) => match self.remember.record_start(entity_id.clone()) {
+                Some(update) => ShardDeliverPlan::RememberUpdate { update },
+                None => ShardDeliverPlan::Buffered { entity_id },
+            },
+            Err(message) => ShardDeliverPlan::Dropped {
+                entity_id: Some(entity_id),
+                reason: ShardDropReason::BufferFull,
+                message,
+            },
+        }
+    }
+
+    fn start_entity(&mut self, entity_id: EntityId, message: M) -> ShardDeliverPlan<M> {
+        self.entities
+            .insert(entity_id.clone(), ShardEntityState::Active);
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new(entity_id, message),
+        }
     }
 
     fn drain_buffer(&mut self, entity_id: &EntityId) -> Vec<M> {

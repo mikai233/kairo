@@ -1,8 +1,9 @@
 use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
 
 use crate::{
-    EntityId, EntityTerminatedPlan, PassivatePlan, RememberedEntitiesPlan, ShardDeliverPlan,
-    ShardHandOffPlan, ShardId, ShardRuntime, ShardingEnvelope,
+    EntityId, EntityTerminatedPlan, PassivatePlan, RememberShardUpdate, RememberUpdateDonePlan,
+    RememberedEntitiesPlan, ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardRuntime,
+    ShardingEnvelope,
 };
 
 pub struct ShardActor<M> {
@@ -16,12 +17,32 @@ impl<M> ShardActor<M> {
         }
     }
 
+    pub fn new_with_remember_entities(
+        shard_id: impl Into<ShardId>,
+        buffer_capacity: usize,
+    ) -> Self {
+        Self {
+            runtime: ShardRuntime::new_with_remember_entities(shard_id, buffer_capacity),
+        }
+    }
+
     pub fn props(shard_id: impl Into<ShardId>, buffer_capacity: usize) -> Props<Self>
     where
         M: Send + 'static,
     {
         let shard_id = shard_id.into();
         Props::new(move || Self::new(shard_id, buffer_capacity))
+    }
+
+    pub fn props_with_remember_entities(
+        shard_id: impl Into<ShardId>,
+        buffer_capacity: usize,
+    ) -> Props<Self>
+    where
+        M: Send + 'static,
+    {
+        let shard_id = shard_id.into();
+        Props::new(move || Self::new_with_remember_entities(shard_id, buffer_capacity))
     }
 
     pub fn runtime(&self) -> &ShardRuntime<M> {
@@ -53,6 +74,10 @@ pub enum ShardMsg<M> {
     RecoverRememberedEntities {
         entities: Vec<EntityId>,
         reply_to: ActorRef<RememberedEntitiesPlan>,
+    },
+    RememberUpdateDone {
+        update: RememberShardUpdate,
+        reply_to: ActorRef<RememberUpdateDonePlan<M>>,
     },
     SetPreparingForShutdown {
         preparing: bool,
@@ -111,6 +136,10 @@ where
             }
             ShardMsg::RecoverRememberedEntities { entities, reply_to } => {
                 let plan = self.runtime.recover_remembered_entities(entities);
+                let _ = reply_to.tell(plan);
+            }
+            ShardMsg::RememberUpdateDone { update, reply_to } => {
+                let plan = self.runtime.remember_update_done(update);
                 let _ = reply_to.tell(plan);
             }
             ShardMsg::SetPreparingForShutdown { preparing } => {
