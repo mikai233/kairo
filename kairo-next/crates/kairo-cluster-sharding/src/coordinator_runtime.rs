@@ -104,6 +104,25 @@ impl CoordinatorRuntime {
         self.state.apply(event)
     }
 
+    pub fn merge_remembered_shards(
+        &mut self,
+        shards: impl IntoIterator<Item = ShardId>,
+    ) -> Vec<ShardId> {
+        self.state.merge_remembered_shards(shards)
+    }
+
+    pub fn remembered_shard_home_requests(&self) -> Vec<GetShardHome> {
+        if !self.state.remember_entities() {
+            return Vec::new();
+        }
+        self.state
+            .unallocated_shards()
+            .iter()
+            .cloned()
+            .map(|shard_id| GetShardHome { shard_id })
+            .collect()
+    }
+
     pub fn into_state(self) -> CoordinatorState {
         self.state
     }

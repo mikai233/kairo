@@ -5,6 +5,7 @@ mod codec;
 mod coordinator;
 mod coordinator_actor;
 mod coordinator_runtime;
+mod coordinator_store;
 mod entity_ref;
 mod entity_type;
 mod envelope;

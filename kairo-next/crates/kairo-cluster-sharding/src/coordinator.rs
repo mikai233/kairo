@@ -62,6 +62,25 @@ impl CoordinatorState {
             .collect()
     }
 
+    pub fn merge_remembered_shards(
+        &mut self,
+        shards: impl IntoIterator<Item = ShardId>,
+    ) -> Vec<ShardId> {
+        if !self.remember_entities {
+            return Vec::new();
+        }
+
+        let mut added = Vec::new();
+        for shard in shards {
+            if self.allocations.region_for_shard(&shard).is_none()
+                && self.unallocated_shards.insert(shard.clone())
+            {
+                added.push(shard);
+            }
+        }
+        added
+    }
+
     pub fn shard_home(&self, shard: &ShardId) -> Option<&RegionId> {
         self.allocations.region_for_shard(shard)
     }

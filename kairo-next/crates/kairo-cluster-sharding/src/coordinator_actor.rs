@@ -1,12 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
+use kairo_actor::{Actor, ActorRef, ActorResult, AskError, Context, Props};
 
+use crate::coordinator_store::{CoordinatorRememberStore, LocalCoordinatorRememberStoreProvider};
 use crate::{
     CoordinatorEvent, CoordinatorRuntime, CoordinatorState, GetShardHomePlan,
     LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan, RegionId,
-    ShardAllocationStrategy, ShardId, ShardingError,
+    RememberCoordinatorStoreMsg, RememberCoordinatorStoreState, RememberCoordinatorUpdateDone,
+    RememberedShards, ShardAllocationStrategy, ShardId, ShardingError,
 };
 
 pub const REBALANCE_TIMER_KEY: &str = "sharding-coordinator-rebalance";
@@ -15,6 +17,9 @@ pub struct ShardCoordinatorActor {
     runtime: CoordinatorRuntime,
     strategy: Box<dyn ShardAllocationStrategy + Send>,
     rebalance_interval: Option<Duration>,
+    remember_store: Option<CoordinatorRememberStore>,
+    local_remember_store_provider: Option<LocalCoordinatorRememberStoreProvider>,
+    waiting_for_remember_store_load: bool,
 }
 
 impl ShardCoordinatorActor {
@@ -26,6 +31,9 @@ impl ShardCoordinatorActor {
             runtime: CoordinatorRuntime::new(state),
             strategy: Box::new(strategy),
             rebalance_interval: None,
+            remember_store: None,
+            local_remember_store_provider: None,
+            waiting_for_remember_store_load: false,
         }
     }
 
@@ -38,6 +46,44 @@ impl ShardCoordinatorActor {
             runtime: CoordinatorRuntime::new(state),
             strategy: Box::new(strategy),
             rebalance_interval: Some(interval),
+            remember_store: None,
+            local_remember_store_provider: None,
+            waiting_for_remember_store_load: false,
+        }
+    }
+
+    pub fn with_remember_store(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        remember_store: ActorRef<RememberCoordinatorStoreMsg>,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            runtime: CoordinatorRuntime::new(state.with_remember_entities(true)),
+            strategy: Box::new(strategy),
+            rebalance_interval: None,
+            remember_store: Some(CoordinatorRememberStore::new(remember_store, timeout)),
+            local_remember_store_provider: None,
+            waiting_for_remember_store_load: true,
+        }
+    }
+
+    pub fn with_local_remember_store(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        store_state: RememberCoordinatorStoreState,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            runtime: CoordinatorRuntime::new(state.with_remember_entities(true)),
+            strategy: Box::new(strategy),
+            rebalance_interval: None,
+            remember_store: None,
+            local_remember_store_provider: Some(LocalCoordinatorRememberStoreProvider::new(
+                store_state,
+                timeout,
+            )),
+            waiting_for_remember_store_load: true,
         }
     }
 
@@ -62,6 +108,28 @@ impl ShardCoordinatorActor {
 
     pub fn props_with_least_shard_strategy(state: CoordinatorState) -> Props<Self> {
         Props::new(move || Self::with_least_shard_strategy(state))
+    }
+
+    pub fn props_with_remember_store(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        remember_store: ActorRef<RememberCoordinatorStoreMsg>,
+        timeout: Duration,
+        stash_capacity: usize,
+    ) -> Props<Self> {
+        Props::new(move || Self::with_remember_store(state, strategy, remember_store, timeout))
+            .with_stash_capacity(stash_capacity)
+    }
+
+    pub fn props_with_local_remember_store(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        store_state: RememberCoordinatorStoreState,
+        timeout: Duration,
+        stash_capacity: usize,
+    ) -> Props<Self> {
+        Props::new(move || Self::with_local_remember_store(state, strategy, store_state, timeout))
+            .with_stash_capacity(stash_capacity)
     }
 
     pub fn runtime(&self) -> &CoordinatorRuntime {
@@ -109,6 +177,12 @@ pub enum ShardCoordinatorMsg {
     RebalanceTick {
         reply_to: Option<ActorRef<Result<RebalancePlan, ShardingError>>>,
     },
+    RememberStoreLoadResult {
+        result: Result<RememberedShards, AskError>,
+    },
+    RememberStoreUpdateResult {
+        result: Result<RememberCoordinatorUpdateDone, AskError>,
+    },
     StartRebalanceTimer {
         initial_delay: Duration,
         interval: Duration,
@@ -132,6 +206,8 @@ impl Actor for ShardCoordinatorActor {
     type Msg = ShardCoordinatorMsg;
 
     fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.spawn_local_remember_store_if_needed(ctx)?;
+        self.request_remember_store_load(ctx)?;
         if let Some(interval) = self.rebalance_interval {
             start_rebalance_timer(ctx, interval, interval);
         }
@@ -139,6 +215,10 @@ impl Actor for ShardCoordinatorActor {
     }
 
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        if self.waiting_for_remember_store_load {
+            return self.receive_loading(ctx, msg);
+        }
+
         match msg {
             ShardCoordinatorMsg::ApplyEvent { event, reply_to } => {
                 let result = self
@@ -178,6 +258,7 @@ impl Actor for ShardCoordinatorActor {
                 let result =
                     self.runtime
                         .request_shard_home(requester, shard, self.strategy.as_ref());
+                self.persist_allocated_shard(ctx, &result)?;
                 let _ = reply_to.tell(result);
             }
             ShardCoordinatorMsg::PlanRebalance { reply_to } => {
@@ -196,6 +277,14 @@ impl Actor for ShardCoordinatorActor {
                 let result = self.runtime.plan_rebalance(self.strategy.as_ref());
                 reply_optional(reply_to, result);
             }
+            ShardCoordinatorMsg::RememberStoreLoadResult { result } => {
+                self.apply_remember_store_load(ctx, result)?;
+            }
+            ShardCoordinatorMsg::RememberStoreUpdateResult { result } => {
+                if result.is_err() {
+                    return self.stop_for_remember_store_failure(ctx);
+                }
+            }
             ShardCoordinatorMsg::StartRebalanceTimer {
                 initial_delay,
                 interval,
@@ -212,6 +301,84 @@ impl Actor for ShardCoordinatorActor {
             }
         }
         Ok(())
+    }
+}
+
+impl ShardCoordinatorActor {
+    fn receive_loading(
+        &mut self,
+        ctx: &mut Context<ShardCoordinatorMsg>,
+        msg: ShardCoordinatorMsg,
+    ) -> ActorResult {
+        match msg {
+            ShardCoordinatorMsg::RememberStoreLoadResult { result } => {
+                self.apply_remember_store_load(ctx, result)?;
+                ctx.unstash_all()
+            }
+            other => ctx.stash(other),
+        }
+    }
+
+    fn spawn_local_remember_store_if_needed(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg>,
+    ) -> ActorResult {
+        if self.remember_store.is_some() {
+            return Ok(());
+        }
+        let Some(provider) = &mut self.local_remember_store_provider else {
+            return Ok(());
+        };
+        self.remember_store = Some(provider.spawn(ctx)?);
+        Ok(())
+    }
+
+    fn request_remember_store_load(&self, ctx: &Context<ShardCoordinatorMsg>) -> ActorResult {
+        if let Some(store) = &self.remember_store {
+            store.load(ctx)?;
+        }
+        Ok(())
+    }
+
+    fn apply_remember_store_load(
+        &mut self,
+        ctx: &mut Context<ShardCoordinatorMsg>,
+        result: Result<RememberedShards, AskError>,
+    ) -> ActorResult {
+        let remembered = match result {
+            Ok(remembered) => remembered,
+            Err(_) => return self.stop_for_remember_store_failure(ctx),
+        };
+        self.runtime.merge_remembered_shards(remembered.shards);
+        self.waiting_for_remember_store_load = false;
+        Ok(())
+    }
+
+    fn persist_allocated_shard(
+        &self,
+        ctx: &Context<ShardCoordinatorMsg>,
+        result: &Result<GetShardHomePlan, ShardingError>,
+    ) -> ActorResult {
+        let Ok(GetShardHomePlan::Allocated {
+            event: CoordinatorEvent::ShardHomeAllocated { shard, region: _ },
+            host_region: _,
+            host_shard: _,
+        }) = result
+        else {
+            return Ok(());
+        };
+
+        if let Some(store) = &self.remember_store {
+            store.add_shard(ctx, shard.clone())?;
+        }
+        Ok(())
+    }
+
+    fn stop_for_remember_store_failure(
+        &mut self,
+        ctx: &mut Context<ShardCoordinatorMsg>,
+    ) -> ActorResult {
+        ctx.stop(ctx.myself())
     }
 }
 

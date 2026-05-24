@@ -775,6 +775,38 @@ fn coordinator_state_remembers_unallocated_shards_when_enabled() {
 }
 
 #[test]
+fn coordinator_state_merges_remembered_shards_as_unallocated() {
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state
+        .apply(CoordinatorEvent::ShardRegionRegistered {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "allocated".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+
+    let added = state.merge_remembered_shards(["allocated".to_string(), "remembered".to_string()]);
+
+    assert_eq!(added, vec!["remembered".to_string()]);
+    assert_eq!(
+        state.unallocated_shards(),
+        &BTreeSet::from(["remembered".to_string()])
+    );
+
+    let mut disabled = CoordinatorState::new();
+    assert!(
+        disabled
+            .merge_remembered_shards(["ignored".to_string()])
+            .is_empty()
+    );
+    assert!(disabled.unallocated_shards().is_empty());
+}
+
+#[test]
 fn coordinator_state_terminates_regions_and_proxies() {
     let mut state = CoordinatorState::new().with_remember_entities(true);
     state
@@ -880,6 +912,24 @@ fn coordinator_runtime_allocates_unknown_shard_and_plans_host_shard() {
 }
 
 #[test]
+fn coordinator_runtime_reports_remembered_shard_home_requests() {
+    let mut runtime = CoordinatorRuntime::new(CoordinatorState::new().with_remember_entities(true));
+    runtime.merge_remembered_shards(["shard-1".to_string(), "shard-2".to_string()]);
+
+    assert_eq!(
+        runtime.remembered_shard_home_requests(),
+        vec![
+            GetShardHome {
+                shard_id: "shard-1".to_string(),
+            },
+            GetShardHome {
+                shard_id: "shard-2".to_string(),
+            },
+        ]
+    );
+}
+
+#[test]
 fn coordinator_actor_applies_registration_and_allocates_shard_home() {
     let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-allocation").unwrap();
     let coordinator = kit
@@ -947,6 +997,154 @@ fn coordinator_actor_applies_registration_and_allocates_shard_home() {
                 shard_id: "new-shard".to_string(),
             },
         }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn coordinator_actor_loads_remembered_shards_before_serving_requests() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-remember-load").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_local_remember_store(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                RememberCoordinatorStoreState::with_shards(["remembered".to_string()]),
+                Duration::from_millis(500),
+                8,
+            ),
+        )
+        .unwrap();
+    let state = kit
+        .create_probe::<Result<CoordinatorStateSnapshot, ShardingError>>("state")
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::ApplyEvent {
+            event: CoordinatorEvent::ShardRegionRegistered {
+                region: "region-a".to_string(),
+            },
+            reply_to: Some(state.actor_ref()),
+        })
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-a".to_string(),
+            shard: "remembered".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+
+    assert!(
+        state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap()
+            .allocations
+            .contains_key("region-a")
+    );
+    assert_eq!(
+        home.expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        GetShardHomePlan::Allocated {
+            event: CoordinatorEvent::ShardHomeAllocated {
+                shard: "remembered".to_string(),
+                region: "region-a".to_string(),
+            },
+            host_region: "region-a".to_string(),
+            host_shard: HostShard {
+                shard_id: "remembered".to_string(),
+            },
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn coordinator_actor_persists_allocated_shards_to_remember_store() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-remember-update").unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberCoordinatorStoreActor::props(RememberCoordinatorStoreState::new()),
+        )
+        .unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_remember_store(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                store.clone(),
+                Duration::from_millis(500),
+                8,
+            ),
+        )
+        .unwrap();
+    let state = kit
+        .create_probe::<Result<CoordinatorStateSnapshot, ShardingError>>("state")
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+    let store_state = kit
+        .create_probe::<RememberCoordinatorStoreSnapshot>("store-state")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::ApplyEvent {
+            event: CoordinatorEvent::ShardRegionRegistered {
+                region: "region-a".to_string(),
+            },
+            reply_to: Some(state.actor_ref()),
+        })
+        .unwrap();
+    state
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-a".to_string(),
+            shard: "new-shard".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        home.expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        GetShardHomePlan::Allocated { .. }
+    ));
+
+    let mut persisted = false;
+    for _ in 0..20 {
+        store
+            .tell(RememberCoordinatorStoreMsg::GetState {
+                reply_to: store_state.actor_ref(),
+            })
+            .unwrap();
+        persisted = store_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .shards
+            .contains("new-shard");
+        if persisted {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        persisted,
+        "remember coordinator store should include new-shard"
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
