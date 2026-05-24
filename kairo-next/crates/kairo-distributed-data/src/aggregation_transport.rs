@@ -153,6 +153,19 @@ impl<Codec> AggregationTransport<Codec> {
         self.publish_write_to(plan.selection().secondary(), plan, envelope)
     }
 
+    pub fn publish_write_to_replicas<D>(
+        &self,
+        replicas: &[ReplicaId],
+        plan: &WriteAggregationPlan,
+        envelope: &DataEnvelope<D>,
+    ) -> AggregationTransportReport
+    where
+        D: ReplicatedData,
+        Codec: CrdtDataCodec<D>,
+    {
+        self.publish_write_to(replicas, plan, envelope)
+    }
+
     pub fn publish_read<D>(&self, plan: &ReadAggregationPlan<D>) -> AggregationTransportReport
     where
         D: crate::DeltaReplicatedData,
@@ -168,6 +181,17 @@ impl<Codec> AggregationTransport<Codec> {
         D: crate::DeltaReplicatedData,
     {
         self.publish_read_to(plan.selection().secondary(), plan)
+    }
+
+    pub fn publish_read_to_replicas<D>(
+        &self,
+        replicas: &[ReplicaId],
+        plan: &ReadAggregationPlan<D>,
+    ) -> AggregationTransportReport
+    where
+        D: crate::DeltaReplicatedData,
+    {
+        self.publish_read_to(replicas, plan)
     }
 
     fn publish_write_to<D>(

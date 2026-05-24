@@ -99,35 +99,7 @@ where
     }
 
     fn response_for(&mut self, outcome: WriteAggregationOutcome) -> UpdateResponse<Delta> {
-        match outcome {
-            WriteAggregationOutcome::InProgress => UpdateResponse::Failure {
-                key: self.key.clone(),
-                reason: "write aggregation completed with non-terminal state".to_string(),
-            },
-            WriteAggregationOutcome::Success => {
-                if let Some(outcome) = self.outcome.take() {
-                    UpdateResponse::Success(outcome)
-                } else {
-                    UpdateResponse::Failure {
-                        key: self.key.clone(),
-                        reason: "write aggregation success was reported more than once".to_string(),
-                    }
-                }
-            }
-            WriteAggregationOutcome::Failed {
-                required,
-                available,
-            } => UpdateResponse::Failure {
-                key: self.key.clone(),
-                reason: format!(
-                    "write quorum failed: required {required} remote acknowledgements, \
-                     only {available} replicas remain available"
-                ),
-            },
-            WriteAggregationOutcome::Timeout { .. } => UpdateResponse::Timeout {
-                key: self.key.clone(),
-            },
-        }
+        write_aggregation_response(&self.key, &mut self.outcome, outcome)
     }
 }
 
@@ -226,26 +198,71 @@ where
     }
 
     fn response_for(&self, outcome: ReadAggregationOutcome<D>) -> GetResponse<D> {
-        match outcome {
-            ReadAggregationOutcome::InProgress => GetResponse::Failure {
-                key: self.key.clone(),
-                reason: "read aggregation completed with non-terminal state".to_string(),
-            },
-            ReadAggregationOutcome::Success { envelope } => GetResponse::Success {
-                key: self.key.clone(),
-                data: envelope.into_data(),
-            },
-            ReadAggregationOutcome::NotFound => GetResponse::NotFound {
-                key: self.key.clone(),
-            },
-            ReadAggregationOutcome::Failure { required, received } => GetResponse::Failure {
-                key: self.key.clone(),
-                reason: format!(
-                    "read quorum failed: required {required} remote replies, \
-                     received {received}"
-                ),
-            },
+        read_aggregation_response(&self.key, outcome)
+    }
+}
+
+pub(crate) fn write_aggregation_response<Delta>(
+    key: &ReplicatorKey,
+    outcome: &mut Option<UpdateOutcome<Delta>>,
+    aggregation: WriteAggregationOutcome,
+) -> UpdateResponse<Delta>
+where
+    Delta: ReplicatedDelta + Send + 'static,
+{
+    match aggregation {
+        WriteAggregationOutcome::InProgress => UpdateResponse::Failure {
+            key: key.clone(),
+            reason: "write aggregation completed with non-terminal state".to_string(),
+        },
+        WriteAggregationOutcome::Success => {
+            if let Some(outcome) = outcome.take() {
+                UpdateResponse::Success(outcome)
+            } else {
+                UpdateResponse::Failure {
+                    key: key.clone(),
+                    reason: "write aggregation success was reported more than once".to_string(),
+                }
+            }
         }
+        WriteAggregationOutcome::Failed {
+            required,
+            available,
+        } => UpdateResponse::Failure {
+            key: key.clone(),
+            reason: format!(
+                "write quorum failed: required {required} remote acknowledgements, \
+                 only {available} replicas remain available"
+            ),
+        },
+        WriteAggregationOutcome::Timeout { .. } => UpdateResponse::Timeout { key: key.clone() },
+    }
+}
+
+pub(crate) fn read_aggregation_response<D>(
+    key: &ReplicatorKey,
+    outcome: ReadAggregationOutcome<D>,
+) -> GetResponse<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+{
+    match outcome {
+        ReadAggregationOutcome::InProgress => GetResponse::Failure {
+            key: key.clone(),
+            reason: "read aggregation completed with non-terminal state".to_string(),
+        },
+        ReadAggregationOutcome::Success { envelope } => GetResponse::Success {
+            key: key.clone(),
+            data: envelope.into_data(),
+        },
+        ReadAggregationOutcome::NotFound => GetResponse::NotFound { key: key.clone() },
+        ReadAggregationOutcome::Failure { required, received } => GetResponse::Failure {
+            key: key.clone(),
+            reason: format!(
+                "read quorum failed: required {required} remote replies, \
+                 received {received}"
+            ),
+        },
     }
 }
 

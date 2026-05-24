@@ -3,6 +3,7 @@
 mod aggregation;
 mod aggregation_actor;
 mod aggregation_operation;
+mod aggregation_session;
 mod aggregation_transport;
 mod aggregation_wire;
 mod codec;
@@ -45,6 +46,11 @@ pub use aggregation_actor::{
 pub use aggregation_operation::{
     ReadAggregationOperation, ReadAggregationOperationEvent, ReadAggregationOperationMsg,
     WriteAggregationOperation, WriteAggregationOperationEvent, WriteAggregationOperationMsg,
+};
+pub use aggregation_session::{
+    ReadAggregationSession, ReadAggregationSessionEvent, ReadAggregationSessionMsg,
+    ReadAggregationSessionOutcome, WriteAggregationSession, WriteAggregationSessionEvent,
+    WriteAggregationSessionMsg,
 };
 pub use aggregation_transport::{
     AggregationTarget, AggregationTransport, AggregationTransportFailure,
