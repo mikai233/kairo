@@ -352,6 +352,10 @@ Implemented:
   emit full-state retry effects for delta NACKs, and read aggregators merge
   source-tagged read results once per replica before reporting success,
   not-found, decode failure, or timeout.
+- `kairo-distributed-data` now has focused read/write aggregation operation
+  adapters that translate short-lived aggregator completion events into public
+  `UpdateResponse` and `GetResponse` values, while keeping full-state retry
+  and read-decode diagnostic effects structured separately from public replies.
 - `kairo-distributed-data` now has a focused remote-envelope bridge that wraps
   stable replicator payloads in `RemoteEnvelope` recipient/sender metadata,
   preserving the sender actor-ref wire data needed to correlate remote
@@ -770,7 +774,7 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, actor-system lifetime management for
+  propagation/direct read/write, actor-system spawning/lifetime management for
   temporary aggregation actors in public update/get paths, pruning scheduling,
   and gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard

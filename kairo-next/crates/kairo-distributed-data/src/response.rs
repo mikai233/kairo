@@ -60,13 +60,16 @@ pub enum UpdateResponse<Delta> {
     Success(UpdateOutcome<Delta>),
     Timeout { key: ReplicatorKey },
     ModifyFailure { key: ReplicatorKey, reason: String },
+    Failure { key: ReplicatorKey, reason: String },
 }
 
 impl<Delta> UpdateResponse<Delta> {
     pub fn key(&self) -> &ReplicatorKey {
         match self {
             Self::Success(outcome) => outcome.key(),
-            Self::Timeout { key } | Self::ModifyFailure { key, .. } => key,
+            Self::Timeout { key } | Self::ModifyFailure { key, .. } | Self::Failure { key, .. } => {
+                key
+            }
         }
     }
 }

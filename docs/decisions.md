@@ -665,3 +665,27 @@ Consequences:
 - Later actor-system provider integration must ensure temporary aggregation
   actors are resolvable for the lifetime of the operation and removed when the
   operation completes or times out.
+
+## ADR-0027: Distributed-Data Quorum Failures Stay Distinct From Timeouts
+
+Status: Accepted
+
+Context:
+Pekko's distributed-data replicator distinguishes successful updates, read
+failures, write timeouts, and store or replication failures. Kairo's initial
+`UpdateResponse` only had `Success`, `Timeout`, and `ModifyFailure`, which
+would force impossible write quorums caused by NACKs or not-enough remaining
+replicas to be reported as timeouts.
+
+Decision:
+`UpdateResponse` includes a general `Failure { key, reason }` variant for
+non-modification failures that are known synchronously by the aggregation
+operation. Timeout remains reserved for elapsed deadline behavior, while
+`ModifyFailure` remains reserved for user update-function failures.
+
+Consequences:
+- Public write replies can preserve the observable distinction between an
+  elapsed deadline and a failed quorum.
+- Future durable-store or transport-level aggregation failures can use the
+  same explicit failure variant without changing stable wire manifests.
+- Existing local update behavior remains unchanged.

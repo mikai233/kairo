@@ -229,7 +229,7 @@ fn map_update_response(
             key: key.as_str().to_string(),
             reason: format!("timed out while adding shard {shard}"),
         }),
-        UpdateResponse::ModifyFailure { key, reason } => {
+        UpdateResponse::ModifyFailure { key, reason } | UpdateResponse::Failure { key, reason } => {
             Err(ShardingError::RememberStoreUpdateFailed {
                 key: key.as_str().to_string(),
                 reason,

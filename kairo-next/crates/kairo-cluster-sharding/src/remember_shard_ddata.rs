@@ -380,7 +380,8 @@ impl RememberShardDDataStoreActor {
                     }))
                     .map_err(send_error_to_actor_error)?;
             }
-            UpdateResponse::ModifyFailure { key, reason } => {
+            UpdateResponse::ModifyFailure { key, reason }
+            | UpdateResponse::Failure { key, reason } => {
                 let pending = self
                     .pending_updates
                     .remove(&update_id)
