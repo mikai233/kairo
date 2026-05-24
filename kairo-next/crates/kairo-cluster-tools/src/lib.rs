@@ -4,7 +4,8 @@ mod singleton;
 mod topic;
 
 pub use singleton::{
-    SingletonOldestChange, SingletonOldestObservation, SingletonOldestTracker, SingletonScope,
+    SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange,
+    SingletonOldestObservation, SingletonOldestTracker, SingletonScope,
 };
 pub use topic::TopicName;
 

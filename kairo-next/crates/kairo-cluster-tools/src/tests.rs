@@ -1,7 +1,10 @@
 use kairo_actor::Address;
 use kairo_cluster::{ClusterEvent, Member, MemberEvent, MemberStatus, UniqueAddress};
 
-use crate::{SingletonOldestChange, SingletonOldestTracker, SingletonScope};
+use crate::{
+    SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange,
+    SingletonOldestTracker, SingletonScope,
+};
 
 #[test]
 fn singleton_oldest_tracker_filters_by_role_and_initial_age() {
@@ -138,6 +141,141 @@ fn singleton_oldest_tracker_ignores_self_exited_and_non_matching_role() {
             .collect::<Vec<_>>(),
         vec![node_b, node_c]
     );
+}
+
+#[test]
+fn singleton_manager_starts_immediately_when_self_is_safe_oldest() {
+    let node_a = node("a", 1);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [member(node_a.clone(), MemberStatus::Up, 1)],
+    );
+    let mut manager = SingletonManagerRuntime::new(node_a);
+
+    assert_eq!(
+        manager.apply_initial_observation(observation),
+        vec![SingletonManagerEffect::StartSingleton]
+    );
+    assert_eq!(
+        manager.state(),
+        &SingletonManagerState::Oldest {
+            singleton_running: true,
+        }
+    );
+}
+
+#[test]
+fn singleton_manager_requests_handover_before_becoming_oldest() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_b.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let mut manager = SingletonManagerRuntime::new(node_b.clone());
+    assert!(manager.apply_initial_observation(observation).is_empty());
+
+    assert_eq!(
+        manager.apply_oldest_change(SingletonOldestChange::OldestChanged(Some(node_b.clone()))),
+        vec![SingletonManagerEffect::SendHandOverToMe { to: node_a.clone() }]
+    );
+    assert_eq!(
+        manager.state(),
+        &SingletonManagerState::BecomingOldest {
+            previous_oldest: vec![node_a.clone()],
+            handover_started: false,
+        }
+    );
+
+    assert!(manager.hand_over_in_progress(&node_a).is_empty());
+    assert_eq!(
+        manager.state(),
+        &SingletonManagerState::BecomingOldest {
+            previous_oldest: vec![node_a.clone()],
+            handover_started: true,
+        }
+    );
+    assert_eq!(
+        manager.hand_over_done(&node_a),
+        vec![SingletonManagerEffect::StartSingleton]
+    );
+    assert_eq!(
+        manager.state(),
+        &SingletonManagerState::Oldest {
+            singleton_running: true,
+        }
+    );
+}
+
+#[test]
+fn singleton_manager_starts_when_previous_oldest_is_removed() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_b.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Leaving, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let mut manager = SingletonManagerRuntime::new(node_b);
+    assert!(manager.apply_initial_observation(observation).is_empty());
+
+    assert!(manager.mark_removed(node_a).is_empty());
+    assert_eq!(
+        manager.apply_oldest_change(SingletonOldestChange::OldestChanged(Some(node("b", 2)))),
+        vec![SingletonManagerEffect::StartSingleton]
+    );
+    assert_eq!(
+        manager.state(),
+        &SingletonManagerState::Oldest {
+            singleton_running: true,
+        }
+    );
+}
+
+#[test]
+fn singleton_manager_hands_over_when_oldest_changes_away() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [member(node_a.clone(), MemberStatus::Up, 1)],
+    );
+    let mut manager = SingletonManagerRuntime::new(node_a.clone());
+    manager.apply_initial_observation(observation);
+
+    assert_eq!(
+        manager.apply_oldest_change(SingletonOldestChange::OldestChanged(Some(node_b.clone()))),
+        vec![SingletonManagerEffect::SendTakeOverFromMe { to: node_b.clone() }]
+    );
+    assert_eq!(
+        manager.hand_over_to_me(node_b.clone()),
+        vec![
+            SingletonManagerEffect::SendHandOverInProgress { to: node_b.clone() },
+            SingletonManagerEffect::StopSingleton,
+        ]
+    );
+    assert_eq!(
+        manager.state(),
+        &SingletonManagerState::HandingOver {
+            singleton_running: true,
+            handover_to: Some(node_b.clone()),
+        }
+    );
+
+    assert_eq!(
+        manager.singleton_terminated(),
+        vec![SingletonManagerEffect::SendHandOverDone { to: node_b }]
+    );
+    assert_eq!(manager.state(), &SingletonManagerState::End);
 }
 
 fn member(unique_address: UniqueAddress, status: MemberStatus, up_number: u64) -> Member {

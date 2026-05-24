@@ -393,6 +393,11 @@ Implemented:
   sorts eligible UP members by cluster age, reports oldest changes from member
   events, and marks takeover unsafe while older leaving/exiting/down members
   are still present.
+- `kairo-cluster-tools` now has a focused singleton manager runtime planner
+  that turns oldest-member observations and handover messages into explicit
+  start-singleton, stop-singleton, handover, takeover, and manager-stop
+  effects, covering safe immediate startup, delayed takeover, previous-oldest
+  removal, and handover completion before actor wiring is added.
 
 Not yet implemented:
 
