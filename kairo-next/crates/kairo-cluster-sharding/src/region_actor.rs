@@ -4,7 +4,8 @@ use std::time::Duration;
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 
 use crate::region_protocol::{
-    RegionBufferedReplayPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan, ShardRegionMsg,
+    RegionBufferedReplayPlan, RegionLocalHandOffCompletionFailure,
+    RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan, ShardRegionMsg,
     ShardRegionSnapshot,
 };
 use crate::region_shards::LocalShardSpawner;
@@ -185,6 +186,21 @@ where
                 let local_plan =
                     self.dispatch_local_handoff_plan(plan, stop_message, shard_reply_to)?;
                 let _ = region_reply_to.tell(local_plan);
+            }
+            ShardRegionMsg::CompleteLocalShardHandOff {
+                shard,
+                timeout,
+                reply_to,
+            } => {
+                self.complete_local_shard_handoff(ctx, shard, timeout, reply_to)?;
+            }
+            ShardRegionMsg::LocalShardHandOffStopperResult {
+                shard,
+                result,
+                reply_to,
+            } => {
+                let plan = self.apply_local_shard_handoff_stopper_result(ctx, shard, result)?;
+                let _ = reply_to.tell(plan);
             }
             ShardRegionMsg::MarkShardStopped { shard, reply_to } => {
                 self.runtime.mark_shard_stopped(&shard);
@@ -382,6 +398,66 @@ where
                 stopped,
                 dropped_buffered,
             }),
+        }
+    }
+
+    fn complete_local_shard_handoff(
+        &self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        shard: ShardId,
+        timeout: Duration,
+        reply_to: ActorRef<RegionLocalHandOffCompletionPlan>,
+    ) -> Result<(), ActorError> {
+        let Some(shard_ref) = self.local_shards.get(&shard).cloned() else {
+            let _ = reply_to.tell(RegionLocalHandOffCompletionPlan::Failed {
+                shard,
+                reason: RegionLocalHandOffCompletionFailure::MissingLocalShard,
+            });
+            return Ok(());
+        };
+
+        ctx.ask(
+            shard_ref,
+            timeout,
+            |reply_to| ShardMsg::HandOffStopperTerminated { reply_to },
+            move |result| ShardRegionMsg::LocalShardHandOffStopperResult {
+                shard,
+                result,
+                reply_to,
+            },
+        )
+    }
+
+    fn apply_local_shard_handoff_stopper_result(
+        &mut self,
+        ctx: &mut Context<ShardRegionMsg<M>>,
+        shard: ShardId,
+        result: kairo_actor::AskResult<bool>,
+    ) -> Result<RegionLocalHandOffCompletionPlan, ActorError> {
+        match result {
+            Ok(true) => {
+                if let Some(shard_ref) = self.local_shards.get(&shard).cloned() {
+                    ctx.stop(shard_ref)?;
+                }
+                self.runtime.mark_shard_stopped(&shard);
+                self.local_shards.remove(&shard);
+                Ok(RegionLocalHandOffCompletionPlan::Completed {
+                    stopped: crate::ShardStopped {
+                        shard_id: shard.clone(),
+                    },
+                    shard,
+                })
+            }
+            Ok(false) => Ok(RegionLocalHandOffCompletionPlan::Failed {
+                shard,
+                reason: RegionLocalHandOffCompletionFailure::StopperNotInProgress,
+            }),
+            Err(kairo_actor::AskError::Timeout { timeout }) => {
+                Ok(RegionLocalHandOffCompletionPlan::Failed {
+                    shard,
+                    reason: RegionLocalHandOffCompletionFailure::StopperTimeout { timeout },
+                })
+            }
         }
     }
 

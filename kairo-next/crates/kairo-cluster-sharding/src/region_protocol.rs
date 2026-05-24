@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
+use std::time::Duration;
 
-use kairo_actor::ActorRef;
+use kairo_actor::{ActorRef, AskResult};
 
 use crate::{
     BeginHandOffPlan, GetShardHome, HandOff, HandOffPlan, HostShardPlan, RegionDropReason,
@@ -52,6 +53,16 @@ pub enum ShardRegionMsg<M> {
         stop_message: M,
         region_reply_to: ActorRef<RegionLocalHandOffPlan>,
         shard_reply_to: ActorRef<ShardHandOffPlan<M>>,
+    },
+    CompleteLocalShardHandOff {
+        shard: ShardId,
+        timeout: Duration,
+        reply_to: ActorRef<RegionLocalHandOffCompletionPlan>,
+    },
+    LocalShardHandOffStopperResult {
+        shard: ShardId,
+        result: AskResult<bool>,
+        reply_to: ActorRef<RegionLocalHandOffCompletionPlan>,
     },
     MarkShardStopped {
         shard: ShardId,
@@ -129,6 +140,25 @@ pub enum RegionLocalHandOffPlan {
         stopped: ShardStopped,
         dropped_buffered: usize,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegionLocalHandOffCompletionPlan {
+    Completed {
+        shard: ShardId,
+        stopped: ShardStopped,
+    },
+    Failed {
+        shard: ShardId,
+        reason: RegionLocalHandOffCompletionFailure,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegionLocalHandOffCompletionFailure {
+    MissingLocalShard,
+    StopperNotInProgress,
+    StopperTimeout { timeout: Duration },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
