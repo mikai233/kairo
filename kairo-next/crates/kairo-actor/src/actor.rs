@@ -7,6 +7,7 @@ use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef};
 use crate::scheduler::Cancellable;
 use crate::signal::Signal;
+use crate::stash::StashState;
 use crate::supervision::SupervisorStrategy;
 use crate::system::ActorSystem;
 use crate::tasks::{self, TaskHandle};
@@ -39,6 +40,7 @@ pub struct Props<A> {
     builder: Option<Box<dyn FnOnce() -> A + Send>>,
     restart_builder: Option<Arc<dyn Fn() -> A + Send + Sync>>,
     supervisor: SupervisorStrategy,
+    stash_capacity: Option<usize>,
 }
 
 impl<A: 'static> Props<A> {
@@ -50,6 +52,7 @@ impl<A: 'static> Props<A> {
             builder: Some(Box::new(builder)),
             restart_builder: None,
             supervisor: SupervisorStrategy::default(),
+            stash_capacity: None,
         }
     }
 
@@ -63,11 +66,17 @@ impl<A: 'static> Props<A> {
             builder: Some(Box::new(move || initial_builder())),
             restart_builder: Some(restart_builder),
             supervisor: SupervisorStrategy::Restart,
+            stash_capacity: None,
         }
     }
 
     pub fn with_supervisor(mut self, supervisor: SupervisorStrategy) -> Self {
         self.supervisor = supervisor;
+        self
+    }
+
+    pub fn with_stash_capacity(mut self, capacity: usize) -> Self {
+        self.stash_capacity = Some(capacity);
         self
     }
 
@@ -85,6 +94,10 @@ impl<A: 'static> Props<A> {
     pub(crate) fn restart(&self) -> Option<A> {
         self.restart_builder.as_ref().map(|builder| builder())
     }
+
+    pub(crate) fn stash_capacity(&self) -> Option<usize> {
+        self.stash_capacity
+    }
 }
 
 #[derive(Debug)]
@@ -94,6 +107,7 @@ pub struct Context<M> {
     pub(crate) system: ActorSystem,
     pub(crate) stop_requested: bool,
     pub(crate) timers: TimerState,
+    pub(crate) stash: StashState<M>,
 }
 
 impl<M: Send + 'static> Context<M> {
@@ -123,6 +137,50 @@ impl<M: Send + 'static> Context<M> {
 
     pub fn receptionist(&self) -> Receptionist {
         self.system.receptionist()
+    }
+
+    pub fn stash(&mut self, message: M) -> ActorResult {
+        self.stash.stash(message)
+    }
+
+    pub fn unstash(&mut self, limit: usize) -> ActorResult {
+        let messages = self.stash.take(limit);
+        if messages.is_empty() {
+            return Ok(());
+        }
+        self.myself
+            .prepend_user_messages(messages)
+            .map_err(|messages| {
+                ActorError::Message(format!("failed to unstash {} messages", messages.len()))
+            })
+    }
+
+    pub fn unstash_all(&mut self) -> ActorResult {
+        let messages = self.stash.take_all();
+        if messages.is_empty() {
+            return Ok(());
+        }
+        self.myself
+            .prepend_user_messages(messages)
+            .map_err(|messages| {
+                ActorError::Message(format!("failed to unstash {} messages", messages.len()))
+            })
+    }
+
+    pub fn clear_stash(&mut self) {
+        self.stash.clear();
+    }
+
+    pub fn stash_len(&self) -> usize {
+        self.stash.len()
+    }
+
+    pub fn stash_capacity(&self) -> Option<usize> {
+        self.stash.capacity()
+    }
+
+    pub fn is_stash_full(&self) -> bool {
+        self.stash.is_full()
     }
 
     pub fn spawn_task<F>(&self, task: F) -> Result<TaskHandle, ActorError>

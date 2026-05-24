@@ -212,6 +212,13 @@ impl<M: Send + 'static> ActorRef<M> {
         })
     }
 
+    pub(crate) fn prepend_user_messages(&self, messages: Vec<M>) -> Result<(), Vec<M>> {
+        let Some(mailbox) = &self.target.mailbox else {
+            return Err(messages);
+        };
+        mailbox.prepend_user_messages(messages)
+    }
+
     pub fn as_any(&self) -> AnyActorRef {
         AnyActorRef {
             path: self.path.clone(),

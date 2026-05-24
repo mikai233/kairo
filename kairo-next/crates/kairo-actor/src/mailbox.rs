@@ -71,6 +71,18 @@ impl<M> Mailbox<M> {
         Ok(())
     }
 
+    pub(crate) fn prepend_user_messages(&self, mut messages: Vec<M>) -> Result<(), Vec<M>> {
+        let mut state = self.state.lock().expect("mailbox poisoned");
+        if state.closed {
+            return Err(messages);
+        }
+        for message in messages.drain(..).rev() {
+            state.user.push_front(UserEnvelope::Message(message));
+        }
+        self.ready.notify_one();
+        Ok(())
+    }
+
     pub(crate) fn enqueue_timer(&self, timer: TimerEnvelope<M>) -> Result<(), TimerEnvelope<M>> {
         let mut state = self.state.lock().expect("mailbox poisoned");
         if state.closed {

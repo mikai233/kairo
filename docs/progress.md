@@ -93,6 +93,12 @@ Implemented:
   adapted protocol messages into the owning actor's mailbox.
 - Adapted user-message envelopes live in the mailbox runtime, and adapter ref
   construction lives in a focused `adapters` module.
+- `Props::with_stash_capacity` enables opt-in typed stash support, and
+  `Context::stash`, `unstash`, `unstash_all`, `clear_stash`, and stash
+  inspection helpers provide FIFO replay before later mailbox messages with
+  explicit disabled/full errors.
+- Stash state lives in a focused `stash` module rather than being embedded in
+  the actor runtime loop.
 - `Context::ask` creates a one-shot typed local reply ref, maps replies or
   `AskError::Timeout` back into the owning actor's mailbox, and rejects late
   replies after completion.

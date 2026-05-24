@@ -33,6 +33,10 @@ pub enum ActorError {
     InvalidStopTarget { actor: String, owner: String },
     #[error("actor `{watcher}` is already watching `{actor}` with another notification")]
     AlreadyWatching { actor: String, watcher: String },
+    #[error("stash is not enabled for this actor")]
+    StashDisabled,
+    #[error("stash is full at capacity {capacity}")]
+    StashFull { capacity: usize },
 }
 
 pub struct SendError<M> {

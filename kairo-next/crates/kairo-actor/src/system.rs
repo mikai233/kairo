@@ -17,6 +17,7 @@ use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
 use crate::registry::ActorRegistry;
 use crate::scheduler::{Cancellable, ManualScheduler, Scheduler};
 use crate::signal::Signal;
+use crate::stash::StashState;
 use crate::supervision::{SupervisionState, SupervisorStrategy};
 use crate::timers::TimerState;
 
@@ -459,6 +460,7 @@ fn run_actor<A>(
         system: thread_system,
         stop_requested: false,
         timers: TimerState::default(),
+        stash: StashState::new(props.stash_capacity()),
     };
     let mut supervision_state = SupervisionState::default();
 

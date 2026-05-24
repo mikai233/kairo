@@ -16,6 +16,7 @@ mod refs;
 mod registry;
 mod scheduler;
 mod signal;
+mod stash;
 mod supervision;
 mod system;
 mod tasks;
