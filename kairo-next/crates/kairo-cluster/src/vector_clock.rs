@@ -31,6 +31,12 @@ impl VectorClock {
         Self::default()
     }
 
+    pub fn from_entries(entries: impl IntoIterator<Item = (VectorClockNode, u64)>) -> Self {
+        Self {
+            versions: entries.into_iter().collect(),
+        }
+    }
+
     pub fn increment(&self, node: impl Into<VectorClockNode>) -> Self {
         let mut versions = self.versions.clone();
         let node = node.into();
@@ -41,6 +47,10 @@ impl VectorClock {
 
     pub fn get(&self, node: &VectorClockNode) -> u64 {
         self.versions.get(node).copied().unwrap_or(0)
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = (&VectorClockNode, u64)> {
+        self.versions.iter().map(|(node, version)| (node, *version))
     }
 
     pub fn is_empty(&self) -> bool {

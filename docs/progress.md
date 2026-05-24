@@ -264,19 +264,18 @@ Implemented:
   event-publisher updates. Cluster `Join`, `Welcome`, and `GossipEnvelope`
   protocol structs now carry the membership data needed by those transitions
   while retaining stable manifests.
-- `kairo-cluster::register_cluster_control_codecs` registers stable explicit
-  codecs and serializer ids for the initial heartbeat, heartbeat response, and
-  join control messages. Full gossip/welcome payload codecs remain separate
-  follow-up work.
+- `kairo-cluster::register_cluster_protocol_codecs` registers stable explicit
+  codecs and serializer ids for heartbeat, heartbeat response, join, welcome,
+  and gossip envelope messages, including member lists, seen state,
+  reachability versions/records, vector clocks, and tombstones.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
-- Full actor-system local/remote provider integration, full cluster
-  gossip/welcome protocol codecs, optional codec helper crates,
-  transport-backed associations, actor-system-backed inbound target resolution,
-  and broader cross-crate compatibility fixtures.
+- Full actor-system local/remote provider integration, optional codec helper
+  crates, transport-backed associations, actor-system-backed inbound target
+  resolution, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

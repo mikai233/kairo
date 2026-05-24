@@ -25,6 +25,22 @@ impl Gossip {
         }
     }
 
+    pub fn from_parts(
+        members: impl IntoIterator<Item = Member>,
+        seen: impl IntoIterator<Item = UniqueAddress>,
+        reachability: Reachability,
+        version: VectorClock,
+        tombstones: impl IntoIterator<Item = (UniqueAddress, Timestamp)>,
+    ) -> Self {
+        Self {
+            members: normalize_members(members),
+            seen: seen.into_iter().collect(),
+            reachability,
+            version,
+            tombstones: tombstones.into_iter().collect(),
+        }
+    }
+
     pub fn members(&self) -> &[Member] {
         &self.members
     }

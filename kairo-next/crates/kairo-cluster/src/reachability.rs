@@ -28,8 +28,22 @@ impl Reachability {
         Self::default()
     }
 
+    pub fn from_parts(
+        records: impl IntoIterator<Item = ReachabilityRecord>,
+        versions: impl IntoIterator<Item = (UniqueAddress, u64)>,
+    ) -> Self {
+        Self {
+            records: records.into_iter().collect(),
+            versions: versions.into_iter().collect(),
+        }
+    }
+
     pub fn records(&self) -> &[ReachabilityRecord] {
         &self.records
+    }
+
+    pub fn versions(&self) -> &HashMap<UniqueAddress, u64> {
+        &self.versions
     }
 
     pub fn version(&self, observer: &UniqueAddress) -> u64 {

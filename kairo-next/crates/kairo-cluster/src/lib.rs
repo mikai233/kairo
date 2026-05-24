@@ -20,8 +20,10 @@ mod vector_clock;
 
 pub use cluster::{Cluster, ClusterError};
 pub use codec::{
-    HEARTBEAT_RSP_SERIALIZER_ID, HEARTBEAT_SERIALIZER_ID, HeartbeatCodec, HeartbeatRspCodec,
-    JOIN_SERIALIZER_ID, JoinCodec, register_cluster_control_codecs,
+    GOSSIP_ENVELOPE_SERIALIZER_ID, GossipEnvelopeCodec, HEARTBEAT_RSP_SERIALIZER_ID,
+    HEARTBEAT_SERIALIZER_ID, HeartbeatCodec, HeartbeatRspCodec, JOIN_SERIALIZER_ID, JoinCodec,
+    WELCOME_SERIALIZER_ID, WelcomeCodec, register_cluster_control_codecs,
+    register_cluster_protocol_codecs,
 };
 pub use convergence::{Convergence, ConvergenceBlocker};
 pub use downing::{
