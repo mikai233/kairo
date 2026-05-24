@@ -1,6 +1,7 @@
 //! Gossip-based cluster membership and cluster events.
 
 mod convergence;
+mod downing;
 mod events;
 mod failure_detector;
 mod gossip;
@@ -12,6 +13,7 @@ mod reachability;
 mod vector_clock;
 
 pub use convergence::{Convergence, ConvergenceBlocker};
+pub use downing::{DowningDecision, DowningHook, DowningPlan, NoDowning, StaticDowningHook};
 pub use events::{ClusterEvent, ClusterEvents, MemberEvent, ReachabilityEvent};
 pub use failure_detector::{
     DeadlineFailureDetector, DeadlineFailureDetectorSettings, FailureDetectorError,

@@ -193,6 +193,10 @@ Implemented:
   unmonitored resources are available, first heartbeat starts monitoring,
   resources become unavailable after heartbeat interval plus acceptable pause,
   and removal forgets detector state.
+- `kairo-cluster::DowningHook`, `DowningDecision`, and `DowningPlan` define the
+  initial downing hook boundary and SBR-style decision mapping for downing
+  reachable, unreachable, all, or self-quarantined members before actor-backed
+  providers are wired in.
 
 Not yet implemented:
 
@@ -203,7 +207,7 @@ Not yet implemented:
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Cluster membership actors, heartbeat sender/receiver actors, actor-backed
-  cluster event subscription/publication, and downing hooks.
+  cluster event subscription/publication, and concrete downing providers.
 
 ## Last Validation
 
