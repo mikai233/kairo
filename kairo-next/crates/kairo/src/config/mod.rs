@@ -1,6 +1,7 @@
 //! Format-neutral Kairo settings and TOML loading.
 
 mod error;
+mod runtime;
 mod settings;
 mod toml_loader;
 

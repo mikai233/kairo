@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use super::{ConfigError, KairoSettings, load_toml_file, parse_toml_str};
+use super::{
+    ActorConfig, ConfigError, DispatcherConfig, KairoSettings, load_toml_file, parse_toml_str,
+};
 
 #[test]
 fn toml_config_parses_structured_runtime_settings() {
@@ -148,6 +151,106 @@ number_of_shards = 0
         error,
         ConfigError::InvalidValue {
             path: "cluster.sharding.number_of_shards".to_string(),
+            reason: "must be greater than zero".to_string(),
+        }
+    );
+}
+
+#[test]
+fn config_converts_actor_settings_to_builder() {
+    let settings = parse_toml_str(
+        r#"
+[actor.dispatchers.default]
+throughput = 17
+"#,
+    )
+    .unwrap();
+
+    let system = settings
+        .actor
+        .actor_system_builder("configured-actor")
+        .unwrap()
+        .build()
+        .unwrap();
+
+    assert_eq!(system.dispatcher_settings().throughput(), 17);
+}
+
+#[test]
+fn config_converts_remote_and_cluster_settings() {
+    let settings = parse_toml_str(
+        r#"
+[remote.transport]
+canonical_hostname = "127.0.0.42"
+canonical_port = 26666
+
+[cluster.heartbeat]
+monitored_by_nr_of_members = 3
+interval = "2s"
+acceptable_pause = "4s"
+expected_response_after = "750ms"
+"#,
+    )
+    .unwrap();
+
+    let remote = settings.remote.transport.to_remote_settings().unwrap();
+    assert_eq!(remote.canonical_hostname, "127.0.0.42");
+    assert_eq!(remote.canonical_port, 26666);
+
+    let failure_detector = settings
+        .cluster
+        .heartbeat
+        .to_failure_detector_settings()
+        .unwrap();
+    assert_eq!(
+        failure_detector.heartbeat_interval(),
+        Duration::from_secs(2)
+    );
+    assert_eq!(
+        failure_detector.acceptable_heartbeat_pause(),
+        Duration::from_secs(4)
+    );
+    let heartbeat = settings
+        .cluster
+        .heartbeat
+        .to_heartbeat_sender_settings()
+        .unwrap();
+    assert_eq!(heartbeat.monitored_by_nr_of_members, 3);
+    assert_eq!(
+        heartbeat.heartbeat_expected_response_after,
+        Duration::from_millis(750)
+    );
+}
+
+#[test]
+fn config_runtime_helpers_validate_directly_constructed_settings() {
+    let actor = ActorConfig {
+        dispatchers: BTreeMap::from([("other".to_string(), DispatcherConfig { throughput: 1 })]),
+    };
+    assert_eq!(
+        actor.default_dispatcher().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "actor.dispatchers.default".to_string(),
+            reason: "default dispatcher settings are required".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        actor: ActorConfig {
+            dispatchers: BTreeMap::from([(
+                "default".to_string(),
+                DispatcherConfig { throughput: 0 },
+            )]),
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings
+            .actor
+            .actor_system_builder("invalid-throughput")
+            .unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "actor.dispatchers.default.throughput".to_string(),
             reason: "must be greater than zero".to_string(),
         }
     );

@@ -429,6 +429,11 @@ Implemented:
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
   sections, including explicit type/value validation and unknown-key rejection.
+- `KairoSettings` now exposes feature-gated runtime conversion helpers for
+  actor-system dispatcher configuration, remote transport settings, cluster
+  failure-detector/heartbeat settings, sharding shard counts, and cluster-tools
+  pubsub settings while keeping the base config model usable without enabling
+  every runtime crate.
 
 Not yet implemented:
 
