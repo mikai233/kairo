@@ -11,20 +11,21 @@ use crate::{
     HandOff, HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget,
     HandoffTransport, HostShard, HostShardPlan, LeastShardAllocationStrategy,
     RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan,
-    RegionDropReason, RegionLocalRoutePlan, RegionRoutePlan, RememberCoordinatorDDataStoreActor,
-    RememberCoordinatorDDataStoreMsg, RememberCoordinatorDDataStoreSnapshot,
-    RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
-    RememberCoordinatorStoreState, RememberShardDDataStoreActor, RememberShardDDataStoreMsg,
-    RememberShardDDataStoreSnapshot, RememberShardStoreActor, RememberShardStoreMsg,
-    RememberShardStoreSnapshot, RememberShardStoreState, RememberShardUpdate,
-    RememberUpdateDonePlan, RememberedEntities, RememberedEntitiesPlan, ShardActor,
-    ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorMsg,
-    ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
-    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot,
-    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
-    ShardingError, default_shard_id_for, remember_coordinator_shards_key,
-    remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
-    remember_entity_shard_replicator_key, shard_id_for, stable_hash_entity_id,
+    RegionDropReason, RegionLocalHandOffPlan, RegionLocalRoutePlan, RegionRoutePlan,
+    RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
+    RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
+    RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
+    RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
+    RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
+    RememberShardStoreState, RememberShardUpdate, RememberUpdateDonePlan, RememberedEntities,
+    RememberedEntitiesPlan, ShardActor, ShardAllocationStrategy, ShardAllocations,
+    ShardCoordinatorActor, ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason,
+    ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg, ShardRebalancePlan,
+    ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
+    ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
+    default_shard_id_for, remember_coordinator_shards_key, remember_entity_key_index,
+    remember_entity_key_index_for, remember_entity_shard_key, remember_entity_shard_replicator_key,
+    shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -2250,6 +2251,130 @@ fn region_actor_handoff_drops_buffer_and_marks_handing_off() {
     let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
     assert_eq!(snapshot.total_buffered, 0);
     assert!(snapshot.handing_off_shards.contains("shard-1"));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_forwards_handoff_to_spawned_store_backed_shard_child() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-actor-local-handoff-child").unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let begin = kit.create_probe::<BeginHandOffPlan>("begin").unwrap();
+    let handoff = kit
+        .create_probe::<RegionLocalHandOffPlan>("region-handoff")
+        .unwrap();
+    let shard_handoff = kit
+        .create_probe::<ShardHandOffPlan<String>>("shard-handoff")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "loaded".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    deliveries.expect_msg(Duration::from_millis(500)).unwrap();
+
+    region
+        .tell(ShardRegionMsg::BeginHandOff {
+            shard: "shard-1".to_string(),
+            reply_to: begin.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        begin.expect_msg(Duration::from_millis(500)).unwrap(),
+        BeginHandOffPlan::Ack {
+            shard: "shard-1".to_string(),
+            ack: crate::BeginHandOffAck {
+                shard_id: "shard-1".to_string(),
+            },
+        }
+    );
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "buffered-after-begin".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::HandOffToLocalShard {
+            shard: "shard-1".to_string(),
+            stop_message: "stop".to_string(),
+            region_reply_to: handoff.actor_ref(),
+            shard_reply_to: shard_handoff.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        handoff.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalHandOffPlan::ForwardedToLocalShard {
+            shard: "shard-1".to_string(),
+            command: HandOff {
+                shard_id: "shard-1".to_string(),
+            },
+            dropped_buffered: 1,
+        }
+    );
+    assert_eq!(
+        shard_handoff
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        ShardHandOffPlan::StartEntityStopper {
+            shard: "shard-1".to_string(),
+            entities: vec!["entity-1".to_string()],
+            stop_message: "stop".to_string(),
+        }
+    );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

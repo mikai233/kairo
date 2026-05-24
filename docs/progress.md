@@ -501,6 +501,10 @@ Implemented:
   buffered local routes into the spawned store-backed shard child in FIFO
   order, preserving Pekko's region behavior of draining shard buffers after the
   local shard is initialized.
+- `kairo-cluster-sharding` shard region actors can now forward local handoff
+  delivery into spawned store-backed shard children with an explicit typed
+  stop message, preserving the Pekko region behavior of dropping post-begin
+  buffers before handing the shard off to its local child.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -648,7 +652,7 @@ Not yet implemented:
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need automatic coordinator/region/shard
   orchestration, including restart backoff policy integration and full
-  handoff delivery into store-backed shard actors.
+  handoff completion wiring back from store-backed shard actors.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

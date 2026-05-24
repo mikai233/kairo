@@ -4,12 +4,13 @@ use std::time::Duration;
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 
 use crate::region_protocol::{
-    RegionBufferedReplayPlan, RegionLocalRoutePlan, ShardRegionMsg, ShardRegionSnapshot,
+    RegionBufferedReplayPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan, ShardRegionMsg,
+    ShardRegionSnapshot,
 };
 use crate::region_shards::LocalShardSpawner;
 use crate::{
-    EntityId, HostShardPlan, RegionId, RegionRoutePlan, ShardDeliverPlan, ShardHomePlan, ShardId,
-    ShardMsg, ShardRegionRuntime, ShardingEnvelope,
+    EntityId, HostShardPlan, RegionId, RegionRoutePlan, ShardDeliverPlan, ShardHandOffPlan,
+    ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope,
 };
 
 pub struct ShardRegionActor<M> {
@@ -174,6 +175,17 @@ where
                 let plan = self.runtime.handoff(shard);
                 let _ = reply_to.tell(plan);
             }
+            ShardRegionMsg::HandOffToLocalShard {
+                shard,
+                stop_message,
+                region_reply_to,
+                shard_reply_to,
+            } => {
+                let plan = self.runtime.handoff(shard);
+                let local_plan =
+                    self.dispatch_local_handoff_plan(plan, stop_message, shard_reply_to)?;
+                let _ = region_reply_to.tell(local_plan);
+            }
             ShardRegionMsg::MarkShardStopped { shard, reply_to } => {
                 self.runtime.mark_shard_stopped(&shard);
                 self.local_shards.remove(&shard);
@@ -328,6 +340,49 @@ where
                 .map_err(|error| ActorError::Message(error.reason().to_string()))?;
         }
         Ok(replayed)
+    }
+
+    fn dispatch_local_handoff_plan(
+        &self,
+        plan: crate::HandOffPlan,
+        stop_message: M,
+        shard_reply_to: ActorRef<ShardHandOffPlan<M>>,
+    ) -> Result<RegionLocalHandOffPlan, ActorError> {
+        match plan {
+            crate::HandOffPlan::ForwardToLocalShard {
+                shard,
+                command,
+                dropped_buffered,
+            } => {
+                let Some(shard_ref) = self.local_shards.get(&shard) else {
+                    return Ok(RegionLocalHandOffPlan::MissingLocalShard {
+                        shard,
+                        command,
+                        dropped_buffered,
+                    });
+                };
+                shard_ref
+                    .tell(ShardMsg::HandOff {
+                        stop_message,
+                        reply_to: shard_reply_to,
+                    })
+                    .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+                Ok(RegionLocalHandOffPlan::ForwardedToLocalShard {
+                    shard,
+                    command,
+                    dropped_buffered,
+                })
+            }
+            crate::HandOffPlan::ReplyShardStopped {
+                shard,
+                stopped,
+                dropped_buffered,
+            } => Ok(RegionLocalHandOffPlan::ReplyShardStopped {
+                shard,
+                stopped,
+                dropped_buffered,
+            }),
+        }
     }
 
     fn maybe_start_local_shard_from_home_plan(

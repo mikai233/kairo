@@ -3,9 +3,10 @@ use std::collections::BTreeSet;
 use kairo_actor::ActorRef;
 
 use crate::{
-    BeginHandOffPlan, GetShardHome, HandOffPlan, HostShardPlan, RegionDropReason, RegionId,
-    RegionRoutePlan, ShardDeliverPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime,
-    ShardStarted, ShardStartedPlan, ShardingEnvelope, ShardingError,
+    BeginHandOffPlan, GetShardHome, HandOff, HandOffPlan, HostShardPlan, RegionDropReason,
+    RegionId, RegionRoutePlan, ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan, ShardId,
+    ShardMsg, ShardRegionRuntime, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
+    ShardingError,
 };
 
 pub enum ShardRegionMsg<M> {
@@ -45,6 +46,12 @@ pub enum ShardRegionMsg<M> {
     HandOff {
         shard: ShardId,
         reply_to: ActorRef<HandOffPlan>,
+    },
+    HandOffToLocalShard {
+        shard: ShardId,
+        stop_message: M,
+        region_reply_to: ActorRef<RegionLocalHandOffPlan>,
+        shard_reply_to: ActorRef<ShardHandOffPlan<M>>,
     },
     MarkShardStopped {
         shard: ShardId,
@@ -102,6 +109,25 @@ pub enum RegionBufferedReplayPlan {
     },
     IgnoredGracefulShutdown {
         shard: ShardId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegionLocalHandOffPlan {
+    ForwardedToLocalShard {
+        shard: ShardId,
+        command: HandOff,
+        dropped_buffered: usize,
+    },
+    MissingLocalShard {
+        shard: ShardId,
+        command: HandOff,
+        dropped_buffered: usize,
+    },
+    ReplyShardStopped {
+        shard: ShardId,
+        stopped: ShardStopped,
+        dropped_buffered: usize,
     },
 }
 

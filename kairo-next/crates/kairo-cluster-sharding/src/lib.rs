@@ -57,7 +57,8 @@ pub use protocol::{
 };
 pub use region_actor::ShardRegionActor;
 pub use region_protocol::{
-    RegionBufferedReplayPlan, RegionLocalRoutePlan, ShardRegionMsg, ShardRegionSnapshot,
+    RegionBufferedReplayPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan, ShardRegionMsg,
+    ShardRegionSnapshot,
 };
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
