@@ -52,6 +52,17 @@ impl RemoteMessage for StableEnumCommand {
     const VERSION: u16 = 3;
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct RollingCommand {
+    amount: u8,
+    tag: u8,
+}
+
+impl RemoteMessage for RollingCommand {
+    const MANIFEST: &'static str = "kairo.test.RollingCommand";
+    const VERSION: u16 = 2;
+}
+
 #[derive(Debug, Clone, Copy)]
 struct SingleByteCodec {
     serializer_id: u32,
@@ -130,6 +141,32 @@ impl MessageCodec<StableEnumCommand> for SingleByteCodec {
             1 => Ok(StableEnumCommand::Increment),
             other => Err(SerializationError::Message(format!(
                 "unknown command byte {other}"
+            ))),
+        }
+    }
+}
+
+impl MessageCodec<RollingCommand> for SingleByteCodec {
+    fn serializer_id(&self) -> u32 {
+        self.serializer_id
+    }
+
+    fn encode(&self, message: &RollingCommand) -> crate::Result<Bytes> {
+        Ok(Bytes::from(vec![message.amount, message.tag]))
+    }
+
+    fn decode(&self, payload: Bytes, version: u16) -> crate::Result<RollingCommand> {
+        match version {
+            1 => Ok(RollingCommand {
+                amount: payload[0],
+                tag: 0,
+            }),
+            2 => Ok(RollingCommand {
+                amount: payload[0],
+                tag: payload[1],
+            }),
+            other => Err(SerializationError::Message(format!(
+                "unsupported RollingCommand version {other}"
             ))),
         }
     }
@@ -245,6 +282,34 @@ fn enum_discriminants_are_not_wire_contracts() {
     assert_eq!(serialized.payload, Bytes::from_static(&[1]));
     assert_eq!(serialized.manifest.as_str(), "kairo.test.StableEnumCommand");
     assert_eq!(serialized.version, 3);
+}
+
+#[test]
+fn decode_receives_wire_version_for_rolling_compatibility() {
+    let mut registry = Registry::new();
+    registry
+        .register::<RollingCommand, _>(SingleByteCodec { serializer_id: 51 })
+        .unwrap();
+
+    let current = registry
+        .serialize(&RollingCommand { amount: 8, tag: 2 })
+        .unwrap();
+    assert_eq!(current.version, 2);
+    assert_eq!(
+        registry.deserialize::<RollingCommand>(current).unwrap(),
+        RollingCommand { amount: 8, tag: 2 }
+    );
+
+    let old_wire = SerializedMessage::new(
+        51,
+        Manifest::new("kairo.test.RollingCommand"),
+        1,
+        Bytes::from_static(&[8]),
+    );
+    assert_eq!(
+        registry.deserialize::<RollingCommand>(old_wire).unwrap(),
+        RollingCommand { amount: 8, tag: 0 }
+    );
 }
 
 #[test]

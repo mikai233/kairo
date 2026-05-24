@@ -149,13 +149,16 @@ Implemented:
   `kairo-cluster-sharding` now have focused `protocol` modules declaring the
   first stable `RemoteMessage` manifests for remote watch/heartbeat, cluster
   gossip, distributed-data replicator, and sharding coordinator protocols.
+- Serialization tests cover rolling-version decode behavior by proving codecs
+  receive the wire `version` and can decode older payload shapes under the same
+  stable manifest.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
 - Concrete actor-system/provider actor-ref resolution, protocol codecs,
-  optional codec helper crates, and rolling-version compatibility tests.
+  optional codec helper crates, and broader cross-crate compatibility fixtures.
 
 ## Last Validation
 
