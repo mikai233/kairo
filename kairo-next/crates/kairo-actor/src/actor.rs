@@ -1,4 +1,5 @@
 use crate::error::{ActorError, ActorResult};
+use crate::event_stream::EventStream;
 use crate::path::ActorPath;
 use crate::refs::{ActorRef, AnyActorRef};
 use crate::scheduler::Cancellable;
@@ -75,6 +76,10 @@ impl<M: Send + 'static> Context<M> {
 
     pub fn child(&self, name: &str) -> Option<AnyActorRef> {
         self.system.child_of(self.myself.path(), name)
+    }
+
+    pub fn event_stream(&self) -> EventStream {
+        self.system.event_stream()
     }
 
     pub fn watch<N: Send + 'static>(&mut self, actor: &ActorRef<N>) -> ActorResult {

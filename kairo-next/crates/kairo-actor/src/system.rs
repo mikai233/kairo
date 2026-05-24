@@ -8,6 +8,7 @@ use crate::dead_letters::DeadLetters;
 use crate::death_watch::{DeathWatchKind, DeathWatchRegistration, DeathWatchRegistry};
 use crate::dispatcher::DispatcherSettings;
 use crate::error::ActorError;
+use crate::event_stream::EventStream;
 use crate::mailbox::{Dequeued, Mailbox, SystemMessage, UserEnvelope};
 use crate::path::{ActorPath, Address};
 use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
@@ -33,6 +34,7 @@ pub(crate) struct ActorSystemInner {
     death_watch: DeathWatchRegistry,
     dispatcher: DispatcherSettings,
     scheduler: Scheduler,
+    event_stream: EventStream,
     dead_letters: DeadLetters,
 }
 
@@ -58,6 +60,10 @@ impl ActorSystem {
 
     pub fn dispatcher_settings(&self) -> DispatcherSettings {
         self.inner.dispatcher
+    }
+
+    pub fn event_stream(&self) -> EventStream {
+        self.inner.event_stream.clone()
     }
 
     pub fn schedule_once<M>(&self, delay: Duration, target: ActorRef<M>, message: M) -> Cancellable

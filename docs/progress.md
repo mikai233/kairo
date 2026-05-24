@@ -48,6 +48,8 @@ Implemented:
   cancellation after enqueue, and actor-stop timer cleanup.
 - Focused fixed-delay timer tests cover repeated delivery, cancellation, and
   replacement generation filtering.
+- Focused event-stream tests cover typed subscription, duplicate subscription
+  suppression, exact event-type matching, publishing, and unsubscribe.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
@@ -73,13 +75,16 @@ Implemented:
   with the same cancellation and replacement filtering.
 - Timer state and envelopes live in a focused `timers` module and active timers
   are cancelled when the owning actor stops.
+- `ActorSystem::event_stream` and `Context::event_stream` expose a local typed
+  event stream for exact Rust event types.
+- Event-stream subscription state lives in a focused `event_stream` module.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Coordinated shutdown.
-- Fixed-rate timers, supervision, ask, adapters, event stream, receptionist,
-  and deterministic testkit support.
+- Fixed-rate timers, supervision, ask, adapters, receptionist, and
+  deterministic testkit support.
 
 ## Last Validation
 

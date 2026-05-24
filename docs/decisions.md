@@ -156,3 +156,24 @@ Consequences:
 - Active timers are cancelled when the owning actor stops.
 - Fixed-delay repeating timers use the same key/generation envelope mechanism.
 - Fixed-rate timers can be added later without changing the mailbox envelope.
+
+## ADR-0008: Event Stream Uses Exact Typed Local Channels
+
+Status: Accepted
+
+Context:
+Pekko's event stream is class-based and delivers events to actor refs
+subscribed to a class or superclass. Kairo's primary user API is typed
+`ActorRef<M>`, and local messages do not require serialization.
+
+Decision:
+Kairo's initial local event stream is keyed by the concrete Rust `TypeId` of
+the event message. `EventStream::subscribe` accepts an `ActorRef<M>`, and
+`publish` clones an event of type `M` to current subscribers of that exact
+type. Duplicate subscriptions are suppressed.
+
+Consequences:
+- Event-stream delivery remains local, typed, and free of a global message enum.
+- Subscribers only receive events matching their exact Rust message type.
+- Broader class/subtype-style matching is deferred until there is a concrete
+  Rust design need for it.
