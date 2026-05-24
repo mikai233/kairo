@@ -15,7 +15,8 @@ pub use singleton::{
     LocalSingletonManagerActor, LocalSingletonManagerMsg, LocalSingletonManagerSnapshot,
     SingletonManagerActor, SingletonManagerEffect, SingletonManagerMsg, SingletonManagerRuntime,
     SingletonManagerSnapshot, SingletonManagerState, SingletonOldestChange,
-    SingletonOldestObservation, SingletonOldestTracker, SingletonScope,
+    SingletonOldestObservation, SingletonOldestTracker, SingletonProxyActor, SingletonProxyMsg,
+    SingletonProxySettings, SingletonProxySettingsError, SingletonProxySnapshot, SingletonScope,
 };
 pub use topic::{
     LocalTopic, TopicName, TopicPublishMode, TopicPublishReport, TopicSubscriptionChange,

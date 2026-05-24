@@ -12,7 +12,8 @@ use crate::{
     PubSubGossipMsg, PubSubGossipPeer, PubSubRegistryKey, PubSubRegistryState, PubSubRemoteTarget,
     PubSubSubscribeAck, PubSubTopicReport, SingletonManagerActor, SingletonManagerEffect,
     SingletonManagerMsg, SingletonManagerRuntime, SingletonManagerSnapshot, SingletonManagerState,
-    SingletonOldestChange, SingletonOldestTracker, SingletonScope, TopicName, TopicPublishMode,
+    SingletonOldestChange, SingletonOldestTracker, SingletonProxyActor, SingletonProxyMsg,
+    SingletonProxySettings, SingletonProxySnapshot, SingletonScope, TopicName, TopicPublishMode,
 };
 
 #[test]
@@ -661,6 +662,233 @@ fn local_singleton_manager_stops_child_before_handover_done() {
     }
     let snapshot = end_snapshot.expect("singleton manager should finish handover");
     assert!(snapshot.singleton_path.is_none());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn singleton_proxy_buffers_and_flushes_to_identified_singleton() {
+    let kit = ActorSystemTestKit::new("singleton-proxy-flush").unwrap();
+    let singleton = kit.create_probe::<String>("singleton").unwrap();
+    let state = kit
+        .create_probe::<SingletonProxySnapshot>("proxy-state")
+        .unwrap();
+    let proxy = kit
+        .system()
+        .spawn(
+            "singleton-proxy",
+            SingletonProxyActor::<String>::props(SingletonProxySettings::new(4).unwrap()),
+        )
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::Route("one".to_string()))
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::Route("two".to_string()))
+        .unwrap();
+    singleton.expect_no_msg(Duration::from_millis(100)).unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::IdentifySingleton {
+            singleton: singleton.actor_ref(),
+        })
+        .unwrap();
+    singleton
+        .expect_msg_eq("one".to_string(), Duration::from_millis(500))
+        .unwrap();
+    singleton
+        .expect_msg_eq("two".to_string(), Duration::from_millis(500))
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::Route("three".to_string()))
+        .unwrap();
+    singleton
+        .expect_msg_eq("three".to_string(), Duration::from_millis(500))
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(snapshot.buffered_messages, 0);
+    assert_eq!(snapshot.dropped_messages, 0);
+    assert_eq!(
+        snapshot.singleton_path.as_ref(),
+        Some(singleton.actor_ref().path())
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn singleton_proxy_drops_oldest_message_when_buffer_is_full() {
+    let kit = ActorSystemTestKit::new("singleton-proxy-overflow").unwrap();
+    let singleton = kit.create_probe::<String>("singleton").unwrap();
+    let state = kit
+        .create_probe::<SingletonProxySnapshot>("proxy-state")
+        .unwrap();
+    let proxy = kit
+        .system()
+        .spawn(
+            "singleton-proxy",
+            SingletonProxyActor::<String>::props(SingletonProxySettings::new(2).unwrap()),
+        )
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::Route("one".to_string()))
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::Route("two".to_string()))
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::Route("three".to_string()))
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        SingletonProxySnapshot {
+            singleton_path: None,
+            buffered_messages: 2,
+            dropped_messages: 1,
+        }
+    );
+
+    proxy
+        .tell(SingletonProxyMsg::IdentifySingleton {
+            singleton: singleton.actor_ref(),
+        })
+        .unwrap();
+    singleton
+        .expect_msg_eq("two".to_string(), Duration::from_millis(500))
+        .unwrap();
+    singleton
+        .expect_msg_eq("three".to_string(), Duration::from_millis(500))
+        .unwrap();
+    singleton.expect_no_msg(Duration::from_millis(100)).unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[derive(Clone)]
+enum SingletonProxyTargetMsg {
+    Payload(&'static str),
+    Stop,
+}
+
+struct SingletonProxyTarget {
+    observed: ActorRef<&'static str>,
+}
+
+impl Actor for SingletonProxyTarget {
+    type Msg = SingletonProxyTargetMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            SingletonProxyTargetMsg::Payload(value) => {
+                let _ = self.observed.tell(value);
+            }
+            SingletonProxyTargetMsg::Stop => ctx.stop(ctx.myself())?,
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn singleton_proxy_clears_current_singleton_on_termination_and_buffers_again() {
+    let kit = ActorSystemTestKit::new("singleton-proxy-termination").unwrap();
+    let observed = kit.create_probe::<&'static str>("observed").unwrap();
+    let state = kit
+        .create_probe::<SingletonProxySnapshot>("proxy-state")
+        .unwrap();
+    let proxy = kit
+        .system()
+        .spawn(
+            "singleton-proxy",
+            SingletonProxyActor::<SingletonProxyTargetMsg>::props(
+                SingletonProxySettings::new(4).unwrap(),
+            ),
+        )
+        .unwrap();
+    let target_1 = kit
+        .system()
+        .spawn(
+            "target-1",
+            Props::new({
+                let observed = observed.actor_ref();
+                move || SingletonProxyTarget { observed }
+            }),
+        )
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::IdentifySingleton {
+            singleton: target_1.clone(),
+        })
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::Route(SingletonProxyTargetMsg::Payload(
+            "first",
+        )))
+        .unwrap();
+    observed
+        .expect_msg_eq("first", Duration::from_millis(500))
+        .unwrap();
+
+    target_1.tell(SingletonProxyTargetMsg::Stop).unwrap();
+    assert!(target_1.wait_for_stop(Duration::from_secs(1)));
+    let mut cleared = None;
+    for _ in 0..100 {
+        proxy
+            .tell(SingletonProxyMsg::GetState {
+                reply_to: state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+        if snapshot.singleton_path.is_none() {
+            cleared = Some(snapshot);
+            break;
+        }
+    }
+    assert_eq!(
+        cleared.expect("proxy should observe singleton termination"),
+        SingletonProxySnapshot {
+            singleton_path: None,
+            buffered_messages: 0,
+            dropped_messages: 0,
+        }
+    );
+
+    proxy
+        .tell(SingletonProxyMsg::Route(SingletonProxyTargetMsg::Payload(
+            "buffered",
+        )))
+        .unwrap();
+    observed.expect_no_msg(Duration::from_millis(100)).unwrap();
+
+    let target_2 = kit
+        .system()
+        .spawn(
+            "target-2",
+            Props::new({
+                let observed = observed.actor_ref();
+                move || SingletonProxyTarget { observed }
+            }),
+        )
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::IdentifySingleton {
+            singleton: target_2,
+        })
+        .unwrap();
+    observed
+        .expect_msg_eq("buffered", Duration::from_millis(500))
+        .unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
