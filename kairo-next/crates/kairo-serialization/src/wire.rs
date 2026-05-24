@@ -53,6 +53,10 @@ impl WireWriter {
         self.bytes.extend_from_slice(&value.to_be_bytes());
     }
 
+    pub fn write_u32(&mut self, value: u32) {
+        self.bytes.extend_from_slice(&value.to_be_bytes());
+    }
+
     pub fn write_u64(&mut self, value: u64) {
         self.bytes.extend_from_slice(&value.to_be_bytes());
     }

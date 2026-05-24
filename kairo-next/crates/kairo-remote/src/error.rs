@@ -14,6 +14,8 @@ pub enum RemoteError {
     Outbound(String),
     #[error("remote inbound delivery failed: {0}")]
     Inbound(String),
+    #[error("invalid remote frame: {0}")]
+    InvalidFrame(String),
     #[error("remote association with `{remote}` is closed: {reason}")]
     AssociationClosed { remote: String, reason: String },
     #[error("remote association with `{remote}` is quarantined: {reason}")]

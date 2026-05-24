@@ -189,6 +189,11 @@ Implemented:
   deserializing `RemoteEnvelope` payloads through the registry and passing the
   typed message, recipient wire data, and optional sender wire data to an
   explicit local delivery boundary.
+- `kairo-remote` now has a transport-neutral remote envelope frame codec that
+  encodes recipient/sender actor-ref wire data, serializer id, manifest,
+  version, and payload bytes using explicit big-endian fields and rejects
+  invalid frame magic, unsupported frame versions, and truncated payloads before
+  a concrete TCP transport is introduced.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
