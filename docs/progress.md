@@ -218,6 +218,11 @@ Implemented:
   composes association state with any transport outbound, allows sends while
   idle/handshaking/active, rejects quarantined or closed associations before
   forwarding, and propagates inner transport failures explicitly.
+- `kairo-remote` now has a focused association inbound bridge that keeps
+  control, ordinary, and large lane stream readers separate, decodes lane
+  bytes into remote envelope frames, forwards them through typed inbound
+  delivery, and propagates invalid stream, truncated lane, and missing codec
+  failures before a concrete socket transport is introduced.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.

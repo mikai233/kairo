@@ -1,6 +1,7 @@
 //! Remote actor references, associations, transports, and remote death watch.
 
 mod association;
+mod association_inbound;
 mod association_outbound;
 mod codec;
 mod error;
@@ -18,6 +19,7 @@ mod stream_sink;
 mod transport;
 
 pub use association::{AssociationState, RemoteAssociation};
+pub use association_inbound::AssociationRemoteInbound;
 pub use association_outbound::AssociationRemoteOutbound;
 pub use codec::{
     ADDRESS_TERMINATED_SERIALIZER_ID, AddressTerminatedCodec, REMOTE_HEARTBEAT_ACK_SERIALIZER_ID,
