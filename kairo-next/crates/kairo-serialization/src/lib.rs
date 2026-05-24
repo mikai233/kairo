@@ -1,5 +1,6 @@
 //! Stable serialization contracts for remote and persistent messages.
 
+mod actor_ref;
 mod codec;
 mod envelope;
 mod errors;
@@ -7,6 +8,7 @@ mod manifest;
 mod message;
 mod registry;
 
+pub use actor_ref::{ActorRefResolver, ActorRefWireData};
 pub use codec::{DynCodec, MessageCodec};
 pub use envelope::{RemoteEnvelope, SerializedMessage};
 pub use errors::{Result, SerializationError};

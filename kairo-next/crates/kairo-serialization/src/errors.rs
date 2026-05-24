@@ -8,6 +8,8 @@ pub enum SerializationError {
     Message(String),
     #[error("remote message manifest must not be empty: `{0}`")]
     InvalidManifest(String),
+    #[error("actor ref path `{0}` is invalid")]
+    InvalidActorRefPath(String),
     #[error("serializer id `{0}` is already registered")]
     DuplicateSerializerId(SerializerId),
     #[error("manifest `{0}` is already registered")]

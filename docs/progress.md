@@ -140,13 +140,19 @@ Implemented:
   `#[kairo(manifest = "...", version = N)]` and emits only the
   `RemoteMessage` metadata implementation; it does not select or generate a
   codec.
+- `ActorRefWireData` stores serialized actor-ref paths with explicit protocol,
+  system, host, and port metadata, and `ActorRefResolver` defines the provider
+  boundary for resolving those refs later.
+- `RemoteEnvelope` carries actor-ref wire data for recipient and optional
+  sender rather than unstructured path strings.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
-- Actor-ref/provider-aware serialization, system protocol manifests, optional
-  codec helper crates, and rolling-version compatibility tests.
+- Concrete actor-system/provider actor-ref resolution, system protocol
+  manifests, optional codec helper crates, and rolling-version compatibility
+  tests.
 
 ## Last Validation
 

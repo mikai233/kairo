@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use crate::{Manifest, SerializerId};
+use crate::{ActorRefWireData, Manifest, Result, SerializerId};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SerializedMessage {
@@ -28,21 +28,33 @@ impl SerializedMessage {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteEnvelope {
-    pub recipient: String,
-    pub sender: Option<String>,
+    pub recipient: ActorRefWireData,
+    pub sender: Option<ActorRefWireData>,
     pub message: SerializedMessage,
 }
 
 impl RemoteEnvelope {
     pub fn new(
-        recipient: impl Into<String>,
-        sender: Option<String>,
+        recipient: ActorRefWireData,
+        sender: Option<ActorRefWireData>,
         message: SerializedMessage,
     ) -> Self {
         Self {
-            recipient: recipient.into(),
+            recipient,
             sender,
             message,
         }
+    }
+
+    pub fn from_paths(
+        recipient: impl Into<String>,
+        sender: Option<String>,
+        message: SerializedMessage,
+    ) -> Result<Self> {
+        Ok(Self {
+            recipient: ActorRefWireData::new(recipient)?,
+            sender: sender.map(ActorRefWireData::new).transpose()?,
+            message,
+        })
     }
 }

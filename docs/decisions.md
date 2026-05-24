@@ -398,3 +398,26 @@ Consequences:
   json, or prost helper crates exist.
 - The derive macro emits only the `RemoteMessage` metadata implementation;
   actor-ref/provider-aware serialization remains a later slice.
+
+## ADR-0017: Actor Ref Wire Data Is Path-Based And Provider-Resolved
+
+Status: Accepted
+
+Context:
+Pekko serializes actor refs as serialized actor paths and resolves them through
+the current actor-system provider. Kairo needs the same provider boundary while
+keeping `kairo-serialization` independent from `kairo-actor` and remoting.
+
+Decision:
+`kairo-serialization` owns `ActorRefWireData`, which stores the full serialized
+actor path plus parsed protocol, system, host, and port fields. It also defines
+an `ActorRefResolver` trait that provider implementations can use to materialize
+local or remote refs from wire data. `RemoteEnvelope` now carries
+`ActorRefWireData` for recipient and optional sender.
+
+Consequences:
+- Actor-ref serialization remains path-based and provider-resolved, matching
+  Pekko's observable boundary.
+- The core serialization crate still does not depend on actor runtime types.
+- Remote provider resolution, cache behavior, and missing-ref fallback remain
+  later remoting work.

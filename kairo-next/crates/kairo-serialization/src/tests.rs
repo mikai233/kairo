@@ -1,7 +1,8 @@
 use bytes::Bytes;
 
 use crate::{
-    Manifest, MessageCodec, Registry, RemoteMessage, SerializationError, SerializationRegistry,
+    ActorRefResolver, ActorRefWireData, Manifest, MessageCodec, Registry, RemoteEnvelope,
+    RemoteMessage, SerializationError, SerializationRegistry, SerializedMessage,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -244,4 +245,74 @@ fn enum_discriminants_are_not_wire_contracts() {
     assert_eq!(serialized.payload, Bytes::from_static(&[1]));
     assert_eq!(serialized.manifest.as_str(), "kairo.test.StableEnumCommand");
     assert_eq!(serialized.version, 3);
+}
+
+#[test]
+fn actor_ref_wire_data_keeps_path_and_address_parts() {
+    let wire = ActorRefWireData::new("kairo://system@127.0.0.1:25520/user/counter#9").unwrap();
+
+    assert_eq!(wire.path(), "kairo://system@127.0.0.1:25520/user/counter#9");
+    assert_eq!(wire.protocol(), "kairo");
+    assert_eq!(wire.system(), "system");
+    assert_eq!(wire.host(), Some("127.0.0.1"));
+    assert_eq!(wire.port(), Some(25520));
+}
+
+#[test]
+fn actor_ref_wire_data_rejects_invalid_paths() {
+    let error = ActorRefWireData::new("/user/counter").expect_err("path should be invalid");
+
+    assert_eq!(
+        error,
+        SerializationError::InvalidActorRefPath("/user/counter".to_string())
+    );
+}
+
+#[test]
+fn remote_envelope_uses_actor_ref_wire_data() {
+    let message = SerializedMessage::new(
+        1,
+        Manifest::new("kairo.test.CounterCommand"),
+        1,
+        Bytes::from_static(&[1]),
+    );
+
+    let envelope = RemoteEnvelope::from_paths(
+        "kairo://system@127.0.0.1:25520/user/counter#9",
+        Some("kairo://system/user/sender#10".to_string()),
+        message,
+    )
+    .unwrap();
+
+    assert_eq!(envelope.recipient.system(), "system");
+    assert_eq!(envelope.recipient.host(), Some("127.0.0.1"));
+    assert_eq!(
+        envelope.sender.as_ref().map(ActorRefWireData::path),
+        Some("kairo://system/user/sender#10")
+    );
+}
+
+#[test]
+fn actor_ref_resolution_goes_through_provider_trait() {
+    struct Resolver;
+
+    impl ActorRefResolver for Resolver {
+        type Ref = String;
+
+        fn resolve_actor_ref(&self, wire: &ActorRefWireData) -> crate::Result<Self::Ref> {
+            Ok(format!(
+                "{}:{}:{}",
+                wire.protocol(),
+                wire.system(),
+                wire.path()
+            ))
+        }
+    }
+
+    let wire = ActorRefWireData::new("kairo://system/user/counter#9").unwrap();
+
+    assert_eq!(
+        Resolver.resolve_actor_ref(&wire).unwrap(),
+        "kairo:system:kairo://system/user/counter#9"
+    );
 }
