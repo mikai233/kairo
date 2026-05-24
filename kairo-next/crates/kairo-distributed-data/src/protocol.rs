@@ -84,14 +84,6 @@ impl ReplicatorDelta {
             to_version,
         }
     }
-
-    pub fn serialized_crdt(&self) -> Option<SerializedCrdt> {
-        Some(SerializedCrdt::new(
-            stable_manifest(self.crdt_manifest.as_str())?,
-            self.crdt_version,
-            self.payload.clone(),
-        ))
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,15 +100,6 @@ pub struct ReplicatorDeltaNack;
 impl RemoteMessage for ReplicatorDeltaNack {
     const MANIFEST: &'static str = "kairo.ddata.delta-nack";
     const VERSION: u16 = 1;
-}
-
-fn stable_manifest(manifest: &str) -> Option<&'static str> {
-    match manifest {
-        crate::GSET_STRING_MANIFEST => Some(crate::GSET_STRING_MANIFEST),
-        crate::GCOUNTER_MANIFEST => Some(crate::GCOUNTER_MANIFEST),
-        crate::PNCOUNTER_MANIFEST => Some(crate::PNCOUNTER_MANIFEST),
-        _ => None,
-    }
 }
 
 #[cfg(test)]

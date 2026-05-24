@@ -7,9 +7,11 @@ use kairo_cluster::UniqueAddress;
 
 use crate::{
     ConsistencyError, CrdtDataCodec, CrdtError, DataEnvelope, DeltaPropagationLog,
-    DeltaReplicatedData, GCounter, GCounterCodec, GSet, GSetStringCodec, GetResponse, PNCounter,
-    PNCounterCodec, ReadConsistency, ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor,
-    ReplicatorActorMsg, ReplicatorKey, ReplicatorState, UpdateResponse, WriteConsistency,
+    DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData, GCounter, GCounterCodec, GSet,
+    GSetStringCodec, GetResponse, PNCounter, PNCounterCodec, ReadConsistency, ReplicaId,
+    ReplicatedData, ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorKey,
+    ReplicatorState, UpdateResponse, WriteConsistency, decode_delta_propagation,
+    encode_delta_propagation,
 };
 
 fn replica(id: &str) -> ReplicaId {
@@ -332,6 +334,148 @@ fn delta_propagation_log_deletes_key_and_forgets_removed_nodes() {
     log.delete_key(&key);
     assert_eq!(log.current_version(&key), 0);
     assert!(!log.has_delta_entries(&key));
+}
+
+#[test]
+fn delta_wire_encodes_manifest_tagged_propagation_entries() {
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("remote");
+    let local = replica("local");
+    let mut log = DeltaPropagationLog::new([remote]);
+    log.record_delta(key.clone(), Some(delta_counter("a", 1)));
+    log.record_delta(key.clone(), Some(delta_counter("b", 2)));
+    let propagation = log
+        .collect_propagations()
+        .remove(&replica("remote"))
+        .unwrap();
+
+    let wire = encode_delta_propagation(local.clone(), true, &propagation, &GCounterCodec).unwrap();
+
+    assert_eq!(wire.from, local);
+    assert!(wire.reply);
+    assert_eq!(wire.deltas.len(), 1);
+    assert_eq!(wire.deltas[0].key, key.as_str());
+    assert_eq!(wire.deltas[0].crdt_manifest, crate::GCOUNTER_MANIFEST);
+    assert_eq!(wire.deltas[0].crdt_version, crate::CRDT_CODEC_VERSION);
+    assert_eq!(wire.deltas[0].from_version, 1);
+    assert_eq!(wire.deltas[0].to_version, 2);
+
+    let decoded = decode_delta_propagation(&wire, &GCounterCodec).unwrap();
+    assert_eq!(decoded.len(), 1);
+    assert_eq!(decoded[0].key(), &key);
+    assert_eq!(decoded[0].from_version(), 1);
+    assert_eq!(decoded[0].to_version(), 2);
+    assert_eq!(decoded[0].delta().value().unwrap(), 3);
+}
+
+#[test]
+fn delta_wire_rejects_unregistered_crdt_manifest_for_codec() {
+    let wire_delta = crate::ReplicatorDelta {
+        key: "counter".to_string(),
+        crdt_manifest: "kairo.ddata.some-other-crdt".to_string(),
+        crdt_version: crate::CRDT_CODEC_VERSION,
+        payload: bytes::Bytes::new(),
+        from_version: 1,
+        to_version: 1,
+    };
+    let wire = crate::ReplicatorDeltaPropagation {
+        from: replica("remote"),
+        reply: false,
+        deltas: vec![wire_delta],
+    };
+
+    let error = decode_delta_propagation::<GCounter, _>(&wire, &GCounterCodec)
+        .expect_err("wrong CRDT manifest should fail");
+
+    assert!(error.to_string().contains("expected CRDT manifest"));
+}
+
+#[test]
+fn delta_receive_tracker_applies_in_order_causal_deltas_once() {
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("remote");
+    let mut state = ReplicatorState::<GCounter>::new();
+    let mut tracker = DeltaReceiveTracker::new();
+
+    let first = tracker.apply_delta(
+        &mut state,
+        remote.clone(),
+        key.clone(),
+        1,
+        1,
+        delta_counter("a", 1),
+    );
+    assert!(matches!(
+        first,
+        DeltaReceiveStatus::Applied {
+            previous_version: 0,
+            to_version: 1,
+            changed: true,
+            ..
+        }
+    ));
+    assert_eq!(tracker.current_version(&remote, &key), 1);
+    assert_eq!(state.get_local(&key).data().unwrap().value().unwrap(), 1);
+
+    let duplicate = tracker.apply_delta(
+        &mut state,
+        remote.clone(),
+        key.clone(),
+        1,
+        1,
+        delta_counter("a", 1),
+    );
+    assert!(matches!(
+        duplicate,
+        DeltaReceiveStatus::AlreadyHandled {
+            current_version: 1,
+            to_version: 1,
+            ..
+        }
+    ));
+    assert_eq!(state.get_local(&key).data().unwrap().value().unwrap(), 1);
+}
+
+#[test]
+fn delta_receive_tracker_reports_missing_and_invalid_ranges() {
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("remote");
+    let mut state = ReplicatorState::<GCounter>::new();
+    let mut tracker = DeltaReceiveTracker::new();
+
+    let missing = tracker.apply_delta(
+        &mut state,
+        remote.clone(),
+        key.clone(),
+        3,
+        3,
+        delta_counter("a", 3),
+    );
+    assert!(matches!(
+        missing,
+        DeltaReceiveStatus::Missing {
+            current_version: 0,
+            expected_from_version: 1,
+            from_version: 3,
+            to_version: 3,
+            ..
+        }
+    ));
+    assert_eq!(tracker.current_version(&remote, &key), 0);
+    assert_eq!(
+        state.get_local(&key),
+        GetResponse::NotFound { key: key.clone() }
+    );
+
+    let invalid = tracker.apply_delta(&mut state, remote, key, 2, 1, delta_counter("a", 1));
+    assert!(matches!(
+        invalid,
+        DeltaReceiveStatus::InvalidRange {
+            from_version: 2,
+            to_version: 1,
+            ..
+        }
+    ));
 }
 
 #[test]

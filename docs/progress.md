@@ -211,6 +211,13 @@ Implemented:
   numbers, merges unsent deltas per target, advances sequence numbers for
   no-payload updates, selects remote replicas by Pekko-style round-robin
   slices, and cleans delta entries after all current targets have seen them.
+- `kairo-distributed-data` now has focused delta wire translation helpers that
+  convert `DeltaPropagation<Delta>` batches into remote protocol messages using
+  registered CRDT data codecs, and reject manifest/version mismatches on
+  decode.
+- `DeltaReceiveTracker` tracks receive-side per-replica/key delta sequence
+  numbers and models Pekko-style duplicate, missing, invalid-range, and
+  in-order apply decisions before the transport loop is wired in.
 - `ReplicatorActor<D>` records local update deltas into the propagation log and
   exposes explicit target-node configuration, propagation collection, and
   cleanup messages for the future remote transport loop.
