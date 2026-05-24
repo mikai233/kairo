@@ -288,6 +288,11 @@ Implemented:
   home allocation/deallocation, and remember-entities unallocated shard
   tracking, matching Pekko's event-applied coordinator state shape before the
   actor-backed coordinator is wired in.
+- `kairo-cluster-sharding` now has a focused coordinator runtime planner for
+  `GetShardHome`: it replies with known shard homes, defers requests while a
+  shard is rebalancing, ignores requests before region registration completes,
+  excludes graceful-shutdown and terminating regions from new allocations, and
+  emits `HostShard` plans after successful least-shard allocation.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
