@@ -37,6 +37,10 @@ impl WireWriter {
         self.bytes.extend_from_slice(&value.to_be_bytes());
     }
 
+    pub fn write_u128(&mut self, value: u128) {
+        self.bytes.extend_from_slice(&value.to_be_bytes());
+    }
+
     pub fn write_optional_u64(&mut self, value: Option<u64>) {
         match value {
             Some(value) => {
@@ -108,6 +112,12 @@ impl<'a> WireReader<'a> {
         let mut bytes = [0; 8];
         bytes.copy_from_slice(self.read_exact(8)?);
         Ok(u64::from_be_bytes(bytes))
+    }
+
+    pub fn read_u128(&mut self) -> Result<u128> {
+        let mut bytes = [0; 16];
+        bytes.copy_from_slice(self.read_exact(16)?);
+        Ok(u128::from_be_bytes(bytes))
     }
 
     pub fn read_exact(&mut self, len: usize) -> Result<&'a [u8]> {

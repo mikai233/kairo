@@ -6,9 +6,10 @@ use kairo_actor::{Actor, ActorResult, ActorSystem, Address, Context, Props};
 use kairo_cluster::UniqueAddress;
 
 use crate::{
-    ConsistencyError, CrdtError, DataEnvelope, DeltaReplicatedData, GCounter, GSet, GetResponse,
-    PNCounter, ReadConsistency, ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor,
-    ReplicatorActorMsg, ReplicatorKey, ReplicatorState, UpdateResponse, WriteConsistency,
+    ConsistencyError, CrdtDataCodec, CrdtError, DataEnvelope, DeltaReplicatedData, GCounter,
+    GCounterCodec, GSet, GSetStringCodec, GetResponse, PNCounter, PNCounterCodec, ReadConsistency,
+    ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorKey,
+    ReplicatorState, UpdateResponse, WriteConsistency,
 };
 
 fn replica(id: &str) -> ReplicaId {
@@ -146,6 +147,84 @@ fn pncounter_delta_contains_inner_counter_deltas() {
 
     assert_eq!(delta.value().unwrap(), 6);
     assert_eq!(PNCounter::new().merge_delta(&delta), full.reset_delta());
+}
+
+#[test]
+fn crdt_codecs_round_trip_gset_strings_in_stable_order() {
+    let data = GSet::new()
+        .add("b".to_string())
+        .add("a".to_string())
+        .reset_delta();
+
+    let serialized = GSetStringCodec.serialize(&data).unwrap();
+    let serialized_again = GSetStringCodec.serialize(&data).unwrap();
+
+    assert_eq!(serialized.manifest(), crate::GSET_STRING_MANIFEST);
+    assert_eq!(serialized.payload(), serialized_again.payload());
+    assert_eq!(GSetStringCodec.deserialize(serialized).unwrap(), data);
+}
+
+#[test]
+fn crdt_codecs_round_trip_gcounter_by_sorted_replica_ids() {
+    let data = GCounter::new()
+        .increment(replica("b"), 2)
+        .unwrap()
+        .increment(replica("a"), 5)
+        .unwrap()
+        .reset_delta();
+
+    let serialized = GCounterCodec.serialize(&data).unwrap();
+    let serialized_again = GCounterCodec.serialize(&data).unwrap();
+
+    assert_eq!(serialized.manifest(), crate::GCOUNTER_MANIFEST);
+    assert_eq!(serialized.payload(), serialized_again.payload());
+    assert_eq!(GCounterCodec.deserialize(serialized).unwrap(), data);
+}
+
+#[test]
+fn crdt_codecs_round_trip_pncounter() {
+    let data = PNCounter::new()
+        .increment(replica("a"), 7)
+        .unwrap()
+        .decrement(replica("b"), 4)
+        .unwrap()
+        .reset_delta();
+
+    let serialized = PNCounterCodec.serialize(&data).unwrap();
+
+    assert_eq!(serialized.manifest(), crate::PNCOUNTER_MANIFEST);
+    assert_eq!(PNCounterCodec.deserialize(serialized).unwrap(), data);
+}
+
+#[test]
+fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
+    let data = GCounter::new().increment(replica("a"), 1).unwrap();
+    let serialized = GCounterCodec.serialize(&data).unwrap();
+    let wrong_manifest = crate::SerializedCrdt::new(
+        crate::GSET_STRING_MANIFEST,
+        serialized.version(),
+        serialized.payload().clone(),
+    );
+    let wrong_version = crate::SerializedCrdt::new(
+        crate::GCOUNTER_MANIFEST,
+        crate::CRDT_CODEC_VERSION + 1,
+        serialized.payload().clone(),
+    );
+
+    assert!(
+        GCounterCodec
+            .deserialize(wrong_manifest)
+            .unwrap_err()
+            .to_string()
+            .contains("expected CRDT manifest")
+    );
+    assert!(
+        GCounterCodec
+            .deserialize(wrong_version)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported")
+    );
 }
 
 #[test]

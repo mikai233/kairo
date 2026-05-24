@@ -2,6 +2,7 @@
 
 mod codec;
 mod consistency;
+mod crdt_codec;
 mod data;
 mod envelope;
 mod errors;
@@ -25,6 +26,10 @@ pub use codec::{
     register_ddata_protocol_codecs,
 };
 pub use consistency::{ReadConsistency, WriteConsistency};
+pub use crdt_codec::{
+    CRDT_CODEC_VERSION, CrdtDataCodec, GCOUNTER_MANIFEST, GCounterCodec, GSET_STRING_MANIFEST,
+    GSetStringCodec, PNCOUNTER_MANIFEST, PNCounterCodec, SerializedCrdt,
+};
 pub use data::{DeltaReplicatedData, ReplicatedData, ReplicatedDelta};
 pub use envelope::DataEnvelope;
 pub use errors::{ConsistencyError, CrdtError};
