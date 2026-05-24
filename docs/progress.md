@@ -232,6 +232,10 @@ Implemented:
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
+- `ReplicatorActor<D>` can also apply a complete remote
+  `ReplicatorDeltaPropagation` in one synchronous actor turn using an explicit
+  CRDT delta codec and returns a `DeltaPropagationReceiveReport` for ack/nack
+  mapping.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, and stopped protocol

@@ -76,7 +76,7 @@ pub fn decode_delta_propagation<Delta, Codec>(
     codec: &Codec,
 ) -> kairo_serialization::Result<Vec<DecodedReplicatorDelta<Delta>>>
 where
-    Codec: CrdtDataCodec<Delta>,
+    Codec: CrdtDataCodec<Delta> + ?Sized,
 {
     propagation
         .deltas
@@ -90,7 +90,7 @@ pub fn decode_delta<Delta, Codec>(
     codec: &Codec,
 ) -> kairo_serialization::Result<DecodedReplicatorDelta<Delta>>
 where
-    Codec: CrdtDataCodec<Delta>,
+    Codec: CrdtDataCodec<Delta> + ?Sized,
 {
     if delta.crdt_manifest != codec.manifest() {
         return Err(SerializationError::Message(format!(

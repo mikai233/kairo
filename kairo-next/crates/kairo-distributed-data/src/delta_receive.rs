@@ -129,7 +129,7 @@ impl DeltaReceiveTracker {
     ) -> DeltaPropagationReceiveReport
     where
         D: DeltaReplicatedData,
-        Codec: CrdtDataCodec<D::Delta>,
+        Codec: CrdtDataCodec<D::Delta> + ?Sized,
     {
         let mut statuses = Vec::with_capacity(propagation.deltas.len());
         let mut failures = Vec::new();

@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 
 use crate::{
-    DataEnvelope, DeltaPropagation, DeltaPropagationLog, DeltaReceiveStatus, DeltaReceiveTracker,
-    DeltaReplicatedData, GetResponse, ReplicaId, ReplicatorChange, ReplicatorKey, ReplicatorState,
-    UpdateResponse, WriteConsistency,
+    CrdtDataCodec, DataEnvelope, DeltaPropagation, DeltaPropagationLog,
+    DeltaPropagationReceiveReport, DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData,
+    GetResponse, ReplicaId, ReplicatorChange, ReplicatorDeltaPropagation, ReplicatorKey,
+    ReplicatorState, UpdateResponse, WriteConsistency,
 };
 
 pub struct ReplicatorActor<D>
@@ -95,6 +97,11 @@ where
         delta: D::Delta,
         reply_to: ActorRef<DeltaReceiveStatus>,
     },
+    ApplyDeltaPropagation {
+        propagation: ReplicatorDeltaPropagation,
+        codec: Arc<dyn CrdtDataCodec<D::Delta> + Send + Sync>,
+        reply_to: ActorRef<DeltaPropagationReceiveReport>,
+    },
     SetDeltaNodes {
         nodes: Vec<ReplicaId>,
     },
@@ -181,6 +188,18 @@ where
                     delta,
                 );
                 tell_or_actor_error(&reply_to, status)?;
+            }
+            ReplicatorActorMsg::ApplyDeltaPropagation {
+                propagation,
+                codec,
+                reply_to,
+            } => {
+                let report = self.delta_receive.apply_propagation(
+                    &mut self.state,
+                    &propagation,
+                    codec.as_ref(),
+                );
+                tell_or_actor_error(&reply_to, report)?;
             }
             ReplicatorActorMsg::SetDeltaNodes { nodes } => {
                 self.delta_log.set_nodes(nodes);
