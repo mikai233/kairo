@@ -31,3 +31,15 @@ workspace split.
   multi-node test helpers.
 
 See `ARCHITECTURE.md` for the planned public model and implementation order.
+
+## Examples
+
+Runnable examples live in the `kairo-examples` crate:
+
+```bash
+cargo run -p kairo-examples --example local_counter
+```
+
+The `local_counter` example demonstrates the first Rust-first actor workflow:
+spawn a typed actor, send local messages without serialization, request a value
+through an explicit reply channel, and stop the actor.

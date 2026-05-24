@@ -434,6 +434,10 @@ Implemented:
   failure-detector/heartbeat settings, sharding shard counts, and cluster-tools
   pubsub settings while keeping the base config model usable without enabling
   every runtime crate.
+- `kairo-examples` now provides the first runnable example crate under
+  `kairo-next`, with a `local_counter` example that demonstrates spawning a
+  typed actor, sending local messages without serialization, replying through
+  an explicit channel, and stopping the actor.
 
 Not yet implemented:
 

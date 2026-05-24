@@ -1,0 +1,10 @@
+[package]
+name = "kairo-examples"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+kairo = { path = "../kairo" }

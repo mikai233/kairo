@@ -106,6 +106,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kairo-examples"
+version = "0.1.0"
+dependencies = [
+ "kairo",
+]
+
+[[package]]
 name = "kairo-remote"
 version = "0.1.0"
 dependencies = [
