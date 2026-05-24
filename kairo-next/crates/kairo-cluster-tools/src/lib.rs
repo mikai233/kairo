@@ -4,7 +4,10 @@ mod pubsub;
 mod singleton;
 mod topic;
 
-pub use pubsub::{LocalPubSub, PubSubTopicReport};
+pub use pubsub::{
+    CurrentTopics, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, PubSubSubscribeAck,
+    PubSubTopicReport,
+};
 pub use singleton::{
     SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange,
     SingletonOldestObservation, SingletonOldestTracker, SingletonScope,

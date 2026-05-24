@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use kairo_actor::ActorRef;
+use kairo_actor::{ActorPath, ActorRef};
 
 use crate::{LocalTopic, TopicName, TopicPublishMode, TopicPublishReport, TopicSubscriptionChange};
 
@@ -81,9 +81,13 @@ impl<M: Send + 'static> LocalPubSub<M> {
     }
 
     pub fn remove_subscriber(&mut self, subscriber: &ActorRef<M>) -> Vec<TopicName> {
+        self.remove_subscriber_path(subscriber.path())
+    }
+
+    pub fn remove_subscriber_path(&mut self, subscriber: &ActorPath) -> Vec<TopicName> {
         let mut changed_topics = Vec::new();
         for (topic, topic_state) in &mut self.topics {
-            if topic_state.remove_subscriber(subscriber) {
+            if topic_state.remove_subscriber_path(subscriber) {
                 changed_topics.push(topic.clone());
             }
         }
@@ -97,6 +101,12 @@ impl<M: Send + 'static> LocalPubSub<M> {
             self.topics.remove(&topic);
         }
         changed_topics
+    }
+
+    pub fn contains_subscriber_path(&self, subscriber: &ActorPath) -> bool {
+        self.topics
+            .values()
+            .any(|topic_state| topic_state.contains_subscriber_path(subscriber))
     }
 
     pub fn publish(

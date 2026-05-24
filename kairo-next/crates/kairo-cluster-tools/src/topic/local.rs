@@ -117,12 +117,16 @@ impl<M: Send + 'static> LocalTopic<M> {
     }
 
     pub fn remove_subscriber(&mut self, subscriber: &ActorRef<M>) -> bool {
-        let mut removed = self.unsubscribe(subscriber);
+        self.remove_subscriber_path(subscriber.path())
+    }
+
+    pub fn remove_subscriber_path(&mut self, subscriber: &ActorPath) -> bool {
+        let mut removed = remove_by_path(&mut self.subscribers, subscriber);
         let empty_groups: Vec<_> = self
             .groups
             .iter_mut()
             .filter_map(|(group_name, group)| {
-                removed |= group.unsubscribe(subscriber);
+                removed |= group.remove_subscriber_path(subscriber);
                 group.subscribers.is_empty().then(|| group_name.clone())
             })
             .collect();
@@ -130,6 +134,16 @@ impl<M: Send + 'static> LocalTopic<M> {
             self.groups.remove(&group_name);
         }
         removed
+    }
+
+    pub fn contains_subscriber_path(&self, subscriber: &ActorPath) -> bool {
+        self.subscribers
+            .iter()
+            .any(|existing| existing.path() == subscriber)
+            || self
+                .groups
+                .values()
+                .any(|group| group.contains_subscriber_path(subscriber))
     }
 
     pub fn publish(&mut self, message: M, mode: TopicPublishMode) -> TopicPublishReport
@@ -197,13 +211,23 @@ impl<M: Send + 'static> LocalTopicGroup<M> {
     }
 
     fn unsubscribe(&mut self, subscriber: &ActorRef<M>) -> bool {
-        let removed = remove_by_path(&mut self.subscribers, subscriber.path());
+        self.remove_subscriber_path(subscriber.path())
+    }
+
+    fn remove_subscriber_path(&mut self, subscriber: &ActorPath) -> bool {
+        let removed = remove_by_path(&mut self.subscribers, subscriber);
         if !self.subscribers.is_empty() {
             self.next_index %= self.subscribers.len();
         } else {
             self.next_index = 0;
         }
         removed
+    }
+
+    fn contains_subscriber_path(&self, subscriber: &ActorPath) -> bool {
+        self.subscribers
+            .iter()
+            .any(|existing| existing.path() == subscriber)
     }
 
     fn next_subscriber(&mut self) -> Option<ActorRef<M>> {

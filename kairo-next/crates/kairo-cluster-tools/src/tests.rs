@@ -1,14 +1,14 @@
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use kairo_actor::Address;
+use kairo_actor::{Address, Props};
 use kairo_cluster::{ClusterEvent, Member, MemberEvent, MemberStatus, UniqueAddress};
 use kairo_testkit::ActorSystemTestKit;
 
 use crate::{
-    LocalPubSub, LocalTopic, SingletonManagerEffect, SingletonManagerRuntime,
-    SingletonManagerState, SingletonOldestChange, SingletonOldestTracker, SingletonScope,
-    TopicName, TopicPublishMode,
+    CurrentTopics, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, LocalTopic, PubSubSubscribeAck,
+    PubSubTopicReport, SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState,
+    SingletonOldestChange, SingletonOldestTracker, SingletonScope, TopicName, TopicPublishMode,
 };
 
 #[test]
@@ -469,6 +469,119 @@ fn local_pubsub_removes_subscriber_from_all_topics() {
         .expect_msg_eq("work".to_string(), Duration::from_millis(200))
         .unwrap();
     shared.expect_no_msg(Duration::from_millis(30)).unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn local_pubsub_actor_subscribes_publishes_and_lists_topics() {
+    let kit = ActorSystemTestKit::new("pubsub-actor").unwrap();
+    let pubsub = kit
+        .system()
+        .spawn("pubsub", Props::new(LocalPubSubActor::<String>::new))
+        .unwrap();
+    let subscriber = kit.create_probe::<String>("subscriber").unwrap();
+    let ack_probe = kit.create_probe::<PubSubSubscribeAck>("acks").unwrap();
+    let report_probe = kit.create_probe::<PubSubTopicReport>("reports").unwrap();
+    let topics_probe = kit.create_probe::<CurrentTopics>("topics").unwrap();
+    let orders = TopicName::new("orders");
+
+    pubsub
+        .tell(LocalPubSubMsg::Subscribe {
+            topic: orders.clone(),
+            subscriber: subscriber.actor_ref(),
+            reply_to: Some(ack_probe.actor_ref()),
+        })
+        .unwrap();
+    assert_eq!(
+        ack_probe.expect_msg(Duration::from_millis(200)).unwrap(),
+        PubSubSubscribeAck {
+            topic: orders.clone(),
+            group: None,
+            changed: true,
+        }
+    );
+
+    pubsub
+        .tell(LocalPubSubMsg::Publish {
+            topic: orders.clone(),
+            message: "created".to_string(),
+            mode: TopicPublishMode::Broadcast,
+            reply_to: Some(report_probe.actor_ref()),
+        })
+        .unwrap();
+    subscriber
+        .expect_msg_eq("created".to_string(), Duration::from_millis(200))
+        .unwrap();
+    assert_eq!(
+        report_probe.expect_msg(Duration::from_millis(200)).unwrap(),
+        PubSubTopicReport {
+            topic: orders.clone(),
+            report: crate::TopicPublishReport {
+                delivered: 1,
+                failed: 0,
+                no_subscribers: false,
+            },
+        }
+    );
+
+    pubsub
+        .tell(LocalPubSubMsg::GetTopics {
+            reply_to: topics_probe.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        topics_probe.expect_msg(Duration::from_millis(200)).unwrap(),
+        CurrentTopics {
+            topics: BTreeSet::from([orders]),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn local_pubsub_actor_removes_terminated_subscribers() {
+    let kit = ActorSystemTestKit::new("pubsub-actor-terminated").unwrap();
+    let pubsub = kit
+        .system()
+        .spawn("pubsub", Props::new(LocalPubSubActor::<String>::new))
+        .unwrap();
+    let subscriber = kit.create_probe::<String>("subscriber").unwrap();
+    let report_probe = kit.create_probe::<PubSubTopicReport>("reports").unwrap();
+    let topic = TopicName::new("orders");
+
+    pubsub
+        .tell(LocalPubSubMsg::Subscribe {
+            topic: topic.clone(),
+            subscriber: subscriber.actor_ref(),
+            reply_to: None,
+        })
+        .unwrap();
+    kit.system().stop(&subscriber.actor_ref());
+    assert!(
+        subscriber
+            .actor_ref()
+            .wait_for_stop(Duration::from_millis(500))
+    );
+
+    pubsub
+        .tell(LocalPubSubMsg::Publish {
+            topic: topic.clone(),
+            message: "ignored".to_string(),
+            mode: TopicPublishMode::Broadcast,
+            reply_to: Some(report_probe.actor_ref()),
+        })
+        .unwrap();
+    assert_eq!(
+        report_probe.expect_msg(Duration::from_millis(500)).unwrap(),
+        PubSubTopicReport {
+            topic,
+            report: crate::TopicPublishReport {
+                delivered: 0,
+                failed: 0,
+                no_subscribers: true,
+            },
+        }
+    );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

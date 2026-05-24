@@ -406,6 +406,10 @@ Implemented:
   named local topics, including current-topic listing, routed publish,
   subscribe/unsubscribe delegation, empty-topic cleanup, and subscriber removal
   across all topics.
+- `kairo-cluster-tools` now has an actor-backed local pubsub mediator protocol
+  that wraps the local pubsub state in synchronous actor turns, sends typed
+  subscribe acks, publish reports, and current-topic replies, watches
+  subscribers, and removes terminated subscribers from all local topics.
 
 Not yet implemented:
 
