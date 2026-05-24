@@ -16,6 +16,14 @@ pub enum ShardingError {
         index: usize,
         key_count: usize,
     },
+    RememberStoreReadFailed {
+        key: String,
+        reason: String,
+    },
+    RememberStoreUpdateFailed {
+        key: String,
+        reason: String,
+    },
     InconsistentShardHome {
         shard: String,
         current_region: String,
@@ -50,6 +58,18 @@ impl Display for ShardingError {
                 f,
                 "remember entity key index {index} is outside 0..{key_count}"
             ),
+            Self::RememberStoreReadFailed { key, reason } => {
+                write!(
+                    f,
+                    "remember entity store read failed for key {key}: {reason}"
+                )
+            }
+            Self::RememberStoreUpdateFailed { key, reason } => {
+                write!(
+                    f,
+                    "remember entity store update failed for key {key}: {reason}"
+                )
+            }
             Self::InconsistentShardHome {
                 shard,
                 current_region,

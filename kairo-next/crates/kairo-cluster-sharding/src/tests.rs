@@ -3,6 +3,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorResult, ActorSystem, Context, Props};
+use kairo_distributed_data::{GSet, ReplicatorActor};
 
 use crate::{
     BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState,
@@ -10,14 +11,16 @@ use crate::{
     HandOff, HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget,
     HandoffTransport, HostShard, HostShardPlan, LeastShardAllocationStrategy,
     RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionDropReason, RegionRoutePlan,
-    RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
-    RememberCoordinatorStoreState, RememberShardStoreActor, RememberShardStoreMsg,
-    RememberShardStoreSnapshot, RememberShardStoreState, RememberShardUpdate, RememberedEntities,
-    ShardActor, ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor,
-    ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
-    ShardHomePlan, ShardMsg, ShardRebalancePlan, ShardRegionActor, ShardRegionMsg,
-    ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime, ShardSnapshot, ShardStarted,
-    ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError, default_shard_id_for,
+    RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
+    RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
+    RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
+    RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
+    RememberShardStoreState, RememberShardUpdate, RememberedEntities, ShardActor,
+    ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorMsg,
+    ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
+    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot,
+    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
+    ShardingError, default_shard_id_for, remember_coordinator_shards_key,
     remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
     shard_id_for, stable_hash_entity_id,
 };
@@ -213,6 +216,115 @@ fn remember_coordinator_store_actor_adds_and_lists_shards() {
         state.expect_msg(Duration::from_millis(500)).unwrap(),
         RememberCoordinatorStoreSnapshot {
             shards: BTreeSet::from(["1".to_string(), "2".to_string()]),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn remember_coordinator_ddata_store_adds_and_loads_shards() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("remember-coordinator-ddata-store").unwrap();
+    let replicator = kit
+        .system()
+        .spawn(
+            "replicator",
+            Props::new(ReplicatorActor::<GSet<String>>::new),
+        )
+        .unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberCoordinatorDDataStoreActor::props("orders", replicator),
+        )
+        .unwrap();
+    let updates = kit
+        .create_probe::<Result<crate::RememberCoordinatorUpdateDone, ShardingError>>("updates")
+        .unwrap();
+    let shards = kit
+        .create_probe::<Result<crate::RememberedShards, ShardingError>>("shards")
+        .unwrap();
+    let state = kit
+        .create_probe::<RememberCoordinatorDDataStoreSnapshot>("state")
+        .unwrap();
+
+    store
+        .tell(RememberCoordinatorDDataStoreMsg::GetShards {
+            reply_to: shards.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        shards.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(crate::RememberedShards {
+            shards: BTreeSet::new(),
+        })
+    );
+
+    store
+        .tell(RememberCoordinatorDDataStoreMsg::AddShard {
+            shard: "1".to_string(),
+            reply_to: updates.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        updates.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(crate::RememberCoordinatorUpdateDone {
+            shard: "1".to_string(),
+        })
+    );
+
+    store
+        .tell(RememberCoordinatorDDataStoreMsg::AddShard {
+            shard: "1".to_string(),
+            reply_to: updates.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        updates.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(crate::RememberCoordinatorUpdateDone {
+            shard: "1".to_string(),
+        })
+    );
+
+    store
+        .tell(RememberCoordinatorDDataStoreMsg::AddShard {
+            shard: "2".to_string(),
+            reply_to: updates.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        updates.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(crate::RememberCoordinatorUpdateDone {
+            shard: "2".to_string(),
+        })
+    );
+
+    store
+        .tell(RememberCoordinatorDDataStoreMsg::GetShards {
+            reply_to: shards.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        shards.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(crate::RememberedShards {
+            shards: BTreeSet::from(["1".to_string(), "2".to_string()]),
+        })
+    );
+
+    store
+        .tell(RememberCoordinatorDDataStoreMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberCoordinatorDDataStoreSnapshot {
+            type_name: "orders".to_string(),
+            key: remember_coordinator_shards_key("orders")
+                .as_str()
+                .to_string(),
+            read_consistency: kairo_distributed_data::ReadConsistency::local(),
+            write_consistency: kairo_distributed_data::WriteConsistency::local(),
         }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
