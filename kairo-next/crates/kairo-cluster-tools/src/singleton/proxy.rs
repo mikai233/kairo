@@ -2,6 +2,10 @@ use std::collections::VecDeque;
 use std::fmt::{self, Display, Formatter};
 
 use kairo_actor::{Actor, ActorPath, ActorRef, ActorResult, Context, Props};
+use kairo_cluster::UniqueAddress;
+
+use super::proxy_routes::SingletonProxyRoutes;
+use crate::singleton::{SingletonOldestChange, SingletonOldestObservation};
 
 const MAX_BUFFER_SIZE: usize = 10_000;
 
@@ -61,6 +65,7 @@ where
     M: Send + 'static,
 {
     settings: SingletonProxySettings,
+    routes: SingletonProxyRoutes<M>,
     singleton: Option<ActorRef<M>>,
     buffer: VecDeque<M>,
     dropped_messages: u64,
@@ -73,6 +78,7 @@ where
     pub fn new(settings: SingletonProxySettings) -> Self {
         Self {
             settings,
+            routes: SingletonProxyRoutes::new(),
             singleton: None,
             buffer: VecDeque::new(),
             dropped_messages: 0,
@@ -107,6 +113,12 @@ where
         Ok(())
     }
 
+    fn clear_identified_singleton(&mut self, ctx: &mut Context<SingletonProxyMsg<M>>) {
+        if let Some(current) = self.singleton.take() {
+            ctx.unwatch(&current);
+        }
+    }
+
     fn clear_singleton(&mut self, path: &ActorPath) {
         if self
             .singleton
@@ -115,6 +127,24 @@ where
         {
             self.singleton = None;
         }
+    }
+
+    fn identify_current_oldest(&mut self, ctx: &mut Context<SingletonProxyMsg<M>>) -> ActorResult {
+        if let Some(singleton) = self.routes.current_target() {
+            self.set_singleton(ctx, singleton)?;
+        }
+        Ok(())
+    }
+
+    fn apply_oldest_change(
+        &mut self,
+        ctx: &mut Context<SingletonProxyMsg<M>>,
+        changed: bool,
+    ) -> ActorResult {
+        if changed {
+            self.clear_identified_singleton(ctx);
+        }
+        self.identify_current_oldest(ctx)
     }
 
     fn route(&mut self, message: M) {
@@ -151,6 +181,19 @@ where
 
 pub enum SingletonProxyMsg<M: Send + 'static> {
     Route(M),
+    RegisterRoute {
+        node: UniqueAddress,
+        singleton: ActorRef<M>,
+    },
+    RemoveRoute {
+        node: UniqueAddress,
+    },
+    ApplyInitialObservation {
+        observation: SingletonOldestObservation,
+    },
+    ApplyOldestChange {
+        change: SingletonOldestChange,
+    },
     IdentifySingleton {
         singleton: ActorRef<M>,
     },
@@ -164,6 +207,8 @@ pub enum SingletonProxyMsg<M: Send + 'static> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SingletonProxySnapshot {
+    pub current_oldest: Option<UniqueAddress>,
+    pub registered_routes: usize,
     pub singleton_path: Option<ActorPath>,
     pub buffered_messages: usize,
     pub dropped_messages: u64,
@@ -178,6 +223,24 @@ where
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             SingletonProxyMsg::Route(message) => self.route(message),
+            SingletonProxyMsg::RegisterRoute { node, singleton } => {
+                if self.routes.register_route(node, singleton) {
+                    self.identify_current_oldest(ctx)?;
+                }
+            }
+            SingletonProxyMsg::RemoveRoute { node } => {
+                if self.routes.remove_route(&node) {
+                    self.clear_identified_singleton(ctx);
+                }
+            }
+            SingletonProxyMsg::ApplyInitialObservation { observation } => {
+                let changed = self.routes.apply_initial_observation(observation);
+                self.apply_oldest_change(ctx, changed)?;
+            }
+            SingletonProxyMsg::ApplyOldestChange { change } => {
+                let changed = self.routes.apply_oldest_change(change);
+                self.apply_oldest_change(ctx, changed)?;
+            }
             SingletonProxyMsg::IdentifySingleton { singleton } => {
                 self.set_singleton(ctx, singleton)?;
             }
@@ -186,6 +249,8 @@ where
             }
             SingletonProxyMsg::GetState { reply_to } => {
                 let _ = reply_to.tell(SingletonProxySnapshot {
+                    current_oldest: self.routes.current_oldest().cloned(),
+                    registered_routes: self.routes.registered_routes(),
                     singleton_path: self
                         .singleton
                         .as_ref()

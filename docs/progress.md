@@ -663,6 +663,12 @@ Implemented:
   singleton is identified, drops the oldest buffered message when the bounded
   buffer is full, flushes buffered messages in FIFO order when a singleton is
   identified, and clears the route when the watched singleton terminates.
+- `kairo-cluster-tools` singleton proxy routing is now split into a focused
+  route-table module. The actor can register typed local or future remote
+  singleton targets by `UniqueAddress`, apply initial oldest-member
+  observations and oldest-change events, discard the previously identified
+  singleton when the oldest member changes, and flush buffered messages once a
+  route for the current oldest member is available.
 - `kairo-cluster-tools` topic support is split into focused name and local
   topic modules, with typed local subscriptions, duplicate suppression,
   unsubscribe/removal handling, broadcast delivery, and deterministic
@@ -721,8 +727,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton cluster-event-driven identification/remote routing and
-  distributed pubsub mediator/topic replication.
+- Cluster singleton remote routing and distributed pubsub mediator/topic
+  replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.

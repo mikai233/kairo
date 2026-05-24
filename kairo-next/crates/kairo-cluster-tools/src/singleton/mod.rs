@@ -3,6 +3,7 @@ mod local_manager;
 mod manager;
 mod oldest;
 mod proxy;
+mod proxy_routes;
 
 pub use actor::{SingletonManagerActor, SingletonManagerMsg, SingletonManagerSnapshot};
 pub use local_manager::{

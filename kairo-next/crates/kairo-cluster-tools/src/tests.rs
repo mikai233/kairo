@@ -754,6 +754,8 @@ fn singleton_proxy_drops_oldest_message_when_buffer_is_full() {
     assert_eq!(
         state.expect_msg(Duration::from_millis(500)).unwrap(),
         SingletonProxySnapshot {
+            current_oldest: None,
+            registered_routes: 0,
             singleton_path: None,
             buffered_messages: 2,
             dropped_messages: 1,
@@ -772,6 +774,139 @@ fn singleton_proxy_drops_oldest_message_when_buffer_is_full() {
         .expect_msg_eq("three".to_string(), Duration::from_millis(500))
         .unwrap();
     singleton.expect_no_msg(Duration::from_millis(100)).unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn singleton_proxy_identifies_registered_route_from_initial_observation() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_b,
+        SingletonScope::all(),
+        [member(node_a.clone(), MemberStatus::Up, 1)],
+    );
+    let kit = ActorSystemTestKit::new("singleton-proxy-initial-oldest").unwrap();
+    let singleton = kit.create_probe::<String>("singleton").unwrap();
+    let state = kit
+        .create_probe::<SingletonProxySnapshot>("proxy-state")
+        .unwrap();
+    let proxy = kit
+        .system()
+        .spawn(
+            "singleton-proxy",
+            SingletonProxyActor::<String>::props(SingletonProxySettings::new(4).unwrap()),
+        )
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::Route("before".to_string()))
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::RegisterRoute {
+            node: node_a.clone(),
+            singleton: singleton.actor_ref(),
+        })
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::ApplyInitialObservation { observation })
+        .unwrap();
+
+    singleton
+        .expect_msg_eq("before".to_string(), Duration::from_millis(500))
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::Route("after".to_string()))
+        .unwrap();
+    singleton
+        .expect_msg_eq("after".to_string(), Duration::from_millis(500))
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(snapshot.current_oldest, Some(node_a));
+    assert_eq!(snapshot.registered_routes, 1);
+    assert_eq!(
+        snapshot.singleton_path.as_ref(),
+        Some(singleton.actor_ref().path())
+    );
+    assert_eq!(snapshot.buffered_messages, 0);
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn singleton_proxy_reidentifies_when_oldest_route_changes() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [member(node_a.clone(), MemberStatus::Up, 1)],
+    );
+    let kit = ActorSystemTestKit::new("singleton-proxy-oldest-change").unwrap();
+    let singleton_a = kit.create_probe::<String>("singleton-a").unwrap();
+    let singleton_b = kit.create_probe::<String>("singleton-b").unwrap();
+    let proxy = kit
+        .system()
+        .spawn(
+            "singleton-proxy",
+            SingletonProxyActor::<String>::props(SingletonProxySettings::new(4).unwrap()),
+        )
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::RegisterRoute {
+            node: node_a.clone(),
+            singleton: singleton_a.actor_ref(),
+        })
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::ApplyInitialObservation { observation })
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::Route("one".to_string()))
+        .unwrap();
+    singleton_a
+        .expect_msg_eq("one".to_string(), Duration::from_millis(500))
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::ApplyOldestChange {
+            change: SingletonOldestChange::OldestChanged(Some(node_b.clone())),
+        })
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::Route("two".to_string()))
+        .unwrap();
+    singleton_a
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+    singleton_b
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::RegisterRoute {
+            node: node_b,
+            singleton: singleton_b.actor_ref(),
+        })
+        .unwrap();
+    singleton_b
+        .expect_msg_eq("two".to_string(), Duration::from_millis(500))
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::Route("three".to_string()))
+        .unwrap();
+    singleton_b
+        .expect_msg_eq("three".to_string(), Duration::from_millis(500))
+        .unwrap();
+    singleton_a
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
@@ -858,6 +993,8 @@ fn singleton_proxy_clears_current_singleton_on_termination_and_buffers_again() {
     assert_eq!(
         cleared.expect("proxy should observe singleton termination"),
         SingletonProxySnapshot {
+            current_oldest: None,
+            registered_routes: 0,
             singleton_path: None,
             buffered_messages: 0,
             dropped_messages: 0,
