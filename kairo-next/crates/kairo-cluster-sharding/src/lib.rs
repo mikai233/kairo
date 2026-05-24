@@ -1,8 +1,14 @@
 //! Cluster sharding API surface and protocols.
 
+mod protocol;
+
 use std::marker::PhantomData;
 
 use kairo_actor::{ActorRef, SendError};
+pub use protocol::{
+    BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
+    ShardHome, ShardStarted, ShardStopped,
+};
 
 pub type EntityId = String;
 pub type ShardId = String;

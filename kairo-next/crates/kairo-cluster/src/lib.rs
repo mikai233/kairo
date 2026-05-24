@@ -1,6 +1,9 @@
 //! Gossip-based cluster membership and cluster events.
 
+mod protocol;
+
 pub use kairo_actor::Address;
+pub use protocol::{GossipEnvelope, Join, Welcome};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemberStatus {

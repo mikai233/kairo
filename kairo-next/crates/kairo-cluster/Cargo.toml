@@ -8,3 +8,4 @@ repository.workspace = true
 [dependencies]
 kairo-actor = { workspace = true }
 kairo-remote = { workspace = true }
+kairo-serialization = { workspace = true }

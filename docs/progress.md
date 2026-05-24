@@ -145,14 +145,17 @@ Implemented:
   boundary for resolving those refs later.
 - `RemoteEnvelope` carries actor-ref wire data for recipient and optional
   sender rather than unstructured path strings.
+- `kairo-remote`, `kairo-cluster`, `kairo-distributed-data`, and
+  `kairo-cluster-sharding` now have focused `protocol` modules declaring the
+  first stable `RemoteMessage` manifests for remote watch/heartbeat, cluster
+  gossip, distributed-data replicator, and sharding coordinator protocols.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
-- Concrete actor-system/provider actor-ref resolution, system protocol
-  manifests, optional codec helper crates, and rolling-version compatibility
-  tests.
+- Concrete actor-system/provider actor-ref resolution, protocol codecs,
+  optional codec helper crates, and rolling-version compatibility tests.
 
 ## Last Validation
 

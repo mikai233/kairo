@@ -1,5 +1,9 @@
 //! CRDT-based replicated data for Kairo clusters.
 
+mod protocol;
+
+pub use protocol::{ReplicatorChanged, ReplicatorGet, ReplicatorSubscribe, ReplicatorUpdate};
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReplicatorKey(String);
 

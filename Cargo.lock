@@ -46,6 +46,7 @@ version = "0.1.0"
 dependencies = [
  "kairo-actor",
  "kairo-remote",
+ "kairo-serialization",
 ]
 
 [[package]]
@@ -55,6 +56,7 @@ dependencies = [
  "kairo-actor",
  "kairo-cluster",
  "kairo-distributed-data",
+ "kairo-serialization",
 ]
 
 [[package]]

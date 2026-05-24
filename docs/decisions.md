@@ -421,3 +421,29 @@ Consequences:
 - The core serialization crate still does not depend on actor runtime types.
 - Remote provider resolution, cache behavior, and missing-ref fallback remain
   later remoting work.
+
+## ADR-0018: System Protocol Manifests Are Declared With Protocol Types
+
+Status: Accepted
+
+Context:
+Remote, cluster, distributed-data, and sharding protocols become public wire
+contracts once nodes exchange them. The roadmap requires stable manifests for
+these system protocols before behavior depends on them, and Pekko represents
+remote watch, gossip, replicator, and sharding coordinator messages as
+dedicated serialized protocol messages.
+
+Decision:
+Each owning crate declares its first system protocol message structs in a
+focused `protocol` module and implements `RemoteMessage` with explicit
+`kairo.<area>.<message>` manifests and version `1`. The first slice covers
+remote watch/heartbeat messages, cluster join/welcome/gossip envelopes,
+distributed-data replicator request/update/subscribe/change messages, and
+sharding coordinator registration/home/handoff messages.
+
+Consequences:
+- Wire manifests live next to the subsystem that owns the protocol.
+- Later codecs can register these protocol types without inventing manifests
+  at the behavior implementation point.
+- The structs are metadata contracts only for now; state machines, codecs, and
+  rolling-version migrations remain separate implementation slices.
