@@ -9,6 +9,7 @@ mod mailbox;
 mod path;
 mod refs;
 mod registry;
+mod scheduler;
 mod signal;
 mod system;
 
@@ -18,13 +19,14 @@ pub use dispatcher::DispatcherSettings;
 pub use error::{ActorError, ActorResult, SendError};
 pub use path::{ActorPath, Address};
 pub use refs::{ActorRef, AnyActorRef, IgnoreRef, Recipient};
+pub use scheduler::Cancellable;
 pub use signal::Signal;
 pub use system::{ActorSystem, ActorSystemBuilder};
 
 pub mod prelude {
     pub use crate::{
-        Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, Context, DeadLetter,
-        DeadLetters, DispatcherSettings, IgnoreRef, Props, Recipient, Signal,
+        Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, Cancellable, Context,
+        DeadLetter, DeadLetters, DispatcherSettings, IgnoreRef, Props, Recipient, Signal,
     };
 }
 

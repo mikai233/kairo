@@ -12,6 +12,7 @@ use crate::mailbox::{Dequeued, Mailbox, SystemMessage};
 use crate::path::{ActorPath, Address};
 use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
 use crate::registry::ActorRegistry;
+use crate::scheduler::{Cancellable, Scheduler};
 use crate::signal::Signal;
 
 #[derive(Debug, Clone)]
@@ -30,6 +31,7 @@ pub(crate) struct ActorSystemInner {
     registry: ActorRegistry,
     death_watch: DeathWatchRegistry,
     dispatcher: DispatcherSettings,
+    scheduler: Scheduler,
     dead_letters: DeadLetters,
 }
 
@@ -55,6 +57,13 @@ impl ActorSystem {
 
     pub fn dispatcher_settings(&self) -> DispatcherSettings {
         self.inner.dispatcher
+    }
+
+    pub fn schedule_once<M>(&self, delay: Duration, target: ActorRef<M>, message: M) -> Cancellable
+    where
+        M: Send + 'static,
+    {
+        self.inner.scheduler.schedule_once(delay, target, message)
     }
 
     pub fn stop<M: Send + 'static>(&self, actor: &ActorRef<M>) {

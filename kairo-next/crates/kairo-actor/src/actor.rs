@@ -1,8 +1,10 @@
 use crate::error::{ActorError, ActorResult};
 use crate::path::ActorPath;
 use crate::refs::{ActorRef, AnyActorRef};
+use crate::scheduler::Cancellable;
 use crate::signal::Signal;
 use crate::system::ActorSystem;
+use std::time::Duration;
 
 pub trait Actor: Send + 'static {
     type Msg: Send + 'static;
@@ -88,6 +90,20 @@ impl<M: Send + 'static> Context<M> {
 
     pub fn unwatch<N: Send + 'static>(&mut self, actor: &ActorRef<N>) {
         self.system.unwatch(self.myself.path(), actor.path());
+    }
+
+    pub fn schedule_once<N: Send + 'static>(
+        &self,
+        delay: Duration,
+        target: ActorRef<N>,
+        message: N,
+    ) -> Cancellable {
+        self.system.schedule_once(delay, target, message)
+    }
+
+    pub fn schedule_once_self(&self, delay: Duration, message: M) -> Cancellable {
+        self.system
+            .schedule_once(delay, self.myself.clone(), message)
     }
 
     pub fn spawn<A>(

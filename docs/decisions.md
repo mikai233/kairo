@@ -111,3 +111,25 @@ Consequences:
   global message enum.
 - Conflicts are explicit Rust errors, and changing a custom watch message is an
   explicit `unwatch` plus `watch_with` operation.
+
+## ADR-0006: Initial Scheduler Uses Cancellable Local Tasks
+
+Status: Accepted
+
+Context:
+Pekko exposes `scheduleOnce(delay, target, msg)` with a cancellable handle. M2
+needs the same actor-facing behavior before the deterministic testkit scheduler
+exists.
+
+Decision:
+Kairo's initial scheduler is a dependency-free local backend that starts a
+single cancellable task for each `schedule_once`. The task sleeps for the delay
+and then sends the typed message through the target `ActorRef<M>`. Cancellation
+is best-effort until the task completes and reports whether it won the race
+against delivery.
+
+Consequences:
+- Scheduled messages re-enter actors through normal typed mailboxes.
+- Local messages still require no serialization.
+- The public `Cancellable` and `schedule_once` API can remain stable while a
+  deterministic scheduler backend is added for `kairo-testkit` later.

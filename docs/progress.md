@@ -42,6 +42,8 @@ Implemented:
   throughput settings, actor-system termination, actor name validation, context
   parent/child introspection, context child stop, and invalid context stop
   targets, local death-watch signals, custom watch messages, and unwatch.
+- Focused scheduler tests cover delayed delivery, cancellation, and scheduled
+  self messages re-entering the actor mailbox.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
@@ -55,13 +57,18 @@ Implemented:
   `unwatch` suppresses later local termination notification.
 - Death-watch registration and notification state lives in a focused
   `death_watch` module.
+- `ActorSystem::schedule_once`, `Context::schedule_once`, and
+  `Context::schedule_once_self` can deliver typed messages after a delay through
+  a cancellable local scheduler handle.
+- Scheduler state lives in a focused `scheduler` module, and `Cancellable`
+  reports cancellation and completion state.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Coordinated shutdown.
-- Supervision, timers, ask, adapters, event stream, receptionist, and
-  deterministic testkit support.
+- Keyed actor timers, supervision, ask, adapters, event stream, receptionist,
+  and deterministic testkit support.
 
 ## Last Validation
 
