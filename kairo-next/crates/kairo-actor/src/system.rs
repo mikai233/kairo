@@ -8,12 +8,13 @@ use crate::dead_letters::DeadLetters;
 use crate::death_watch::{DeathWatchKind, DeathWatchRegistration, DeathWatchRegistry};
 use crate::dispatcher::DispatcherSettings;
 use crate::error::ActorError;
-use crate::mailbox::{Dequeued, Mailbox, SystemMessage};
+use crate::mailbox::{Dequeued, Mailbox, SystemMessage, UserEnvelope};
 use crate::path::{ActorPath, Address};
 use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
 use crate::registry::ActorRegistry;
 use crate::scheduler::{Cancellable, Scheduler};
 use crate::signal::Signal;
+use crate::timers::TimerState;
 
 #[derive(Debug, Clone)]
 pub struct ActorSystem {
@@ -64,6 +65,22 @@ impl ActorSystem {
         M: Send + 'static,
     {
         self.inner.scheduler.schedule_once(delay, target, message)
+    }
+
+    pub(crate) fn schedule_timer<M>(
+        &self,
+        delay: Duration,
+        target: ActorRef<M>,
+        key: String,
+        generation: u64,
+        message: M,
+    ) -> Cancellable
+    where
+        M: Send + 'static,
+    {
+        self.inner
+            .scheduler
+            .schedule_timer(delay, target, key, generation, message)
     }
 
     pub fn stop<M: Send + 'static>(&self, actor: &ActorRef<M>) {
@@ -342,6 +359,7 @@ fn run_actor<A>(
         parent: parent_path.clone(),
         system: thread_system,
         stop_requested: false,
+        timers: TimerState::default(),
     };
 
     if actor.started(&mut context).is_err() || context.stop_requested {
@@ -371,6 +389,7 @@ fn run_actor<A>(
         }
     }
 
+    context.cancel_all_timers();
     for message in mailbox.close_and_drain_user() {
         drop(message);
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
@@ -405,11 +424,21 @@ where
             let _ = actor.signal(context, signal);
             false
         }
-        Dequeued::User(message) => {
+        Dequeued::User(UserEnvelope::Message(message)) => {
             if actor.receive(context, message).is_err() || context.stop_requested {
                 actor_ref.target.stopped.store(true, Ordering::Release);
             }
             true
+        }
+        Dequeued::User(UserEnvelope::Timer(timer)) => {
+            if context.accept_timer(&timer) {
+                if actor.receive(context, timer.into_message()).is_err() || context.stop_requested {
+                    actor_ref.target.stopped.store(true, Ordering::Release);
+                }
+                true
+            } else {
+                false
+            }
         }
     }
 }

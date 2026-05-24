@@ -5,6 +5,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::ActorRef;
+use crate::timers::TimerEnvelope;
 
 const SCHEDULED: u8 = 0;
 const CANCELLED: u8 = 1;
@@ -76,6 +77,31 @@ impl Scheduler {
                 }
             })
             .expect("failed to spawn scheduler task");
+        cancellable
+    }
+
+    pub(crate) fn schedule_timer<M>(
+        &self,
+        delay: Duration,
+        target: ActorRef<M>,
+        key: String,
+        generation: u64,
+        message: M,
+    ) -> Cancellable
+    where
+        M: Send + 'static,
+    {
+        let cancellable = Cancellable::new();
+        let task = cancellable.clone();
+        thread::Builder::new()
+            .name("kairo-timer-once".to_string())
+            .spawn(move || {
+                thread::sleep(delay);
+                if task.complete() {
+                    target.send_timer(TimerEnvelope::new(key, generation, message));
+                }
+            })
+            .expect("failed to spawn timer task");
         cancellable
     }
 }

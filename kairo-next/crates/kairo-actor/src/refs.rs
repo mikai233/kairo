@@ -9,6 +9,7 @@ use crate::error::SendError;
 use crate::mailbox::{Mailbox, SystemMessage};
 use crate::path::ActorPath;
 use crate::signal::Signal;
+use crate::timers::TimerEnvelope;
 
 pub trait Recipient<M: Send + 'static> {
     fn tell(&self, message: M) -> Result<(), SendError<M>>;
@@ -144,6 +145,26 @@ impl<M: Send + 'static> ActorRef<M> {
             && let Some(mailbox) = &self.target.mailbox
         {
             mailbox.enqueue_system(SystemMessage::Signal(signal));
+        }
+    }
+
+    pub(crate) fn send_timer(&self, timer: TimerEnvelope<M>) {
+        if self.target.stopped.load(Ordering::Acquire) {
+            self.dead_letters
+                .publish::<M>(self.path.clone(), self.target.stopped_reason);
+            return;
+        }
+
+        let Some(mailbox) = &self.target.mailbox else {
+            self.dead_letters
+                .publish::<M>(self.path.clone(), "actor does not exist");
+            return;
+        };
+
+        if mailbox.enqueue_timer(timer).is_err() {
+            self.target.stopped.store(true, Ordering::Release);
+            self.dead_letters
+                .publish::<M>(self.path.clone(), "actor mailbox is closed");
         }
     }
 

@@ -4,6 +4,7 @@ use crate::refs::{ActorRef, AnyActorRef};
 use crate::scheduler::Cancellable;
 use crate::signal::Signal;
 use crate::system::ActorSystem;
+use crate::timers::{TimerEnvelope, TimerKey, TimerState};
 use std::time::Duration;
 
 pub trait Actor: Send + 'static {
@@ -52,6 +53,7 @@ pub struct Context<M> {
     pub(crate) parent: ActorPath,
     pub(crate) system: ActorSystem,
     pub(crate) stop_requested: bool,
+    pub(crate) timers: TimerState,
 }
 
 impl<M: Send + 'static> Context<M> {
@@ -104,6 +106,36 @@ impl<M: Send + 'static> Context<M> {
     pub fn schedule_once_self(&self, delay: Duration, message: M) -> Cancellable {
         self.system
             .schedule_once(delay, self.myself.clone(), message)
+    }
+
+    pub fn start_single_timer(&mut self, key: impl Into<TimerKey>, delay: Duration, message: M) {
+        let key = key.into();
+        let generation = self.timers.next_generation();
+        let cancellable = self.system.schedule_timer(
+            delay,
+            self.myself.clone(),
+            key.as_str().to_string(),
+            generation,
+            message,
+        );
+        self.timers
+            .start(key.as_str().to_string(), generation, cancellable);
+    }
+
+    pub fn cancel_timer(&mut self, key: impl AsRef<str>) {
+        self.timers.cancel(key.as_ref());
+    }
+
+    pub fn cancel_all_timers(&mut self) {
+        self.timers.cancel_all();
+    }
+
+    pub fn is_timer_active(&self, key: impl AsRef<str>) -> bool {
+        self.timers.is_active(key.as_ref())
+    }
+
+    pub(crate) fn accept_timer(&mut self, timer: &TimerEnvelope<M>) -> bool {
+        self.timers.accept(timer.key(), timer.generation())
     }
 
     pub fn spawn<A>(

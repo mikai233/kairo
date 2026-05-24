@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex};
 
 use crate::signal::Signal;
+use crate::timers::TimerEnvelope;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SystemMessage {
@@ -12,8 +13,23 @@ pub(crate) enum SystemMessage {
 #[derive(Debug)]
 pub(crate) enum Dequeued<M> {
     System(SystemMessage),
-    User(M),
+    User(UserEnvelope<M>),
     Closed,
+}
+
+#[derive(Debug)]
+pub(crate) enum UserEnvelope<M> {
+    Message(M),
+    Timer(TimerEnvelope<M>),
+}
+
+impl<M> UserEnvelope<M> {
+    fn into_message(self) -> M {
+        match self {
+            UserEnvelope::Message(message) => message,
+            UserEnvelope::Timer(timer) => timer.into_message(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -25,7 +41,7 @@ pub(crate) struct Mailbox<M> {
 #[derive(Debug)]
 struct MailboxState<M> {
     system: VecDeque<SystemMessage>,
-    user: VecDeque<M>,
+    user: VecDeque<UserEnvelope<M>>,
     closed: bool,
 }
 
@@ -48,7 +64,17 @@ impl<M> Mailbox<M> {
         if state.closed {
             return Err(message);
         }
-        state.user.push_back(message);
+        state.user.push_back(UserEnvelope::Message(message));
+        self.ready.notify_one();
+        Ok(())
+    }
+
+    pub(crate) fn enqueue_timer(&self, timer: TimerEnvelope<M>) -> Result<(), TimerEnvelope<M>> {
+        let mut state = self.state.lock().expect("mailbox poisoned");
+        if state.closed {
+            return Err(timer);
+        }
+        state.user.push_back(UserEnvelope::Timer(timer));
         self.ready.notify_one();
         Ok(())
     }
@@ -96,7 +122,11 @@ impl<M> Mailbox<M> {
         let mut state = self.state.lock().expect("mailbox poisoned");
         state.closed = true;
         state.system.clear();
-        let messages = state.user.drain(..).collect();
+        let messages = state
+            .user
+            .drain(..)
+            .map(UserEnvelope::into_message)
+            .collect();
         self.ready.notify_all();
         messages
     }

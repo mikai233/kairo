@@ -133,3 +133,25 @@ Consequences:
 - Local messages still require no serialization.
 - The public `Cancellable` and `schedule_once` API can remain stable while a
   deterministic scheduler backend is added for `kairo-testkit` later.
+
+## ADR-0007: Keyed Timers Use Mailbox Envelopes And Generations
+
+Status: Accepted
+
+Context:
+Pekko typed timers guarantee that cancelled or replaced timer messages are not
+received, even if the old timer marker was already enqueued in the actor
+mailbox. This is stronger than a best-effort cancellable scheduled send.
+
+Decision:
+Kairo keyed self timers enqueue a timer envelope containing the key,
+generation, and message. Each actor context owns timer state. When a timer
+envelope reaches the actor turn, the runtime checks that the key is still
+active and the generation matches before delivering the user message. Starting a
+new timer for the same key cancels the old task and advances the generation.
+
+Consequences:
+- Cancelled and replaced timer messages are discarded before user `receive`.
+- Timer messages remain local typed messages and require no serialization.
+- Active timers are cancelled when the owning actor stops.
+- Repeating timers can build on the same key/generation envelope mechanism.

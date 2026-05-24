@@ -12,6 +12,7 @@ mod registry;
 mod scheduler;
 mod signal;
 mod system;
+mod timers;
 
 pub use actor::{Actor, Context, Props};
 pub use dead_letters::{DeadLetter, DeadLetters};
@@ -22,11 +23,12 @@ pub use refs::{ActorRef, AnyActorRef, IgnoreRef, Recipient};
 pub use scheduler::Cancellable;
 pub use signal::Signal;
 pub use system::{ActorSystem, ActorSystemBuilder};
+pub use timers::TimerKey;
 
 pub mod prelude {
     pub use crate::{
         Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, Cancellable, Context,
-        DeadLetter, DeadLetters, DispatcherSettings, IgnoreRef, Props, Recipient, Signal,
+        DeadLetter, DeadLetters, DispatcherSettings, IgnoreRef, Props, Recipient, Signal, TimerKey,
     };
 }
 

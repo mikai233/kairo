@@ -44,6 +44,8 @@ Implemented:
   targets, local death-watch signals, custom watch messages, and unwatch.
 - Focused scheduler tests cover delayed delivery, cancellation, and scheduled
   self messages re-entering the actor mailbox.
+- Focused timer tests cover single timers, active-key cleanup, replacement,
+  cancellation after enqueue, and actor-stop timer cleanup.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
@@ -62,13 +64,18 @@ Implemented:
   a cancellable local scheduler handle.
 - Scheduler state lives in a focused `scheduler` module, and `Cancellable`
   reports cancellation and completion state.
+- `Context::start_single_timer`, `cancel_timer`, `cancel_all_timers`, and
+  `is_timer_active` provide keyed self timers with generation filtering so
+  cancelled or replaced timer messages are discarded even if already enqueued.
+- Timer state and envelopes live in a focused `timers` module and active timers
+  are cancelled when the owning actor stops.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Coordinated shutdown.
-- Keyed actor timers, supervision, ask, adapters, event stream, receptionist,
-  and deterministic testkit support.
+- Repeating timers, supervision, ask, adapters, event stream, receptionist, and
+  deterministic testkit support.
 
 ## Last Validation
 
