@@ -228,6 +228,14 @@ Implemented:
   and byte sinks into a reusable boundary for future TCP wiring, with tests
   driving serialized envelopes through stream bytes into typed inbound
   delivery.
+- `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
+  actor path, removes refs before termination is observable, and exposes local
+  resolution helpers so remoting can resolve inbound recipients without making
+  erased messages part of the user API.
+- `kairo-remote` now has a focused local actor inbound delivery adapter that
+  resolves remote recipient wire data through an `ActorSystem`, tells the
+  typed local actor, and routes unknown or type-mismatched targets through
+  missing-ref dead-letter diagnostics.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.

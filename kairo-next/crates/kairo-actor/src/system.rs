@@ -181,6 +181,22 @@ impl ActorSystem {
         ActorRef::missing(ActorPath::new(path), self.inner.dead_letters.clone())
     }
 
+    pub fn resolve_local<M>(&self, path: impl AsRef<str>) -> Option<ActorRef<M>>
+    where
+        M: Send + 'static,
+    {
+        self.inner.registry.resolve_ref(path.as_ref())
+    }
+
+    pub fn resolve_local_or_missing<M>(&self, path: impl Into<String>) -> ActorRef<M>
+    where
+        M: Send + 'static,
+    {
+        let path = path.into();
+        self.resolve_local(&path)
+            .unwrap_or_else(|| self.missing_ref(path))
+    }
+
     pub(crate) fn children_of(&self, parent_path: &ActorPath) -> Vec<AnyActorRef> {
         self.inner.registry.children_of(parent_path)
     }
@@ -355,6 +371,7 @@ impl ActorSystem {
             Arc::clone(&terminated),
             self.inner.dead_letters.clone(),
         );
+        self.inner.registry.add_ref(actor_ref.clone());
         let thread_ref = actor_ref.clone();
         let dead_letters = self.inner.dead_letters.clone();
         let system_inner = Arc::clone(&self.inner);
@@ -382,6 +399,7 @@ impl ActorSystem {
                 );
             })
         {
+            self.inner.registry.remove_ref(actor_ref.path());
             self.inner.registry.release_name(&registry_key);
             self.inner
                 .registry
@@ -514,6 +532,7 @@ fn run_actor<A>(
 
     stop_children(&system_inner, actor_ref.path.as_str());
     let _ = actor.signal(&mut context, Signal::PostStop);
+    system_inner.registry.remove_ref(actor_ref.path());
     actor_ref.target.terminated.mark_stopped();
     system_inner.death_watch.remove_watcher(actor_ref.path());
     system_inner.death_watch.notify(actor_ref.path());

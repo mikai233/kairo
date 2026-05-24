@@ -9,6 +9,7 @@ mod error;
 mod frame;
 mod inbound;
 mod lanes;
+mod local_delivery;
 mod outbound;
 mod protocol;
 mod provider;
@@ -35,6 +36,7 @@ pub use inbound::{InboundMessage, RemoteInbound, RemoteInboundDelivery};
 pub use kairo_actor::ActorPath;
 pub use kairo_serialization::{RemoteEnvelope, SerializedMessage};
 pub use lanes::{LaneRemoteOutbound, RemoteLaneClassifier, RemoteLaneSink, lane_send_failure};
+pub use local_delivery::LocalActorInboundDelivery;
 pub use outbound::RemoteOutbound;
 pub use protocol::{
     AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, UnwatchRemote, WatchRemote,

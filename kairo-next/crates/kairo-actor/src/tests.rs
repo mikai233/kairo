@@ -183,6 +183,39 @@ fn missing_actor_ref_sends_to_dead_letters() {
     assert_eq!(records[0].reason(), "actor does not exist");
 }
 
+#[test]
+fn actor_system_resolves_live_local_ref_by_exact_typed_path() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let counter = system
+        .spawn("counter", Props::new(|| Counter { value: 0 }))
+        .unwrap();
+    let path = counter.path().to_string();
+    let resolved: ActorRef<CounterMsg> = system
+        .resolve_local(&path)
+        .expect("live local actor should resolve by typed path");
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    resolved.tell(CounterMsg::Increment).unwrap();
+    counter.tell(CounterMsg::Get(reply_tx)).unwrap();
+
+    assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+    assert!(system.resolve_local::<()>(&path).is_none());
+
+    counter.tell(CounterMsg::Stop).unwrap();
+    assert!(counter.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.resolve_local::<CounterMsg>(&path).is_none());
+
+    let missing: ActorRef<CounterMsg> = system.resolve_local_or_missing(path);
+    let error = missing.tell(CounterMsg::Increment).unwrap_err();
+
+    assert_eq!(error.reason(), "actor does not exist");
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+}
+
 struct StopProbe {
     stopped: mpsc::Sender<()>,
 }

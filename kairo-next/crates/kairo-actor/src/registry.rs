@@ -1,14 +1,16 @@
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::error::ActorError;
 use crate::path::ActorPath;
-use crate::refs::{AnyActorRef, LocalActorHandle};
+use crate::refs::{ActorRef, AnyActorRef, LocalActorHandle};
 
 #[derive(Debug, Default)]
 pub(crate) struct ActorRegistry {
     names: Mutex<HashMap<String, u64>>,
     children: Mutex<HashMap<String, Vec<LocalActorHandle>>>,
+    refs: Mutex<HashMap<String, Box<dyn Any + Send + Sync>>>,
 }
 
 impl ActorRegistry {
@@ -40,6 +42,34 @@ impl ActorRegistry {
             .entry(parent_path)
             .or_default()
             .push(child);
+    }
+
+    pub(crate) fn add_ref<M>(&self, actor: ActorRef<M>)
+    where
+        M: Send + 'static,
+    {
+        self.refs
+            .lock()
+            .expect("actor ref registry poisoned")
+            .insert(actor.path().to_string(), Box::new(actor));
+    }
+
+    pub(crate) fn remove_ref(&self, path: &ActorPath) {
+        self.refs
+            .lock()
+            .expect("actor ref registry poisoned")
+            .remove(path.as_str());
+    }
+
+    pub(crate) fn resolve_ref<M>(&self, path: &str) -> Option<ActorRef<M>>
+    where
+        M: Send + 'static,
+    {
+        self.refs
+            .lock()
+            .expect("actor ref registry poisoned")
+            .get(path)
+            .and_then(|actor| actor.downcast_ref::<ActorRef<M>>().cloned())
     }
 
     pub(crate) fn remove_child(&self, parent_path: &str, child_path: &ActorPath) {
