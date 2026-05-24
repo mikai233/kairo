@@ -288,12 +288,16 @@ Implemented:
   `ReplicatorReadResult` messages through explicit CRDT codecs and reject
   manifest mismatches.
 - `kairo-distributed-data` now has focused CRDT foundation modules for
-  `ReplicatedData`, delta CRDT contracts, `ReplicaId`, `GSet`, `GCounter`, and
-  `PNCounter` instead of concentrating data logic in the crate root.
+  `ReplicatedData`, delta CRDT contracts, `ReplicaId`, `GSet`, `GCounter`,
+  `PNCounter`, and `ORSet` instead of concentrating data logic in the crate
+  root.
 - `GSet` preserves immutable add-only union semantics with accumulated deltas;
   `GCounter` stores per-replica absolute counts and merges by maximum value;
   `PNCounter` composes increment and decrement `GCounter`s with explicit
   overflow errors for supported integer bounds.
+- `ORSet` preserves Pekko-style observed-remove set semantics with per-element
+  dots, version-vector merge pruning, grouped deltas, observed remove winning
+  over seen adds, and concurrent add survival.
 - `kairo-distributed-data` now exposes `ReadConsistency` and
   `WriteConsistency` values, typed `DataEnvelope<D>`, local `GetResponse`,
   `UpdateOutcome`, change notifications, and `ReplicatorState<D>` for the
@@ -588,8 +592,8 @@ Not yet implemented:
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding shard-level distributed-data-backed remember-entity persistence
-  still needs remove-capable CRDT semantics before started/stopped entity
-  updates can match Pekko's ORSet-backed store.
+  still needs an actor-backed store over the new `ORSet` CRDT before
+  started/stopped entity updates can match Pekko's ORSet-backed store.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

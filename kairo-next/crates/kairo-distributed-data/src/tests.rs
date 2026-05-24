@@ -11,7 +11,7 @@ use crate::{
     DeltaPropagationLog, DeltaPropagationTarget, DeltaPropagationTransport, DeltaReceiveFailure,
     DeltaReceiveReply, DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData,
     DeltaTransportFailure, DirectReadResult, DirectWriteResult, GCounter, GCounterCodec, GSet,
-    GSetStringCodec, GetResponse, PNCounter, PNCounterCodec, ReadAggregationOutcome,
+    GSetStringCodec, GetResponse, ORSet, PNCounter, PNCounterCodec, ReadAggregationOutcome,
     ReadAggregationPlan, ReadAggregatorState, ReadConsistency, ReplicaId, ReplicatedData,
     ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorKey, ReplicatorState,
     UpdateResponse, WriteAggregationOutcome, WriteAggregationPlan, WriteAggregatorState,
@@ -62,6 +62,72 @@ fn gset_accumulates_delta_and_can_merge_delta_into_empty_state() {
     assert_eq!(delta.elements(), &BTreeSet::from(["a", "b"]));
     assert_eq!(delta.zero().merge_delta(&delta), full.reset_delta());
     assert_eq!(full.reset_delta().delta(), None);
+}
+
+#[test]
+fn orset_add_remove_delta_replays_observed_operations() {
+    let node_a = replica("a");
+    let full = ORSet::new()
+        .add(node_a.clone(), "entity-1")
+        .add(node_a.clone(), "entity-2")
+        .remove(node_a, &"entity-1");
+    let delta = full.delta().expect("orset should collect deltas");
+
+    assert_eq!(full.elements(), BTreeSet::from(["entity-2"]));
+    assert_eq!(delta.zero().merge_delta(&delta), full.reset_delta());
+    assert_eq!(full.reset_delta().delta(), None);
+}
+
+#[test]
+fn orset_full_merge_removes_seen_adds_and_keeps_concurrent_adds() {
+    let node_a = replica("a");
+    let node_b = replica("b");
+    let base = ORSet::new().add(node_a.clone(), "entity").reset_delta();
+
+    let removed = base.remove(node_b.clone(), &"entity").reset_delta();
+    assert!(!base.merge(&removed).contains(&"entity"));
+
+    let concurrent_add = base.add(node_a, "entity").reset_delta();
+    let merged = removed.merge(&concurrent_add);
+
+    assert!(merged.contains(&"entity"));
+    assert_eq!(
+        merged.dots_for(&"entity").unwrap(),
+        concurrent_add.dots_for(&"entity").unwrap()
+    );
+}
+
+#[test]
+fn orset_remove_delta_keeps_unseen_concurrent_dot() {
+    let node_a = replica("a");
+    let node_b = replica("b");
+    let base = ORSet::new().add(node_a.clone(), "entity").reset_delta();
+    let remove_delta = base
+        .remove(node_b, &"entity")
+        .delta()
+        .expect("remove should produce a delta");
+    let concurrent_add = base.add(node_a, "entity").reset_delta();
+
+    let merged = concurrent_add.merge_delta(&remove_delta);
+
+    assert!(merged.contains(&"entity"));
+    assert_eq!(
+        merged.dots_for(&"entity").unwrap(),
+        concurrent_add.dots_for(&"entity").unwrap()
+    );
+}
+
+#[test]
+fn orset_merges_concurrent_add_dots_for_same_element() {
+    let node_a = replica("a");
+    let node_b = replica("b");
+    let left = ORSet::new().add(node_a, "entity").reset_delta();
+    let right = ORSet::new().add(node_b, "entity").reset_delta();
+
+    let merged = left.merge(&right);
+
+    assert_eq!(merged.elements(), BTreeSet::from(["entity"]));
+    assert_eq!(merged.dots_for(&"entity").unwrap().len(), 2);
 }
 
 #[test]

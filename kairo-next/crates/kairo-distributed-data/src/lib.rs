@@ -16,6 +16,7 @@ mod errors;
 mod gcounter;
 mod gset;
 mod key;
+mod orset;
 mod pncounter;
 mod protocol;
 mod read_write_receive;
@@ -74,6 +75,7 @@ pub use errors::{ConsistencyError, CrdtError};
 pub use gcounter::GCounter;
 pub use gset::GSet;
 pub use key::ReplicatorKey;
+pub use orset::{ORSet, ORSetDelta, ORSetRemoveDelta};
 pub use pncounter::PNCounter;
 pub use protocol::{
     ReplicatorChanged, ReplicatorDataEnvelope, ReplicatorDelta, ReplicatorDeltaAck,
