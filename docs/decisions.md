@@ -38,3 +38,29 @@ Consequences:
 - A future HOCON loader can map into the same typed settings model.
 - The project should not add `hocon-rs` or HOCON syntax support before that
   decision is revisited.
+
+## ADR-0003: Initial Local Actors Use Typed Mailboxes And Worker Threads
+
+Status: Accepted
+
+Context:
+M1 needs a runnable local actor loop before remoting, clustering, supervision,
+or dispatcher policy can be layered on top. Pekko separates actor refs, actor
+cells, mailboxes, and dispatchers; Kairo should preserve the observable
+semantics without copying that inheritance-heavy runtime shape.
+
+Decision:
+The first local runtime slice stores a typed mailbox sender inside
+`ActorRef<M>` and runs each spawned actor on a local worker thread. Messages
+enter the mailbox through `tell`, are processed one at a time by synchronous
+`Actor::receive`, and a context stop marks the current actor ref as stopped.
+Post-stop sends are rejected and recorded through the system dead-letter handle.
+
+Consequences:
+- M1 has a small runnable vertical slice for spawn, tell, receive, stop, and
+  dead letters.
+- Local message protocols remain typed and require no serialization.
+- The worker-thread runtime is an implementation baseline, not the final
+  dispatcher contract; later M1/M2 work can introduce system lanes, throughput
+  limits, supervision, and deterministic test dispatchers behind the same typed
+  ref surface.

@@ -32,7 +32,7 @@ pub struct EntityRef<M> {
     region: ActorRef<M>,
 }
 
-impl<M> EntityRef<M> {
+impl<M: Send + 'static> EntityRef<M> {
     pub fn entity_id(&self) -> &str {
         &self.entity_id
     }
