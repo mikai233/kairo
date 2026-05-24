@@ -223,6 +223,11 @@ Implemented:
   bytes into remote envelope frames, forwards them through typed inbound
   delivery, and propagates invalid stream, truncated lane, and missing codec
   failures before a concrete socket transport is introduced.
+- `kairo-remote` now has a transport-neutral association outbound pipeline
+  that composes association send gating, lane classification, stream framing,
+  and byte sinks into a reusable boundary for future TCP wiring, with tests
+  driving serialized envelopes through stream bytes into typed inbound
+  delivery.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.

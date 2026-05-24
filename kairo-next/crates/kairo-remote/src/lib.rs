@@ -3,6 +3,7 @@
 mod association;
 mod association_inbound;
 mod association_outbound;
+mod association_pipeline;
 mod codec;
 mod error;
 mod frame;
@@ -21,6 +22,7 @@ mod transport;
 pub use association::{AssociationState, RemoteAssociation};
 pub use association_inbound::AssociationRemoteInbound;
 pub use association_outbound::AssociationRemoteOutbound;
+pub use association_pipeline::AssociationOutboundPipeline;
 pub use codec::{
     ADDRESS_TERMINATED_SERIALIZER_ID, AddressTerminatedCodec, REMOTE_HEARTBEAT_ACK_SERIALIZER_ID,
     REMOTE_HEARTBEAT_SERIALIZER_ID, RemoteHeartbeatAckCodec, RemoteHeartbeatCodec,
