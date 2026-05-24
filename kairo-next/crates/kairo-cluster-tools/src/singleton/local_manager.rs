@@ -1,0 +1,251 @@
+use std::sync::Arc;
+
+use kairo_actor::{Actor, ActorPath, ActorRef, ActorResult, Context, Props};
+use kairo_cluster::UniqueAddress;
+
+use crate::{
+    SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange,
+    SingletonOldestObservation,
+};
+
+pub struct LocalSingletonManagerActor<A>
+where
+    A: Actor,
+{
+    runtime: SingletonManagerRuntime,
+    singleton_name: String,
+    singleton_props: Arc<dyn Fn() -> Props<A> + Send + Sync>,
+    termination_message: A::Msg,
+    singleton: Option<ActorRef<A::Msg>>,
+}
+
+impl<A> LocalSingletonManagerActor<A>
+where
+    A: Actor,
+    A::Msg: Clone,
+{
+    pub fn new<F>(
+        self_node: UniqueAddress,
+        singleton_name: impl Into<String>,
+        singleton_props: F,
+        termination_message: A::Msg,
+    ) -> Self
+    where
+        F: Fn() -> Props<A> + Send + Sync + 'static,
+    {
+        Self {
+            runtime: SingletonManagerRuntime::new(self_node),
+            singleton_name: singleton_name.into(),
+            singleton_props: Arc::new(singleton_props),
+            termination_message,
+            singleton: None,
+        }
+    }
+
+    pub fn props<F>(
+        self_node: UniqueAddress,
+        singleton_name: impl Into<String>,
+        singleton_props: F,
+        termination_message: A::Msg,
+    ) -> Props<Self>
+    where
+        F: Fn() -> Props<A> + Send + Sync + 'static,
+    {
+        let singleton_name = singleton_name.into();
+        let singleton_props = Arc::new(singleton_props);
+        Props::new(move || Self {
+            runtime: SingletonManagerRuntime::new(self_node),
+            singleton_name,
+            singleton_props,
+            termination_message: termination_message.clone(),
+            singleton: None,
+        })
+    }
+
+    pub fn runtime(&self) -> &SingletonManagerRuntime {
+        &self.runtime
+    }
+
+    fn apply_effects(
+        &mut self,
+        ctx: &mut Context<LocalSingletonManagerMsg<A::Msg>>,
+        effects: &[SingletonManagerEffect],
+    ) -> ActorResult {
+        for effect in effects {
+            match effect {
+                SingletonManagerEffect::StartSingleton => self.start_singleton(ctx)?,
+                SingletonManagerEffect::StopSingleton => self.stop_singleton(ctx)?,
+                SingletonManagerEffect::StopManager => ctx.stop(ctx.myself())?,
+                SingletonManagerEffect::SendHandOverToMe { .. }
+                | SingletonManagerEffect::SendHandOverInProgress { .. }
+                | SingletonManagerEffect::SendHandOverDone { .. }
+                | SingletonManagerEffect::SendTakeOverFromMe { .. } => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn start_singleton(
+        &mut self,
+        ctx: &mut Context<LocalSingletonManagerMsg<A::Msg>>,
+    ) -> ActorResult {
+        if self.singleton.is_some() {
+            return Ok(());
+        }
+
+        let singleton = ctx.spawn(&self.singleton_name, (self.singleton_props)())?;
+        ctx.watch_with(&singleton, LocalSingletonManagerMsg::SingletonTerminated)?;
+        self.singleton = Some(singleton);
+        Ok(())
+    }
+
+    fn stop_singleton(
+        &mut self,
+        ctx: &mut Context<LocalSingletonManagerMsg<A::Msg>>,
+    ) -> ActorResult {
+        if let Some(singleton) = &self.singleton {
+            let _ = singleton.tell(self.termination_message.clone());
+        } else {
+            let effects = self.runtime.singleton_terminated();
+            self.apply_effects(ctx, &effects)?;
+        }
+        Ok(())
+    }
+}
+
+pub enum LocalSingletonManagerMsg<M: Send + 'static> {
+    ApplyInitialObservation {
+        observation: SingletonOldestObservation,
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
+    ApplyOldestChange {
+        change: SingletonOldestChange,
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
+    MarkRemoved {
+        node: UniqueAddress,
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
+    HandOverToMe {
+        from: UniqueAddress,
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
+    HandOverInProgress {
+        from: UniqueAddress,
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
+    HandOverDone {
+        from: UniqueAddress,
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
+    SingletonTerminated,
+    StopManager {
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
+    GetState {
+        reply_to: ActorRef<LocalSingletonManagerSnapshot>,
+    },
+    GetSingleton {
+        reply_to: ActorRef<Option<ActorRef<M>>>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalSingletonManagerSnapshot {
+    pub self_node: UniqueAddress,
+    pub state: SingletonManagerState,
+    pub removed_members: Vec<UniqueAddress>,
+    pub singleton_path: Option<ActorPath>,
+}
+
+impl<A> Actor for LocalSingletonManagerActor<A>
+where
+    A: Actor,
+    A::Msg: Clone,
+{
+    type Msg = LocalSingletonManagerMsg<A::Msg>;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            LocalSingletonManagerMsg::ApplyInitialObservation {
+                observation,
+                reply_to,
+            } => {
+                let effects = self.runtime.apply_initial_observation(observation);
+                self.apply_effects(ctx, &effects)?;
+                reply_effects(reply_to, effects);
+            }
+            LocalSingletonManagerMsg::ApplyOldestChange { change, reply_to } => {
+                let effects = self.runtime.apply_oldest_change(change);
+                self.apply_effects(ctx, &effects)?;
+                reply_effects(reply_to, effects);
+            }
+            LocalSingletonManagerMsg::MarkRemoved { node, reply_to } => {
+                let effects = self.runtime.mark_removed(node);
+                self.apply_effects(ctx, &effects)?;
+                reply_effects(reply_to, effects);
+            }
+            LocalSingletonManagerMsg::HandOverToMe { from, reply_to } => {
+                let effects = self.runtime.hand_over_to_me(from);
+                self.apply_effects(ctx, &effects)?;
+                reply_effects(reply_to, effects);
+            }
+            LocalSingletonManagerMsg::HandOverInProgress { from, reply_to } => {
+                let effects = self.runtime.hand_over_in_progress(&from);
+                self.apply_effects(ctx, &effects)?;
+                reply_effects(reply_to, effects);
+            }
+            LocalSingletonManagerMsg::HandOverDone { from, reply_to } => {
+                let effects = self.runtime.hand_over_done(&from);
+                self.apply_effects(ctx, &effects)?;
+                reply_effects(reply_to, effects);
+            }
+            LocalSingletonManagerMsg::SingletonTerminated => {
+                self.singleton = None;
+                let effects = self.runtime.singleton_terminated();
+                self.apply_effects(ctx, &effects)?;
+            }
+            LocalSingletonManagerMsg::StopManager { reply_to } => {
+                let effects = self.runtime.stop_manager();
+                self.apply_effects(ctx, &effects)?;
+                reply_effects(reply_to, effects);
+            }
+            LocalSingletonManagerMsg::GetState { reply_to } => {
+                let _ = reply_to.tell(LocalSingletonManagerSnapshot::from_manager(self));
+            }
+            LocalSingletonManagerMsg::GetSingleton { reply_to } => {
+                let _ = reply_to.tell(self.singleton.clone());
+            }
+        }
+        Ok(())
+    }
+}
+
+impl LocalSingletonManagerSnapshot {
+    fn from_manager<A>(manager: &LocalSingletonManagerActor<A>) -> Self
+    where
+        A: Actor,
+    {
+        let mut removed_members: Vec<_> =
+            manager.runtime.removed_members().iter().cloned().collect();
+        removed_members.sort_by_key(UniqueAddress::ordering_key);
+        Self {
+            self_node: manager.runtime.self_node().clone(),
+            state: manager.runtime.state().clone(),
+            removed_members,
+            singleton_path: manager
+                .singleton
+                .as_ref()
+                .map(|singleton| singleton.path().clone()),
+        }
+    }
+}
+
+fn reply_effects(
+    reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    effects: Vec<SingletonManagerEffect>,
+) {
+    if let Some(reply_to) = reply_to {
+        let _ = reply_to.tell(effects);
+    }
+}

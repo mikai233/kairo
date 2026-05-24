@@ -654,6 +654,10 @@ Implemented:
   explicit initial-observation, oldest-change, member-removal, handover, and
   termination protocol messages, and replies with deterministic planned
   effects plus state snapshots for future transport and singleton-child wiring.
+- `kairo-cluster-tools` now has a typed local singleton manager actor that
+  interprets manager start/stop effects by spawning the singleton child under
+  the manager, watching the child, sending the configured typed termination
+  message during handoff, and completing handoff after child termination.
 - `kairo-cluster-tools` topic support is split into focused name and local
   topic modules, with typed local subscriptions, duplicate suppression,
   unsubscribe/removal handling, broadcast delivery, and deterministic
@@ -712,8 +716,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton child spawning/proxy routing and distributed pubsub
-  mediator/topic replication.
+- Cluster singleton proxy routing and distributed pubsub mediator/topic
+  replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.
