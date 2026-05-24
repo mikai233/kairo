@@ -184,6 +184,10 @@ Implemented:
   JOINING/WEAKLY_UP to UP with assigned age, LEAVING to EXITING, and
   unreachable or confirmed DOWN/EXITING removals with tombstones and
   version/seen updates.
+- `kairo-cluster::ClusterEvents` computes Pekko-style domain event diffs from
+  old and new gossip snapshots, including member status events, removed-member
+  events, reachability events, leader and role-leader changes, seen changes,
+  reachability summaries, and tombstone changes in publication order.
 
 Not yet implemented:
 
@@ -193,8 +197,8 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
-- Cluster membership actors, failure detection, event publication around
-  leader action outcomes, and downing hooks.
+- Cluster membership actors, failure detection, actor-backed cluster event
+  subscription/publication, and downing hooks.
 
 ## Last Validation
 

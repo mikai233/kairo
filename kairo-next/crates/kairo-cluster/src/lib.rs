@@ -1,6 +1,7 @@
 //! Gossip-based cluster membership and cluster events.
 
 mod convergence;
+mod events;
 mod gossip;
 mod leader;
 mod leader_actions;
@@ -10,6 +11,7 @@ mod reachability;
 mod vector_clock;
 
 pub use convergence::{Convergence, ConvergenceBlocker};
+pub use events::{ClusterEvent, ClusterEvents, MemberEvent, ReachabilityEvent};
 pub use gossip::Gossip;
 pub use leader::LeaderSelection;
 pub use leader_actions::{LeaderActionError, LeaderActionOutcome, LeaderActions};
