@@ -8,7 +8,7 @@ use crate::coordinated_shutdown::CoordinatedShutdown;
 use crate::dead_letters::DeadLetters;
 use crate::death_watch::{DeathWatchKind, DeathWatchRegistration, DeathWatchRegistry};
 use crate::dispatcher::DispatcherSettings;
-use crate::error::ActorError;
+use crate::error::{ActorError, ActorResult};
 use crate::event_stream::EventStream;
 use crate::mailbox::{Dequeued, Mailbox, SystemMessage, UserEnvelope};
 use crate::path::{ActorPath, Address};
@@ -17,6 +17,7 @@ use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
 use crate::registry::ActorRegistry;
 use crate::scheduler::{Cancellable, Scheduler};
 use crate::signal::Signal;
+use crate::supervision::SupervisorStrategy;
 use crate::timers::TimerState;
 
 #[derive(Debug, Clone)]
@@ -432,7 +433,7 @@ fn validate_actor_name(name: &str, allow_reserved: bool) -> Result<(), ActorErro
 }
 
 fn run_actor<A>(
-    props: Props<A>,
+    mut props: Props<A>,
     actor_ref: ActorRef<A::Msg>,
     dead_letters: DeadLetters,
     system_inner: Arc<ActorSystemInner>,
@@ -462,14 +463,28 @@ fn run_actor<A>(
         .as_ref()
         .expect("live actor ref must have a mailbox");
     while !actor_ref.target.stopped.load(Ordering::Acquire) {
-        let processed = process_dequeued(mailbox.dequeue(), &actor_ref, &mut actor, &mut context);
+        let processed = process_dequeued(
+            mailbox.dequeue(),
+            &actor_ref,
+            &mut actor,
+            &mut context,
+            &props,
+            &system_inner,
+        );
         let mut processed_user = usize::from(processed);
 
         while processed_user < throughput && !actor_ref.target.stopped.load(Ordering::Acquire) {
             let Some(next) = mailbox.try_dequeue() else {
                 break;
             };
-            if process_dequeued(next, &actor_ref, &mut actor, &mut context) {
+            if process_dequeued(
+                next,
+                &actor_ref,
+                &mut actor,
+                &mut context,
+                &props,
+                &system_inner,
+            ) {
                 processed_user += 1;
             }
         }
@@ -501,6 +516,8 @@ fn process_dequeued<A>(
     actor_ref: &ActorRef<A::Msg>,
     actor: &mut A,
     context: &mut Context<A::Msg>,
+    props: &Props<A>,
+    system_inner: &ActorSystemInner,
 ) -> bool
 where
     A: Actor,
@@ -515,20 +532,44 @@ where
             false
         }
         Dequeued::User(UserEnvelope::Message(message)) => {
-            if actor.receive(context, message).is_err() || context.stop_requested {
+            if apply_receive_result(
+                actor.receive(context, message),
+                actor_ref,
+                actor,
+                context,
+                props,
+                system_inner,
+            ) || context.stop_requested
+            {
                 actor_ref.target.stopped.store(true, Ordering::Release);
             }
             true
         }
         Dequeued::User(UserEnvelope::Adapted(adapt)) => {
-            if actor.receive(context, adapt()).is_err() || context.stop_requested {
+            if apply_receive_result(
+                actor.receive(context, adapt()),
+                actor_ref,
+                actor,
+                context,
+                props,
+                system_inner,
+            ) || context.stop_requested
+            {
                 actor_ref.target.stopped.store(true, Ordering::Release);
             }
             true
         }
         Dequeued::User(UserEnvelope::Timer(timer)) => {
             if context.accept_timer(&timer) {
-                if actor.receive(context, timer.into_message()).is_err() || context.stop_requested {
+                if apply_receive_result(
+                    actor.receive(context, timer.into_message()),
+                    actor_ref,
+                    actor,
+                    context,
+                    props,
+                    system_inner,
+                ) || context.stop_requested
+                {
                     actor_ref.target.stopped.store(true, Ordering::Release);
                 }
                 true
@@ -537,6 +578,55 @@ where
             }
         }
     }
+}
+
+fn apply_receive_result<A>(
+    result: ActorResult,
+    actor_ref: &ActorRef<A::Msg>,
+    actor: &mut A,
+    context: &mut Context<A::Msg>,
+    props: &Props<A>,
+    system_inner: &ActorSystemInner,
+) -> bool
+where
+    A: Actor,
+{
+    if result.is_ok() {
+        return false;
+    }
+
+    match props.supervisor() {
+        SupervisorStrategy::Stop => true,
+        SupervisorStrategy::Resume => false,
+        SupervisorStrategy::Restart => {
+            restart_actor(actor_ref, actor, context, props, system_inner).is_err()
+        }
+    }
+}
+
+fn restart_actor<A>(
+    actor_ref: &ActorRef<A::Msg>,
+    actor: &mut A,
+    context: &mut Context<A::Msg>,
+    props: &Props<A>,
+    system_inner: &ActorSystemInner,
+) -> ActorResult
+where
+    A: Actor,
+{
+    let Some(mut restarted) = props.restart() else {
+        return Err(ActorError::Message(
+            "restart supervision requires restartable props".to_string(),
+        ));
+    };
+
+    context.cancel_all_timers();
+    stop_children(system_inner, actor_ref.path.as_str());
+    let _ = actor.signal(context, Signal::PreRestart);
+    context.stop_requested = false;
+    restarted.started(context)?;
+    *actor = restarted;
+    Ok(())
 }
 
 fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) {

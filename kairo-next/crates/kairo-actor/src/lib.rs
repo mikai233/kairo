@@ -16,6 +16,7 @@ mod refs;
 mod registry;
 mod scheduler;
 mod signal;
+mod supervision;
 mod system;
 mod tasks;
 mod timers;
@@ -37,6 +38,7 @@ pub use receptionist::{Listing, Receptionist, ServiceKey};
 pub use refs::{ActorRef, AnyActorRef, IgnoreRef, Recipient};
 pub use scheduler::Cancellable;
 pub use signal::Signal;
+pub use supervision::SupervisorStrategy;
 pub use system::{ActorSystem, ActorSystemBuilder};
 pub use tasks::TaskHandle;
 pub use timers::TimerKey;
@@ -50,7 +52,7 @@ pub mod prelude {
         PHASE_BEFORE_SERVICE_UNBIND, PHASE_CLUSTER_EXITING, PHASE_CLUSTER_EXITING_DONE,
         PHASE_CLUSTER_LEAVE, PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION, PHASE_CLUSTER_SHUTDOWN,
         PHASE_SERVICE_REQUESTS_DONE, PHASE_SERVICE_STOP, PHASE_SERVICE_UNBIND, Props, Receptionist,
-        Recipient, ServiceKey, Signal, TaskHandle, TimerKey,
+        Recipient, ServiceKey, Signal, SupervisorStrategy, TaskHandle, TimerKey,
     };
 }
 

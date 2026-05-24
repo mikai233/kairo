@@ -761,6 +761,122 @@ fn post_stop_signal_is_delivered_during_termination() {
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 
+enum SupervisionMsg {
+    Increment,
+    Fail,
+    Get(mpsc::Sender<usize>),
+}
+
+struct SupervisionProbe {
+    value: usize,
+    restarted: Option<mpsc::Sender<()>>,
+}
+
+impl Actor for SupervisionProbe {
+    type Msg = SupervisionMsg;
+
+    fn started(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.value = 0;
+        Ok(())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            SupervisionMsg::Increment => {
+                self.value += 1;
+                Ok(())
+            }
+            SupervisionMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            SupervisionMsg::Get(reply_to) => reply_to
+                .send(self.value)
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PreRestart => {
+                if let Some(restarted) = &self.restarted {
+                    restarted
+                        .send(())
+                        .map_err(|error| ActorError::Message(error.to_string()))?;
+                }
+                Ok(())
+            }
+            Signal::PostStop => self.stopped(ctx),
+            Signal::Terminated(_) => Ok(()),
+        }
+    }
+}
+
+#[test]
+fn default_supervision_stops_actor_on_failure() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "supervised",
+            Props::new(|| SupervisionProbe {
+                value: 0,
+                restarted: None,
+            }),
+        )
+        .unwrap();
+
+    actor.tell(SupervisionMsg::Fail).unwrap();
+
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(actor.tell(SupervisionMsg::Increment).is_err());
+}
+
+#[test]
+fn resume_supervision_keeps_actor_state_after_failure() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "supervised",
+            Props::new(|| SupervisionProbe {
+                value: 0,
+                restarted: None,
+            })
+            .with_supervisor(SupervisorStrategy::Resume),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor.tell(SupervisionMsg::Increment).unwrap();
+    actor.tell(SupervisionMsg::Fail).unwrap();
+    actor.tell(SupervisionMsg::Get(reply_tx)).unwrap();
+
+    assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+    assert!(!actor.is_stopped());
+}
+
+#[test]
+fn restart_supervision_rebuilds_actor_state_and_keeps_ref_path() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (restarted_tx, restarted_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "supervised",
+            Props::restartable(move || SupervisionProbe {
+                value: 0,
+                restarted: Some(restarted_tx.clone()),
+            }),
+        )
+        .unwrap();
+    let path = actor.path().clone();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor.tell(SupervisionMsg::Increment).unwrap();
+    actor.tell(SupervisionMsg::Fail).unwrap();
+    restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    actor.tell(SupervisionMsg::Get(reply_tx)).unwrap();
+
+    assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 0);
+    assert_eq!(actor.path(), &path);
+    assert!(!actor.is_stopped());
+}
+
 enum WatchProbeMsg {
     WatchTwice {
         subject: ActorRef<()>,

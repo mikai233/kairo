@@ -7,9 +7,11 @@ use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef};
 use crate::scheduler::Cancellable;
 use crate::signal::Signal;
+use crate::supervision::SupervisorStrategy;
 use crate::system::ActorSystem;
 use crate::tasks::{self, TaskHandle};
 use crate::timers::{TimerEnvelope, TimerKey, TimerState};
+use std::sync::Arc;
 use std::time::Duration;
 
 pub trait Actor: Send + 'static {
@@ -34,21 +36,54 @@ pub trait Actor: Send + 'static {
 }
 
 pub struct Props<A> {
-    builder: Box<dyn FnOnce() -> A + Send>,
+    builder: Option<Box<dyn FnOnce() -> A + Send>>,
+    restart_builder: Option<Arc<dyn Fn() -> A + Send + Sync>>,
+    supervisor: SupervisorStrategy,
 }
 
-impl<A> Props<A> {
+impl<A: 'static> Props<A> {
     pub fn new<F>(builder: F) -> Self
     where
         F: FnOnce() -> A + Send + 'static,
     {
         Self {
-            builder: Box::new(builder),
+            builder: Some(Box::new(builder)),
+            restart_builder: None,
+            supervisor: SupervisorStrategy::default(),
         }
     }
 
-    pub(crate) fn build(self) -> A {
-        (self.builder)()
+    pub fn restartable<F>(builder: F) -> Self
+    where
+        F: Fn() -> A + Send + Sync + 'static,
+    {
+        let restart_builder: Arc<dyn Fn() -> A + Send + Sync> = Arc::new(builder);
+        let initial_builder = Arc::clone(&restart_builder);
+        Self {
+            builder: Some(Box::new(move || initial_builder())),
+            restart_builder: Some(restart_builder),
+            supervisor: SupervisorStrategy::Restart,
+        }
+    }
+
+    pub fn with_supervisor(mut self, supervisor: SupervisorStrategy) -> Self {
+        self.supervisor = supervisor;
+        self
+    }
+
+    pub fn supervisor(&self) -> SupervisorStrategy {
+        self.supervisor
+    }
+
+    pub(crate) fn build(&mut self) -> A {
+        (self
+            .builder
+            .take()
+            .expect("actor props may only build initial actor once"))()
+    }
+
+    pub(crate) fn restart(&self) -> Option<A> {
+        self.restart_builder.as_ref().map(|builder| builder())
     }
 }
 

@@ -104,11 +104,18 @@ Implemented:
   and `ActorSystem::run_coordinated_shutdown` for task execution followed by
   top-level actor termination.
 - Coordinated shutdown state lives in a focused `coordinated_shutdown` module.
+- `Props::with_supervisor` supports explicit stop, resume, and restart
+  directives for local actor receive failures; stop remains the default.
+- `Props::restartable` provides the reusable actor factory required by restart
+  supervision, which sends `Signal::PreRestart`, cancels timers, stops children,
+  rebuilds actor state, reruns `started`, and preserves the actor ref path.
+- Supervision strategy definitions live in a focused `supervision` module.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
-- Supervision and deterministic testkit support.
+- Parent-level supervision escalation, restart limits/backoff, and
+  deterministic testkit support.
 
 ## Last Validation
 

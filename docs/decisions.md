@@ -315,3 +315,31 @@ Consequences:
   timeout control can be replaced by the testkit scheduler later.
 - Configuration-driven phase graphs, JVM hooks, and process exit behavior are
   intentionally deferred.
+
+## ADR-0014: Initial Supervision Is A Props Strategy
+
+Status: Accepted
+
+Context:
+Pekko typed supervision wraps behavior with directives such as stop, resume,
+and restart. Resume keeps the existing behavior state, while restart creates a
+fresh behavior instance and sends restart lifecycle signals. Kairo actors are
+stateful Rust values built from `Props`, and the existing `Props::new` API is a
+one-shot factory so it cannot safely rebuild every actor.
+
+Decision:
+Kairo's first supervision slice stores a `SupervisorStrategy` on `Props`.
+`Stop` remains the default and preserves the previous failure behavior. `Resume`
+drops the failing message and continues with the same actor value. `Restart`
+requires `Props::restartable`, which stores a reusable Rust factory; on failure
+the runtime cancels timers, stops children, sends `Signal::PreRestart` to the
+old actor value, builds a fresh actor value, and invokes `started` on the new
+value while preserving the actor ref path and incarnation.
+
+Consequences:
+- Existing one-shot actor factories keep their previous stop-on-failure
+  semantics.
+- Restart is explicit at construction time, avoiding accidental reuse of
+  non-replayable captured state such as receivers.
+- The first slice covers local self failure; parent deciders, escalation, retry
+  limits, and backoff are deferred.
