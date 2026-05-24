@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use crate::actor::{Actor, Context, Props};
 use crate::dead_letters::DeadLetters;
+use crate::death_watch::{DeathWatchKind, DeathWatchRegistration, DeathWatchRegistry};
 use crate::dispatcher::DispatcherSettings;
 use crate::error::ActorError;
 use crate::mailbox::{Dequeued, Mailbox, SystemMessage};
@@ -27,6 +28,7 @@ pub(crate) struct ActorSystemInner {
     terminating: AtomicBool,
     terminated: AtomicBool,
     registry: ActorRegistry,
+    death_watch: DeathWatchRegistry,
     dispatcher: DispatcherSettings,
     dead_letters: DeadLetters,
 }
@@ -91,6 +93,54 @@ impl ActorSystem {
         self.inner.registry.is_child_of(parent_path, child_path)
     }
 
+    pub(crate) fn watch<M, N>(
+        &self,
+        watcher: ActorRef<M>,
+        subject: ActorRef<N>,
+    ) -> Result<(), ActorError>
+    where
+        M: Send + 'static,
+        N: Send + 'static,
+    {
+        if watcher.path() == subject.path() {
+            return Ok(());
+        }
+        let subject_ref = subject.as_any();
+        let registration = DeathWatchRegistration::new(
+            watcher.path().clone(),
+            DeathWatchKind::Signal,
+            move || watcher.send_system_signal(Signal::Terminated(subject_ref)),
+        );
+        self.watch_registered(subject, registration)
+    }
+
+    pub(crate) fn watch_with<M, N>(
+        &self,
+        watcher: ActorRef<M>,
+        subject: ActorRef<N>,
+        message: M,
+    ) -> Result<(), ActorError>
+    where
+        M: Send + 'static,
+        N: Send + 'static,
+    {
+        if watcher.path() == subject.path() {
+            return Ok(());
+        }
+        let registration = DeathWatchRegistration::new(
+            watcher.path().clone(),
+            DeathWatchKind::Custom,
+            move || {
+                let _ = watcher.tell(message);
+            },
+        );
+        self.watch_registered(subject, registration)
+    }
+
+    pub(crate) fn unwatch(&self, watcher: &ActorPath, subject: &ActorPath) {
+        self.inner.death_watch.unwatch(subject, watcher);
+    }
+
     pub fn spawn<A>(
         &self,
         name: impl AsRef<str>,
@@ -130,6 +180,28 @@ impl ActorSystem {
 
     fn user_root_path(&self) -> ActorPath {
         ActorPath::root(self.address.clone(), "user")
+    }
+
+    fn watch_registered<N>(
+        &self,
+        subject: ActorRef<N>,
+        registration: DeathWatchRegistration,
+    ) -> Result<(), ActorError>
+    where
+        N: Send + 'static,
+    {
+        if subject.is_terminated() {
+            registration.notify();
+            return Ok(());
+        }
+
+        self.inner
+            .death_watch
+            .watch(subject.path().clone(), registration)?;
+        if subject.is_terminated() {
+            self.inner.death_watch.notify(subject.path());
+        }
+        Ok(())
     }
 
     fn spawn_under_with_name<A>(
@@ -298,6 +370,8 @@ fn run_actor<A>(
     stop_children(&system_inner, actor_ref.path.as_str());
     let _ = actor.signal(&mut context, Signal::PostStop);
     actor_ref.target.terminated.mark_stopped();
+    system_inner.death_watch.remove_watcher(actor_ref.path());
+    system_inner.death_watch.notify(actor_ref.path());
     system_inner.registry.release_name(&registry_key);
     system_inner
         .registry
@@ -316,6 +390,10 @@ where
     match dequeued {
         Dequeued::System(SystemMessage::Stop) | Dequeued::Closed => {
             actor_ref.target.stopped.store(true, Ordering::Release);
+            false
+        }
+        Dequeued::System(SystemMessage::Signal(signal)) => {
+            let _ = actor.signal(context, signal);
             false
         }
         Dequeued::User(message) => {

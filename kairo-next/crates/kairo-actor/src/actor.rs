@@ -18,7 +18,7 @@ pub trait Actor: Send + 'static {
     fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
         match signal {
             Signal::PostStop => self.stopped(ctx),
-            Signal::PreRestart => Ok(()),
+            Signal::PreRestart | Signal::Terminated(_) => Ok(()),
         }
     }
 
@@ -71,6 +71,23 @@ impl<M: Send + 'static> Context<M> {
 
     pub fn child(&self, name: &str) -> Option<AnyActorRef> {
         self.system.child_of(self.myself.path(), name)
+    }
+
+    pub fn watch<N: Send + 'static>(&mut self, actor: &ActorRef<N>) -> ActorResult {
+        self.system.watch(self.myself.clone(), actor.clone())
+    }
+
+    pub fn watch_with<N: Send + 'static>(
+        &mut self,
+        actor: &ActorRef<N>,
+        message: M,
+    ) -> ActorResult {
+        self.system
+            .watch_with(self.myself.clone(), actor.clone(), message)
+    }
+
+    pub fn unwatch<N: Send + 'static>(&mut self, actor: &ActorRef<N>) {
+        self.system.unwatch(self.myself.path(), actor.path());
     }
 
     pub fn spawn<A>(

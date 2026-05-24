@@ -86,3 +86,28 @@ Consequences:
   context.
 - Kairo preserves its Rust-first self-stop API while keeping Pekko's direct
   child restriction for child stops.
+
+## ADR-0005: Local Death Watch Uses Signals And Explicit Conflicts
+
+Status: Accepted
+
+Context:
+Pekko typed death watch delivers `Terminated` as a signal for `watch`, and
+delivers the caller's protocol message for `watchWith`. Re-registering with a
+different notification is a runtime error in Pekko.
+
+Decision:
+Kairo local death watch stores watch registrations in a focused registry.
+`Context::watch` delivers `Signal::Terminated(AnyActorRef)`, while
+`Context::watch_with` sends the provided typed message to the watcher mailbox.
+Conflicting repeated registrations return `ActorError::AlreadyWatching` instead
+of throwing. Because Kairo messages do not require `Eq`, repeated
+`watch_with` calls for the same subject must `unwatch` first instead of being
+compared for idempotence.
+
+Consequences:
+- Default death-watch notifications use the existing actor signal path.
+- Custom watch notifications remain typed and local-only without introducing a
+  global message enum.
+- Conflicts are explicit Rust errors, and changing a custom watch message is an
+  explicit `unwatch` plus `watch_with` operation.

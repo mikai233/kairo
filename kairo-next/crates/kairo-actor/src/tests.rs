@@ -761,6 +761,185 @@ fn post_stop_signal_is_delivered_during_termination() {
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 
+enum WatchProbeMsg {
+    WatchTwice {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<()>,
+    },
+    WatchWith {
+        subject: ActorRef<()>,
+        registered: mpsc::Sender<()>,
+        observed: mpsc::Sender<ActorPath>,
+    },
+    Observed(ActorPath),
+    Unwatch {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<()>,
+    },
+}
+
+struct WatchProbe {
+    terminated: mpsc::Sender<ActorPath>,
+    custom: Option<mpsc::Sender<ActorPath>>,
+}
+
+impl Actor for WatchProbe {
+    type Msg = WatchProbeMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            WatchProbeMsg::WatchTwice { subject, reply_to } => {
+                ctx.watch(&subject)?;
+                ctx.watch(&subject)?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::WatchWith {
+                subject,
+                registered,
+                observed,
+            } => {
+                let path = subject.path().clone();
+                self.custom = Some(observed);
+                ctx.watch_with(&subject, WatchProbeMsg::Observed(path))?;
+                registered
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::Observed(path) => {
+                if let Some(observed) = self.custom.take() {
+                    observed
+                        .send(path)
+                        .map_err(|error| ActorError::Message(error.to_string()))?;
+                }
+            }
+            WatchProbeMsg::Unwatch { subject, reply_to } => {
+                ctx.watch(&subject)?;
+                ctx.unwatch(&subject);
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn signal(&mut self, _ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        if let Signal::Terminated(actor) = signal {
+            self.terminated
+                .send(actor.path().clone())
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn watch_delivers_terminated_signal_once() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchTwice {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&subject);
+
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject.path().clone()
+    );
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+}
+
+#[test]
+fn watch_with_delivers_custom_message_after_termination() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let (observed_tx, observed_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWith {
+            subject: subject.clone(),
+            registered: registered_tx,
+            observed: observed_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&subject);
+
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject.path().clone()
+    );
+}
+
+#[test]
+fn unwatch_suppresses_later_termination_signal() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::Unwatch {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&subject);
+
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+}
+
 #[test]
 fn actor_system_terminate_stops_top_level_actors() {
     let system = ActorSystem::builder("test").build().unwrap();

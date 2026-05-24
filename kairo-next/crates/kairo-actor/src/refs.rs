@@ -8,6 +8,7 @@ use crate::dead_letters::DeadLetters;
 use crate::error::SendError;
 use crate::mailbox::{Mailbox, SystemMessage};
 use crate::path::ActorPath;
+use crate::signal::Signal;
 
 pub trait Recipient<M: Send + 'static> {
     fn tell(&self, message: M) -> Result<(), SendError<M>>;
@@ -134,6 +135,18 @@ impl<M: Send + 'static> ActorRef<M> {
         self.target.terminated.wait(timeout)
     }
 
+    pub(crate) fn is_terminated(&self) -> bool {
+        self.target.terminated.is_stopped()
+    }
+
+    pub(crate) fn send_system_signal(&self, signal: Signal) {
+        if !self.target.stopped.load(Ordering::Acquire)
+            && let Some(mailbox) = &self.target.mailbox
+        {
+            mailbox.enqueue_system(SystemMessage::Signal(signal));
+        }
+    }
+
     pub(crate) fn request_stop(&self) {
         if !self.target.stopped.swap(true, Ordering::AcqRel) {
             if let Some(mailbox) = &self.target.mailbox {
@@ -171,7 +184,7 @@ impl<M: Send + 'static> Recipient<M> for ActorRef<M> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct AnyActorRef {
     path: ActorPath,
 }
@@ -265,6 +278,10 @@ impl TerminationLatch {
         let mut stopped = self.stopped.lock().expect("termination latch poisoned");
         *stopped = true;
         self.changed.notify_all();
+    }
+
+    fn is_stopped(&self) -> bool {
+        *self.stopped.lock().expect("termination latch poisoned")
     }
 
     fn wait(&self, timeout: Duration) -> bool {

@@ -1,9 +1,12 @@
 use std::collections::VecDeque;
 use std::sync::{Condvar, Mutex};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use crate::signal::Signal;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SystemMessage {
     Stop,
+    Signal(Signal),
 }
 
 #[derive(Debug)]

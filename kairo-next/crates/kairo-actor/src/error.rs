@@ -18,6 +18,8 @@ pub enum ActorError {
     InvalidThroughput,
     #[error("actor `{actor}` is not self or a direct child of `{owner}`")]
     InvalidStopTarget { actor: String, owner: String },
+    #[error("actor `{watcher}` is already watching `{actor}` with another notification")]
+    AlreadyWatching { actor: String, watcher: String },
 }
 
 pub struct SendError<M> {

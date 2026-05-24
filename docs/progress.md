@@ -2,7 +2,9 @@
 
 ## Current Milestone
 
-M1: Local Actor Runtime Core is in progress.
+M2: Lifecycle, Supervision, Patterns, And Testkit is in progress. The M1 local
+actor runtime vertical slice is runnable and remains the foundation for M2
+work.
 
 Implemented:
 
@@ -39,20 +41,27 @@ Implemented:
   `PostStop` signal delivery, missing-ref dead letters, and dispatcher
   throughput settings, actor-system termination, actor name validation, context
   parent/child introspection, context child stop, and invalid context stop
-  targets.
+  targets, local death-watch signals, custom watch messages, and unwatch.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
   module instead of being embedded in the system runtime loop.
 - `ActorPath` now stores structured address, path segments, and incarnation UID
   metadata while preserving the stable display string.
+- Local death watch is available through `Context::watch`,
+  `Context::watch_with`, and `Context::unwatch`.
+- `Signal::Terminated` is delivered once to local watchers after the watched
+  actor terminates; `watch_with` delivers a typed custom protocol message, and
+  `unwatch` suppresses later local termination notification.
+- Death-watch registration and notification state lives in a focused
+  `death_watch` module.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Coordinated shutdown.
-- Death watch, supervision, timers, ask, adapters, event stream, receptionist,
-  and deterministic testkit support.
+- Supervision, timers, ask, adapters, event stream, receptionist, and
+  deterministic testkit support.
 
 ## Last Validation
 

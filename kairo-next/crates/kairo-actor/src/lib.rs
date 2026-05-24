@@ -2,6 +2,7 @@
 
 mod actor;
 mod dead_letters;
+mod death_watch;
 mod dispatcher;
 mod error;
 mod mailbox;
