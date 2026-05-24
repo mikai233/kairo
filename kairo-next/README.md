@@ -38,8 +38,14 @@ Runnable examples live in the `kairo-examples` crate:
 
 ```bash
 cargo run -p kairo-examples --example local_counter
+cargo run -p kairo-examples --example configured_counter
 ```
 
 The `local_counter` example demonstrates the first Rust-first actor workflow:
 spawn a typed actor, send local messages without serialization, request a value
 through an explicit reply channel, and stop the actor.
+
+The `configured_counter` example loads
+`kairo-next/crates/kairo-examples/examples/kairo.local.toml`, maps the
+format-neutral actor settings into an `ActorSystemBuilder`, and runs the same
+typed counter protocol with the configured dispatcher throughput.
