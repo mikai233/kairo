@@ -25,8 +25,9 @@ mod state;
 mod tests;
 
 pub use aggregation::{
-    AggregationError, ReadAggregationOutcome, ReadAggregatorState, ReplicaSelection,
-    WriteAggregationOutcome, WriteAggregatorState, calculate_majority,
+    AggregationError, ReadAggregationOutcome, ReadAggregationPlan, ReadAggregatorState,
+    ReplicaSelection, WriteAggregationOutcome, WriteAggregationPlan, WriteAggregatorState,
+    calculate_majority,
 };
 pub use codec::{
     REPLICATOR_CHANGED_SERIALIZER_ID, REPLICATOR_DELTA_ACK_SERIALIZER_ID,

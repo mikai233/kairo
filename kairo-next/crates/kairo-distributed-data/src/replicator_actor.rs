@@ -1,13 +1,14 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 
 use crate::{
-    CrdtDataCodec, DataEnvelope, DeltaPropagation, DeltaPropagationLog,
+    AggregationError, CrdtDataCodec, DataEnvelope, DeltaPropagation, DeltaPropagationLog,
     DeltaPropagationReceiveReport, DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData,
-    GetResponse, ReplicaId, ReplicatorChange, ReplicatorDeltaPropagation, ReplicatorKey,
-    ReplicatorState, UpdateResponse, WriteConsistency,
+    GetResponse, ReadAggregationPlan, ReadAggregatorState, ReadConsistency, ReplicaId,
+    ReplicatorChange, ReplicatorDeltaPropagation, ReplicatorKey, ReplicatorState, UpdateResponse,
+    WriteAggregationPlan, WriteAggregatorState, WriteConsistency,
 };
 
 pub struct ReplicatorActor<D>
@@ -19,6 +20,8 @@ where
     delta_log: DeltaPropagationLog<D::Delta>,
     delta_receive: DeltaReceiveTracker,
     subscribers: BTreeMap<ReplicatorKey, Vec<ActorRef<ReplicatorChange<D>>>>,
+    remote_nodes: Vec<ReplicaId>,
+    unreachable_nodes: BTreeSet<ReplicaId>,
     remote_replica_count: usize,
 }
 
@@ -37,6 +40,8 @@ where
             delta_log: DeltaPropagationLog::new([]),
             delta_receive: DeltaReceiveTracker::new(),
             subscribers: BTreeMap::new(),
+            remote_nodes: Vec::new(),
+            unreachable_nodes: BTreeSet::new(),
             remote_replica_count,
         }
     }
@@ -51,6 +56,10 @@ where
 
     pub fn delta_receive(&self) -> &DeltaReceiveTracker {
         &self.delta_receive
+    }
+
+    pub fn remote_nodes(&self) -> &[ReplicaId] {
+        &self.remote_nodes
     }
 }
 
@@ -71,7 +80,7 @@ where
 {
     Get {
         key: ReplicatorKey,
-        consistency: crate::ReadConsistency,
+        consistency: ReadConsistency,
         reply_to: ActorRef<GetResponse<D>>,
     },
     Update {
@@ -101,6 +110,20 @@ where
         propagation: ReplicatorDeltaPropagation,
         codec: Arc<dyn CrdtDataCodec<D::Delta> + Send + Sync>,
         reply_to: ActorRef<DeltaPropagationReceiveReport>,
+    },
+    SetRemoteReplicas {
+        nodes: Vec<ReplicaId>,
+        unreachable: BTreeSet<ReplicaId>,
+    },
+    PlanRead {
+        key: ReplicatorKey,
+        consistency: ReadConsistency,
+        reply_to: ActorRef<Result<ReadAggregationPlan<D>, AggregationError>>,
+    },
+    PlanWrite {
+        key: ReplicatorKey,
+        consistency: WriteConsistency,
+        reply_to: ActorRef<Result<WriteAggregationPlan, AggregationError>>,
     },
     SetDeltaNodes {
         nodes: Vec<ReplicaId>,
@@ -134,7 +157,7 @@ where
                 consistency,
                 reply_to,
             } => {
-                let response = if consistency.is_local(self.remote_replica_count) {
+                let response = if consistency.is_local(self.effective_remote_replica_count()) {
                     self.state.get_local(&key)
                 } else {
                     GetResponse::Failure {
@@ -155,7 +178,7 @@ where
                     Ok(outcome) => {
                         self.delta_log
                             .record_delta(key.clone(), outcome.delta().cloned());
-                        if consistency.is_local(self.remote_replica_count) {
+                        if consistency.is_local(self.effective_remote_replica_count()) {
                             UpdateResponse::Success(outcome)
                         } else {
                             UpdateResponse::Timeout { key }
@@ -200,6 +223,27 @@ where
                     codec.as_ref(),
                 );
                 tell_or_actor_error(&reply_to, report)?;
+            }
+            ReplicatorActorMsg::SetRemoteReplicas { nodes, unreachable } => {
+                self.remote_replica_count = nodes.len();
+                self.remote_nodes = nodes;
+                self.unreachable_nodes = unreachable;
+            }
+            ReplicatorActorMsg::PlanRead {
+                key,
+                consistency,
+                reply_to,
+            } => {
+                let response = self.plan_read(key, &consistency);
+                tell_or_actor_error(&reply_to, response)?;
+            }
+            ReplicatorActorMsg::PlanWrite {
+                key,
+                consistency,
+                reply_to,
+            } => {
+                let response = self.plan_write(key, &consistency);
+                tell_or_actor_error(&reply_to, response)?;
             }
             ReplicatorActorMsg::SetDeltaNodes { nodes } => {
                 self.delta_log.set_nodes(nodes);
@@ -265,6 +309,39 @@ where
         }
         self.subscribers
             .retain(|_, subscribers| !subscribers.is_empty());
+    }
+
+    fn plan_read(
+        &self,
+        key: ReplicatorKey,
+        consistency: &ReadConsistency,
+    ) -> Result<ReadAggregationPlan<D>, AggregationError> {
+        let state = ReadAggregatorState::new(
+            key.clone(),
+            consistency,
+            self.remote_nodes.clone(),
+            self.state.envelope(&key).cloned(),
+        )?;
+        let selection = state.select_replicas(&self.unreachable_nodes);
+        Ok(ReadAggregationPlan::new(state, selection))
+    }
+
+    fn plan_write(
+        &self,
+        key: ReplicatorKey,
+        consistency: &WriteConsistency,
+    ) -> Result<WriteAggregationPlan, AggregationError> {
+        let state = WriteAggregatorState::new(key, consistency, self.remote_nodes.clone())?;
+        let selection = state.select_replicas(&self.unreachable_nodes);
+        Ok(WriteAggregationPlan::new(state, selection))
+    }
+
+    fn effective_remote_replica_count(&self) -> usize {
+        if self.remote_nodes.is_empty() {
+            self.remote_replica_count
+        } else {
+            self.remote_nodes.len()
+        }
     }
 }
 

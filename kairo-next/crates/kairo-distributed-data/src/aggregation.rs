@@ -28,6 +28,30 @@ impl ReplicaSelection {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct WriteAggregationPlan {
+    state: WriteAggregatorState,
+    selection: ReplicaSelection,
+}
+
+impl WriteAggregationPlan {
+    pub fn new(state: WriteAggregatorState, selection: ReplicaSelection) -> Self {
+        Self { state, selection }
+    }
+
+    pub fn state(&self) -> &WriteAggregatorState {
+        &self.state
+    }
+
+    pub fn into_state(self) -> WriteAggregatorState {
+        self.state
+    }
+
+    pub fn selection(&self) -> &ReplicaSelection {
+        &self.selection
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteAggregationOutcome {
     InProgress,
@@ -73,6 +97,10 @@ impl WriteAggregatorState {
 
     pub fn required_remote_acks(&self) -> usize {
         self.required_remote_acks
+    }
+
+    pub fn remote_nodes(&self) -> &[ReplicaId] {
+        &self.remote_nodes
     }
 
     pub fn record_ack(&mut self, replica: &ReplicaId) -> WriteAggregationOutcome {
@@ -131,6 +159,36 @@ pub enum ReadAggregationOutcome<D> {
 }
 
 #[derive(Debug, Clone)]
+pub struct ReadAggregationPlan<D>
+where
+    D: DeltaReplicatedData,
+{
+    state: ReadAggregatorState<D>,
+    selection: ReplicaSelection,
+}
+
+impl<D> ReadAggregationPlan<D>
+where
+    D: DeltaReplicatedData,
+{
+    pub fn new(state: ReadAggregatorState<D>, selection: ReplicaSelection) -> Self {
+        Self { state, selection }
+    }
+
+    pub fn state(&self) -> &ReadAggregatorState<D> {
+        &self.state
+    }
+
+    pub fn into_state(self) -> ReadAggregatorState<D> {
+        self.state
+    }
+
+    pub fn selection(&self) -> &ReplicaSelection {
+        &self.selection
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ReadAggregatorState<D>
 where
     D: DeltaReplicatedData,
@@ -168,6 +226,10 @@ where
 
     pub fn required_remote_reads(&self) -> usize {
         self.required_remote_reads
+    }
+
+    pub fn remote_nodes(&self) -> &[ReplicaId] {
+        &self.remote_nodes
     }
 
     pub fn record_read(&mut self, envelope: Option<DataEnvelope<D>>) -> ReadAggregationOutcome<D> {
