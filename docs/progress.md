@@ -110,12 +110,20 @@ Implemented:
   supervision, which sends `Signal::PreRestart`, cancels timers, stops children,
   rebuilds actor state, reruns `started`, and preserves the actor ref path.
 - Supervision strategy definitions live in a focused `supervision` module.
+- `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
+  queue, plus `ActorSystemTestKit` for creating probe-backed local actor
+  systems in tests.
+- `kairo-testkit::ManualTime` can deterministically advance scheduled
+  one-shot deliveries to actor refs and supports cancellation through
+  `ManualTimeHandle`.
+- Testkit code is split into focused `probe`, `manual_time`, and `system`
+  modules instead of living in one crate root.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation, restart limits/backoff, and
-  deterministic testkit support.
+  actor-system scheduler injection for manual-time-driven timers.
 
 ## Last Validation
 

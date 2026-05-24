@@ -1,16 +1,12 @@
 //! Test probes and actor system test harnesses.
 
-use std::marker::PhantomData;
+mod manual_time;
+mod probe;
+mod system;
 
-#[derive(Debug)]
-pub struct TestProbe<M> {
-    _message: PhantomData<fn(M)>,
-}
+pub use manual_time::{ManualTime, ManualTimeHandle};
+pub use probe::{ProbeError, TestProbe};
+pub use system::ActorSystemTestKit;
 
-impl<M> Default for TestProbe<M> {
-    fn default() -> Self {
-        Self {
-            _message: PhantomData,
-        }
-    }
-}
+#[cfg(test)]
+mod tests;
