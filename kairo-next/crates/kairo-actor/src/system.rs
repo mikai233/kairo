@@ -11,6 +11,7 @@ use crate::error::ActorError;
 use crate::event_stream::EventStream;
 use crate::mailbox::{Dequeued, Mailbox, SystemMessage, UserEnvelope};
 use crate::path::{ActorPath, Address};
+use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
 use crate::registry::ActorRegistry;
 use crate::scheduler::{Cancellable, Scheduler};
@@ -35,6 +36,7 @@ pub(crate) struct ActorSystemInner {
     dispatcher: DispatcherSettings,
     scheduler: Scheduler,
     event_stream: EventStream,
+    receptionist: Receptionist,
     dead_letters: DeadLetters,
 }
 
@@ -64,6 +66,10 @@ impl ActorSystem {
 
     pub fn event_stream(&self) -> EventStream {
         self.inner.event_stream.clone()
+    }
+
+    pub fn receptionist(&self) -> Receptionist {
+        self.inner.receptionist.clone()
     }
 
     pub fn schedule_once<M>(&self, delay: Duration, target: ActorRef<M>, message: M) -> Cancellable
@@ -468,6 +474,7 @@ fn run_actor<A>(
     actor_ref.target.terminated.mark_stopped();
     system_inner.death_watch.remove_watcher(actor_ref.path());
     system_inner.death_watch.notify(actor_ref.path());
+    system_inner.receptionist.remove_actor(actor_ref.path());
     system_inner.registry.release_name(&registry_key);
     system_inner
         .registry

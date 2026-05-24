@@ -3,6 +3,7 @@ use crate::asks::{self, AskError};
 use crate::error::{ActorError, ActorResult};
 use crate::event_stream::EventStream;
 use crate::path::ActorPath;
+use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef};
 use crate::scheduler::Cancellable;
 use crate::signal::Signal;
@@ -83,6 +84,10 @@ impl<M: Send + 'static> Context<M> {
 
     pub fn event_stream(&self) -> EventStream {
         self.system.event_stream()
+    }
+
+    pub fn receptionist(&self) -> Receptionist {
+        self.system.receptionist()
     }
 
     pub fn spawn_task<F>(&self, task: F) -> Result<TaskHandle, ActorError>

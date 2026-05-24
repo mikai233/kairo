@@ -10,6 +10,7 @@ mod error;
 mod event_stream;
 mod mailbox;
 mod path;
+mod receptionist;
 mod refs;
 mod registry;
 mod scheduler;
@@ -25,6 +26,7 @@ pub use dispatcher::DispatcherSettings;
 pub use error::{ActorError, ActorResult, SendError};
 pub use event_stream::EventStream;
 pub use path::{ActorPath, Address};
+pub use receptionist::{Listing, Receptionist, ServiceKey};
 pub use refs::{ActorRef, AnyActorRef, IgnoreRef, Recipient};
 pub use scheduler::Cancellable;
 pub use signal::Signal;
@@ -36,7 +38,7 @@ pub mod prelude {
     pub use crate::{
         Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, AskError, AskResult,
         Cancellable, Context, DeadLetter, DeadLetters, DispatcherSettings, EventStream, IgnoreRef,
-        Props, Recipient, Signal, TaskHandle, TimerKey,
+        Listing, Props, Receptionist, Recipient, ServiceKey, Signal, TaskHandle, TimerKey,
     };
 }
 

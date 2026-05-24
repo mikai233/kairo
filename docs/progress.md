@@ -93,12 +93,17 @@ Implemented:
   `AskError::Timeout` back into the owning actor's mailbox, and rejects late
   replies after completion.
 - Ask state and timeout handling live in a focused `asks` module.
+- `ActorSystem::receptionist` and `Context::receptionist` expose a local typed
+  receptionist with `ServiceKey<M>`, `Listing<M>`, register, deregister, find,
+  subscribe, immediate listings, update publication, and actor-termination
+  cleanup.
+- Local receptionist state lives in a focused `receptionist` module.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Coordinated shutdown.
-- Supervision, receptionist, and deterministic testkit support.
+- Supervision and deterministic testkit support.
 
 ## Last Validation
 

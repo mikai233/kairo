@@ -258,3 +258,31 @@ Consequences:
 - The initial implementation uses a dependency-free timeout thread; a later
   deterministic scheduler can replace that timing backend without changing the
   public ask contract.
+
+## ADR-0012: Local Receptionist Uses Exact Typed Service Keys
+
+Status: Accepted
+
+Context:
+Pekko typed receptionist registers actor refs by `ServiceKey`, immediately
+replies to `Find` and `Subscribe` with the current listing, publishes listing
+updates when services change, and removes registrations when registered actors
+terminate. Kairo needs those local semantics before cluster receptionist and
+group routing can be layered on top.
+
+Decision:
+Kairo's initial receptionist is a local typed registry owned by
+`ActorSystemInner`. `ServiceKey<M>` is keyed by a user id plus Rust `TypeId`,
+and each bucket stores typed service refs and typed listing subscribers.
+Register, deregister, find, and subscribe are synchronous local API calls.
+Actor termination removes matching service and subscriber refs and publishes an
+updated listing to remaining subscribers.
+
+Consequences:
+- Local receptionist remains typed and serialization-free.
+- Subscribers receive an immediate listing and later updates for exact service
+  keys.
+- Cluster receptionist can later mirror or replicate these local service-key
+  buckets without making `kairo-actor` depend on cluster membership.
+- Stable remote service-key manifests will need a separate serialization design
+  before receptionist data crosses nodes.
