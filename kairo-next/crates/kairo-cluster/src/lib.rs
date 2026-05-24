@@ -5,6 +5,7 @@ mod downing;
 mod events;
 mod failure_detector;
 mod gossip;
+mod heartbeat;
 mod leader;
 mod leader_actions;
 mod member;
@@ -20,6 +21,7 @@ pub use failure_detector::{
     FailureDetectorRegistry,
 };
 pub use gossip::Gossip;
+pub use heartbeat::{HeartbeatError, HeartbeatNodeRing, HeartbeatSenderState};
 pub use leader::LeaderSelection;
 pub use leader_actions::{LeaderActionError, LeaderActionOutcome, LeaderActions};
 pub use member::{Member, MemberStatus, UniqueAddress};

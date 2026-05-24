@@ -197,6 +197,11 @@ Implemented:
   initial downing hook boundary and SBR-style decision mapping for downing
   reachable, unreachable, all, or self-quarantined members before actor-backed
   providers are wired in.
+- `kairo-cluster::HeartbeatNodeRing` and `HeartbeatSenderState` model
+  Pekko-style heartbeat receiver selection and sender bookkeeping, including
+  deterministic ring ordering, configured receiver limits, unreachable receiver
+  inclusion, and continued monitoring of removed-but-unavailable receivers until
+  recovery.
 
 Not yet implemented:
 
@@ -206,7 +211,7 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
-- Cluster membership actors, heartbeat sender/receiver actors, actor-backed
+- Cluster membership actors, heartbeat sender/receiver actor I/O, actor-backed
   cluster event subscription/publication, and concrete downing providers.
 
 ## Last Validation
