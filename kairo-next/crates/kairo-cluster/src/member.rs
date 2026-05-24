@@ -12,6 +12,10 @@ pub enum MemberStatus {
 }
 
 impl MemberStatus {
+    pub fn participates_in_leader_selection(self) -> bool {
+        matches!(self, Self::Up | Self::Leaving)
+    }
+
     pub fn participates_in_convergence(self) -> bool {
         matches!(self, Self::Up | Self::Leaving)
     }
@@ -29,6 +33,17 @@ impl MemberStatus {
 
     pub fn observes_convergence_reachability(self) -> bool {
         !matches!(self, Self::Down)
+    }
+
+    fn leader_fallback_rank(self) -> u8 {
+        match self {
+            Self::Up | Self::Leaving => 0,
+            Self::WeaklyUp => 1,
+            Self::Joining => 2,
+            Self::Exiting => 3,
+            Self::Down => 4,
+            Self::Removed => 5,
+        }
     }
 
     pub fn is_removed_by_single_sided_merge(self) -> bool {
@@ -69,6 +84,7 @@ pub struct Member {
     pub unique_address: UniqueAddress,
     pub status: MemberStatus,
     pub roles: Vec<String>,
+    pub up_number: Option<u64>,
 }
 
 impl Member {
@@ -77,6 +93,7 @@ impl Member {
             unique_address,
             status: MemberStatus::Joining,
             roles,
+            up_number: None,
         }
     }
 
@@ -85,8 +102,38 @@ impl Member {
         self
     }
 
+    pub fn with_up_number(mut self, up_number: u64) -> Self {
+        self.up_number = Some(up_number);
+        self
+    }
+
+    pub fn has_role(&self, role: &str) -> bool {
+        self.roles.iter().any(|member_role| member_role == role)
+    }
+
+    pub fn is_older_than(&self, other: &Self) -> bool {
+        self.age_key() < other.age_key()
+    }
+
+    pub fn leader_fallback_key(&self) -> (u8, (u64, String)) {
+        (self.status.leader_fallback_rank(), self.age_key())
+    }
+
+    fn age_key(&self) -> (u64, String) {
+        (
+            self.up_number.unwrap_or(u64::MAX),
+            self.unique_address.ordering_key(),
+        )
+    }
+
     pub fn highest_priority<'a>(left: &'a Self, right: &'a Self) -> &'a Self {
-        if left.status.priority() >= right.status.priority() {
+        if left.status == right.status {
+            if left.is_older_than(right) {
+                left
+            } else {
+                right
+            }
+        } else if left.status.priority() >= right.status.priority() {
             left
         } else {
             right
