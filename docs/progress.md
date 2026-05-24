@@ -421,6 +421,10 @@ Implemented:
   coordinator's add-only remembered shard set and each shard's started/stopped
   entity set, including Pekko-compatible five-key partitioning based on stable
   Java string hashing for future distributed-data-backed storage.
+- `kairo-cluster-sharding` now has actor-backed remember-entity store
+  boundaries for the coordinator shard set and per-shard entity set, wrapping
+  the focused store state in synchronous actor turns with explicit add/get,
+  update/get-entities, and deterministic state snapshot protocols.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -567,7 +571,7 @@ Not yet implemented:
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding coordinator rebalance timers, transport-backed handoff delivery,
-  and distributed-data-backed remember-entity store actors.
+  and distributed-data-backed remember-entity store persistence.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

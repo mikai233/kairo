@@ -9,13 +9,15 @@ use crate::{
     CoordinatorStateSnapshot, EntityRef, GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan,
     HandOff, HandOffPlan, HostShard, HostShardPlan, LeastShardAllocationStrategy,
     RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionDropReason, RegionRoutePlan,
-    RememberCoordinatorStoreState, RememberShardStoreState, RememberShardUpdate, ShardActor,
-    ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorMsg,
-    ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
-    ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
-    ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
-    default_shard_id_for, remember_entity_key_index, remember_entity_key_index_for,
-    remember_entity_shard_key, shard_id_for, stable_hash_entity_id,
+    RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
+    RememberCoordinatorStoreState, RememberShardStoreActor, RememberShardStoreMsg,
+    RememberShardStoreSnapshot, RememberShardStoreState, RememberShardUpdate, RememberedEntities,
+    ShardActor, ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor,
+    ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
+    ShardHomePlan, ShardMsg, ShardRegionActor, ShardRegionMsg, ShardRegionRuntime,
+    ShardRegionSnapshot, ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped,
+    ShardingEnvelope, ShardingError, default_shard_id_for, remember_entity_key_index,
+    remember_entity_key_index_for, remember_entity_shard_key, shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -149,6 +151,136 @@ fn remember_coordinator_store_remembers_shards_additively() {
         state.remembered_shards(),
         &BTreeSet::from(["1".to_string(), "2".to_string()])
     );
+}
+
+#[test]
+fn remember_coordinator_store_actor_adds_and_lists_shards() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("remember-coordinator-store").unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberCoordinatorStoreActor::props(RememberCoordinatorStoreState::with_shards([
+                "1".to_string()
+            ])),
+        )
+        .unwrap();
+    let updates = kit
+        .create_probe::<crate::RememberCoordinatorUpdateDone>("updates")
+        .unwrap();
+    let shards = kit
+        .create_probe::<crate::RememberedShards>("shards")
+        .unwrap();
+    let state = kit
+        .create_probe::<RememberCoordinatorStoreSnapshot>("state")
+        .unwrap();
+
+    store
+        .tell(RememberCoordinatorStoreMsg::AddShard {
+            shard: "2".to_string(),
+            reply_to: updates.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        updates
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .shard,
+        "2"
+    );
+
+    store
+        .tell(RememberCoordinatorStoreMsg::GetShards {
+            reply_to: shards.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        shards
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .shards,
+        BTreeSet::from(["1".to_string(), "2".to_string()])
+    );
+
+    store
+        .tell(RememberCoordinatorStoreMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberCoordinatorStoreSnapshot {
+            shards: BTreeSet::from(["1".to_string(), "2".to_string()]),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn remember_shard_store_actor_updates_and_lists_entities() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("remember-shard-store").unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string(), "entity-2".to_string()],
+            )),
+        )
+        .unwrap();
+    let updates = kit
+        .create_probe::<Result<crate::RememberShardUpdateDone, ShardingError>>("updates")
+        .unwrap();
+    let entities = kit.create_probe::<RememberedEntities>("entities").unwrap();
+    let state = kit
+        .create_probe::<RememberShardStoreSnapshot>("state")
+        .unwrap();
+
+    store
+        .tell(RememberShardStoreMsg::Update {
+            update: RememberShardUpdate::new(["entity-3".to_string()], ["entity-1".to_string()]),
+            reply_to: updates.actor_ref(),
+        })
+        .unwrap();
+    let done = updates
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+    assert_eq!(done.started, BTreeSet::from(["entity-3".to_string()]));
+    assert_eq!(done.stopped, BTreeSet::from(["entity-1".to_string()]));
+
+    store
+        .tell(RememberShardStoreMsg::GetEntities {
+            reply_to: entities.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        entities.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberedEntities {
+            entities: BTreeSet::from(["entity-2".to_string(), "entity-3".to_string()]),
+        }
+    );
+
+    store
+        .tell(RememberShardStoreMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(snapshot.type_name, "orders");
+    assert_eq!(snapshot.shard_id, "shard-1");
+    let remembered: BTreeSet<_> = snapshot
+        .entities_by_key
+        .values()
+        .flat_map(|entities| entities.iter().cloned())
+        .collect();
+    assert_eq!(
+        remembered,
+        BTreeSet::from(["entity-2".to_string(), "entity-3".to_string()])
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

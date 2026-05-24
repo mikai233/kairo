@@ -14,6 +14,7 @@ mod protocol;
 mod region_actor;
 mod region_runtime;
 mod remember;
+mod remember_actor;
 mod shard_actor;
 mod shard_runtime;
 
@@ -50,6 +51,10 @@ pub use remember::{
     REMEMBER_ENTITY_SHARD_KEY_COUNT, RememberCoordinatorStoreState, RememberCoordinatorUpdateDone,
     RememberShardStoreState, RememberShardUpdate, RememberShardUpdateDone, RememberedShards,
     remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
+};
+pub use remember_actor::{
+    RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
+    RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot, RememberedEntities,
 };
 pub use shard_actor::{ShardActor, ShardMsg, ShardSnapshot};
 pub use shard_runtime::{
