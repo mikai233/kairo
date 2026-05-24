@@ -117,6 +117,9 @@ Implemented:
   restarts by allowing a configured number of restarts within a time window,
   stopping the actor when the limit is exceeded, and resetting the count after
   the window elapses.
+- Restart supervision now defaults to stopping children and exposes explicit
+  child-preserving restart policies for callers that want Pekko-style
+  `withStopChildren(false)` semantics without changing the default behavior.
 - Supervision strategy definitions live in a focused `supervision` module.
 - `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
   queue, plus `ActorSystemTestKit` for creating probe-backed local actor
@@ -449,7 +452,8 @@ Implemented:
 
 Not yet implemented:
 
-- Full actor tree lifecycle semantics beyond recursive local stop.
+- Full actor tree lifecycle semantics beyond recursive local stop and
+  restart-time child handling.
 - Parent-level supervision escalation and backoff supervision.
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target

@@ -614,15 +614,31 @@ where
     match props.supervisor() {
         SupervisorStrategy::Stop => true,
         SupervisorStrategy::Resume => false,
-        SupervisorStrategy::Restart => {
-            restart_actor(actor_ref, actor, context, props, system_inner).is_err()
-        }
+        strategy @ SupervisorStrategy::Restart
+        | strategy @ SupervisorStrategy::RestartPreservingChildren => restart_actor(
+            actor_ref,
+            actor,
+            context,
+            props,
+            system_inner,
+            strategy.stop_children_on_restart(),
+        )
+        .is_err(),
         SupervisorStrategy::RestartWithLimit {
             max_restarts,
             within,
+            stop_children,
         } => {
             !supervision_state.restart_allowed(max_restarts, within, Instant::now())
-                || restart_actor(actor_ref, actor, context, props, system_inner).is_err()
+                || restart_actor(
+                    actor_ref,
+                    actor,
+                    context,
+                    props,
+                    system_inner,
+                    stop_children,
+                )
+                .is_err()
         }
     }
 }
@@ -633,6 +649,7 @@ fn restart_actor<A>(
     context: &mut Context<A::Msg>,
     props: &Props<A>,
     system_inner: &ActorSystemInner,
+    stop_children_on_restart: bool,
 ) -> ActorResult
 where
     A: Actor,
@@ -644,7 +661,9 @@ where
     };
 
     context.cancel_all_timers();
-    stop_children(system_inner, actor_ref.path.as_str());
+    if stop_children_on_restart {
+        stop_children(system_inner, actor_ref.path.as_str());
+    }
     let _ = actor.signal(context, Signal::PreRestart);
     context.stop_requested = false;
     restarted.started(context)?;

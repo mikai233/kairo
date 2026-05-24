@@ -6,9 +6,11 @@ pub enum SupervisorStrategy {
     Stop,
     Resume,
     Restart,
+    RestartPreservingChildren,
     RestartWithLimit {
         max_restarts: usize,
         within: Duration,
+        stop_children: bool,
     },
 }
 
@@ -17,6 +19,27 @@ impl SupervisorStrategy {
         Self::RestartWithLimit {
             max_restarts,
             within,
+            stop_children: true,
+        }
+    }
+
+    pub fn restart_preserving_children() -> Self {
+        Self::RestartPreservingChildren
+    }
+
+    pub fn restart_with_limit_preserving_children(max_restarts: usize, within: Duration) -> Self {
+        Self::RestartWithLimit {
+            max_restarts,
+            within,
+            stop_children: false,
+        }
+    }
+
+    pub(crate) fn stop_children_on_restart(self) -> bool {
+        match self {
+            Self::RestartPreservingChildren => false,
+            Self::RestartWithLimit { stop_children, .. } => stop_children,
+            _ => true,
         }
     }
 }

@@ -930,6 +930,92 @@ fn restart_supervision_limit_resets_after_time_window() {
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 
+enum RestartParentMsg {
+    SpawnChild {
+        stopped: mpsc::Sender<()>,
+        reply_to: mpsc::Sender<()>,
+    },
+    Fail,
+    ChildCount(mpsc::Sender<usize>),
+}
+
+struct RestartParent;
+
+impl Actor for RestartParent {
+    type Msg = RestartParentMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RestartParentMsg::SpawnChild { stopped, reply_to } => {
+                ctx.spawn("child", Props::new(move || StopProbe { stopped }))?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartParentMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            RestartParentMsg::ChildCount(reply_to) => reply_to
+                .send(ctx.children().len())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
+#[test]
+fn restart_supervision_stops_children_by_default() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::restartable(|| RestartParent))
+        .unwrap();
+    let (child_stopped_tx, child_stopped_rx) = mpsc::channel();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+    let (count_tx, count_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartParentMsg::SpawnChild {
+            stopped: child_stopped_tx,
+            reply_to: spawned_tx,
+        })
+        .unwrap();
+    spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(RestartParentMsg::Fail).unwrap();
+    child_stopped_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    parent.tell(RestartParentMsg::ChildCount(count_tx)).unwrap();
+
+    assert_eq!(count_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 0);
+}
+
+#[test]
+fn restart_supervision_can_preserve_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(|| RestartParent)
+                .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+    let (child_stopped_tx, child_stopped_rx) = mpsc::channel();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+    let (count_tx, count_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartParentMsg::SpawnChild {
+            stopped: child_stopped_tx,
+            reply_to: spawned_tx,
+        })
+        .unwrap();
+    spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(RestartParentMsg::Fail).unwrap();
+    parent.tell(RestartParentMsg::ChildCount(count_tx)).unwrap();
+
+    assert_eq!(count_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+    assert!(child_stopped_rx.try_recv().is_err());
+}
+
 enum WatchProbeMsg {
     WatchTwice {
         subject: ActorRef<()>,
