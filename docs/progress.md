@@ -41,6 +41,8 @@ Implemented:
   of living in a single `lib.rs`.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
   module instead of being embedded in the system runtime loop.
+- `ActorPath` now stores structured address, path segments, and incarnation UID
+  metadata while preserving the stable display string.
 
 Not yet implemented:
 

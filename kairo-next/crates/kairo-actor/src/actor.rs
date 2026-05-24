@@ -82,15 +82,14 @@ impl<M: Send + 'static> Context<M> {
         A: Actor,
     {
         self.system
-            .spawn_under(self.myself.path().as_str(), name.as_ref(), props)
+            .spawn_under(self.myself.path(), name.as_ref(), props)
     }
 
     pub fn spawn_anonymous<A>(&self, props: Props<A>) -> Result<ActorRef<A::Msg>, ActorError>
     where
         A: Actor,
     {
-        self.system
-            .spawn_anonymous_under(self.myself.path().as_str(), props)
+        self.system.spawn_anonymous_under(self.myself.path(), props)
     }
 
     pub fn stop<N: Send + 'static>(&mut self, actor: ActorRef<N>) -> ActorResult {

@@ -101,7 +101,9 @@ impl ActorRegistry {
 }
 
 fn child_name<'a>(parent_path: &ActorPath, child_path: &'a ActorPath) -> Option<&'a str> {
-    let rest = child_path.as_str().strip_prefix(parent_path.as_str())?;
-    let rest = rest.strip_prefix('/')?;
-    rest.split_once('#').map(|(name, _)| name)
+    if child_path.parent().as_ref() == Some(parent_path) {
+        child_path.name()
+    } else {
+        None
+    }
 }

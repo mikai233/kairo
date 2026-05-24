@@ -425,6 +425,20 @@ fn context_parent_points_to_user_root_for_top_level_actor() {
 }
 
 #[test]
+fn actor_path_exposes_structured_address_name_parent_and_uid() {
+    let path = ActorPath::new("kairo://test/user/parent#7/child#9");
+
+    assert_eq!(path.address().protocol(), "kairo");
+    assert_eq!(path.address().system(), "test");
+    assert_eq!(path.name(), Some("child"));
+    assert_eq!(path.uid(), Some(9));
+    assert_eq!(
+        path.parent().unwrap().as_str(),
+        "kairo://test/user/parent#7"
+    );
+}
+
+#[test]
 fn context_children_and_child_lookup_reflect_live_children() {
     let system = ActorSystem::builder("test").build().unwrap();
     let parent = system.spawn("parent", Props::new(|| Parent)).unwrap();

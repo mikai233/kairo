@@ -69,7 +69,8 @@ impl ActorSystem {
 
     pub fn terminate(&self, timeout: Duration) -> Result<(), ActorError> {
         self.inner.terminating.store(true, Ordering::Release);
-        stop_children_with_timeout(&self.inner, &self.user_root_path(), timeout)?;
+        let user_root = self.user_root_path();
+        stop_children_with_timeout(&self.inner, user_root.as_str(), timeout)?;
         self.inner.terminated.store(true, Ordering::Release);
         Ok(())
     }
@@ -98,13 +99,13 @@ impl ActorSystem {
     where
         A: Actor,
     {
-        let parent_path = format!("kairo://{}/user", self.name);
+        let parent_path = self.user_root_path();
         self.spawn_under(&parent_path, name.as_ref(), props)
     }
 
     pub(crate) fn spawn_under<A>(
         &self,
-        parent_path: &str,
+        parent_path: &ActorPath,
         name: &str,
         props: Props<A>,
     ) -> Result<ActorRef<A::Msg>, ActorError>
@@ -123,7 +124,7 @@ impl ActorSystem {
             .reserve_name(registry_key.clone(), uid, name)?;
 
         let mailbox = Arc::new(Mailbox::default());
-        let path = ActorPath::new(format!("{parent_path}/{name}#{uid}"));
+        let path = parent_path.child(name, Some(uid));
         let stopped = Arc::new(AtomicBool::new(false));
         let terminated = Arc::new(TerminationLatch::default());
         let actor_ref = ActorRef::new(
@@ -139,11 +140,12 @@ impl ActorSystem {
         let actor_name = name.to_string();
         let registry_key_for_thread = registry_key.clone();
         let thread_system = self.clone();
-        let parent_path = parent_path.to_string();
+        let parent_path_for_registry = parent_path.to_string();
         let parent_path_for_thread = parent_path.clone();
-        self.inner
-            .registry
-            .add_child(parent_path.clone(), actor_ref.to_local_handle());
+        self.inner.registry.add_child(
+            parent_path_for_registry.clone(),
+            actor_ref.to_local_handle(),
+        );
 
         if let Err(error) = thread::Builder::new()
             .name(format!("kairo-actor-{actor_name}"))
@@ -162,7 +164,7 @@ impl ActorSystem {
             self.inner.registry.release_name(&registry_key);
             self.inner
                 .registry
-                .remove_child(&parent_path, actor_ref.path());
+                .remove_child(&parent_path_for_registry, actor_ref.path());
             return Err(ActorError::Message(format!(
                 "failed to spawn actor thread: {error}"
             )));
@@ -173,7 +175,7 @@ impl ActorSystem {
 
     pub(crate) fn spawn_anonymous_under<A>(
         &self,
-        parent_path: &str,
+        parent_path: &ActorPath,
         props: Props<A>,
     ) -> Result<ActorRef<A::Msg>, ActorError>
     where
@@ -184,8 +186,8 @@ impl ActorSystem {
         self.spawn_under(parent_path, &name, props)
     }
 
-    fn user_root_path(&self) -> String {
-        format!("kairo://{}/user", self.name)
+    fn user_root_path(&self) -> ActorPath {
+        ActorPath::root(self.address.clone(), "user")
     }
 }
 
@@ -230,7 +232,7 @@ fn run_actor<A>(
     system_inner: Arc<ActorSystemInner>,
     registry_key: String,
     thread_system: ActorSystem,
-    parent_path: String,
+    parent_path: ActorPath,
 ) where
     A: Actor,
 {
@@ -238,7 +240,7 @@ fn run_actor<A>(
     let throughput = thread_system.dispatcher_settings().throughput();
     let mut context = Context {
         myself: actor_ref.clone(),
-        parent: ActorPath::new(parent_path.clone()),
+        parent: parent_path.clone(),
         system: thread_system,
         stop_requested: false,
     };
@@ -281,7 +283,7 @@ fn run_actor<A>(
     system_inner.registry.release_name(&registry_key);
     system_inner
         .registry
-        .remove_child(&parent_path, actor_ref.path());
+        .remove_child(parent_path.as_str(), actor_ref.path());
 }
 
 fn process_dequeued<A>(
