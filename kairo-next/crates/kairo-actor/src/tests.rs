@@ -1049,6 +1049,145 @@ fn restart_supervision_can_preserve_children() {
     assert!(child_stopped_rx.try_recv().is_err());
 }
 
+enum EscalatingChildMsg {
+    Fail,
+}
+
+struct EscalatingChild {
+    stopped: Option<mpsc::Sender<()>>,
+}
+
+impl Actor for EscalatingChild {
+    type Msg = EscalatingChildMsg;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            EscalatingChildMsg::Fail => Err(ActorError::Message("child boom".to_string())),
+        }
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        if let Some(stopped) = &self.stopped {
+            stopped
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+enum EscalationParentMsg {
+    SpawnChild {
+        child_stopped: Option<mpsc::Sender<()>>,
+        reply_to: mpsc::Sender<ActorRef<EscalatingChildMsg>>,
+    },
+    Ping(mpsc::Sender<()>),
+}
+
+struct EscalationParent {
+    restarted: Option<mpsc::Sender<()>>,
+}
+
+impl Actor for EscalationParent {
+    type Msg = EscalationParentMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            EscalationParentMsg::SpawnChild {
+                child_stopped,
+                reply_to,
+            } => {
+                let child = ctx.spawn(
+                    "child",
+                    Props::new(move || EscalatingChild {
+                        stopped: child_stopped,
+                    })
+                    .with_supervisor(SupervisorStrategy::Escalate),
+                )?;
+                reply_to
+                    .send(child)
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            EscalationParentMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PreRestart => {
+                if let Some(restarted) = &self.restarted {
+                    restarted
+                        .send(())
+                        .map_err(|error| ActorError::Message(error.to_string()))?;
+                }
+                Ok(())
+            }
+            Signal::PostStop => self.stopped(ctx),
+            Signal::Terminated(_) => Ok(()),
+        }
+    }
+}
+
+#[test]
+fn escalate_supervision_stops_parent_by_default() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(|| EscalationParent { restarted: None }),
+        )
+        .unwrap();
+    let (child_tx, child_rx) = mpsc::channel();
+
+    parent
+        .tell(EscalationParentMsg::SpawnChild {
+            child_stopped: None,
+            reply_to: child_tx,
+        })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child.tell(EscalatingChildMsg::Fail).unwrap();
+
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn escalate_supervision_restarts_parent_when_parent_strategy_restarts() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (restarted_tx, restarted_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(move || EscalationParent {
+                restarted: Some(restarted_tx.clone()),
+            }),
+        )
+        .unwrap();
+    let (child_tx, child_rx) = mpsc::channel();
+    let (child_stopped_tx, child_stopped_rx) = mpsc::channel();
+
+    parent
+        .tell(EscalationParentMsg::SpawnChild {
+            child_stopped: Some(child_stopped_tx),
+            reply_to: child_tx,
+        })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child.tell(EscalatingChildMsg::Fail).unwrap();
+    restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child_stopped_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent.tell(EscalationParentMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(!parent.is_stopped());
+}
+
 enum StashProbeMsg {
     Work(usize),
     Open,

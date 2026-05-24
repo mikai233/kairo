@@ -18,7 +18,7 @@ use crate::registry::ActorRegistry;
 use crate::scheduler::{Cancellable, ManualScheduler, Scheduler};
 use crate::signal::Signal;
 use crate::stash::StashState;
-use crate::supervision::{SupervisionState, SupervisorStrategy};
+use crate::supervision::{SupervisionFailure, SupervisionState, SupervisorStrategy};
 use crate::timers::TimerState;
 
 #[derive(Debug, Clone)]
@@ -380,10 +380,11 @@ impl ActorSystem {
         let thread_system = self.clone();
         let parent_path_for_registry = parent_path.to_string();
         let parent_path_for_thread = parent_path.clone();
-        self.inner.registry.add_child(
-            parent_path_for_registry.clone(),
-            actor_ref.to_local_handle(),
-        );
+        let actor_handle = actor_ref.to_local_handle();
+        self.inner.registry.add_handle(actor_handle.clone());
+        self.inner
+            .registry
+            .add_child(parent_path_for_registry.clone(), actor_handle);
 
         if let Err(error) = thread::Builder::new()
             .name(format!("kairo-actor-{actor_name}"))
@@ -400,6 +401,7 @@ impl ActorSystem {
             })
         {
             self.inner.registry.remove_ref(actor_ref.path());
+            self.inner.registry.remove_handle(actor_ref.path());
             self.inner.registry.release_name(&registry_key);
             self.inner
                 .registry
@@ -536,6 +538,7 @@ fn run_actor<A>(
     system_inner
         .registry
         .remove_child(parent_path.as_str(), actor_ref.path());
+    system_inner.registry.remove_handle(actor_ref.path());
     let _ = actor.signal(&mut context, Signal::PostStop);
     actor_ref.target.terminated.mark_stopped();
     system_inner.death_watch.remove_watcher(actor_ref.path());
@@ -562,6 +565,26 @@ where
         }
         Dequeued::System(SystemMessage::Signal(signal)) => {
             let _ = actor.signal(context, signal);
+            false
+        }
+        Dequeued::System(SystemMessage::SupervisionFailure(failure)) => {
+            let reason = format!(
+                "child `{}` escalated failure: {}",
+                failure.child(),
+                failure.reason()
+            );
+            if apply_actor_failure(
+                ActorError::Message(reason),
+                actor_ref,
+                actor,
+                context,
+                props,
+                system_inner,
+                supervision_state,
+            ) || context.stop_requested
+            {
+                actor_ref.target.stopped.store(true, Ordering::Release);
+            }
             false
         }
         Dequeued::User(UserEnvelope::Message(message)) => {
@@ -628,13 +651,45 @@ fn apply_receive_result<A>(
 where
     A: Actor,
 {
-    if result.is_ok() {
+    let Err(error) = result else {
         return false;
-    }
+    };
 
+    apply_actor_failure(
+        error,
+        actor_ref,
+        actor,
+        context,
+        props,
+        system_inner,
+        supervision_state,
+    )
+}
+
+fn apply_actor_failure<A>(
+    error: ActorError,
+    actor_ref: &ActorRef<A::Msg>,
+    actor: &mut A,
+    context: &mut Context<A::Msg>,
+    props: &Props<A>,
+    system_inner: &ActorSystemInner,
+    supervision_state: &mut SupervisionState,
+) -> bool
+where
+    A: Actor,
+{
     match props.supervisor() {
         SupervisorStrategy::Stop => true,
         SupervisorStrategy::Resume => false,
+        SupervisorStrategy::Escalate => {
+            escalate_failure_to_parent(
+                system_inner,
+                context.parent.clone(),
+                actor_ref.path.clone(),
+                error,
+            );
+            true
+        }
         strategy @ SupervisorStrategy::Restart
         | strategy @ SupervisorStrategy::RestartPreservingChildren => restart_actor(
             actor_ref,
@@ -661,6 +716,17 @@ where
                 )
                 .is_err()
         }
+    }
+}
+
+fn escalate_failure_to_parent(
+    system_inner: &ActorSystemInner,
+    parent: ActorPath,
+    child: ActorPath,
+    error: ActorError,
+) {
+    if let Some(parent) = system_inner.registry.handle_of(&parent) {
+        parent.request_supervision(SupervisionFailure::new(child, error.to_string()));
     }
 }
 

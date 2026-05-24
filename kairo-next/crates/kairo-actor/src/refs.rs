@@ -9,6 +9,7 @@ use crate::error::SendError;
 use crate::mailbox::{Mailbox, SystemMessage};
 use crate::path::ActorPath;
 use crate::signal::Signal;
+use crate::supervision::SupervisionFailure;
 use crate::timers::TimerEnvelope;
 
 pub trait Recipient<M: Send + 'static> {
@@ -284,10 +285,20 @@ impl<M: Send + 'static> ActorRef<M> {
 
     pub(crate) fn to_local_handle(&self) -> LocalActorHandle {
         let actor = self.clone();
+        let supervisor_actor = self.clone();
         LocalActorHandle {
             path: self.path.clone(),
             terminated: Arc::clone(&self.target.terminated),
             stop: Arc::new(move || actor.request_stop()),
+            supervise: Arc::new(move |failure| supervisor_actor.request_supervision(failure)),
+        }
+    }
+
+    fn request_supervision(&self, failure: SupervisionFailure) {
+        if !self.target.stopped.load(Ordering::Acquire)
+            && let Some(mailbox) = &self.target.mailbox
+        {
+            mailbox.enqueue_system(SystemMessage::SupervisionFailure(failure));
         }
     }
 }
@@ -369,6 +380,7 @@ pub(crate) struct LocalActorHandle {
     path: ActorPath,
     terminated: Arc<TerminationLatch>,
     stop: Arc<dyn Fn() + Send + Sync>,
+    supervise: Arc<dyn Fn(SupervisionFailure) + Send + Sync>,
 }
 
 impl fmt::Debug for LocalActorHandle {
@@ -386,6 +398,10 @@ impl LocalActorHandle {
 
     pub(crate) fn request_stop(&self) {
         (self.stop)();
+    }
+
+    pub(crate) fn request_supervision(&self, failure: SupervisionFailure) {
+        (self.supervise)(failure);
     }
 
     pub(crate) fn wait_for_stop(&self, timeout: Duration) -> bool {

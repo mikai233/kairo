@@ -10,6 +10,7 @@ use crate::refs::{ActorRef, AnyActorRef, LocalActorHandle};
 pub(crate) struct ActorRegistry {
     names: Mutex<HashMap<String, u64>>,
     children: Mutex<HashMap<String, Vec<LocalActorHandle>>>,
+    handles: Mutex<HashMap<String, LocalActorHandle>>,
     refs: Mutex<HashMap<String, Box<dyn Any + Send + Sync>>>,
 }
 
@@ -42,6 +43,28 @@ impl ActorRegistry {
             .entry(parent_path)
             .or_default()
             .push(child);
+    }
+
+    pub(crate) fn add_handle(&self, handle: LocalActorHandle) {
+        self.handles
+            .lock()
+            .expect("actor handle registry poisoned")
+            .insert(handle.path().to_string(), handle);
+    }
+
+    pub(crate) fn handle_of(&self, path: &ActorPath) -> Option<LocalActorHandle> {
+        self.handles
+            .lock()
+            .expect("actor handle registry poisoned")
+            .get(path.as_str())
+            .cloned()
+    }
+
+    pub(crate) fn remove_handle(&self, path: &ActorPath) {
+        self.handles
+            .lock()
+            .expect("actor handle registry poisoned")
+            .remove(path.as_str());
     }
 
     pub(crate) fn add_ref<M>(&self, actor: ActorRef<M>)

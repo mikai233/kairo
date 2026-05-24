@@ -129,6 +129,11 @@ Implemented:
 - Restart supervision now defaults to stopping children and exposes explicit
   child-preserving restart policies for callers that want Pekko-style
   `withStopChildren(false)` semantics without changing the default behavior.
+- `SupervisorStrategy::Escalate` now routes a child receive failure back to
+  the parent through a structured system message, so the parent applies its own
+  supervision policy to the escalated failure. A parent with the default stop
+  strategy stops, while a restartable parent can restart and stop its children
+  through the existing restart path.
 - Supervision strategy definitions live in a focused `supervision` module.
 - `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
   queue, plus `ActorSystemTestKit` for creating probe-backed local actor
@@ -694,7 +699,7 @@ Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop and
   restart-time child handling.
-- Parent-level supervision escalation and backoff supervision.
+- Backoff supervision.
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.

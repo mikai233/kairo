@@ -3,12 +3,14 @@ use std::fmt;
 use std::sync::{Condvar, Mutex};
 
 use crate::signal::Signal;
+use crate::supervision::SupervisionFailure;
 use crate::timers::TimerEnvelope;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SystemMessage {
     Stop,
     Signal(Signal),
+    SupervisionFailure(SupervisionFailure),
 }
 
 #[derive(Debug)]

@@ -1,3 +1,5 @@
+use crate::ActorPath;
+
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -7,6 +9,7 @@ pub enum SupervisorStrategy {
     Resume,
     Restart,
     RestartPreservingChildren,
+    Escalate,
     RestartWithLimit {
         max_restarts: usize,
         within: Duration,
@@ -41,6 +44,29 @@ impl SupervisorStrategy {
             Self::RestartWithLimit { stop_children, .. } => stop_children,
             _ => true,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SupervisionFailure {
+    child: ActorPath,
+    reason: String,
+}
+
+impl SupervisionFailure {
+    pub(crate) fn new(child: ActorPath, reason: impl Into<String>) -> Self {
+        Self {
+            child,
+            reason: reason.into(),
+        }
+    }
+
+    pub(crate) fn child(&self) -> &ActorPath {
+        &self.child
+    }
+
+    pub(crate) fn reason(&self) -> &str {
+        &self.reason
     }
 }
 
