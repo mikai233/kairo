@@ -151,7 +151,7 @@ impl CoordinatorRuntime {
 
     pub fn plan_rebalance<S>(&mut self, strategy: &S) -> Result<RebalancePlan, ShardingError>
     where
-        S: ShardAllocationStrategy,
+        S: ShardAllocationStrategy + ?Sized,
     {
         if self.preparing_for_shutdown {
             return Ok(RebalancePlan::Skipped {
@@ -257,7 +257,7 @@ impl CoordinatorRuntime {
         strategy: &S,
     ) -> Result<GetShardHomePlan, ShardingError>
     where
-        S: ShardAllocationStrategy,
+        S: ShardAllocationStrategy + ?Sized,
     {
         let requester = requester.into();
         let shard = shard.into();

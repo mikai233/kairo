@@ -5,11 +5,12 @@ use std::time::Duration;
 use kairo_actor::{Actor, ActorError, ActorResult, ActorSystem, Context, Props};
 
 use crate::{
-    BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState, EntityRef,
-    GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan, HandOff, HandOffPlan, HostShard,
-    HostShardPlan, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
-    RebalanceSkipReason, RegionDropReason, RegionRoutePlan, RememberCoordinatorStoreState,
-    RememberShardStoreState, RememberShardUpdate, ShardAllocationStrategy, ShardAllocations,
+    BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState,
+    CoordinatorStateSnapshot, EntityRef, GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan,
+    HandOff, HandOffPlan, HostShard, HostShardPlan, LeastShardAllocationStrategy,
+    RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionDropReason, RegionRoutePlan,
+    RememberCoordinatorStoreState, RememberShardStoreState, RememberShardUpdate,
+    ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorMsg,
     ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan,
     ShardRegionRuntime, ShardRuntime, ShardStarted, ShardStopped, ShardingEnvelope, ShardingError,
     default_shard_id_for, remember_entity_key_index, remember_entity_key_index_for,
@@ -480,6 +481,171 @@ fn coordinator_runtime_allocates_unknown_shard_and_plans_host_shard() {
         runtime.state().shard_home(&"new-shard".to_string()),
         Some(&"region-b".to_string())
     );
+}
+
+#[test]
+fn coordinator_actor_applies_registration_and_allocates_shard_home() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-allocation").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_least_shard_strategy(CoordinatorState::new()),
+        )
+        .unwrap();
+    let state = kit
+        .create_probe::<Result<CoordinatorStateSnapshot, ShardingError>>("state")
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::ApplyEvent {
+            event: CoordinatorEvent::ShardRegionRegistered {
+                region: "region-a".to_string(),
+            },
+            reply_to: Some(state.actor_ref()),
+        })
+        .unwrap();
+    assert!(
+        state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap()
+            .allocations
+            .contains_key("region-a")
+    );
+    coordinator
+        .tell(ShardCoordinatorMsg::ApplyEvent {
+            event: CoordinatorEvent::ShardRegionRegistered {
+                region: "region-b".to_string(),
+            },
+            reply_to: Some(state.actor_ref()),
+        })
+        .unwrap();
+    state
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-b".to_string(),
+            shard: "new-shard".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        home.expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        GetShardHomePlan::Allocated {
+            event: CoordinatorEvent::ShardHomeAllocated {
+                shard: "new-shard".to_string(),
+                region: "region-a".to_string(),
+            },
+            host_region: "region-a".to_string(),
+            host_shard: HostShard {
+                shard_id: "new-shard".to_string(),
+            },
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn coordinator_actor_plans_rebalance_and_defers_shard_home_requests() {
+    let mut state = CoordinatorState::new();
+    for region in ["region-a", "region-b"] {
+        state
+            .apply(CoordinatorEvent::ShardRegionRegistered {
+                region: region.to_string(),
+            })
+            .unwrap();
+    }
+    for shard in ["s1", "s2"] {
+        state
+            .apply(CoordinatorEvent::ShardHomeAllocated {
+                shard: shard.to_string(),
+                region: "region-a".to_string(),
+            })
+            .unwrap();
+    }
+
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-rebalance").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props(state, FixedRebalanceStrategy::new(["s1"])),
+        )
+        .unwrap();
+    let rebalance = kit
+        .create_probe::<Result<RebalancePlan, ShardingError>>("rebalance")
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+    let completion = kit
+        .create_probe::<Result<RebalanceCompletionPlan, ShardingError>>("completion")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::PlanRebalance {
+            reply_to: rebalance.actor_ref(),
+        })
+        .unwrap();
+    let plan = rebalance
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+    assert!(
+        matches!(plan, RebalancePlan::Started { ref shards } if shards.len() == 1 && shards[0].shard == "s1")
+    );
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-b".to_string(),
+            shard: "s1".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        home.expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        GetShardHomePlan::Deferred {
+            shard: "s1".to_string(),
+            requester: "region-b".to_string(),
+        }
+    );
+
+    coordinator
+        .tell(ShardCoordinatorMsg::CompleteRebalance {
+            shard: "s1".to_string(),
+            ok: true,
+            reply_to: completion.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        completion
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        RebalanceCompletionPlan::Deallocated {
+            shard: "s1".to_string(),
+            event: CoordinatorEvent::ShardHomeDeallocated {
+                shard: "s1".to_string(),
+            },
+            pending_requesters: vec!["region-b".to_string()],
+            retry_get_shard_home: GetShardHome {
+                shard_id: "s1".to_string(),
+            },
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

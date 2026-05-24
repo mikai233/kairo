@@ -11,3 +11,6 @@ kairo-actor = { workspace = true }
 kairo-cluster = { workspace = true }
 kairo-distributed-data = { workspace = true }
 kairo-serialization = { workspace = true }
+
+[dev-dependencies]
+kairo-testkit = { workspace = true }

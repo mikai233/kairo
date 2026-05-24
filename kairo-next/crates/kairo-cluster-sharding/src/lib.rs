@@ -3,6 +3,7 @@
 mod allocation;
 mod codec;
 mod coordinator;
+mod coordinator_actor;
 mod coordinator_runtime;
 mod entity_ref;
 mod entity_type;
@@ -24,6 +25,7 @@ pub use codec::{
     ShardStoppedCodec, register_sharding_protocol_codecs,
 };
 pub use coordinator::{CoordinatorEvent, CoordinatorState};
+pub use coordinator_actor::{CoordinatorStateSnapshot, ShardCoordinatorActor, ShardCoordinatorMsg};
 pub use coordinator_runtime::{
     CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan, RebalanceCompletionPlan,
     RebalancePlan, RebalanceSkipReason, ShardRebalancePlan,

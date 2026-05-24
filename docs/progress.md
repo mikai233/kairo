@@ -390,6 +390,11 @@ Implemented:
   includes registered regions and proxies as `BeginHandOff` participants,
   deallocates shard homes on successful completion, retries pending
   `GetShardHome` requests, and clears in-progress state on timeout.
+- `kairo-cluster-sharding` now has an actor-backed shard coordinator boundary
+  that wraps the focused coordinator runtime in synchronous actor turns,
+  accepts explicit registration, shutdown marker, shard-home request,
+  rebalance planning, and rebalance-completion commands, and replies with
+  deterministic allocation, rebalance, completion, and state snapshot results.
 - `kairo-cluster-sharding` now has a focused shard-region runtime planner that
   buffers unknown shard messages, requests shard homes once per buffered shard,
   forwards buffered messages when a remote home is learned, starts local shards
@@ -550,8 +555,8 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
-- Actor-backed sharding region/shard/coordinator wiring, coordinator rebalance
-  timers, transport-backed handoff delivery, and distributed-data-backed
+- Actor-backed sharding region/shard wiring, coordinator rebalance timers,
+  transport-backed handoff delivery, and distributed-data-backed
   remember-entity store actors.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
