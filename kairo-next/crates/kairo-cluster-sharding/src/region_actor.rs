@@ -1,20 +1,59 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::time::Duration;
 
 use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
 
+use crate::region_shards::LocalShardSpawner;
 use crate::{
-    BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionId, RegionRoutePlan, ShardHomePlan,
-    ShardId, ShardRegionRuntime, ShardStartedPlan, ShardingEnvelope, ShardingError,
+    BeginHandOffPlan, EntityId, HandOffPlan, HostShardPlan, RegionId, RegionRoutePlan,
+    ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStartedPlan, ShardingEnvelope,
+    ShardingError,
 };
 
 pub struct ShardRegionActor<M> {
     runtime: ShardRegionRuntime<M>,
+    local_shard_spawner: Option<LocalShardSpawner>,
+    local_shards: BTreeMap<ShardId, ActorRef<ShardMsg<M>>>,
 }
 
 impl<M> ShardRegionActor<M> {
     pub fn new(self_region: impl Into<RegionId>, buffer_capacity: usize) -> Self {
         Self {
             runtime: ShardRegionRuntime::new(self_region, buffer_capacity),
+            local_shard_spawner: None,
+            local_shards: BTreeMap::new(),
+        }
+    }
+
+    pub fn new_with_local_shards(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+    ) -> Self {
+        Self {
+            runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
+            local_shard_spawner: Some(LocalShardSpawner::plain(shard_buffer_capacity)),
+            local_shards: BTreeMap::new(),
+        }
+    }
+
+    pub fn new_with_local_remember_store_shards(
+        self_region: impl Into<RegionId>,
+        type_name: impl Into<String>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        remembered_entities_by_shard: BTreeMap<ShardId, BTreeSet<EntityId>>,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
+            local_shard_spawner: Some(LocalShardSpawner::with_local_remember_stores(
+                type_name,
+                shard_buffer_capacity,
+                remembered_entities_by_shard,
+                timeout,
+            )),
+            local_shards: BTreeMap::new(),
         }
     }
 
@@ -24,6 +63,45 @@ impl<M> ShardRegionActor<M> {
     {
         let self_region = self_region.into();
         Props::new(move || Self::new(self_region, buffer_capacity))
+    }
+
+    pub fn props_with_local_shards(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+    ) -> Props<Self>
+    where
+        M: Send + 'static,
+    {
+        let self_region = self_region.into();
+        Props::new(move || {
+            Self::new_with_local_shards(self_region, region_buffer_capacity, shard_buffer_capacity)
+        })
+    }
+
+    pub fn props_with_local_remember_store_shards(
+        self_region: impl Into<RegionId>,
+        type_name: impl Into<String>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        remembered_entities_by_shard: BTreeMap<ShardId, BTreeSet<EntityId>>,
+        timeout: Duration,
+    ) -> Props<Self>
+    where
+        M: Send + 'static,
+    {
+        let self_region = self_region.into();
+        let type_name = type_name.into();
+        Props::new(move || {
+            Self::new_with_local_remember_store_shards(
+                self_region,
+                type_name,
+                region_buffer_capacity,
+                shard_buffer_capacity,
+                remembered_entities_by_shard,
+                timeout,
+            )
+        })
     }
 
     pub fn runtime(&self) -> &ShardRegionRuntime<M> {
@@ -71,6 +149,10 @@ pub enum ShardRegionMsg<M> {
     GetState {
         reply_to: ActorRef<ShardRegionSnapshot>,
     },
+    GetLocalShard {
+        shard: ShardId,
+        reply_to: ActorRef<Option<ActorRef<ShardMsg<M>>>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,7 +170,7 @@ where
 {
     type Msg = ShardRegionMsg<M>;
 
-    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             ShardRegionMsg::Route {
                 shard,
@@ -100,6 +182,7 @@ where
             }
             ShardRegionMsg::HostShard { shard, reply_to } => {
                 let plan = self.runtime.host_shard(shard);
+                let plan = self.maybe_start_local_shard_from_host_plan(ctx, plan)?;
                 let _ = reply_to.tell(plan);
             }
             ShardRegionMsg::RecordShardHome {
@@ -108,6 +191,10 @@ where
                 reply_to,
             } => {
                 let plan = self.runtime.record_shard_home(shard, region);
+                let plan = match plan {
+                    Ok(plan) => Ok(self.maybe_start_local_shard_from_home_plan(ctx, plan)?),
+                    Err(error) => Err(error),
+                };
                 let _ = reply_to.tell(plan);
             }
             ShardRegionMsg::MarkShardStarted { shard, reply_to } => {
@@ -124,6 +211,7 @@ where
             }
             ShardRegionMsg::MarkShardStopped { shard, reply_to } => {
                 self.runtime.mark_shard_stopped(&shard);
+                self.local_shards.remove(&shard);
                 reply_optional(reply_to, ShardRegionSnapshot::from(&self.runtime));
             }
             ShardRegionMsg::SetGracefulShutdown { in_progress } => {
@@ -135,7 +223,72 @@ where
             ShardRegionMsg::GetState { reply_to } => {
                 let _ = reply_to.tell(ShardRegionSnapshot::from(&self.runtime));
             }
+            ShardRegionMsg::GetLocalShard { shard, reply_to } => {
+                let _ = reply_to.tell(self.local_shards.get(&shard).cloned());
+            }
         }
+        Ok(())
+    }
+}
+
+impl<M> ShardRegionActor<M>
+where
+    M: Send + 'static,
+{
+    fn maybe_start_local_shard_from_host_plan(
+        &mut self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        plan: HostShardPlan<M>,
+    ) -> Result<HostShardPlan<M>, kairo_actor::ActorError> {
+        let HostShardPlan::StartLocalShard { shard, command } = plan else {
+            return Ok(plan);
+        };
+        if self.local_shard_spawner.is_none() {
+            return Ok(HostShardPlan::StartLocalShard { shard, command });
+        }
+
+        self.spawn_local_shard(ctx, &shard)?;
+        let started = self.runtime.mark_shard_started(shard.clone());
+        Ok(HostShardPlan::AlreadyStarted {
+            shard,
+            started: started.started,
+            buffered: started.buffered,
+        })
+    }
+
+    fn maybe_start_local_shard_from_home_plan(
+        &mut self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        plan: ShardHomePlan<M>,
+    ) -> Result<ShardHomePlan<M>, kairo_actor::ActorError> {
+        let ShardHomePlan::StartLocalShard { shard, command } = plan else {
+            return Ok(plan);
+        };
+        if self.local_shard_spawner.is_none() {
+            return Ok(ShardHomePlan::StartLocalShard { shard, command });
+        }
+
+        self.spawn_local_shard(ctx, &shard)?;
+        let started = self.runtime.mark_shard_started(shard.clone());
+        Ok(ShardHomePlan::DeliverLocal {
+            shard,
+            buffered: started.buffered,
+        })
+    }
+
+    fn spawn_local_shard(
+        &mut self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        shard: &ShardId,
+    ) -> Result<(), kairo_actor::ActorError> {
+        if self.local_shards.contains_key(shard) {
+            return Ok(());
+        }
+        let Some(spawner) = &self.local_shard_spawner else {
+            return Ok(());
+        };
+        let shard_ref = spawner.spawn(ctx, shard)?;
+        self.local_shards.insert(shard.clone(), shard_ref);
         Ok(())
     }
 }

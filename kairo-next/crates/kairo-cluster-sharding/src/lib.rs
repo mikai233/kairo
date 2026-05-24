@@ -15,6 +15,7 @@ mod hashing;
 mod protocol;
 mod region_actor;
 mod region_runtime;
+mod region_shards;
 mod remember;
 mod remember_actor;
 mod remember_ddata;
