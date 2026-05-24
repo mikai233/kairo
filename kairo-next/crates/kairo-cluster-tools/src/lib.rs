@@ -12,7 +12,8 @@ pub use pubsub::{
     PubSubRemoteTarget, PubSubSubscribeAck, PubSubTopicReport,
 };
 pub use singleton::{
-    SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange,
+    SingletonManagerActor, SingletonManagerEffect, SingletonManagerMsg, SingletonManagerRuntime,
+    SingletonManagerSnapshot, SingletonManagerState, SingletonOldestChange,
     SingletonOldestObservation, SingletonOldestTracker, SingletonScope,
 };
 pub use topic::{
