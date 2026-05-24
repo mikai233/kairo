@@ -2415,6 +2415,130 @@ fn shard_actor_replays_stashed_new_entity_as_remember_start_after_load() {
 }
 
 #[test]
+fn shard_actor_with_remember_store_loads_entities_on_start() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-store-load").unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_store(
+                "shard-1",
+                10,
+                store,
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "loaded".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "loaded".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn shard_actor_with_remember_store_persists_start_updates() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-store-start").unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberShardStoreActor::props(RememberShardStoreState::new("orders", "shard-1")),
+        )
+        .unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_store(
+                "shard-1",
+                10,
+                store.clone(),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let store_state = kit
+        .create_probe::<RememberShardStoreSnapshot>("store-state")
+        .unwrap();
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+    let update = RememberShardUpdate::new(["entity-1".to_string()], std::iter::empty::<String>());
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate { update }
+    );
+
+    let mut persisted = false;
+    let mut activated = false;
+    for _ in 0..20 {
+        store
+            .tell(RememberShardStoreMsg::GetState {
+                reply_to: store_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
+        let remembered = snapshot
+            .entities_by_key
+            .values()
+            .flat_map(|entities| entities.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        persisted = remembered.contains("entity-1");
+
+        shard
+            .tell(ShardMsg::GetState {
+                reply_to: shard_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
+        activated = snapshot.active_entities == vec!["entity-1".to_string()]
+            && snapshot.total_buffered == 0;
+
+        if persisted && activated {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert!(persisted, "remember store should contain entity-1");
+    assert!(activated, "shard runtime should mark entity-1 active");
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_runtime_remember_entities_writes_start_before_delivery() {
     let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
 

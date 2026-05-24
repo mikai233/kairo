@@ -22,6 +22,7 @@ mod shard_actor;
 mod shard_loading;
 mod shard_remember;
 mod shard_runtime;
+mod shard_store;
 
 pub use allocation::{LeastShardAllocationStrategy, ShardAllocationStrategy, ShardAllocations};
 pub use codec::{
