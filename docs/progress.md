@@ -194,6 +194,12 @@ Implemented:
   returns the collected delta for later propagation, merges inbound full state
   by CRDT merge, applies inbound deltas to existing or zero state, and flushes
   changed keys deterministically for subscriber delivery.
+- `kairo-distributed-data::ReplicatorActor<D>` wires the local state machine
+  into synchronous actor turns for typed local get, update, full-state write,
+  delta write, subscribe, unsubscribe, and explicit change flushing.
+- Local distributed-data subscriptions send the current value on subscribe when
+  present and later deliver queued `ReplicatorChange<D>` notifications only on
+  flush, matching Pekko's separated update and notification turns.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, and stopped protocol
@@ -291,9 +297,8 @@ Not yet implemented:
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
-- Distributed-data actor wiring around `ReplicatorState`, CRDT serialization
-  codecs, remote delta propagation, direct write/read aggregators, pruning
-  scheduling, and gossip-backed replication.
+- Distributed-data CRDT serialization codecs, remote delta propagation, direct
+  write/read aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

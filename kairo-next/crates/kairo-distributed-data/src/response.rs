@@ -4,19 +4,20 @@ use crate::{ReplicatedData, ReplicatorKey};
 pub enum GetResponse<D> {
     Success { key: ReplicatorKey, data: D },
     NotFound { key: ReplicatorKey },
+    Failure { key: ReplicatorKey, reason: String },
 }
 
 impl<D> GetResponse<D> {
     pub fn key(&self) -> &ReplicatorKey {
         match self {
-            Self::Success { key, .. } | Self::NotFound { key } => key,
+            Self::Success { key, .. } | Self::NotFound { key } | Self::Failure { key, .. } => key,
         }
     }
 
     pub fn data(&self) -> Option<&D> {
         match self {
             Self::Success { data, .. } => Some(data),
-            Self::NotFound { .. } => None,
+            Self::NotFound { .. } | Self::Failure { .. } => None,
         }
     }
 }
@@ -51,6 +52,22 @@ impl<Delta> UpdateOutcome<Delta> {
 
     pub fn into_delta(self) -> Option<Delta> {
         self.delta
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateResponse<Delta> {
+    Success(UpdateOutcome<Delta>),
+    Timeout { key: ReplicatorKey },
+    ModifyFailure { key: ReplicatorKey, reason: String },
+}
+
+impl<Delta> UpdateResponse<Delta> {
+    pub fn key(&self) -> &ReplicatorKey {
+        match self {
+            Self::Success(outcome) => outcome.key(),
+            Self::Timeout { key } | Self::ModifyFailure { key, .. } => key,
+        }
     }
 }
 

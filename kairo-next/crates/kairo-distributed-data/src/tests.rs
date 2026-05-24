@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
+use std::sync::mpsc;
+use std::time::Duration;
 
-use kairo_actor::Address;
+use kairo_actor::{Actor, ActorResult, ActorSystem, Address, Context, Props};
 use kairo_cluster::UniqueAddress;
 
 use crate::{
     ConsistencyError, CrdtError, DataEnvelope, DeltaReplicatedData, GCounter, GSet, GetResponse,
-    PNCounter, ReadConsistency, ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorKey,
-    ReplicatorState, WriteConsistency,
+    PNCounter, ReadConsistency, ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor,
+    ReplicatorActorMsg, ReplicatorKey, ReplicatorState, UpdateResponse, WriteConsistency,
 };
 
 fn replica(id: &str) -> ReplicaId {
@@ -311,4 +313,188 @@ fn replicator_state_flushes_changes_once_in_key_order() {
         vec!["a", "b"]
     );
     assert!(state.flush_changes().is_empty());
+}
+
+struct Forward<M> {
+    tx: mpsc::Sender<M>,
+}
+
+impl<M> Actor for Forward<M>
+where
+    M: Send + 'static,
+{
+    type Msg = M;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        self.tx
+            .send(msg)
+            .map_err(|error| kairo_actor::ActorError::Message(error.to_string()))
+    }
+}
+
+fn forward_ref<M>(system: &ActorSystem, name: &str) -> (kairo_actor::ActorRef<M>, mpsc::Receiver<M>)
+where
+    M: Send + 'static,
+{
+    let (tx, rx) = mpsc::channel();
+    let actor = system
+        .spawn(name, Props::new(move || Forward { tx }))
+        .expect("forward actor should spawn");
+    (actor, rx)
+}
+
+#[test]
+fn replicator_actor_handles_local_get_and_update() {
+    let system = ActorSystem::builder("ddata-replicator-get-update")
+        .build()
+        .unwrap();
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let (get_ref, get_rx) = forward_ref(&system, "get-replies");
+    let (update_ref, update_rx) = forward_ref(&system, "update-replies");
+    let key = ReplicatorKey::new("counter");
+    let node = replica("a");
+
+    replicator
+        .tell(ReplicatorActorMsg::Get {
+            key: key.clone(),
+            consistency: ReadConsistency::local(),
+            reply_to: get_ref.clone(),
+        })
+        .unwrap();
+    assert_eq!(
+        get_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        GetResponse::NotFound { key: key.clone() }
+    );
+
+    replicator
+        .tell(ReplicatorActorMsg::Update {
+            key: key.clone(),
+            initial: GCounter::new(),
+            consistency: WriteConsistency::local(),
+            modify: Box::new(move |counter| {
+                counter
+                    .increment(node.clone(), 4)
+                    .map_err(|e| e.to_string())
+            }),
+            reply_to: update_ref,
+        })
+        .unwrap();
+    let update = update_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(matches!(update, UpdateResponse::Success(_)));
+
+    replicator
+        .tell(ReplicatorActorMsg::Get {
+            key: key.clone(),
+            consistency: ReadConsistency::local(),
+            reply_to: get_ref,
+        })
+        .unwrap();
+    let GetResponse::Success { data, .. } = get_rx.recv_timeout(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("counter should be available");
+    };
+    assert_eq!(data.value().unwrap(), 4);
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn replicator_actor_sends_current_value_on_subscribe_and_flushes_later_changes() {
+    let system = ActorSystem::builder("ddata-replicator-subscribe")
+        .build()
+        .unwrap();
+    let replicator = system
+        .spawn(
+            "replicator",
+            Props::new(ReplicatorActor::<GSet<&'static str>>::new),
+        )
+        .unwrap();
+    let (update_ref, update_rx) = forward_ref(&system, "update-replies");
+    let (change_ref, change_rx) = forward_ref(&system, "changes");
+    let key = ReplicatorKey::new("set");
+
+    replicator
+        .tell(ReplicatorActorMsg::Update {
+            key: key.clone(),
+            initial: GSet::new(),
+            consistency: WriteConsistency::local(),
+            modify: Box::new(|set| Ok(set.add("a"))),
+            reply_to: update_ref.clone(),
+        })
+        .unwrap();
+    update_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    replicator
+        .tell(ReplicatorActorMsg::Subscribe {
+            key: key.clone(),
+            subscriber: change_ref.clone(),
+        })
+        .unwrap();
+    let current = change_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(current.key(), &key);
+    assert!(current.data().contains(&"a"));
+
+    replicator
+        .tell(ReplicatorActorMsg::Update {
+            key: key.clone(),
+            initial: GSet::new(),
+            consistency: WriteConsistency::local(),
+            modify: Box::new(|set| Ok(set.add("b"))),
+            reply_to: update_ref,
+        })
+        .unwrap();
+    replicator.tell(ReplicatorActorMsg::FlushChanges).unwrap();
+
+    let changed = change_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(changed.key(), &key);
+    assert!(changed.data().contains(&"a"));
+    assert!(changed.data().contains(&"b"));
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn replicator_actor_can_unsubscribe_from_later_flushes() {
+    let system = ActorSystem::builder("ddata-replicator-unsubscribe")
+        .build()
+        .unwrap();
+    let replicator = system
+        .spawn(
+            "replicator",
+            Props::new(ReplicatorActor::<GSet<&'static str>>::new),
+        )
+        .unwrap();
+    let (update_ref, update_rx) = forward_ref(&system, "update-replies");
+    let (change_ref, change_rx) = forward_ref(&system, "changes");
+    let key = ReplicatorKey::new("set");
+
+    replicator
+        .tell(ReplicatorActorMsg::Subscribe {
+            key: key.clone(),
+            subscriber: change_ref.clone(),
+        })
+        .unwrap();
+    replicator
+        .tell(ReplicatorActorMsg::Unsubscribe {
+            key: key.clone(),
+            subscriber: change_ref,
+        })
+        .unwrap();
+    replicator
+        .tell(ReplicatorActorMsg::Update {
+            key,
+            initial: GSet::new(),
+            consistency: WriteConsistency::local(),
+            modify: Box::new(|set| Ok(set.add("a"))),
+            reply_to: update_ref,
+        })
+        .unwrap();
+    update_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    replicator.tell(ReplicatorActorMsg::FlushChanges).unwrap();
+
+    assert!(change_rx.recv_timeout(Duration::from_millis(100)).is_err());
+
+    system.terminate(Duration::from_secs(1)).unwrap();
 }

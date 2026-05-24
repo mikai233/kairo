@@ -11,6 +11,7 @@ mod key;
 mod pncounter;
 mod protocol;
 mod replica;
+mod replicator_actor;
 mod response;
 mod state;
 
@@ -33,5 +34,6 @@ pub use key::ReplicatorKey;
 pub use pncounter::PNCounter;
 pub use protocol::{ReplicatorChanged, ReplicatorGet, ReplicatorSubscribe, ReplicatorUpdate};
 pub use replica::ReplicaId;
-pub use response::{GetResponse, ReplicatorChange, UpdateOutcome};
+pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};
+pub use response::{GetResponse, ReplicatorChange, UpdateOutcome, UpdateResponse};
 pub use state::ReplicatorState;
