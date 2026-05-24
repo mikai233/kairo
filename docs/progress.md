@@ -73,6 +73,9 @@ Implemented:
   cancelled or replaced timer messages are discarded even if already enqueued.
 - `Context::start_timer_with_fixed_delay` provides keyed repeated self timers
   with the same cancellation and replacement filtering.
+- `Context::start_timer_at_fixed_rate` provides keyed repeated self timers that
+  schedule against the planned cadence and preserve the same generation
+  filtering as single and fixed-delay timers.
 - Timer state and envelopes live in a focused `timers` module and active timers
   are cancelled when the owning actor stops.
 - `ActorSystem::event_stream` and `Context::event_stream` expose a local typed
@@ -87,8 +90,7 @@ Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Coordinated shutdown.
-- Fixed-rate timers, supervision, ask, adapters, receptionist, and
-  deterministic testkit support.
+- Supervision, ask, adapters, receptionist, and deterministic testkit support.
 
 ## Last Validation
 

@@ -1075,7 +1075,15 @@ enum TimerProbeMsg {
         fired: mpsc::Sender<&'static str>,
         ack: mpsc::Sender<()>,
     },
+    StartFixedRate {
+        fired: mpsc::Sender<&'static str>,
+        ack: mpsc::Sender<()>,
+    },
     ReplaceRepeating {
+        fired: mpsc::Sender<&'static str>,
+        ack: mpsc::Sender<()>,
+    },
+    ReplaceFixedRate {
         fired: mpsc::Sender<&'static str>,
         ack: mpsc::Sender<()>,
     },
@@ -1162,6 +1170,19 @@ impl Actor for TimerProbe {
                 ack.send(())
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
+            TimerProbeMsg::StartFixedRate { fired, ack } => {
+                ctx.start_timer_at_fixed_rate(
+                    "rate",
+                    Duration::ZERO,
+                    Duration::from_millis(50),
+                    TimerProbeMsg::FireLabel {
+                        label: "rate",
+                        reply_to: fired,
+                    },
+                );
+                ack.send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
             TimerProbeMsg::ReplaceRepeating { fired, ack } => {
                 ctx.start_timer_with_fixed_delay(
                     "repeat-replace",
@@ -1174,6 +1195,28 @@ impl Actor for TimerProbe {
                 );
                 ctx.start_timer_with_fixed_delay(
                     "repeat-replace",
+                    Duration::from_millis(50),
+                    Duration::from_millis(50),
+                    TimerProbeMsg::FireLabel {
+                        label: "new",
+                        reply_to: fired,
+                    },
+                );
+                ack.send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            TimerProbeMsg::ReplaceFixedRate { fired, ack } => {
+                ctx.start_timer_at_fixed_rate(
+                    "rate-replace",
+                    Duration::ZERO,
+                    Duration::from_millis(50),
+                    TimerProbeMsg::FireLabel {
+                        label: "old",
+                        reply_to: fired.clone(),
+                    },
+                );
+                ctx.start_timer_at_fixed_rate(
+                    "rate-replace",
                     Duration::from_millis(50),
                     Duration::from_millis(50),
                     TimerProbeMsg::FireLabel {
@@ -1336,6 +1379,71 @@ fn replacing_fixed_delay_timer_suppresses_previous_generation() {
     actor
         .tell(TimerProbeMsg::CancelKey {
             key: "repeat-replace",
+            ack: cancel_tx,
+        })
+        .unwrap();
+    cancel_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(fired_rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn fixed_rate_timer_repeats_until_cancelled() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system.spawn("timer", Props::new(|| TimerProbe)).unwrap();
+    let (fired_tx, fired_rx) = mpsc::channel();
+    let (start_tx, start_rx) = mpsc::channel();
+    let (cancel_tx, cancel_rx) = mpsc::channel();
+
+    actor
+        .tell(TimerProbeMsg::StartFixedRate {
+            fired: fired_tx,
+            ack: start_tx,
+        })
+        .unwrap();
+    start_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert_eq!(
+        fired_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "rate"
+    );
+    assert_eq!(
+        fired_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "rate"
+    );
+
+    actor
+        .tell(TimerProbeMsg::CancelKey {
+            key: "rate",
+            ack: cancel_tx,
+        })
+        .unwrap();
+    cancel_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(fired_rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn replacing_fixed_rate_timer_suppresses_previous_generation() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system.spawn("timer", Props::new(|| TimerProbe)).unwrap();
+    let (fired_tx, fired_rx) = mpsc::channel();
+    let (ack_tx, ack_rx) = mpsc::channel();
+    let (cancel_tx, cancel_rx) = mpsc::channel();
+
+    actor
+        .tell(TimerProbeMsg::ReplaceFixedRate {
+            fired: fired_tx,
+            ack: ack_tx,
+        })
+        .unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert_eq!(
+        fired_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "new"
+    );
+    actor
+        .tell(TimerProbeMsg::CancelKey {
+            key: "rate-replace",
             ack: cancel_tx,
         })
         .unwrap();

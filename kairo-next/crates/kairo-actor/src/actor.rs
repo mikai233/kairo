@@ -168,6 +168,29 @@ impl<M: Send + 'static> Context<M> {
             .start(key.as_str().to_string(), generation, true, cancellable);
     }
 
+    pub fn start_timer_at_fixed_rate(
+        &mut self,
+        key: impl Into<TimerKey>,
+        initial_delay: Duration,
+        interval: Duration,
+        message: M,
+    ) where
+        M: Clone,
+    {
+        let key = key.into();
+        let generation = self.timers.next_generation();
+        let cancellable = self.system.schedule_timer_at_fixed_rate(
+            initial_delay,
+            interval,
+            self.myself.clone(),
+            key.as_str().to_string(),
+            generation,
+            message,
+        );
+        self.timers
+            .start(key.as_str().to_string(), generation, true, cancellable);
+    }
+
     pub fn cancel_timer(&mut self, key: impl AsRef<str>) {
         self.timers.cancel(key.as_ref());
     }

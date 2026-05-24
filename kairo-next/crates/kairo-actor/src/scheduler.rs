@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::ActorRef;
 use crate::timers::TimerEnvelope;
@@ -134,5 +134,44 @@ impl Scheduler {
             })
             .expect("failed to spawn fixed-delay timer task");
         cancellable
+    }
+
+    pub(crate) fn schedule_timer_at_fixed_rate<M>(
+        &self,
+        initial_delay: Duration,
+        interval: Duration,
+        target: ActorRef<M>,
+        key: String,
+        generation: u64,
+        message: M,
+    ) -> Cancellable
+    where
+        M: Clone + Send + 'static,
+    {
+        let cancellable = Cancellable::new();
+        let task = cancellable.clone();
+        thread::Builder::new()
+            .name("kairo-timer-fixed-rate".to_string())
+            .spawn(move || {
+                let mut next_tick = Instant::now() + initial_delay;
+                sleep_until(next_tick, &task);
+
+                while task.is_active() {
+                    target.send_timer(TimerEnvelope::new(key.clone(), generation, message.clone()));
+                    next_tick += interval;
+                    sleep_until(next_tick, &task);
+                }
+            })
+            .expect("failed to spawn fixed-rate timer task");
+        cancellable
+    }
+}
+
+fn sleep_until(deadline: Instant, task: &Cancellable) {
+    while task.is_active() {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return;
+        };
+        thread::sleep(remaining);
     }
 }

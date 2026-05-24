@@ -111,6 +111,28 @@ impl ActorSystem {
         )
     }
 
+    pub(crate) fn schedule_timer_at_fixed_rate<M>(
+        &self,
+        initial_delay: Duration,
+        interval: Duration,
+        target: ActorRef<M>,
+        key: String,
+        generation: u64,
+        message: M,
+    ) -> Cancellable
+    where
+        M: Clone + Send + 'static,
+    {
+        self.inner.scheduler.schedule_timer_at_fixed_rate(
+            initial_delay,
+            interval,
+            target,
+            key,
+            generation,
+            message,
+        )
+    }
+
     pub fn stop<M: Send + 'static>(&self, actor: &ActorRef<M>) {
         actor.request_stop();
     }

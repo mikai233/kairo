@@ -155,7 +155,9 @@ Consequences:
 - Timer messages remain local typed messages and require no serialization.
 - Active timers are cancelled when the owning actor stops.
 - Fixed-delay repeating timers use the same key/generation envelope mechanism.
-- Fixed-rate timers can be added later without changing the mailbox envelope.
+- Fixed-rate repeating timers use the same key/generation envelope mechanism
+  and schedule against the planned cadence, so delayed ticks can catch up
+  without delivering cancelled or replaced generations.
 
 ## ADR-0008: Event Stream Uses Exact Typed Local Channels
 
