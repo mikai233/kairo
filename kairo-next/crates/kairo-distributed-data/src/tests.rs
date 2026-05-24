@@ -6,7 +6,8 @@ use kairo_actor::{Actor, ActorResult, ActorSystem, Address, Context, Props};
 use kairo_cluster::UniqueAddress;
 
 use crate::{
-    AggregationError, ConsistencyError, CrdtDataCodec, CrdtError, DataEnvelope,
+    AggregationError, AggregationTarget, AggregationTransport, AggregationTransportFailure,
+    AggregationTransportOperation, ConsistencyError, CrdtDataCodec, CrdtError, DataEnvelope,
     DeltaPropagationLog, DeltaPropagationTarget, DeltaPropagationTransport, DeltaReceiveFailure,
     DeltaReceiveReply, DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData,
     DeltaTransportFailure, GCounter, GCounterCodec, GSet, GSetStringCodec, GetResponse, PNCounter,
@@ -14,7 +15,8 @@ use crate::{
     ReadConsistency, ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor,
     ReplicatorActorMsg, ReplicatorKey, ReplicatorState, UpdateResponse, WriteAggregationOutcome,
     WriteAggregationPlan, WriteAggregatorState, WriteConsistency, calculate_majority,
-    decode_delta_propagation, encode_delta_propagation,
+    decode_data_envelope, decode_delta_propagation, decode_read_result, encode_data_envelope,
+    encode_delta_propagation, encode_read_result, encode_write,
 };
 
 fn replica(id: &str) -> ReplicaId {
@@ -808,6 +810,207 @@ fn read_aggregator_merges_results_and_reports_not_found_or_failure() {
             received: 0,
         }
     );
+}
+
+#[test]
+fn aggregation_wire_round_trips_manifest_tagged_data_envelopes() {
+    let envelope = DataEnvelope::new(
+        GCounter::new()
+            .increment(replica("local"), 7)
+            .unwrap()
+            .reset_delta(),
+    );
+    let key = ReplicatorKey::new("counter");
+    let from = replica("local");
+
+    let wire_envelope = encode_data_envelope(&envelope, &GCounterCodec).unwrap();
+    assert_eq!(wire_envelope.crdt_manifest, crate::GCOUNTER_MANIFEST);
+    assert_eq!(wire_envelope.crdt_version, crate::CRDT_CODEC_VERSION);
+    assert_eq!(
+        decode_data_envelope(&wire_envelope, &GCounterCodec)
+            .unwrap()
+            .data()
+            .value()
+            .unwrap(),
+        7
+    );
+
+    let write = encode_write(&key, Some(from.clone()), &envelope, &GCounterCodec).unwrap();
+    assert_eq!(write.key, key.as_str());
+    assert_eq!(write.from, Some(from));
+    assert_eq!(write.envelope.crdt_manifest, crate::GCOUNTER_MANIFEST);
+
+    let read_result = encode_read_result(Some(&envelope), &GCounterCodec).unwrap();
+    assert_eq!(
+        decode_read_result(&read_result, &GCounterCodec)
+            .unwrap()
+            .unwrap()
+            .data()
+            .value()
+            .unwrap(),
+        7
+    );
+    assert_eq!(
+        decode_read_result::<GCounter, _>(
+            &encode_read_result::<GCounter, _>(None, &GCounterCodec).unwrap(),
+            &GCounterCodec,
+        )
+        .unwrap(),
+        None
+    );
+
+    let wrong_manifest = crate::ReplicatorDataEnvelope {
+        crdt_manifest: crate::GSET_STRING_MANIFEST.to_string(),
+        crdt_version: crate::CRDT_CODEC_VERSION,
+        payload: wire_envelope.payload,
+    };
+    assert!(
+        decode_data_envelope::<GCounter, _>(&wrong_manifest, &GCounterCodec)
+            .unwrap_err()
+            .to_string()
+            .contains("expected CRDT manifest")
+    );
+}
+
+#[test]
+fn aggregation_transport_sends_primary_write_and_read_messages() {
+    let system = ActorSystem::builder("ddata-aggregation-transport")
+        .build()
+        .unwrap();
+    let (write_a, write_rx_a) = forward_ref(&system, "write-a");
+    let (read_a, read_rx_a) = forward_ref(&system, "read-a");
+    let (write_b, write_rx_b) = forward_ref(&system, "write-b");
+    let (read_b, read_rx_b) = forward_ref(&system, "read-b");
+    let (write_c, write_rx_c) = forward_ref(&system, "write-c");
+    let (read_c, read_rx_c) = forward_ref(&system, "read-c");
+    let key = ReplicatorKey::new("counter");
+    let remote_nodes = vec![replica("a"), replica("b"), replica("c")];
+    let write_state = WriteAggregatorState::new(
+        key.clone(),
+        &WriteConsistency::majority(Duration::from_secs(1)),
+        remote_nodes.clone(),
+    )
+    .unwrap();
+    let read_state = ReadAggregatorState::<GCounter>::new(
+        key.clone(),
+        &ReadConsistency::majority(Duration::from_secs(1)),
+        remote_nodes,
+        None,
+    )
+    .unwrap();
+    let write_plan = WriteAggregationPlan::new(
+        write_state.clone(),
+        write_state.select_replicas(&BTreeSet::new()),
+    );
+    let read_plan = ReadAggregationPlan::new(
+        read_state.clone(),
+        read_state.select_replicas(&BTreeSet::new()),
+    );
+    let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    transport.set_targets([
+        AggregationTarget::new(replica("a"), write_a, read_a),
+        AggregationTarget::new(replica("b"), write_b, read_b),
+        AggregationTarget::new(replica("c"), write_c, read_c),
+    ]);
+    let envelope = DataEnvelope::new(
+        GCounter::new()
+            .increment(replica("local"), 5)
+            .unwrap()
+            .reset_delta(),
+    );
+
+    let write_report = transport.publish_write(&write_plan, &envelope);
+    let read_report = transport.publish_read(&read_plan);
+
+    assert!(write_report.is_success());
+    assert_eq!(write_report.sent_to(), &[replica("a"), replica("b")]);
+    assert!(read_report.is_success());
+    assert_eq!(read_report.sent_to(), &[replica("a"), replica("b")]);
+
+    for rx in [&write_rx_a, &write_rx_b] {
+        let wire = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(wire.key, key.as_str());
+        assert_eq!(wire.from, Some(replica("local")));
+        assert_eq!(
+            decode_data_envelope::<GCounter, _>(&wire.envelope, &GCounterCodec)
+                .unwrap()
+                .data()
+                .value()
+                .unwrap(),
+            5
+        );
+    }
+    for rx in [&read_rx_a, &read_rx_b] {
+        let wire = rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(wire.key, key.as_str());
+        assert_eq!(wire.from, Some(replica("local")));
+    }
+    assert!(write_rx_c.recv_timeout(Duration::from_millis(100)).is_err());
+    assert!(read_rx_c.recv_timeout(Duration::from_millis(100)).is_err());
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn aggregation_transport_reports_missing_targets_without_stopping_other_sends() {
+    let system = ActorSystem::builder("ddata-aggregation-transport-missing")
+        .build()
+        .unwrap();
+    let (write_a, write_rx_a) = forward_ref(&system, "write-a");
+    let (read_a, read_rx_a) = forward_ref(&system, "read-a");
+    let nodes = vec![replica("a"), replica("b")];
+    let key = ReplicatorKey::new("counter");
+    let write_state = WriteAggregatorState::new(
+        key.clone(),
+        &WriteConsistency::to(3, Duration::from_secs(1)).unwrap(),
+        nodes.clone(),
+    )
+    .unwrap();
+    let read_state = ReadAggregatorState::<GCounter>::new(
+        key.clone(),
+        &ReadConsistency::from(3, Duration::from_secs(1)).unwrap(),
+        nodes,
+        None,
+    )
+    .unwrap();
+    let write_plan = WriteAggregationPlan::new(
+        write_state.clone(),
+        write_state.select_replicas(&BTreeSet::new()),
+    );
+    let read_plan = ReadAggregationPlan::new(
+        read_state.clone(),
+        read_state.select_replicas(&BTreeSet::new()),
+    );
+    let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    transport.insert_target(AggregationTarget::new(replica("a"), write_a, read_a));
+    let envelope = DataEnvelope::new(
+        GCounter::new()
+            .increment(replica("local"), 1)
+            .unwrap()
+            .reset_delta(),
+    );
+
+    let write_report = transport.publish_write(&write_plan, &envelope);
+    let read_report = transport.publish_read(&read_plan);
+
+    assert_eq!(write_report.sent_to(), &[replica("a")]);
+    assert!(matches!(
+        write_report.failures(),
+        [AggregationTransportFailure::MissingTarget { replica: failed_replica, operation }]
+            if failed_replica == &replica("b") && operation == &AggregationTransportOperation::Write
+    ));
+    assert_eq!(read_report.sent_to(), &[replica("a")]);
+    assert!(matches!(
+        read_report.failures(),
+        [AggregationTransportFailure::MissingTarget { replica: failed_replica, operation }]
+            if failed_replica == &replica("b") && operation == &AggregationTransportOperation::Read
+    ));
+    let write = write_rx_a.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(write.key, key.as_str());
+    let read = read_rx_a.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(read.key, key.as_str());
+
+    system.terminate(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

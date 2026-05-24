@@ -1,6 +1,8 @@
 //! CRDT-based replicated data for Kairo clusters.
 
 mod aggregation;
+mod aggregation_transport;
+mod aggregation_wire;
 mod codec;
 mod consistency;
 mod crdt_codec;
@@ -28,6 +30,14 @@ pub use aggregation::{
     AggregationError, ReadAggregationOutcome, ReadAggregationPlan, ReadAggregatorState,
     ReplicaSelection, WriteAggregationOutcome, WriteAggregationPlan, WriteAggregatorState,
     calculate_majority,
+};
+pub use aggregation_transport::{
+    AggregationTarget, AggregationTransport, AggregationTransportFailure,
+    AggregationTransportOperation, AggregationTransportReport,
+};
+pub use aggregation_wire::{
+    decode_data_envelope, decode_read_result, encode_data_envelope, encode_read,
+    encode_read_result, encode_write,
 };
 pub use codec::{
     REPLICATOR_CHANGED_SERIALIZER_ID, REPLICATOR_DELTA_ACK_SERIALIZER_ID,

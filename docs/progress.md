@@ -187,6 +187,11 @@ Implemented:
   stable direct read/write aggregation protocol messages, including full CRDT
   envelope payloads, optional sender replica metadata, write ack/nack, and
   optional read results.
+- `kairo-distributed-data` now has focused read/write aggregation wire helpers
+  that convert typed `DataEnvelope<D>` values to stable
+  `ReplicatorDataEnvelope`, `ReplicatorWrite`, `ReplicatorRead`, and
+  `ReplicatorReadResult` messages through explicit CRDT codecs and reject
+  manifest mismatches.
 - `kairo-distributed-data` now has focused CRDT foundation modules for
   `ReplicatedData`, delta CRDT contracts, `ReplicaId`, `GSet`, `GCounter`, and
   `PNCounter` instead of concentrating data logic in the crate root.
@@ -248,6 +253,10 @@ Implemented:
   typed remote read/write aggregation plans with selected primary/secondary
   targets and explicit quorum errors before transport-backed sends are wired
   in.
+- `AggregationTransport` publishes planned read/write aggregation messages to
+  typed remote-replicator recipients, sends primary replicas separately from
+  secondary fallback replicas, and reports missing targets, encode failures,
+  and send failures without mixing transport orchestration into CRDT state.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, and stopped protocol
