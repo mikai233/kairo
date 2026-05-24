@@ -15,9 +15,9 @@ use crate::region_registration::{
 use crate::region_shards::LocalShardSpawner;
 use crate::{
     CoordinatorEvent, CoordinatorStateSnapshot, EntityId, GetShardHome, GetShardHomePlan,
-    HandoffRegionTarget, HostShardPlan, RegionId, RegionRoutePlan, ShardCoordinatorMsg,
-    ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime,
-    ShardingEnvelope, ShardingError,
+    HandoffRegionTarget, HostShardPlan, RegionId, RegionRouteDelivery, RegionRoutePlan,
+    RegionRouteTransport, ShardCoordinatorMsg, ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan,
+    ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope, ShardingError,
 };
 
 pub struct ShardRegionActor<M>
@@ -29,6 +29,7 @@ where
     local_shards: BTreeMap<ShardId, ActorRef<ShardMsg<M>>>,
     registration: Option<RegionRegistration<M>>,
     home_requests: RegionHomeRequests<M>,
+    route_transport: Option<RegionRouteTransport<M>>,
 }
 
 impl<M> ShardRegionActor<M>
@@ -42,6 +43,7 @@ where
             local_shards: BTreeMap::new(),
             registration: None,
             home_requests: RegionHomeRequests::new(),
+            route_transport: None,
         }
     }
 
@@ -56,6 +58,7 @@ where
             local_shards: BTreeMap::new(),
             registration: None,
             home_requests: RegionHomeRequests::new(),
+            route_transport: None,
         }
     }
 
@@ -78,6 +81,7 @@ where
                 retry_interval,
             ))),
             home_requests: RegionHomeRequests::new(),
+            route_transport: None,
         }
     }
 
@@ -100,6 +104,7 @@ where
             local_shards: BTreeMap::new(),
             registration: None,
             home_requests: RegionHomeRequests::new(),
+            route_transport: None,
         }
     }
 
@@ -126,7 +131,13 @@ where
             local_shards: BTreeMap::new(),
             registration: Some(RegionRegistration::new(registration)),
             home_requests: RegionHomeRequests::new(),
+            route_transport: None,
         }
+    }
+
+    pub fn with_region_route_transport(mut self, route_transport: RegionRouteTransport<M>) -> Self {
+        self.route_transport = Some(route_transport);
+        self
     }
 
     pub fn props(self_region: impl Into<RegionId>, buffer_capacity: usize) -> Props<Self>
@@ -262,11 +273,10 @@ where
                     self.home_requests
                         .remember_delivery(shard.clone(), delivery_reply_to.clone());
                 }
-                let local_plan = self.dispatch_local_route_plan(plan, delivery_reply_to)?;
+                self.dispatch_local_route_plan(plan, route_reply_to, delivery_reply_to)?;
                 if let Some(request) = request {
                     self.request_shard_home_from_coordinator(ctx, request)?;
                 }
-                let _ = route_reply_to.tell(local_plan);
             }
             ShardRegionMsg::HostShard { shard, reply_to } => {
                 let plan = self.runtime.host_shard(shard);
@@ -343,6 +353,7 @@ where
             } => {
                 self.apply_coordinator_shard_home_result(ctx, requested_shard, result)?;
             }
+            ShardRegionMsg::ForwardedBufferedRouteResult { result: _ } => {}
             ShardRegionMsg::MarkShardStopped { shard, reply_to } => {
                 self.runtime.mark_shard_stopped(&shard);
                 self.local_shards.remove(&shard);
@@ -512,8 +523,22 @@ where
         delivery_reply_to: Vec<ActorRef<ShardDeliverPlan<M>>>,
     ) -> ActorResult {
         let plan = self.maybe_start_local_shard_from_home_plan(ctx, plan)?;
-        if let ShardHomePlan::DeliverLocal { shard, buffered } = plan {
-            self.replay_buffered_to_local_shard_with_replies(&shard, buffered, delivery_reply_to)?;
+        match plan {
+            ShardHomePlan::DeliverLocal { shard, buffered } => {
+                self.replay_buffered_to_local_shard_with_replies(
+                    &shard,
+                    buffered,
+                    delivery_reply_to,
+                )?;
+            }
+            ShardHomePlan::Forward {
+                shard,
+                region,
+                buffered,
+            } => {
+                self.forward_buffered_to_region(ctx, shard, region, buffered, delivery_reply_to)?;
+            }
+            ShardHomePlan::StartLocalShard { .. } => {}
         }
         Ok(())
     }
@@ -531,43 +556,63 @@ where
     fn dispatch_local_route_plan(
         &self,
         plan: RegionRoutePlan<M>,
+        route_reply_to: ActorRef<RegionLocalRoutePlan<M>>,
         delivery_reply_to: ActorRef<ShardDeliverPlan<M>>,
-    ) -> Result<RegionLocalRoutePlan<M>, ActorError> {
-        match plan {
+    ) -> Result<(), ActorError> {
+        let result = match plan {
             RegionRoutePlan::DeliverLocal { shard, message } => {
-                let Some(shard_ref) = self.local_shards.get(&shard) else {
-                    return Ok(RegionLocalRoutePlan::MissingLocalShard { shard, message });
-                };
-                shard_ref
-                    .tell(ShardMsg::Deliver {
-                        message,
-                        reply_to: delivery_reply_to,
-                    })
-                    .map_err(|error| ActorError::Message(error.reason().to_string()))?;
-                Ok(RegionLocalRoutePlan::DeliveredToLocalShard { shard })
+                if let Some(shard_ref) = self.local_shards.get(&shard) {
+                    shard_ref
+                        .tell(ShardMsg::Deliver {
+                            message,
+                            reply_to: delivery_reply_to,
+                        })
+                        .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+                    RegionLocalRoutePlan::DeliveredToLocalShard { shard }
+                } else {
+                    RegionLocalRoutePlan::MissingLocalShard { shard, message }
+                }
             }
             RegionRoutePlan::Forward {
                 shard,
                 region,
                 message,
-            } => Ok(RegionLocalRoutePlan::Forward {
-                shard,
-                region,
-                message,
-            }),
+            } => {
+                let Some(route_transport) = &self.route_transport else {
+                    let _ = route_reply_to.tell(RegionLocalRoutePlan::Forward {
+                        shard,
+                        region,
+                        message,
+                    });
+                    return Ok(());
+                };
+                let delivery = route_transport.send_route_to(
+                    &region,
+                    shard,
+                    message,
+                    route_reply_to.clone(),
+                    delivery_reply_to,
+                );
+                match delivery {
+                    RegionRouteDelivery::Sent { .. } => return Ok(()),
+                    failed => RegionLocalRoutePlan::ForwardedToRegion { delivery: failed },
+                }
+            }
             RegionRoutePlan::Buffered { shard, request } => {
-                Ok(RegionLocalRoutePlan::Buffered { shard, request })
+                RegionLocalRoutePlan::Buffered { shard, request }
             }
             RegionRoutePlan::Dropped {
                 shard,
                 reason,
                 message,
-            } => Ok(RegionLocalRoutePlan::Dropped {
+            } => RegionLocalRoutePlan::Dropped {
                 shard,
                 reason,
                 message,
-            }),
-        }
+            },
+        };
+        let _ = route_reply_to.tell(result);
+        Ok(())
     }
 
     fn host_shard_and_replay_buffered(
@@ -662,6 +707,45 @@ where
                 .map_err(|error| ActorError::Message(error.reason().to_string()))?;
         }
         Ok(replayed)
+    }
+
+    fn forward_buffered_to_region(
+        &self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        shard: ShardId,
+        region: RegionId,
+        buffered: Vec<ShardingEnvelope<M>>,
+        delivery_reply_to: Vec<ActorRef<ShardDeliverPlan<M>>>,
+    ) -> Result<usize, ActorError> {
+        let Some(route_transport) = &self.route_transport else {
+            return Ok(0);
+        };
+        if buffered.len() != delivery_reply_to.len() {
+            return Err(ActorError::Message(format!(
+                "region `{region}` buffered forwarding has {} messages but {} delivery replies",
+                buffered.len(),
+                delivery_reply_to.len()
+            )));
+        }
+
+        let mut forwarded = 0;
+        for (message, delivery_reply_to) in buffered.into_iter().zip(delivery_reply_to) {
+            let route_reply_to = ctx.message_adapter(|result| {
+                ShardRegionMsg::ForwardedBufferedRouteResult { result }
+            })?;
+            match route_transport.send_route_to(
+                &region,
+                shard.clone(),
+                message,
+                route_reply_to,
+                delivery_reply_to,
+            ) {
+                RegionRouteDelivery::Sent { .. } => forwarded += 1,
+                RegionRouteDelivery::MissingTarget { .. }
+                | RegionRouteDelivery::SendFailed { .. } => {}
+            }
+        }
+        Ok(forwarded)
     }
 
     fn dispatch_local_handoff_plan(

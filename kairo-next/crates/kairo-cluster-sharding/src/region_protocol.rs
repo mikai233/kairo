@@ -5,9 +5,9 @@ use kairo_actor::{ActorRef, AskResult};
 
 use crate::{
     BeginHandOffPlan, GetShardHome, GetShardHomePlan, HandOff, HandOffPlan, HostShardPlan,
-    RegionDropReason, RegionId, RegionRegistrationStatus, RegionRoutePlan, ShardDeliverPlan,
-    ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStarted,
-    ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
+    RegionDropReason, RegionId, RegionRegistrationStatus, RegionRouteDelivery, RegionRoutePlan,
+    ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime,
+    ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
 };
 
 pub enum ShardRegionMsg<M> {
@@ -72,6 +72,9 @@ pub enum ShardRegionMsg<M> {
         requested_shard: ShardId,
         result: Result<GetShardHomePlan, ShardingError>,
     },
+    ForwardedBufferedRouteResult {
+        result: RegionLocalRoutePlan<M>,
+    },
     MarkShardStopped {
         shard: ShardId,
         reply_to: Option<ActorRef<ShardRegionSnapshot>>,
@@ -104,6 +107,9 @@ pub enum RegionLocalRoutePlan<M> {
         shard: ShardId,
         region: RegionId,
         message: ShardingEnvelope<M>,
+    },
+    ForwardedToRegion {
+        delivery: RegionRouteDelivery<M>,
     },
     Buffered {
         shard: ShardId,

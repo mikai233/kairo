@@ -13,8 +13,8 @@ use crate::{
     HostShard, HostShardPlan, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
     RebalanceSkipReason, RegionBufferedReplayPlan, RegionDropReason,
     RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan,
-    RegionRegistrationConfig, RegionRegistrationStatus, RegionRoutePlan,
-    RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
+    RegionRegistrationConfig, RegionRegistrationStatus, RegionRoutePlan, RegionRouteTarget,
+    RegionRouteTransport, RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
     RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
     RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
     RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
@@ -3291,6 +3291,190 @@ fn region_actor_requests_buffered_shard_home_after_registration_ack() {
     );
     assert_eq!(
         delivery.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", "first".to_string()),
+        }
+    );
+    assert_eq!(
+        second_delivery
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "second".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_forwards_known_remote_home_to_region_target() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-forward-known-home").unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_shards("region-b", 10, 10),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    region_b
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    let mut route_transport = RegionRouteTransport::new();
+    route_transport.insert_target(RegionRouteTarget::new("region-b", region_b));
+    let region_a = kit
+        .system()
+        .spawn(
+            "region-a",
+            Props::new(move || {
+                ShardRegionActor::<String>::new_with_local_shards("region-a", 10, 10)
+                    .with_region_route_transport(route_transport)
+            }),
+        )
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<ShardHomePlan<String>, ShardingError>>("home")
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    region_a
+        .tell(ShardRegionMsg::RecordShardHome {
+            shard: "shard-1".to_string(),
+            region: "region-b".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        home.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(ShardHomePlan::Forward {
+            shard: "shard-1".to_string(),
+            region: "region-b".to_string(),
+            buffered: Vec::new(),
+        })
+    );
+
+    region_a
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", "first".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_forwards_buffered_remote_home_after_resolution() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("region-forward-buffered-remote-home").unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_shards("region-b", 10, 10),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    region_b
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    let mut route_transport = RegionRouteTransport::new();
+    route_transport.insert_target(RegionRouteTarget::new("region-b", region_b));
+    let region_a = kit
+        .system()
+        .spawn(
+            "region-a",
+            Props::new(move || {
+                ShardRegionActor::<String>::new_with_local_shards("region-a", 10, 10)
+                    .with_region_route_transport(route_transport)
+            }),
+        )
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let first_delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("first-delivery")
+        .unwrap();
+    let second_delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("second-delivery")
+        .unwrap();
+
+    region_a
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: first_delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    region_a
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "second".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: second_delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: None,
+        }
+    );
+
+    region_a
+        .tell(ShardRegionMsg::CoordinatorShardHomeResult {
+            requested_shard: "shard-1".to_string(),
+            result: Ok(GetShardHomePlan::Reply {
+                shard: "shard-1".to_string(),
+                region: "region-b".to_string(),
+            }),
+        })
+        .unwrap();
+    assert_eq!(
+        first_delivery
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
         ShardDeliverPlan::StartEntity {
             delivery: EntityDelivery::new("entity-1", "first".to_string()),
         }

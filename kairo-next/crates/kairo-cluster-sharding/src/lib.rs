@@ -22,6 +22,7 @@ mod region_protocol;
 mod region_registration;
 mod region_runtime;
 mod region_shards;
+mod region_transport;
 mod remember;
 mod remember_actor;
 mod remember_ddata;
@@ -77,6 +78,7 @@ pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
     ShardRegionRuntime, ShardStartedPlan,
 };
+pub use region_transport::{RegionRouteDelivery, RegionRouteTarget, RegionRouteTransport};
 pub use remember::{
     REMEMBER_ENTITY_SHARD_KEY_COUNT, RememberCoordinatorStoreState, RememberCoordinatorUpdateDone,
     RememberShardStoreState, RememberShardUpdate, RememberShardUpdateDone, RememberedShards,
