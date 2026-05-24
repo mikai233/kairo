@@ -396,5 +396,5 @@ Consequences:
   format.
 - Codec registration is explicit and testable before optional serde, cbor,
   json, or prost helper crates exist.
-- The derive macro and actor-ref/provider-aware serialization remain separate
-  later slices.
+- The derive macro emits only the `RemoteMessage` metadata implementation;
+  actor-ref/provider-aware serialization remains a later slice.

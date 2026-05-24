@@ -136,14 +136,17 @@ Implemented:
 - Focused serialization tests prove wire metadata includes serializer id,
   manifest, version, and bytes, and does not depend on Rust type names or enum
   discriminants.
+- `KairoRemoteMessage` derive parses
+  `#[kairo(manifest = "...", version = N)]` and emits only the
+  `RemoteMessage` metadata implementation; it does not select or generate a
+  codec.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
-- M3 derive macro output, actor-ref/provider-aware serialization, system
-  protocol manifests, optional codec helper crates, and rolling-version
-  compatibility tests.
+- Actor-ref/provider-aware serialization, system protocol manifests, optional
+  codec helper crates, and rolling-version compatibility tests.
 
 ## Last Validation
 

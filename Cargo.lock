@@ -33,6 +33,12 @@ dependencies = [
 [[package]]
 name = "kairo-actor-macros"
 version = "0.1.0"
+dependencies = [
+ "kairo-serialization",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "kairo-cluster"
