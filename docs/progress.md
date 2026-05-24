@@ -134,8 +134,8 @@ Implemented:
   messages.
 - `kairo-serialization::WireWriter` and `WireReader` provide a small shared
   stable binary helper for explicit system-protocol codecs, using
-  length-prefixed UTF-8 strings, optional strings, and big-endian numeric
-  fields instead of Rust memory layout.
+  length-prefixed UTF-8 strings and byte payloads, optional strings, boolean
+  markers, and big-endian numeric fields instead of Rust memory layout.
 - `Registry` implements explicit codec registration, outbound type lookup, and
   inbound `(serializer_id, manifest)` lookup.
 - Serialization registration rejects empty manifests, duplicate serializer ids,
@@ -179,6 +179,10 @@ Implemented:
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
+- `kairo-distributed-data::register_ddata_protocol_codecs` also registers the
+  first remote delta-propagation wire messages with explicit sender replica,
+  reply flag, per-key CRDT manifest/version/payload metadata, from/to delta
+  sequence numbers, and ack/nack responses.
 - `kairo-distributed-data` now has focused CRDT foundation modules for
   `ReplicatedData`, delta CRDT contracts, `ReplicaId`, `GSet`, `GCounter`, and
   `PNCounter` instead of concentrating data logic in the crate root.

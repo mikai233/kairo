@@ -387,8 +387,14 @@ fn actor_ref_resolution_goes_through_provider_trait() {
 fn wire_helpers_use_length_prefixed_strings_and_big_endian_numbers() {
     let mut writer = WireWriter::new();
     writer.write_string("abc").unwrap();
+    writer
+        .write_bytes(&Bytes::from_static(&[0xaa, 0xbb, 0xcc]))
+        .unwrap();
     writer.write_optional_string(Some("host")).unwrap();
     writer.write_optional_string(None).unwrap();
+    writer.write_bool(true);
+    writer.write_bool(false);
+    writer.write_u16(0x1122);
     writer.write_u64(0x0102_0304_0506_0708);
     writer.write_u128(0x0102_0304_0506_0708_1112_1314_1516_1718);
     writer.write_optional_u64(Some(9));
@@ -398,19 +404,26 @@ fn wire_helpers_use_length_prefixed_strings_and_big_endian_numbers() {
     assert_eq!(
         bytes.as_ref(),
         &[
-            0, 0, 0, 3, b'a', b'b', b'c', 1, 0, 0, 0, 4, b'h', b'o', b's', b't', 0, 1, 2, 3, 4, 5,
-            6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 17, 18, 19, 20, 21, 22, 23, 24, 1, 0, 0, 0, 0, 0, 0,
-            0, 9, 0,
+            0, 0, 0, 3, b'a', b'b', b'c', 0, 0, 0, 3, 0xaa, 0xbb, 0xcc, 1, 0, 0, 0, 4, b'h', b'o',
+            b's', b't', 0, 1, 0, 0x11, 0x22, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4, 5, 6, 7, 8, 17,
+            18, 19, 20, 21, 22, 23, 24, 1, 0, 0, 0, 0, 0, 0, 0, 9, 0,
         ]
     );
 
     let mut reader = WireReader::new(&bytes);
     assert_eq!(reader.read_string().unwrap(), "abc");
     assert_eq!(
+        reader.read_bytes().unwrap(),
+        Bytes::from_static(&[0xaa, 0xbb, 0xcc])
+    );
+    assert_eq!(
         reader.read_optional_string().unwrap(),
         Some("host".to_string())
     );
     assert_eq!(reader.read_optional_string().unwrap(), None);
+    assert!(reader.read_bool().unwrap());
+    assert!(!reader.read_bool().unwrap());
+    assert_eq!(reader.read_u16().unwrap(), 0x1122);
     assert_eq!(reader.read_u64().unwrap(), 0x0102_0304_0506_0708);
     assert_eq!(
         reader.read_u128().unwrap(),

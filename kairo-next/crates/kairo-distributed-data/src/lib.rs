@@ -21,10 +21,12 @@ mod state;
 mod tests;
 
 pub use codec::{
-    REPLICATOR_CHANGED_SERIALIZER_ID, REPLICATOR_GET_SERIALIZER_ID,
-    REPLICATOR_SUBSCRIBE_SERIALIZER_ID, REPLICATOR_UPDATE_SERIALIZER_ID, ReplicatorChangedCodec,
-    ReplicatorGetCodec, ReplicatorSubscribeCodec, ReplicatorUpdateCodec,
-    register_ddata_protocol_codecs,
+    REPLICATOR_CHANGED_SERIALIZER_ID, REPLICATOR_DELTA_ACK_SERIALIZER_ID,
+    REPLICATOR_DELTA_NACK_SERIALIZER_ID, REPLICATOR_DELTA_PROPAGATION_SERIALIZER_ID,
+    REPLICATOR_GET_SERIALIZER_ID, REPLICATOR_SUBSCRIBE_SERIALIZER_ID,
+    REPLICATOR_UPDATE_SERIALIZER_ID, ReplicatorChangedCodec, ReplicatorDeltaAckCodec,
+    ReplicatorDeltaNackCodec, ReplicatorDeltaPropagationCodec, ReplicatorGetCodec,
+    ReplicatorSubscribeCodec, ReplicatorUpdateCodec, register_ddata_protocol_codecs,
 };
 pub use consistency::{ReadConsistency, WriteConsistency};
 pub use crdt_codec::{
@@ -39,7 +41,10 @@ pub use gcounter::GCounter;
 pub use gset::GSet;
 pub use key::ReplicatorKey;
 pub use pncounter::PNCounter;
-pub use protocol::{ReplicatorChanged, ReplicatorGet, ReplicatorSubscribe, ReplicatorUpdate};
+pub use protocol::{
+    ReplicatorChanged, ReplicatorDelta, ReplicatorDeltaAck, ReplicatorDeltaNack,
+    ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorSubscribe, ReplicatorUpdate,
+};
 pub use replica::ReplicaId;
 pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};
 pub use response::{GetResponse, ReplicatorChange, UpdateOutcome, UpdateResponse};

@@ -33,6 +33,26 @@ impl WireWriter {
         Ok(())
     }
 
+    pub fn write_bytes(&mut self, value: &Bytes) -> Result<()> {
+        let len = u32::try_from(value.len())
+            .map_err(|_| SerializationError::Message("wire bytes exceed u32 length".to_string()))?;
+        self.bytes.extend_from_slice(&len.to_be_bytes());
+        self.bytes.extend_from_slice(value);
+        Ok(())
+    }
+
+    pub fn write_bool(&mut self, value: bool) {
+        self.write_u8(u8::from(value));
+    }
+
+    pub fn write_u8(&mut self, value: u8) {
+        self.bytes.push(value);
+    }
+
+    pub fn write_u16(&mut self, value: u16) {
+        self.bytes.extend_from_slice(&value.to_be_bytes());
+    }
+
     pub fn write_u64(&mut self, value: u64) {
         self.bytes.extend_from_slice(&value.to_be_bytes());
     }
@@ -78,6 +98,11 @@ impl<'a> WireReader<'a> {
         })
     }
 
+    pub fn read_bytes(&mut self) -> Result<Bytes> {
+        let len = self.read_u32()? as usize;
+        Ok(Bytes::copy_from_slice(self.read_exact(len)?))
+    }
+
     pub fn read_optional_string(&mut self) -> Result<Option<String>> {
         match self.read_u8()? {
             0 => Ok(None),
@@ -100,6 +125,22 @@ impl<'a> WireReader<'a> {
 
     pub fn read_u8(&mut self) -> Result<u8> {
         Ok(self.read_exact(1)?[0])
+    }
+
+    pub fn read_bool(&mut self) -> Result<bool> {
+        match self.read_u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            other => Err(SerializationError::Message(format!(
+                "invalid bool marker {other}"
+            ))),
+        }
+    }
+
+    pub fn read_u16(&mut self) -> Result<u16> {
+        let mut bytes = [0; 2];
+        bytes.copy_from_slice(self.read_exact(2)?);
+        Ok(u16::from_be_bytes(bytes))
     }
 
     pub fn read_u32(&mut self) -> Result<u32> {
