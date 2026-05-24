@@ -258,6 +258,11 @@ Implemented:
   from stable sender actor-ref wire data, replies to inbound heartbeats with
   local UID heartbeat acknowledgements, and drives re-watch effects from
   heartbeat acks with new remote UIDs.
+- `kairo-remote` now has a focused remote death-watch system inbound boundary
+  that dispatches remote envelopes by stable manifest, deserializes
+  watch/unwatch/heartbeat/heartbeat-ack protocol messages through the
+  registered codecs, routes them to the actor-backed remote watcher, and
+  rejects unknown death-watch manifests or missing codecs explicitly.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
