@@ -5,11 +5,12 @@ mod singleton;
 mod topic;
 
 pub use pubsub::{
-    CurrentTopics, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, PubSubBucket,
-    PubSubDeliveryFailure, PubSubDeliveryPlan, PubSubDeliveryReport, PubSubDeliveryTarget,
-    PubSubDeliveryTransport, PubSubGossipActor, PubSubGossipMsg, PubSubGossipPeer,
-    PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey, PubSubRegistryState,
-    PubSubRemoteTarget, PubSubSubscribeAck, PubSubTopicReport,
+    CurrentTopics, DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg,
+    DistributedPubSubPublishReport, DistributedPubSubSnapshot, LocalPubSub, LocalPubSubActor,
+    LocalPubSubMsg, PubSubBucket, PubSubDeliveryFailure, PubSubDeliveryPlan, PubSubDeliveryReport,
+    PubSubDeliveryTarget, PubSubDeliveryTransport, PubSubGossipActor, PubSubGossipMsg,
+    PubSubGossipPeer, PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey,
+    PubSubRegistryState, PubSubRemoteTarget, PubSubSubscribeAck, PubSubTopicReport,
 };
 pub use singleton::{
     LocalSingletonManagerActor, LocalSingletonManagerMsg, LocalSingletonManagerSnapshot,

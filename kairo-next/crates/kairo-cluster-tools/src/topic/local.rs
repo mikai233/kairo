@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_actor::{ActorPath, ActorRef};
 
@@ -77,6 +77,10 @@ impl<M: Send + 'static> LocalTopic<M> {
 
     pub fn group_count(&self) -> usize {
         self.groups.len()
+    }
+
+    pub fn group_names(&self) -> BTreeSet<String> {
+        self.groups.keys().cloned().collect()
     }
 
     pub fn group_subscriber_count(&self, group: &str) -> usize {

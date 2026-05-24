@@ -6,10 +6,12 @@ use kairo_cluster::{ClusterEvent, Member, MemberEvent, MemberStatus, UniqueAddre
 use kairo_testkit::ActorSystemTestKit;
 
 use crate::{
-    CurrentTopics, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, LocalSingletonManagerActor,
-    LocalSingletonManagerMsg, LocalSingletonManagerSnapshot, LocalTopic, PubSubDeliveryFailure,
-    PubSubDeliveryPlan, PubSubDeliveryTarget, PubSubDeliveryTransport, PubSubGossipActor,
-    PubSubGossipMsg, PubSubGossipPeer, PubSubRegistryKey, PubSubRegistryState, PubSubRemoteTarget,
+    CurrentTopics, DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg,
+    DistributedPubSubPublishReport, DistributedPubSubSnapshot, LocalPubSub, LocalPubSubActor,
+    LocalPubSubMsg, LocalSingletonManagerActor, LocalSingletonManagerMsg,
+    LocalSingletonManagerSnapshot, LocalTopic, PubSubDeliveryFailure, PubSubDeliveryPlan,
+    PubSubDeliveryTarget, PubSubDeliveryTransport, PubSubGossipActor, PubSubGossipMsg,
+    PubSubGossipPeer, PubSubRegistryKey, PubSubRegistryState, PubSubRemoteTarget,
     PubSubSubscribeAck, PubSubTopicReport, SingletonManagerActor, SingletonManagerEffect,
     SingletonManagerMsg, SingletonManagerRuntime, SingletonManagerSnapshot, SingletonManagerState,
     SingletonOldestChange, SingletonOldestTracker, SingletonProxyActor, SingletonProxyMsg,
@@ -1991,6 +1993,155 @@ fn pubsub_delivery_transport_reports_missing_remote_targets() {
         }]
     );
     assert!(!report.is_success());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn distributed_pubsub_mediator_registers_local_subscription_and_publishes() {
+    let node_a = node("a", 1);
+    let topic = TopicName::new("orders");
+    let kit = ActorSystemTestKit::new("distributed-pubsub-local").unwrap();
+    let subscriber = kit.create_probe::<String>("subscriber").unwrap();
+    let ack_probe = kit.create_probe::<PubSubSubscribeAck>("acks").unwrap();
+    let report_probe = kit
+        .create_probe::<DistributedPubSubPublishReport>("reports")
+        .unwrap();
+    let state_probe = kit
+        .create_probe::<DistributedPubSubSnapshot>("state")
+        .unwrap();
+    let mediator = kit
+        .system()
+        .spawn(
+            "mediator",
+            Props::new({
+                let node_a = node_a.clone();
+                move || DistributedPubSubMediatorActor::<String>::new(node_a)
+            }),
+        )
+        .unwrap();
+
+    mediator
+        .tell(DistributedPubSubMediatorMsg::Subscribe {
+            topic: topic.clone(),
+            subscriber: subscriber.actor_ref(),
+            reply_to: Some(ack_probe.actor_ref()),
+        })
+        .unwrap();
+    assert_eq!(
+        ack_probe.expect_msg(Duration::from_millis(500)).unwrap(),
+        PubSubSubscribeAck {
+            topic: topic.clone(),
+            group: None,
+            changed: true,
+        }
+    );
+
+    mediator
+        .tell(DistributedPubSubMediatorMsg::GetState {
+            reply_to: state_probe.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state_probe.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(snapshot.current_topics, BTreeSet::from([topic.clone()]));
+    assert_eq!(
+        snapshot.registry.broadcast_targets(&topic, true),
+        vec![node_a]
+    );
+
+    mediator
+        .tell(DistributedPubSubMediatorMsg::Publish {
+            topic: topic.clone(),
+            message: "created".to_string(),
+            mode: TopicPublishMode::Broadcast,
+            reply_to: Some(report_probe.actor_ref()),
+        })
+        .unwrap();
+    let report = report_probe.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(report.plan.targets, vec![PubSubDeliveryTarget::LocalTopic]);
+    assert!(report.delivery.is_success());
+    subscriber
+        .expect_msg_eq("created".to_string(), Duration::from_millis(500))
+        .unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn distributed_pubsub_mediator_routes_to_remote_mediator_from_merged_registry() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let topic = TopicName::new("orders");
+    let kit = ActorSystemTestKit::new("distributed-pubsub-remote").unwrap();
+    let subscriber_b = kit.create_probe::<String>("subscriber-b").unwrap();
+    let registry_probe = kit.create_probe::<PubSubRegistryState>("registry").unwrap();
+    let report_probe = kit
+        .create_probe::<DistributedPubSubPublishReport>("reports")
+        .unwrap();
+    let mediator_a = kit
+        .system()
+        .spawn(
+            "mediator-a",
+            Props::new({
+                let node_a = node_a.clone();
+                move || DistributedPubSubMediatorActor::<String>::new(node_a)
+            }),
+        )
+        .unwrap();
+    let mediator_b = kit
+        .system()
+        .spawn(
+            "mediator-b",
+            Props::new({
+                let node_b = node_b.clone();
+                move || DistributedPubSubMediatorActor::<String>::new(node_b)
+            }),
+        )
+        .unwrap();
+
+    mediator_b
+        .tell(DistributedPubSubMediatorMsg::Subscribe {
+            topic: topic.clone(),
+            subscriber: subscriber_b.actor_ref(),
+            reply_to: None,
+        })
+        .unwrap();
+    mediator_b
+        .tell(DistributedPubSubMediatorMsg::GetRegistry {
+            reply_to: registry_probe.actor_ref(),
+        })
+        .unwrap();
+    let registry_b = registry_probe
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+
+    mediator_a
+        .tell(DistributedPubSubMediatorMsg::AddRemoteMediator {
+            node: node_b.clone(),
+            mediator: mediator_b,
+        })
+        .unwrap();
+    mediator_a
+        .tell(DistributedPubSubMediatorMsg::MergeDelta {
+            delta: registry_b.collect_delta(&BTreeMap::new(), 10),
+        })
+        .unwrap();
+    mediator_a
+        .tell(DistributedPubSubMediatorMsg::Publish {
+            topic: topic.clone(),
+            message: "created".to_string(),
+            mode: TopicPublishMode::Broadcast,
+            reply_to: Some(report_probe.actor_ref()),
+        })
+        .unwrap();
+
+    let report = report_probe.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(
+        report.plan.targets,
+        vec![PubSubDeliveryTarget::RemoteTopic { node: node_b }]
+    );
+    assert!(report.delivery.is_success());
+    subscriber_b
+        .expect_msg_eq("created".to_string(), Duration::from_millis(500))
+        .unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

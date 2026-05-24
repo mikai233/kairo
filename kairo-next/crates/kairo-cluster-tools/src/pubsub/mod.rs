@@ -2,6 +2,7 @@ mod actor;
 mod delivery;
 mod gossip;
 mod local;
+mod mediator;
 mod registry;
 
 pub use actor::{CurrentTopics, LocalPubSubActor, LocalPubSubMsg, PubSubSubscribeAck};
@@ -11,6 +12,10 @@ pub use delivery::{
 };
 pub use gossip::{PubSubGossipActor, PubSubGossipMsg, PubSubGossipPeer};
 pub use local::{LocalPubSub, PubSubTopicReport};
+pub use mediator::{
+    DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg, DistributedPubSubPublishReport,
+    DistributedPubSubSnapshot,
+};
 pub use registry::{
     PubSubBucket, PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey, PubSubRegistryState,
 };

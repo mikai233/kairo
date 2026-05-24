@@ -36,6 +36,13 @@ impl<M: Send + 'static> LocalPubSub<M> {
         self.topics.keys().cloned().collect()
     }
 
+    pub fn topic_groups(&self) -> BTreeMap<TopicName, BTreeSet<String>> {
+        self.topics
+            .iter()
+            .map(|(topic, topic_state)| (topic.clone(), topic_state.group_names()))
+            .collect()
+    }
+
     pub fn topic(&self, topic: &TopicName) -> Option<&LocalTopic<M>> {
         self.topics.get(topic)
     }

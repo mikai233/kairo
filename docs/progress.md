@@ -696,6 +696,12 @@ Implemented:
   gossip slice with explicit peer recipients, deterministic status ticks,
   status/delta exchange, known-peer filtering for inbound deltas, peer removal
   pruning, and delta-count inspection.
+- `kairo-cluster-tools` now has an actor-backed distributed pubsub mediator
+  slice that keeps local topic subscriptions, the replicated topic registry,
+  and publish delivery planning in one synchronous actor turn. It registers
+  and unregisters local topics/groups from subscription changes, merges remote
+  registry deltas, routes broadcast publishes to local or remote mediators, and
+  exposes deterministic registry/state snapshots for tests.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -727,8 +733,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton remote routing and distributed pubsub mediator/topic
-  replication.
+- Cluster singleton remote routing and full distributed pubsub mediator
+  lifecycle over cluster events and remote transport.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.
