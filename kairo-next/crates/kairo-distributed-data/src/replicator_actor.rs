@@ -3,8 +3,9 @@ use std::collections::BTreeMap;
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 
 use crate::{
-    DataEnvelope, DeltaPropagation, DeltaPropagationLog, DeltaReplicatedData, GetResponse,
-    ReplicaId, ReplicatorChange, ReplicatorKey, ReplicatorState, UpdateResponse, WriteConsistency,
+    DataEnvelope, DeltaPropagation, DeltaPropagationLog, DeltaReceiveStatus, DeltaReceiveTracker,
+    DeltaReplicatedData, GetResponse, ReplicaId, ReplicatorChange, ReplicatorKey, ReplicatorState,
+    UpdateResponse, WriteConsistency,
 };
 
 pub struct ReplicatorActor<D>
@@ -14,6 +15,7 @@ where
 {
     state: ReplicatorState<D>,
     delta_log: DeltaPropagationLog<D::Delta>,
+    delta_receive: DeltaReceiveTracker,
     subscribers: BTreeMap<ReplicatorKey, Vec<ActorRef<ReplicatorChange<D>>>>,
     remote_replica_count: usize,
 }
@@ -31,6 +33,7 @@ where
         Self {
             state: ReplicatorState::new(),
             delta_log: DeltaPropagationLog::new([]),
+            delta_receive: DeltaReceiveTracker::new(),
             subscribers: BTreeMap::new(),
             remote_replica_count,
         }
@@ -42,6 +45,10 @@ where
 
     pub fn delta_log(&self) -> &DeltaPropagationLog<D::Delta> {
         &self.delta_log
+    }
+
+    pub fn delta_receive(&self) -> &DeltaReceiveTracker {
+        &self.delta_receive
     }
 }
 
@@ -79,6 +86,14 @@ where
     WriteDelta {
         key: ReplicatorKey,
         delta: D::Delta,
+    },
+    WriteCausalDelta {
+        from: ReplicaId,
+        key: ReplicatorKey,
+        from_version: u64,
+        to_version: u64,
+        delta: D::Delta,
+        reply_to: ActorRef<DeltaReceiveStatus>,
     },
     SetDeltaNodes {
         nodes: Vec<ReplicaId>,
@@ -148,6 +163,24 @@ where
             }
             ReplicatorActorMsg::WriteDelta { key, delta } => {
                 self.state.write_delta(key, delta);
+            }
+            ReplicatorActorMsg::WriteCausalDelta {
+                from,
+                key,
+                from_version,
+                to_version,
+                delta,
+                reply_to,
+            } => {
+                let status = self.delta_receive.apply_delta(
+                    &mut self.state,
+                    from,
+                    key,
+                    from_version,
+                    to_version,
+                    delta,
+                );
+                tell_or_actor_error(&reply_to, status)?;
             }
             ReplicatorActorMsg::SetDeltaNodes { nodes } => {
                 self.delta_log.set_nodes(nodes);

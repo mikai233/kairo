@@ -221,6 +221,9 @@ Implemented:
 - `ReplicatorActor<D>` records local update deltas into the propagation log and
   exposes explicit target-node configuration, propagation collection, and
   cleanup messages for the future remote transport loop.
+- `ReplicatorActor<D>` can apply inbound versioned causal deltas through
+  `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
+  reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, and stopped protocol
