@@ -286,3 +286,32 @@ Consequences:
   buckets without making `kairo-actor` depend on cluster membership.
 - Stable remote service-key manifests will need a separate serialization design
   before receptionist data crosses nodes.
+
+## ADR-0013: Coordinated Shutdown Starts With Local Synchronous Phases
+
+Status: Accepted
+
+Context:
+Pekko coordinated shutdown runs a named phase graph once, runs tasks in a phase
+without ordering assumptions, waits for each phase before starting the next,
+and allows tasks in early phases to register tasks for later phases. Kairo
+needs the local lifecycle hook before remote, cluster, sharding, and tool
+extensions can attach their own shutdown tasks.
+
+Decision:
+Kairo's initial coordinated shutdown is a local `CoordinatedShutdown` handle
+owned by `ActorSystemInner`. It provides the standard Pekko phase names in a
+fixed order, synchronous task registration, one-shot `run`/`run_from`,
+shutdown reason recording, and actor termination tasks. Tasks in a phase are
+run on local worker threads and the next phase waits for completion or phase
+timeout. `ActorSystem::run_coordinated_shutdown` runs the shutdown phases and
+then terminates top-level local actors.
+
+Consequences:
+- Local extensions can register orderly shutdown tasks without depending on
+  remoting or cluster crates.
+- Later phases can still be extended during an earlier phase.
+- The initial implementation avoids async/runtime dependencies; deterministic
+  timeout control can be replaced by the testkit scheduler later.
+- Configuration-driven phase graphs, JVM hooks, and process exit behavior are
+  intentionally deferred.

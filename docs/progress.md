@@ -98,11 +98,16 @@ Implemented:
   subscribe, immediate listings, update publication, and actor-termination
   cleanup.
 - Local receptionist state lives in a focused `receptionist` module.
+- `ActorSystem::coordinated_shutdown` exposes local coordinated shutdown with
+  standard phase names, one-shot run semantics, task registration, later-phase
+  task registration during a run, actor termination tasks, shutdown reasons,
+  and `ActorSystem::run_coordinated_shutdown` for task execution followed by
+  top-level actor termination.
+- Coordinated shutdown state lives in a focused `coordinated_shutdown` module.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
-- Coordinated shutdown.
 - Supervision and deterministic testkit support.
 
 ## Last Validation

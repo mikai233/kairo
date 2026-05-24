@@ -3,6 +3,7 @@
 mod actor;
 mod adapters;
 mod asks;
+mod coordinated_shutdown;
 mod dead_letters;
 mod death_watch;
 mod dispatcher;
@@ -21,6 +22,12 @@ mod timers;
 
 pub use actor::{Actor, Context, Props};
 pub use asks::{AskError, AskResult};
+pub use coordinated_shutdown::{
+    CoordinatedShutdown, PHASE_ACTOR_SYSTEM_TERMINATE, PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE,
+    PHASE_BEFORE_CLUSTER_SHUTDOWN, PHASE_BEFORE_SERVICE_UNBIND, PHASE_CLUSTER_EXITING,
+    PHASE_CLUSTER_EXITING_DONE, PHASE_CLUSTER_LEAVE, PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION,
+    PHASE_CLUSTER_SHUTDOWN, PHASE_SERVICE_REQUESTS_DONE, PHASE_SERVICE_STOP, PHASE_SERVICE_UNBIND,
+};
 pub use dead_letters::{DeadLetter, DeadLetters};
 pub use dispatcher::DispatcherSettings;
 pub use error::{ActorError, ActorResult, SendError};
@@ -37,8 +44,13 @@ pub use timers::TimerKey;
 pub mod prelude {
     pub use crate::{
         Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, AskError, AskResult,
-        Cancellable, Context, DeadLetter, DeadLetters, DispatcherSettings, EventStream, IgnoreRef,
-        Listing, Props, Receptionist, Recipient, ServiceKey, Signal, TaskHandle, TimerKey,
+        Cancellable, Context, CoordinatedShutdown, DeadLetter, DeadLetters, DispatcherSettings,
+        EventStream, IgnoreRef, Listing, PHASE_ACTOR_SYSTEM_TERMINATE,
+        PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE, PHASE_BEFORE_CLUSTER_SHUTDOWN,
+        PHASE_BEFORE_SERVICE_UNBIND, PHASE_CLUSTER_EXITING, PHASE_CLUSTER_EXITING_DONE,
+        PHASE_CLUSTER_LEAVE, PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION, PHASE_CLUSTER_SHUTDOWN,
+        PHASE_SERVICE_REQUESTS_DONE, PHASE_SERVICE_STOP, PHASE_SERVICE_UNBIND, Props, Receptionist,
+        Recipient, ServiceKey, Signal, TaskHandle, TimerKey,
     };
 }
 

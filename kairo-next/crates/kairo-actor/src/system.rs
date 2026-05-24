@@ -4,6 +4,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::actor::{Actor, Context, Props};
+use crate::coordinated_shutdown::CoordinatedShutdown;
 use crate::dead_letters::DeadLetters;
 use crate::death_watch::{DeathWatchKind, DeathWatchRegistration, DeathWatchRegistry};
 use crate::dispatcher::DispatcherSettings;
@@ -37,6 +38,7 @@ pub(crate) struct ActorSystemInner {
     scheduler: Scheduler,
     event_stream: EventStream,
     receptionist: Receptionist,
+    coordinated_shutdown: CoordinatedShutdown,
     dead_letters: DeadLetters,
 }
 
@@ -70,6 +72,19 @@ impl ActorSystem {
 
     pub fn receptionist(&self) -> Receptionist {
         self.inner.receptionist.clone()
+    }
+
+    pub fn coordinated_shutdown(&self) -> CoordinatedShutdown {
+        self.inner.coordinated_shutdown.clone()
+    }
+
+    pub fn run_coordinated_shutdown(
+        &self,
+        reason: impl Into<String>,
+        termination_timeout: Duration,
+    ) -> Result<(), ActorError> {
+        self.coordinated_shutdown().run(reason)?;
+        self.terminate(termination_timeout)
     }
 
     pub fn schedule_once<M>(&self, delay: Duration, target: ActorRef<M>, message: M) -> Cancellable

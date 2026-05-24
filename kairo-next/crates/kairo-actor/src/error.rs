@@ -1,8 +1,9 @@
 use std::fmt::{self, Display, Formatter};
+use std::time::Duration;
 
 pub type ActorResult = Result<(), ActorError>;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum ActorError {
     #[error("{0}")]
     Message(String),
@@ -18,6 +19,14 @@ pub enum ActorError {
     TaskSpawn(String),
     #[error("ask target rejected request: {0}")]
     AskSend(String),
+    #[error("unknown coordinated shutdown phase `{0}`")]
+    UnknownShutdownPhase(String),
+    #[error("coordinated shutdown task name must not be empty")]
+    InvalidShutdownTaskName,
+    #[error("coordinated shutdown task failed: {0}")]
+    ShutdownTaskFailed(String),
+    #[error("coordinated shutdown phase `{phase}` timed out after {timeout:?}")]
+    ShutdownPhaseTimeout { phase: String, timeout: Duration },
     #[error("dispatcher throughput must be greater than zero")]
     InvalidThroughput,
     #[error("actor `{actor}` is not self or a direct child of `{owner}`")]
