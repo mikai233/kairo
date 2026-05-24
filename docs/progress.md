@@ -4,7 +4,8 @@
 
 M2: Lifecycle, Supervision, Patterns, And Testkit is in progress. The M1 local
 actor runtime vertical slice is runnable and remains the foundation for M2
-work.
+work. The M3 serialization foundation has started with stable remote message
+metadata and codec registration.
 
 Implemented:
 
@@ -123,11 +124,26 @@ Implemented:
   scheduler into `ManualTime`.
 - Manual time now drives `ActorSystem::schedule_once`, single actor timers, and
   repeated fixed-delay/fixed-rate timer backends without real sleeps.
+- `kairo-serialization` is split into focused `message`, `manifest`, `codec`,
+  `registry`, `envelope`, and `errors` modules.
+- `RemoteMessage`, `MessageCodec<M>`, `DynCodec`, `SerializedMessage`, and
+  `RemoteEnvelope` define the stable metadata and payload boundary for remote
+  messages.
+- `Registry` implements explicit codec registration, outbound type lookup, and
+  inbound `(serializer_id, manifest)` lookup.
+- Serialization registration rejects empty manifests, duplicate serializer ids,
+  and duplicate manifests.
+- Focused serialization tests prove wire metadata includes serializer id,
+  manifest, version, and bytes, and does not depend on Rust type names or enum
+  discriminants.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
+- M3 derive macro output, actor-ref/provider-aware serialization, system
+  protocol manifests, optional codec helper crates, and rolling-version
+  compatibility tests.
 
 ## Last Validation
 

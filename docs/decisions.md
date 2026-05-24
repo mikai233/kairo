@@ -371,3 +371,30 @@ Consequences:
   cycle between the actor runtime and testkit.
 - More precise virtual-time semantics, including time dilation and coordinated
   shutdown phase timeouts, can be layered on this boundary later.
+
+## ADR-0016: Remote Serialization Starts With Explicit Codec Registration
+
+Status: Accepted
+
+Context:
+Pekko remote serialization writes a serializer identifier, manifest, and
+payload into the remote wire message, with serializer lookup driven by the
+runtime serialization registry. Kairo needs the same stable wire metadata, but
+must not rely on Rust type names, enum discriminants, or memory layout.
+
+Decision:
+`kairo-serialization` defines `RemoteMessage` metadata separately from
+`MessageCodec<M>`. `Registry` requires explicit codec registration and maps
+outbound Rust `TypeId` plus inbound `(serializer_id, manifest)` to a dynamic
+codec bridge. Registration rejects empty manifests, duplicate serializer ids,
+and duplicate manifests. `SerializedMessage` carries serializer id, manifest,
+version, and payload bytes.
+
+Consequences:
+- Local-only actor messages remain serialization-free.
+- Remote-capable messages publish stable metadata without choosing a wire
+  format.
+- Codec registration is explicit and testable before optional serde, cbor,
+  json, or prost helper crates exist.
+- The derive macro and actor-ref/provider-aware serialization remain separate
+  later slices.
