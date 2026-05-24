@@ -17,6 +17,7 @@ mod handoff_worker;
 mod hashing;
 mod protocol;
 mod region_actor;
+mod region_home_requests;
 mod region_protocol;
 mod region_registration;
 mod region_runtime;

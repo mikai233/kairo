@@ -545,6 +545,11 @@ Implemented:
   behavior. Allocated remembered shards are persisted idempotently and, when a
   typed local handoff transport is available, dispatched back to the selected
   region as `HostShard` so the region starts hosting the remembered shard.
+- `kairo-cluster-sharding` shard region actors can now request shard homes
+  from their registered local coordinator when local delivery buffers the first
+  message for an unknown shard. Coordinator replies are applied through the
+  normal region runtime, local shard children are started when this region is
+  selected, and the buffered delivery is replayed into the child shard actor.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -690,10 +695,10 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
-- Sharding remember-entity stores still need automatic region/shard
-  orchestration, including restart backoff policy integration and broader
-  cluster-event-driven coordinator discovery beyond explicitly supplied local
-  coordinator refs.
+- Sharding remember-entity stores still need broader automatic region/shard
+  orchestration, including restart backoff policy integration, remote business
+  route forwarding, and cluster-event-driven coordinator discovery beyond
+  explicitly supplied local coordinator refs.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

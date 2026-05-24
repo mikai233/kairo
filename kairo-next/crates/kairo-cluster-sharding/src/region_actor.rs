@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 
+use crate::region_home_requests::RegionHomeRequests;
 use crate::region_protocol::{
     RegionBufferedReplayPlan, RegionLocalHandOffCompletionFailure,
     RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan, ShardRegionMsg,
@@ -13,9 +14,10 @@ use crate::region_registration::{
 };
 use crate::region_shards::LocalShardSpawner;
 use crate::{
-    CoordinatorStateSnapshot, EntityId, HandoffRegionTarget, HostShardPlan, RegionId,
-    RegionRoutePlan, ShardCoordinatorMsg, ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan,
-    ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope, ShardingError,
+    CoordinatorEvent, CoordinatorStateSnapshot, EntityId, GetShardHome, GetShardHomePlan,
+    HandoffRegionTarget, HostShardPlan, RegionId, RegionRoutePlan, ShardCoordinatorMsg,
+    ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime,
+    ShardingEnvelope, ShardingError,
 };
 
 pub struct ShardRegionActor<M>
@@ -26,6 +28,7 @@ where
     local_shard_spawner: Option<LocalShardSpawner>,
     local_shards: BTreeMap<ShardId, ActorRef<ShardMsg<M>>>,
     registration: Option<RegionRegistration<M>>,
+    home_requests: RegionHomeRequests<M>,
 }
 
 impl<M> ShardRegionActor<M>
@@ -38,6 +41,7 @@ where
             local_shard_spawner: None,
             local_shards: BTreeMap::new(),
             registration: None,
+            home_requests: RegionHomeRequests::new(),
         }
     }
 
@@ -51,6 +55,7 @@ where
             local_shard_spawner: Some(LocalShardSpawner::plain(shard_buffer_capacity)),
             local_shards: BTreeMap::new(),
             registration: None,
+            home_requests: RegionHomeRequests::new(),
         }
     }
 
@@ -72,6 +77,7 @@ where
                 coordinator,
                 retry_interval,
             ))),
+            home_requests: RegionHomeRequests::new(),
         }
     }
 
@@ -93,6 +99,7 @@ where
             )),
             local_shards: BTreeMap::new(),
             registration: None,
+            home_requests: RegionHomeRequests::new(),
         }
     }
 
@@ -118,6 +125,7 @@ where
             )),
             local_shards: BTreeMap::new(),
             registration: Some(RegionRegistration::new(registration)),
+            home_requests: RegionHomeRequests::new(),
         }
     }
 
@@ -249,7 +257,15 @@ where
                 delivery_reply_to,
             } => {
                 let plan = self.runtime.route(shard, message);
+                let request = shard_home_request(&plan);
+                if let Some(shard) = buffered_shard(&plan) {
+                    self.home_requests
+                        .remember_delivery(shard.clone(), delivery_reply_to.clone());
+                }
                 let local_plan = self.dispatch_local_route_plan(plan, delivery_reply_to)?;
+                if let Some(request) = request {
+                    self.request_shard_home_from_coordinator(ctx, request)?;
+                }
                 let _ = route_reply_to.tell(local_plan);
             }
             ShardRegionMsg::HostShard { shard, reply_to } => {
@@ -320,6 +336,12 @@ where
             }
             ShardRegionMsg::RetryCoordinatorRegistration => {
                 self.register_with_coordinator(ctx)?;
+            }
+            ShardRegionMsg::CoordinatorShardHomeResult {
+                requested_shard,
+                result,
+            } => {
+                self.apply_coordinator_shard_home_result(ctx, requested_shard, result)?;
             }
             ShardRegionMsg::MarkShardStopped { shard, reply_to } => {
                 self.runtime.mark_shard_stopped(&shard);
@@ -399,6 +421,7 @@ where
                 if let Some(registration) = &mut self.registration {
                     registration.mark_registered();
                 }
+                self.request_pending_shard_homes_from_coordinator(ctx)?;
                 Ok(())
             }
             Err(_) => {
@@ -408,6 +431,91 @@ where
                 self.register_with_coordinator(ctx)
             }
         }
+    }
+
+    fn request_shard_home_from_coordinator(
+        &self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        request: GetShardHome,
+    ) -> ActorResult {
+        let Some(registration) = &self.registration else {
+            return Ok(());
+        };
+        if !registration.is_registered() {
+            return Ok(());
+        }
+
+        let requested_shard = request.shard_id.clone();
+        let reply_to =
+            ctx.message_adapter(move |result| ShardRegionMsg::CoordinatorShardHomeResult {
+                requested_shard: requested_shard.clone(),
+                result,
+            })?;
+        let _ = registration
+            .coordinator()
+            .tell(ShardCoordinatorMsg::RequestShardHome {
+                requester: self.runtime.self_region().clone(),
+                shard: request.shard_id,
+                reply_to,
+            });
+        Ok(())
+    }
+
+    fn request_pending_shard_homes_from_coordinator(
+        &self,
+        ctx: &Context<ShardRegionMsg<M>>,
+    ) -> ActorResult {
+        let pending = self
+            .home_requests
+            .pending_shards()
+            .cloned()
+            .collect::<Vec<_>>();
+        for shard in pending {
+            self.request_shard_home_from_coordinator(ctx, GetShardHome { shard_id: shard })?;
+        }
+        Ok(())
+    }
+
+    fn apply_coordinator_shard_home_result(
+        &mut self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        requested_shard: ShardId,
+        result: Result<GetShardHomePlan, ShardingError>,
+    ) -> ActorResult {
+        let (shard, region) = match result {
+            Ok(GetShardHomePlan::Reply { shard, region }) => (shard, region),
+            Ok(GetShardHomePlan::Allocated {
+                event: CoordinatorEvent::ShardHomeAllocated { shard, region },
+                ..
+            }) => (shard, region),
+            Ok(GetShardHomePlan::Allocated { .. })
+            | Ok(GetShardHomePlan::Deferred { .. })
+            | Ok(GetShardHomePlan::Ignored { .. })
+            | Err(_) => return Ok(()),
+        };
+        if shard != requested_shard {
+            return Ok(());
+        }
+        let delivery_reply_to = self.home_requests.drain(&shard);
+
+        let plan = match self.runtime.record_shard_home(shard, region) {
+            Ok(plan) => plan,
+            Err(_) => return Ok(()),
+        };
+        self.apply_coordinator_shard_home_plan(ctx, plan, delivery_reply_to)
+    }
+
+    fn apply_coordinator_shard_home_plan(
+        &mut self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        plan: ShardHomePlan<M>,
+        delivery_reply_to: Vec<ActorRef<ShardDeliverPlan<M>>>,
+    ) -> ActorResult {
+        let plan = self.maybe_start_local_shard_from_home_plan(ctx, plan)?;
+        if let ShardHomePlan::DeliverLocal { shard, buffered } = plan {
+            self.replay_buffered_to_local_shard_with_replies(&shard, buffered, delivery_reply_to)?;
+        }
+        Ok(())
     }
 
     fn snapshot(&self) -> ShardRegionSnapshot {
@@ -524,6 +632,33 @@ where
                     message,
                     reply_to: delivery_reply_to.clone(),
                 })
+                .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+        }
+        Ok(replayed)
+    }
+
+    fn replay_buffered_to_local_shard_with_replies(
+        &self,
+        shard: &ShardId,
+        buffered: Vec<ShardingEnvelope<M>>,
+        delivery_reply_to: Vec<ActorRef<ShardDeliverPlan<M>>>,
+    ) -> Result<usize, ActorError> {
+        let Some(shard_ref) = self.local_shards.get(shard) else {
+            return Err(ActorError::Message(format!(
+                "local shard `{shard}` is not available for buffered replay"
+            )));
+        };
+        if buffered.len() != delivery_reply_to.len() {
+            return Err(ActorError::Message(format!(
+                "local shard `{shard}` buffered replay has {} messages but {} delivery replies",
+                buffered.len(),
+                delivery_reply_to.len()
+            )));
+        }
+        let replayed = buffered.len();
+        for (message, reply_to) in buffered.into_iter().zip(delivery_reply_to) {
+            shard_ref
+                .tell(ShardMsg::Deliver { message, reply_to })
                 .map_err(|error| ActorError::Message(error.reason().to_string()))?;
         }
         Ok(replayed)
@@ -675,5 +810,22 @@ where
 {
     if let Some(reply_to) = reply_to {
         let _ = reply_to.tell(message);
+    }
+}
+
+fn shard_home_request<M>(plan: &RegionRoutePlan<M>) -> Option<GetShardHome> {
+    match plan {
+        RegionRoutePlan::Buffered {
+            request: Some(request),
+            ..
+        } => Some(request.clone()),
+        _ => None,
+    }
+}
+
+fn buffered_shard<M>(plan: &RegionRoutePlan<M>) -> Option<&ShardId> {
+    match plan {
+        RegionRoutePlan::Buffered { shard, .. } => Some(shard),
+        _ => None,
     }
 }

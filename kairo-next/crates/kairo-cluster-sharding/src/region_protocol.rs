@@ -4,10 +4,10 @@ use std::time::Duration;
 use kairo_actor::{ActorRef, AskResult};
 
 use crate::{
-    BeginHandOffPlan, GetShardHome, HandOff, HandOffPlan, HostShardPlan, RegionDropReason,
-    RegionId, RegionRegistrationStatus, RegionRoutePlan, ShardDeliverPlan, ShardHandOffPlan,
-    ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStarted, ShardStartedPlan,
-    ShardStopped, ShardingEnvelope, ShardingError,
+    BeginHandOffPlan, GetShardHome, GetShardHomePlan, HandOff, HandOffPlan, HostShardPlan,
+    RegionDropReason, RegionId, RegionRegistrationStatus, RegionRoutePlan, ShardDeliverPlan,
+    ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStarted,
+    ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
 };
 
 pub enum ShardRegionMsg<M> {
@@ -68,6 +68,10 @@ pub enum ShardRegionMsg<M> {
         result: Result<crate::CoordinatorStateSnapshot, ShardingError>,
     },
     RetryCoordinatorRegistration,
+    CoordinatorShardHomeResult {
+        requested_shard: ShardId,
+        result: Result<GetShardHomePlan, ShardingError>,
+    },
     MarkShardStopped {
         shard: ShardId,
         reply_to: Option<ActorRef<ShardRegionSnapshot>>,

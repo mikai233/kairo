@@ -2,15 +2,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorError, ActorResult, ActorSystem, Context, Props};
+use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
 use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
 
 use crate::{
     BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState,
-    CoordinatorStateSnapshot, EntityRef, GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan,
-    HandOff, HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget,
-    HandoffTransport, HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg, HostShard,
-    HostShardPlan, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
+    CoordinatorStateSnapshot, EntityDelivery, EntityRef, GetShardHome, GetShardHomeIgnoreReason,
+    GetShardHomePlan, HandOff, HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget,
+    HandoffRegionTarget, HandoffTransport, HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg,
+    HostShard, HostShardPlan, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
     RebalanceSkipReason, RegionBufferedReplayPlan, RegionDropReason,
     RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan,
     RegionRegistrationConfig, RegionRegistrationStatus, RegionRoutePlan,
@@ -3102,6 +3102,211 @@ fn region_actor_self_registers_with_local_coordinator_for_handoff() {
 }
 
 #[test]
+fn region_actor_requests_shard_home_from_registered_coordinator_for_local_route() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-route-coordinator-home").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                coordinator.clone(),
+                Duration::from_millis(20),
+            ),
+        )
+        .unwrap();
+    let region_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-state")
+        .unwrap();
+    let route = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("route")
+        .unwrap();
+    let delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("delivery")
+        .unwrap();
+
+    let mut registered = false;
+    for _ in 0..20 {
+        region
+            .tell(ShardRegionMsg::GetState {
+                reply_to: region_state.actor_ref(),
+            })
+            .unwrap();
+        registered = region_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .registration_status
+            == RegionRegistrationStatus::Registered;
+        if registered {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(registered, "region should register before route resolution");
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            route_reply_to: route.actor_ref(),
+            delivery_reply_to: delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        route.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    assert_eq!(
+        delivery.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", "first".to_string()),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "second".to_string()),
+            route_reply_to: route.actor_ref(),
+            delivery_reply_to: delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        route.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        delivery.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "second".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_requests_buffered_shard_home_after_registration_ack() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-route-after-registration").unwrap();
+    let (request_tx, request_rx) = mpsc::channel();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            Props::new(move || DelayedRegistrationCoordinator {
+                pending_registration: None,
+                request_tx,
+            }),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                coordinator.clone(),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let route = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("route")
+        .unwrap();
+    let delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("delivery")
+        .unwrap();
+    let second_delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("second-delivery")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            route_reply_to: route.actor_ref(),
+            delivery_reply_to: delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        route.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "second".to_string()),
+            route_reply_to: route.actor_ref(),
+            delivery_reply_to: second_delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        route.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: None,
+        }
+    );
+    assert!(
+        request_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+        "region must not request shard homes before registration ack"
+    );
+
+    coordinator
+        .tell(ShardCoordinatorMsg::SetAllRegionsRegistered {
+            all_registered: true,
+        })
+        .unwrap();
+    assert_eq!(
+        request_rx.recv_timeout(Duration::from_millis(500)).unwrap(),
+        "shard-1".to_string()
+    );
+    assert_eq!(
+        delivery.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", "first".to_string()),
+        }
+    );
+    assert_eq!(
+        second_delivery
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "second".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_allocates_remembered_shards_after_local_region_registration() {
     let kit = kairo_testkit::ActorSystemTestKit::new("remembered-registration-allocation").unwrap();
     let mut state = CoordinatorState::new().with_remember_entities(true);
@@ -4774,6 +4979,55 @@ impl ShardAllocationStrategy for RebalanceThenAllocateStrategy {
         _in_progress: &BTreeSet<String>,
     ) -> Result<BTreeSet<String>, ShardingError> {
         Ok(self.rebalance_shards.clone())
+    }
+}
+
+struct DelayedRegistrationCoordinator {
+    pending_registration: Option<ActorRef<Result<CoordinatorStateSnapshot, ShardingError>>>,
+    request_tx: mpsc::Sender<String>,
+}
+
+impl Actor for DelayedRegistrationCoordinator {
+    type Msg = ShardCoordinatorMsg<String>;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            ShardCoordinatorMsg::RegisterLocalRegion { reply_to, .. } => {
+                self.pending_registration = Some(reply_to);
+            }
+            ShardCoordinatorMsg::SetAllRegionsRegistered {
+                all_registered: true,
+            } => {
+                if let Some(reply_to) = self.pending_registration.take() {
+                    let _ = reply_to.tell(Ok(CoordinatorStateSnapshot {
+                        allocations: BTreeMap::from([("region-a".to_string(), Vec::new())]),
+                        proxies: BTreeSet::new(),
+                        unallocated_shards: BTreeSet::new(),
+                        rebalance_in_progress: BTreeMap::new(),
+                        remember_entities: false,
+                    }));
+                }
+            }
+            ShardCoordinatorMsg::RequestShardHome {
+                requester,
+                shard,
+                reply_to,
+            } => {
+                self.request_tx
+                    .send(shard.clone())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                let _ = reply_to.tell(Ok(GetShardHomePlan::Allocated {
+                    event: CoordinatorEvent::ShardHomeAllocated {
+                        shard: shard.clone(),
+                        region: requester.clone(),
+                    },
+                    host_region: requester,
+                    host_shard: HostShard { shard_id: shard },
+                }));
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 
