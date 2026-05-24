@@ -165,6 +165,10 @@ Implemented:
   codecs and serializer ids for remote watch, unwatch, heartbeat,
   heartbeat-ack, and address-terminated system messages using length-prefixed
   actor-ref paths and big-endian numeric fields.
+- `RemoteInbound<M>` provides the first inbound envelope pipeline by
+  deserializing `RemoteEnvelope` payloads through the registry and passing the
+  typed message, recipient wire data, and optional sender wire data to an
+  explicit local delivery boundary.
 - Serialization tests cover rolling-version decode behavior by proving codecs
   receive the wire `version` and can decode older payload shapes under the same
   stable manifest.
@@ -253,8 +257,8 @@ Not yet implemented:
 - Parent-level supervision escalation and restart limits/backoff.
 - Full actor-system local/remote provider integration, cluster/ddata/sharding
   protocol codecs, optional codec helper crates, transport-backed
-  associations, inbound dispatch, and broader cross-crate compatibility
-  fixtures.
+  associations, actor-system-backed inbound target resolution, and broader
+  cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

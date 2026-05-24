@@ -3,6 +3,7 @@
 mod association;
 mod codec;
 mod error;
+mod inbound;
 mod outbound;
 mod protocol;
 mod provider;
@@ -17,6 +18,7 @@ pub use codec::{
     register_remote_protocol_codecs,
 };
 pub use error::{RemoteError, Result};
+pub use inbound::{InboundMessage, RemoteInbound, RemoteInboundDelivery};
 pub use kairo_actor::ActorPath;
 pub use kairo_serialization::{RemoteEnvelope, SerializedMessage};
 pub use outbound::RemoteOutbound;
