@@ -47,6 +47,26 @@ fn spawned_actor_receives_messages_in_tell_order() {
     assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
 }
 
+#[test]
+fn actor_system_builder_configures_dispatcher_throughput() {
+    let system = ActorSystem::builder("test")
+        .dispatcher_throughput(2)
+        .build()
+        .unwrap();
+
+    assert_eq!(system.dispatcher_settings().throughput(), 2);
+}
+
+#[test]
+fn actor_system_builder_rejects_zero_dispatcher_throughput() {
+    let error = ActorSystem::builder("test")
+        .dispatcher_throughput(0)
+        .build()
+        .unwrap_err();
+
+    assert!(matches!(error, ActorError::InvalidThroughput));
+}
+
 fn send_to_recipient<R>(recipient: &R, message: CounterMsg)
 where
     R: Recipient<CounterMsg>,

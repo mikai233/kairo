@@ -75,6 +75,20 @@ impl<M> Mailbox<M> {
         }
     }
 
+    pub(crate) fn try_dequeue(&self) -> Option<Dequeued<M>> {
+        let mut state = self.state.lock().expect("mailbox poisoned");
+        if let Some(message) = state.system.pop_front() {
+            return Some(Dequeued::System(message));
+        }
+        if let Some(message) = state.user.pop_front() {
+            return Some(Dequeued::User(message));
+        }
+        if state.closed {
+            return Some(Dequeued::Closed);
+        }
+        None
+    }
+
     pub(crate) fn close_and_drain_user(&self) -> Vec<M> {
         let mut state = self.state.lock().expect("mailbox poisoned");
         state.closed = true;

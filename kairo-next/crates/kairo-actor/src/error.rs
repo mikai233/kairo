@@ -10,6 +10,8 @@ pub enum ActorError {
     InvalidName(String),
     #[error("actor `{0}` already exists")]
     DuplicateName(String),
+    #[error("dispatcher throughput must be greater than zero")]
+    InvalidThroughput,
 }
 
 pub struct SendError<M> {

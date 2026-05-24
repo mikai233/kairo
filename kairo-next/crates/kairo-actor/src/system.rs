@@ -5,6 +5,7 @@ use std::thread;
 
 use crate::actor::{Actor, Context, Props};
 use crate::dead_letters::DeadLetters;
+use crate::dispatcher::DispatcherSettings;
 use crate::error::ActorError;
 use crate::mailbox::{Dequeued, Mailbox, SystemMessage};
 use crate::path::{ActorPath, Address};
@@ -24,12 +25,16 @@ pub(crate) struct ActorSystemInner {
     next_anonymous: AtomicU64,
     names: Mutex<HashMap<String, u64>>,
     children: Mutex<HashMap<String, Vec<LocalActorHandle>>>,
+    dispatcher: DispatcherSettings,
     dead_letters: DeadLetters,
 }
 
 impl ActorSystem {
     pub fn builder(name: impl Into<String>) -> ActorSystemBuilder {
-        ActorSystemBuilder { name: name.into() }
+        ActorSystemBuilder {
+            name: name.into(),
+            dispatcher: DispatcherSettings::default(),
+        }
     }
 
     pub fn name(&self) -> &str {
@@ -42,6 +47,10 @@ impl ActorSystem {
 
     pub fn dead_letters(&self) -> DeadLetters {
         self.inner.dead_letters.clone()
+    }
+
+    pub fn dispatcher_settings(&self) -> DispatcherSettings {
+        self.inner.dispatcher
     }
 
     pub fn stop<M: Send + 'static>(&self, actor: &ActorRef<M>) {
@@ -157,14 +166,26 @@ impl ActorSystem {
 #[derive(Debug)]
 pub struct ActorSystemBuilder {
     name: String,
+    dispatcher: DispatcherSettings,
 }
 
 impl ActorSystemBuilder {
+    pub fn dispatcher_throughput(mut self, throughput: usize) -> Self {
+        self.dispatcher = DispatcherSettings::new(throughput);
+        self
+    }
+
     pub fn build(self) -> Result<ActorSystem, ActorError> {
+        if self.dispatcher.throughput() == 0 {
+            return Err(ActorError::InvalidThroughput);
+        }
         Ok(ActorSystem {
             address: Address::local(self.name.clone()),
             name: self.name,
-            inner: Arc::new(ActorSystemInner::default()),
+            inner: Arc::new(ActorSystemInner {
+                dispatcher: self.dispatcher,
+                ..ActorSystemInner::default()
+            }),
         })
     }
 }
@@ -188,6 +209,7 @@ fn run_actor<A>(
     A: Actor,
 {
     let mut actor = props.build();
+    let throughput = thread_system.dispatcher_settings().throughput();
     let mut context = Context {
         myself: actor_ref.clone(),
         system: thread_system,
@@ -204,15 +226,20 @@ fn run_actor<A>(
         .as_ref()
         .expect("live actor ref must have a mailbox");
     while !actor_ref.target.stopped.load(Ordering::Acquire) {
-        match mailbox.dequeue() {
-            Dequeued::System(SystemMessage::Stop) | Dequeued::Closed => {
-                actor_ref.target.stopped.store(true, Ordering::Release);
+        let processed = process_dequeued(mailbox.dequeue(), &actor_ref, &mut actor, &mut context);
+        let mut processed_user = usize::from(processed);
+
+        while processed_user < throughput && !actor_ref.target.stopped.load(Ordering::Acquire) {
+            let Some(next) = mailbox.try_dequeue() else {
+                break;
+            };
+            if process_dequeued(next, &actor_ref, &mut actor, &mut context) {
+                processed_user += 1;
             }
-            Dequeued::User(message) => {
-                if actor.receive(&mut context, message).is_err() || context.stop_requested {
-                    actor_ref.target.stopped.store(true, Ordering::Release);
-                }
-            }
+        }
+
+        if processed_user >= throughput && !actor_ref.target.stopped.load(Ordering::Acquire) {
+            thread::yield_now();
         }
     }
 
@@ -230,6 +257,29 @@ fn run_actor<A>(
         .expect("actor registry poisoned")
         .remove(&registry_key);
     remove_child_from_parent(&system_inner, &parent_path, actor_ref.path());
+}
+
+fn process_dequeued<A>(
+    dequeued: Dequeued<A::Msg>,
+    actor_ref: &ActorRef<A::Msg>,
+    actor: &mut A,
+    context: &mut Context<A::Msg>,
+) -> bool
+where
+    A: Actor,
+{
+    match dequeued {
+        Dequeued::System(SystemMessage::Stop) | Dequeued::Closed => {
+            actor_ref.target.stopped.store(true, Ordering::Release);
+            false
+        }
+        Dequeued::User(message) => {
+            if actor.receive(context, message).is_err() || context.stop_requested {
+                actor_ref.target.stopped.store(true, Ordering::Release);
+            }
+            true
+        }
+    }
 }
 
 fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) {
