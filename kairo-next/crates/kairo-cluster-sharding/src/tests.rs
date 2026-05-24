@@ -10,8 +10,8 @@ use crate::{
     CoordinatorStateSnapshot, EntityRef, GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan,
     HandOff, HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget,
     HandoffTransport, HostShard, HostShardPlan, LeastShardAllocationStrategy,
-    RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionDropReason,
-    RegionLocalRoutePlan, RegionRoutePlan, RememberCoordinatorDDataStoreActor,
+    RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan,
+    RegionDropReason, RegionLocalRoutePlan, RegionRoutePlan, RememberCoordinatorDDataStoreActor,
     RememberCoordinatorDDataStoreMsg, RememberCoordinatorDDataStoreSnapshot,
     RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
     RememberCoordinatorStoreState, RememberShardDDataStoreActor, RememberShardDDataStoreMsg,
@@ -2087,6 +2087,81 @@ fn region_actor_routes_to_spawned_local_shard_child() {
         deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
         ShardDeliverPlan::Deliver {
             delivery: crate::EntityDelivery::new("entity-1", "loaded".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_replays_buffered_routes_to_spawned_local_shard_child() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-actor-buffered-replay-child").unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let replay = kit
+        .create_probe::<RegionBufferedReplayPlan>("replay")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "buffered".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::HostShardAndReplayBuffered {
+            shard: "shard-1".to_string(),
+            reply_to: replay.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        replay.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionBufferedReplayPlan::Replayed {
+            shard: "shard-1".to_string(),
+            started: ShardStarted {
+                shard_id: "shard-1".to_string(),
+            },
+            replayed: 1,
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "buffered".to_string()),
         }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();

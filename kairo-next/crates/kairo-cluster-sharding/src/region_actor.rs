@@ -3,11 +3,13 @@ use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 
+use crate::region_protocol::{
+    RegionBufferedReplayPlan, RegionLocalRoutePlan, ShardRegionMsg, ShardRegionSnapshot,
+};
 use crate::region_shards::LocalShardSpawner;
 use crate::{
-    BeginHandOffPlan, EntityId, HandOffPlan, HostShardPlan, RegionId, RegionRoutePlan,
-    ShardDeliverPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStartedPlan,
-    ShardingEnvelope, ShardingError,
+    EntityId, HostShardPlan, RegionId, RegionRoutePlan, ShardDeliverPlan, ShardHomePlan, ShardId,
+    ShardMsg, ShardRegionRuntime, ShardingEnvelope,
 };
 
 pub struct ShardRegionActor<M> {
@@ -109,92 +111,6 @@ impl<M> ShardRegionActor<M> {
     }
 }
 
-pub enum ShardRegionMsg<M> {
-    Route {
-        shard: ShardId,
-        message: ShardingEnvelope<M>,
-        reply_to: ActorRef<RegionRoutePlan<M>>,
-    },
-    RouteToLocalShard {
-        shard: ShardId,
-        message: ShardingEnvelope<M>,
-        route_reply_to: ActorRef<RegionLocalRoutePlan<M>>,
-        delivery_reply_to: ActorRef<ShardDeliverPlan<M>>,
-    },
-    HostShard {
-        shard: ShardId,
-        reply_to: ActorRef<HostShardPlan<M>>,
-    },
-    RecordShardHome {
-        shard: ShardId,
-        region: RegionId,
-        reply_to: ActorRef<Result<ShardHomePlan<M>, ShardingError>>,
-    },
-    MarkShardStarted {
-        shard: ShardId,
-        reply_to: ActorRef<ShardStartedPlan<M>>,
-    },
-    BeginHandOff {
-        shard: ShardId,
-        reply_to: ActorRef<BeginHandOffPlan>,
-    },
-    HandOff {
-        shard: ShardId,
-        reply_to: ActorRef<HandOffPlan>,
-    },
-    MarkShardStopped {
-        shard: ShardId,
-        reply_to: Option<ActorRef<ShardRegionSnapshot>>,
-    },
-    SetGracefulShutdown {
-        in_progress: bool,
-    },
-    SetPreparingForShutdown {
-        preparing: bool,
-    },
-    GetState {
-        reply_to: ActorRef<ShardRegionSnapshot>,
-    },
-    GetLocalShard {
-        shard: ShardId,
-        reply_to: ActorRef<Option<ActorRef<ShardMsg<M>>>>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RegionLocalRoutePlan<M> {
-    DeliveredToLocalShard {
-        shard: ShardId,
-    },
-    MissingLocalShard {
-        shard: ShardId,
-        message: ShardingEnvelope<M>,
-    },
-    Forward {
-        shard: ShardId,
-        region: RegionId,
-        message: ShardingEnvelope<M>,
-    },
-    Buffered {
-        shard: ShardId,
-        request: Option<crate::GetShardHome>,
-    },
-    Dropped {
-        shard: Option<ShardId>,
-        reason: crate::RegionDropReason,
-        message: ShardingEnvelope<M>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShardRegionSnapshot {
-    pub self_region: RegionId,
-    pub local_shards: BTreeSet<ShardId>,
-    pub starting_shards: BTreeSet<ShardId>,
-    pub handing_off_shards: BTreeSet<ShardId>,
-    pub total_buffered: usize,
-}
-
 impl<M> Actor for ShardRegionActor<M>
 where
     M: Send + 'static,
@@ -224,6 +140,14 @@ where
             ShardRegionMsg::HostShard { shard, reply_to } => {
                 let plan = self.runtime.host_shard(shard);
                 let plan = self.maybe_start_local_shard_from_host_plan(ctx, plan)?;
+                let _ = reply_to.tell(plan);
+            }
+            ShardRegionMsg::HostShardAndReplayBuffered {
+                shard,
+                reply_to,
+                delivery_reply_to,
+            } => {
+                let plan = self.host_shard_and_replay_buffered(ctx, shard, delivery_reply_to)?;
                 let _ = reply_to.tell(plan);
             }
             ShardRegionMsg::RecordShardHome {
@@ -339,6 +263,73 @@ where
         }
     }
 
+    fn host_shard_and_replay_buffered(
+        &mut self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        shard: ShardId,
+        delivery_reply_to: ActorRef<ShardDeliverPlan<M>>,
+    ) -> Result<RegionBufferedReplayPlan, ActorError> {
+        if self.local_shard_spawner.is_none() {
+            return Ok(RegionBufferedReplayPlan::MissingLocalShardSpawner { shard });
+        }
+
+        match self.runtime.host_shard(shard) {
+            HostShardPlan::IgnoredGracefulShutdown { shard } => {
+                Ok(RegionBufferedReplayPlan::IgnoredGracefulShutdown { shard })
+            }
+            HostShardPlan::AlreadyStarted {
+                shard,
+                started,
+                buffered,
+            } => {
+                let replayed =
+                    self.replay_buffered_to_local_shard(&shard, buffered, delivery_reply_to)?;
+                Ok(RegionBufferedReplayPlan::Replayed {
+                    shard,
+                    started,
+                    replayed,
+                })
+            }
+            HostShardPlan::StartLocalShard { shard, command: _ } => {
+                self.spawn_local_shard(ctx, &shard)?;
+                let started = self.runtime.mark_shard_started(shard.clone());
+                let replayed = self.replay_buffered_to_local_shard(
+                    &shard,
+                    started.buffered,
+                    delivery_reply_to,
+                )?;
+                Ok(RegionBufferedReplayPlan::Replayed {
+                    shard,
+                    started: started.started,
+                    replayed,
+                })
+            }
+        }
+    }
+
+    fn replay_buffered_to_local_shard(
+        &self,
+        shard: &ShardId,
+        buffered: Vec<ShardingEnvelope<M>>,
+        delivery_reply_to: ActorRef<ShardDeliverPlan<M>>,
+    ) -> Result<usize, ActorError> {
+        let Some(shard_ref) = self.local_shards.get(shard) else {
+            return Err(ActorError::Message(format!(
+                "local shard `{shard}` is not available for buffered replay"
+            )));
+        };
+        let replayed = buffered.len();
+        for message in buffered {
+            shard_ref
+                .tell(ShardMsg::Deliver {
+                    message,
+                    reply_to: delivery_reply_to.clone(),
+                })
+                .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+        }
+        Ok(replayed)
+    }
+
     fn maybe_start_local_shard_from_home_plan(
         &mut self,
         ctx: &Context<ShardRegionMsg<M>>,
@@ -373,18 +364,6 @@ where
         let shard_ref = spawner.spawn(ctx, shard)?;
         self.local_shards.insert(shard.clone(), shard_ref);
         Ok(())
-    }
-}
-
-impl<M> From<&ShardRegionRuntime<M>> for ShardRegionSnapshot {
-    fn from(runtime: &ShardRegionRuntime<M>) -> Self {
-        Self {
-            self_region: runtime.self_region().clone(),
-            local_shards: runtime.local_shards().clone(),
-            starting_shards: runtime.starting_shards().clone(),
-            handing_off_shards: runtime.handing_off_shards().clone(),
-            total_buffered: runtime.total_buffered_count(),
-        }
     }
 }
 

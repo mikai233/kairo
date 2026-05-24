@@ -14,6 +14,7 @@ mod handoff_transport;
 mod hashing;
 mod protocol;
 mod region_actor;
+mod region_protocol;
 mod region_runtime;
 mod region_shards;
 mod remember;
@@ -54,8 +55,9 @@ pub use protocol::{
     BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
     ShardHome, ShardStarted, ShardStopped,
 };
-pub use region_actor::{
-    RegionLocalRoutePlan, ShardRegionActor, ShardRegionMsg, ShardRegionSnapshot,
+pub use region_actor::ShardRegionActor;
+pub use region_protocol::{
+    RegionBufferedReplayPlan, RegionLocalRoutePlan, ShardRegionMsg, ShardRegionSnapshot,
 };
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
