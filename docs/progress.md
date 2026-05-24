@@ -341,6 +341,11 @@ Implemented:
   messages to serialized stable replicator payloads with target-replica
   metadata, and routes inbound serialized payloads into actor-backed
   delta/write/read receive paths with explicit CRDT codecs and reply refs.
+- `kairo-distributed-data` now has a separate reply wire bridge for
+  delta ACK/NACK, direct write ACK/NACK, and direct read-result payloads. Reply
+  envelopes carry explicit source and target replica metadata, outbound reply
+  routing uses the original request sender replica, and inbound decoding
+  preserves the source replica for future aggregator orchestration.
 - `DeltaReceiveTracker` tracks receive-side per-replica/key delta sequence
   numbers and models Pekko-style duplicate, missing, invalid-range, and
   in-order apply decisions before the transport loop is wired in.
@@ -754,8 +759,9 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, reply transport orchestration for
-  ACK/NACK/read results, pruning scheduling, and gossip-backed replication.
+  propagation/direct read/write, actor-backed aggregation of
+  ACK/NACK/read-result replies, pruning scheduling, and gossip-backed
+  replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

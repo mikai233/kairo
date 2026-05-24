@@ -6,9 +6,8 @@ use kairo_serialization::{Registry, RemoteMessage, SerializationError, Serialize
 
 use crate::{
     CrdtDataCodec, DeltaPropagationReceiveReport, DeltaReplicatedData, DirectReadResult,
-    DirectWriteResult, ReplicaId, ReplicatorActorMsg, ReplicatorDeltaAck, ReplicatorDeltaNack,
-    ReplicatorDeltaPropagation, ReplicatorRead, ReplicatorReadResult, ReplicatorWrite,
-    ReplicatorWriteAck, ReplicatorWriteNack,
+    DirectWriteResult, ReplicaId, ReplicatorActorMsg, ReplicatorDeltaPropagation, ReplicatorRead,
+    ReplicatorWrite,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -264,11 +263,6 @@ where
                     })
                     .map_err(|error| ReplicatorWireError::Send(error.reason().to_string()))
             }
-            ReplicatorDeltaAck::MANIFEST
-            | ReplicatorDeltaNack::MANIFEST
-            | ReplicatorWriteAck::MANIFEST
-            | ReplicatorWriteNack::MANIFEST
-            | ReplicatorReadResult::MANIFEST => Ok(()),
             manifest => Err(ReplicatorWireError::UnsupportedManifest(
                 manifest.to_string(),
             )),
@@ -582,10 +576,16 @@ mod tests {
             unknown,
             ReplicatorWireError::UnsupportedManifest(_)
         ));
-        let ignored_reply = registry
+        let misrouted_reply = registry
             .serialize(&ReplicatorReadResult { envelope: None })
             .unwrap();
-        inbound.receive_message(ignored_reply).unwrap();
+        let unsupported_reply = inbound
+            .receive_message(misrouted_reply)
+            .expect_err("reply manifest belongs on reply inbound");
+        assert!(matches!(
+            unsupported_reply,
+            ReplicatorWireError::UnsupportedManifest(_)
+        ));
         system.terminate(Duration::from_secs(1)).unwrap();
     }
 }

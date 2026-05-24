@@ -22,6 +22,7 @@ mod protocol;
 mod read_write_receive;
 mod replica;
 mod replicator_actor;
+mod reply_wire;
 mod response;
 mod state;
 mod wire;
@@ -87,6 +88,10 @@ pub use protocol::{
 pub use read_write_receive::{DirectReadResult, DirectWriteResult, apply_write, serve_read};
 pub use replica::ReplicaId;
 pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};
+pub use reply_wire::{
+    ReplicatorReplyWireError, ReplicatorReplyWireInbound, ReplicatorReplyWireOutbound,
+    ReplicatorSerializedReply, ReplicatorWireReply,
+};
 pub use response::{GetResponse, ReplicatorChange, UpdateOutcome, UpdateResponse};
 pub use state::ReplicatorState;
 pub use wire::{
