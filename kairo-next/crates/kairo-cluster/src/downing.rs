@@ -1,4 +1,4 @@
-use crate::{Gossip, MemberStatus, UniqueAddress};
+use crate::{Gossip, Member, MemberStatus, UniqueAddress};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DowningDecision {
@@ -36,6 +36,63 @@ impl StaticDowningHook {
 impl DowningHook for StaticDowningHook {
     fn decide(&self, _gossip: &Gossip, _self_node: &UniqueAddress) -> DowningDecision {
         self.decision
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SplitBrainStrategy {
+    DownAll,
+    KeepMajority {
+        role: Option<String>,
+    },
+    KeepOldest {
+        role: Option<String>,
+        down_if_alone: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SplitBrainResolverHook {
+    strategy: SplitBrainStrategy,
+}
+
+impl SplitBrainResolverHook {
+    pub fn down_all() -> Self {
+        Self {
+            strategy: SplitBrainStrategy::DownAll,
+        }
+    }
+
+    pub fn keep_majority(role: Option<String>) -> Self {
+        Self {
+            strategy: SplitBrainStrategy::KeepMajority { role },
+        }
+    }
+
+    pub fn keep_oldest(role: Option<String>, down_if_alone: bool) -> Self {
+        Self {
+            strategy: SplitBrainStrategy::KeepOldest {
+                role,
+                down_if_alone,
+            },
+        }
+    }
+
+    pub fn strategy(&self) -> &SplitBrainStrategy {
+        &self.strategy
+    }
+}
+
+impl DowningHook for SplitBrainResolverHook {
+    fn decide(&self, gossip: &Gossip, _self_node: &UniqueAddress) -> DowningDecision {
+        match &self.strategy {
+            SplitBrainStrategy::DownAll => DowningDecision::DownAll,
+            SplitBrainStrategy::KeepMajority { role } => keep_majority_decision(gossip, role),
+            SplitBrainStrategy::KeepOldest {
+                role,
+                down_if_alone,
+            } => keep_oldest_decision(gossip, role, *down_if_alone),
+        }
     }
 }
 
@@ -142,6 +199,108 @@ fn downable_nodes(gossip: &Gossip) -> Vec<UniqueAddress> {
         })
         .map(|member| member.unique_address.clone())
         .collect()
+}
+
+fn keep_majority_decision(gossip: &Gossip, role: &Option<String>) -> DowningDecision {
+    let members = decision_members(gossip, role);
+    if members.is_empty() {
+        return DowningDecision::DownAll;
+    }
+
+    let unreachable = gossip.reachability().all_unreachable_or_terminated();
+    let reachable_size = members
+        .iter()
+        .filter(|member| !unreachable.contains(&member.unique_address))
+        .count();
+    let unreachable_size = members.len() - reachable_size;
+    let lowest = members
+        .iter()
+        .min_by_key(|member| member.unique_address.ordering_key())
+        .expect("members is not empty");
+
+    majority_decision(reachable_size, unreachable_size, &unreachable, lowest)
+}
+
+fn majority_decision(
+    reachable_size: usize,
+    unreachable_size: usize,
+    unreachable: &std::collections::HashSet<UniqueAddress>,
+    lowest: &Member,
+) -> DowningDecision {
+    if reachable_size == unreachable_size {
+        if unreachable.contains(&lowest.unique_address) {
+            DowningDecision::DownReachable
+        } else {
+            DowningDecision::DownUnreachable
+        }
+    } else if reachable_size > unreachable_size {
+        DowningDecision::DownUnreachable
+    } else {
+        DowningDecision::DownReachable
+    }
+}
+
+fn keep_oldest_decision(
+    gossip: &Gossip,
+    role: &Option<String>,
+    down_if_alone: bool,
+) -> DowningDecision {
+    let members = decision_members(gossip, role);
+    if members.is_empty() {
+        return DowningDecision::DownAll;
+    }
+
+    let unreachable = gossip.reachability().all_unreachable_or_terminated();
+    let oldest = members
+        .iter()
+        .min_by_key(|member| member_age_key(member))
+        .expect("members is not empty");
+    let oldest_is_reachable = !unreachable.contains(&oldest.unique_address);
+    let reachable_count = members
+        .iter()
+        .filter(|member| !unreachable.contains(&member.unique_address))
+        .count();
+    let unreachable_count = members.len() - reachable_count;
+
+    if oldest_is_reachable {
+        if down_if_alone && reachable_count == 1 && unreachable_count >= 2 {
+            DowningDecision::DownReachable
+        } else {
+            DowningDecision::DownUnreachable
+        }
+    } else if down_if_alone && unreachable_count == 1 && reachable_count >= 2 {
+        DowningDecision::DownUnreachable
+    } else {
+        DowningDecision::DownReachable
+    }
+}
+
+fn decision_members(gossip: &Gossip, role: &Option<String>) -> Vec<Member> {
+    let mut members: Vec<_> = gossip
+        .members()
+        .iter()
+        .filter(|member| {
+            !matches!(
+                member.status,
+                MemberStatus::Joining
+                    | MemberStatus::WeaklyUp
+                    | MemberStatus::Down
+                    | MemberStatus::Exiting
+                    | MemberStatus::Removed
+            )
+        })
+        .filter(|member| role.as_ref().is_none_or(|role| member.has_role(role)))
+        .cloned()
+        .collect();
+    members.sort_by_key(|member| member.unique_address.ordering_key());
+    members
+}
+
+fn member_age_key(member: &Member) -> (u64, String) {
+    (
+        member.up_number.unwrap_or(u64::MAX),
+        member.unique_address.ordering_key(),
+    )
 }
 
 #[cfg(test)]
@@ -272,8 +431,183 @@ mod tests {
         );
     }
 
+    #[test]
+    fn split_brain_down_all_strategy_downs_all_downable_members() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let hook = SplitBrainResolverHook::down_all();
+        let gossip = Gossip::from_members([
+            member(node_a.clone(), MemberStatus::Up),
+            member(node_b.clone(), MemberStatus::Joining),
+        ]);
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_a);
+
+        assert_eq!(plan.decision(), DowningDecision::DownAll);
+        assert_eq!(plan.nodes_to_down(), &[node_a, node_b]);
+    }
+
+    #[test]
+    fn keep_majority_downs_unreachable_when_self_side_is_larger() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let gossip = Gossip::from_members([
+            member(node_a.clone(), MemberStatus::Up),
+            member(node_b.clone(), MemberStatus::Up),
+            member(node_c.clone(), MemberStatus::Up),
+        ])
+        .with_reachability(Reachability::new().unreachable(node_a.clone(), node_c.clone()));
+        let hook = SplitBrainResolverHook::keep_majority(None);
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_a);
+
+        assert_eq!(plan.decision(), DowningDecision::DownUnreachable);
+        assert_eq!(plan.nodes_to_down(), &[node_c]);
+    }
+
+    #[test]
+    fn keep_majority_downs_reachable_on_minority_side() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let gossip = Gossip::from_members([
+            member(node_a.clone(), MemberStatus::Up),
+            member(node_b.clone(), MemberStatus::Up),
+            member(node_c.clone(), MemberStatus::Up),
+        ])
+        .with_reachability(
+            Reachability::new()
+                .unreachable(node_a.clone(), node_b)
+                .unreachable(node_a.clone(), node_c),
+        );
+        let hook = SplitBrainResolverHook::keep_majority(None);
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_a);
+
+        assert_eq!(plan.decision(), DowningDecision::DownReachable);
+        assert_eq!(plan.nodes_to_down(), &[node_a]);
+        assert!(plan.down_self());
+    }
+
+    #[test]
+    fn keep_majority_tie_keeps_lowest_address_side() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let gossip = Gossip::from_members([
+            member(node_a.clone(), MemberStatus::Up),
+            member(node_b.clone(), MemberStatus::Up),
+        ])
+        .with_reachability(Reachability::new().unreachable(node_b.clone(), node_a.clone()));
+        let hook = SplitBrainResolverHook::keep_majority(None);
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_b);
+
+        assert_eq!(plan.decision(), DowningDecision::DownReachable);
+        assert_eq!(plan.nodes_to_down(), &[node_b]);
+    }
+
+    #[test]
+    fn keep_majority_role_counts_only_members_with_role() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let gossip = Gossip::from_members([
+            member_with_roles(node_a.clone(), MemberStatus::Up, ["backend"]),
+            member_with_roles(node_b.clone(), MemberStatus::Up, ["frontend"]),
+            member_with_roles(node_c.clone(), MemberStatus::Up, ["backend"]),
+        ])
+        .with_reachability(Reachability::new().unreachable(node_a.clone(), node_c.clone()));
+        let hook = SplitBrainResolverHook::keep_majority(Some("backend".to_string()));
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_a);
+
+        assert_eq!(plan.decision(), DowningDecision::DownUnreachable);
+        assert_eq!(plan.nodes_to_down(), &[node_c]);
+    }
+
+    #[test]
+    fn keep_majority_with_no_matching_role_downs_all_downable_members() {
+        let node_a = node("a", 1);
+        let gossip = Gossip::from_members([member(node_a.clone(), MemberStatus::Up)]);
+        let hook = SplitBrainResolverHook::keep_majority(Some("missing".to_string()));
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_a);
+
+        assert_eq!(plan.decision(), DowningDecision::DownAll);
+        assert_eq!(plan.nodes_to_down(), &[node_a]);
+    }
+
+    #[test]
+    fn keep_oldest_keeps_side_with_oldest_member() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let gossip = Gossip::from_members([
+            member_with_age(node_a.clone(), MemberStatus::Up, 1),
+            member_with_age(node_b.clone(), MemberStatus::Up, 2),
+            member_with_age(node_c.clone(), MemberStatus::Up, 3),
+        ])
+        .with_reachability(
+            Reachability::new()
+                .unreachable(node_b.clone(), node_a.clone())
+                .unreachable(node_b.clone(), node_c.clone()),
+        );
+        let hook = SplitBrainResolverHook::keep_oldest(None, false);
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_b);
+
+        assert_eq!(plan.decision(), DowningDecision::DownReachable);
+        assert_eq!(plan.nodes_to_down(), &[node_b]);
+    }
+
+    #[test]
+    fn keep_oldest_down_if_alone_downs_oldest_when_it_is_alone_against_larger_side() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let gossip = Gossip::from_members([
+            member_with_age(node_a.clone(), MemberStatus::Up, 1),
+            member_with_age(node_b.clone(), MemberStatus::Up, 2),
+            member_with_age(node_c.clone(), MemberStatus::Up, 3),
+        ])
+        .with_reachability(
+            Reachability::new()
+                .unreachable(node_a.clone(), node_b)
+                .unreachable(node_a.clone(), node_c),
+        );
+        let hook = SplitBrainResolverHook::keep_oldest(None, true);
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_a);
+
+        assert_eq!(plan.decision(), DowningDecision::DownReachable);
+        assert_eq!(plan.nodes_to_down(), &[node_a]);
+    }
+
     fn member(unique_address: UniqueAddress, status: MemberStatus) -> Member {
         Member::new(unique_address, Vec::new()).with_status(status)
+    }
+
+    fn member_with_roles(
+        unique_address: UniqueAddress,
+        status: MemberStatus,
+        roles: impl IntoIterator<Item = &'static str>,
+    ) -> Member {
+        Member::new(
+            unique_address,
+            roles.into_iter().map(String::from).collect(),
+        )
+        .with_status(status)
+    }
+
+    fn member_with_age(
+        unique_address: UniqueAddress,
+        status: MemberStatus,
+        up_number: u64,
+    ) -> Member {
+        Member::new(unique_address, Vec::new())
+            .with_status(status)
+            .with_up_number(up_number)
     }
 
     fn node(system: &str, uid: u64) -> UniqueAddress {

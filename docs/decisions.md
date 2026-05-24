@@ -553,3 +553,30 @@ Consequences:
 - Event-only subscribers keep a narrower `ActorRef<ClusterEvent>` protocol.
 - The facade remains a lightweight handle over the cluster event publisher
   until full membership actors own the publisher lifecycle.
+
+## ADR-0023: Initial Split-Brain Resolver Hooks Are Synchronous Policies
+
+Status: Accepted
+
+Context:
+Pekko's split-brain resolver is an actor-backed downing provider. It waits for
+stable reachability, handles indirectly connected graphs, and can use lease
+acquisition for lease-majority decisions. Kairo has the gossip, reachability,
+and downing-plan state needed for deterministic decisions, but not yet the full
+provider lifecycle, lease abstraction, or multi-node transport.
+
+Decision:
+Kairo's first concrete downing slice exposes synchronous
+`SplitBrainResolverHook` policies for `down-all`, `keep-majority`, and
+`keep-oldest`. These hooks implement the primary Pekko decisions over the
+current gossip snapshot and feed the existing `DowningPlan`; lease-majority,
+indirectly-connected graph handling, and stable-after actor timing remain
+future provider work.
+
+Consequences:
+- Tests can cover concrete downing behavior without introducing a central
+  membership authority or a premature lease dependency.
+- The public downing boundary remains `DowningHook` plus `DowningPlan`, so an
+  actor-backed provider can reuse the same policy decisions later.
+- Full split-brain resolver parity still requires stable-after scheduling,
+  indirectly-connected handling, and lease-majority support.

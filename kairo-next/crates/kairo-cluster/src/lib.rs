@@ -19,7 +19,10 @@ mod vector_clock;
 
 pub use cluster::{Cluster, ClusterError};
 pub use convergence::{Convergence, ConvergenceBlocker};
-pub use downing::{DowningDecision, DowningHook, DowningPlan, NoDowning, StaticDowningHook};
+pub use downing::{
+    DowningDecision, DowningHook, DowningPlan, NoDowning, SplitBrainResolverHook,
+    SplitBrainStrategy, StaticDowningHook,
+};
 pub use event_publisher::{
     ClusterEventPublisher, ClusterEventPublisherMsg, ClusterSubscriptionEvent,
     ClusterSubscriptionInitialState, CurrentClusterState, SubscriptionInitialState,

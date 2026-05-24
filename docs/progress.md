@@ -197,6 +197,12 @@ Implemented:
   initial downing hook boundary and SBR-style decision mapping for downing
   reachable, unreachable, all, or self-quarantined members before actor-backed
   providers are wired in.
+- `kairo-cluster::SplitBrainResolverHook` provides the first concrete
+  synchronous downing policies for `down-all`, `keep-majority`, and
+  `keep-oldest`, including role-filtered majority decisions, tie-breaking by
+  lowest address, oldest-member survival, and `down-if-alone` behavior. Full
+  stable-after provider timing, indirectly-connected graph handling, and
+  lease-majority remain future work.
 - `kairo-cluster::HeartbeatNodeRing` and `HeartbeatSenderState` model
   Pekko-style heartbeat receiver selection and sender bookkeeping, including
   deterministic ring ordering, configured receiver limits, unreachable receiver
@@ -234,7 +240,8 @@ Not yet implemented:
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
-  receiver routing, and concrete downing providers.
+  receiver routing, actor-backed downing provider timing, indirectly-connected
+  split-brain handling, and lease-majority support.
 
 ## Last Validation
 
