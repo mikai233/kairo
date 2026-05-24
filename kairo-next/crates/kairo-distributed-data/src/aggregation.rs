@@ -197,6 +197,7 @@ where
     remote_nodes: Vec<ReplicaId>,
     required_remote_reads: usize,
     received: usize,
+    received_from: BTreeSet<ReplicaId>,
     result: Option<DataEnvelope<D>>,
 }
 
@@ -216,6 +217,7 @@ where
             remote_nodes,
             required_remote_reads,
             received: 0,
+            received_from: BTreeSet::new(),
             result: local_value,
         })
     }
@@ -241,6 +243,17 @@ where
             (None, None) => None,
         };
         self.outcome()
+    }
+
+    pub fn record_read_from(
+        &mut self,
+        replica: &ReplicaId,
+        envelope: Option<DataEnvelope<D>>,
+    ) -> ReadAggregationOutcome<D> {
+        if !self.remote_nodes.contains(replica) || !self.received_from.insert(replica.clone()) {
+            return self.outcome();
+        }
+        self.record_read(envelope)
     }
 
     pub fn timeout(&self) -> ReadAggregationOutcome<D> {

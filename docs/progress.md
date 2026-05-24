@@ -346,6 +346,12 @@ Implemented:
   envelopes carry explicit source and target replica metadata, outbound reply
   routing uses the original request sender replica, and inbound decoding
   preserves the source replica for future aggregator orchestration.
+- `kairo-distributed-data` now has actor-backed read/write aggregation
+  receivers that consume decoded replica replies in synchronous actor turns:
+  write aggregators complete on quorum success, impossible quorum, or timeout,
+  emit full-state retry effects for delta NACKs, and read aggregators merge
+  source-tagged read results once per replica before reporting success,
+  not-found, decode failure, or timeout.
 - `DeltaReceiveTracker` tracks receive-side per-replica/key delta sequence
   numbers and models Pekko-style duplicate, missing, invalid-range, and
   in-order apply decisions before the transport loop is wired in.
@@ -759,8 +765,8 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, actor-backed aggregation of
-  ACK/NACK/read-result replies, pruning scheduling, and gossip-backed
+  propagation/direct read/write, wiring actor-backed aggregators into the
+  public replicator update/get paths, pruning scheduling, and gossip-backed
   replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
