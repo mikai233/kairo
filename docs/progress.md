@@ -509,6 +509,11 @@ Implemented:
   store-backed shard child handoff by asking the child for handoff-stopper
   completion, stopping and removing the local shard child, and marking the
   shard stopped in region state.
+- `kairo-cluster-sharding` now has an actor-backed handoff worker that follows
+  Pekko's rebalance worker sequence: send `BeginHandOff` to participants,
+  wait for acknowledgements, hand off the owner region's store-backed local
+  shard child, complete the local handoff, and report whether the shard handoff
+  finished successfully.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -655,8 +660,8 @@ Not yet implemented:
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need automatic coordinator/region/shard
-  orchestration, including restart backoff policy integration and end-to-end
-  coordinator-driven handoff workers over region-owned store-backed shards.
+  orchestration, including restart backoff policy integration and automatic
+  coordinator spawning/observing of handoff workers for rebalance completion.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

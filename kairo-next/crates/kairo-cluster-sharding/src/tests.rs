@@ -9,23 +9,24 @@ use crate::{
     BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState,
     CoordinatorStateSnapshot, EntityRef, GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan,
     HandOff, HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget,
-    HandoffTransport, HostShard, HostShardPlan, LeastShardAllocationStrategy,
-    RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan,
-    RegionDropReason, RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan,
-    RegionLocalRoutePlan, RegionRoutePlan, RememberCoordinatorDDataStoreActor,
-    RememberCoordinatorDDataStoreMsg, RememberCoordinatorDDataStoreSnapshot,
-    RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
-    RememberCoordinatorStoreState, RememberShardDDataStoreActor, RememberShardDDataStoreMsg,
-    RememberShardDDataStoreSnapshot, RememberShardStoreActor, RememberShardStoreMsg,
-    RememberShardStoreSnapshot, RememberShardStoreState, RememberShardUpdate,
-    RememberUpdateDonePlan, RememberedEntities, RememberedEntitiesPlan, ShardActor,
-    ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorMsg,
-    ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
-    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot,
-    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
-    ShardingError, default_shard_id_for, remember_coordinator_shards_key,
-    remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
-    remember_entity_shard_replicator_key, shard_id_for, stable_hash_entity_id,
+    HandoffTransport, HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg, HostShard,
+    HostShardPlan, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
+    RebalanceSkipReason, RegionBufferedReplayPlan, RegionDropReason,
+    RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan,
+    RegionRoutePlan, RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
+    RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
+    RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
+    RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
+    RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
+    RememberShardStoreState, RememberShardUpdate, RememberUpdateDonePlan, RememberedEntities,
+    RememberedEntitiesPlan, ShardActor, ShardAllocationStrategy, ShardAllocations,
+    ShardCoordinatorActor, ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason,
+    ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg, ShardRebalancePlan,
+    ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
+    ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
+    default_shard_id_for, remember_coordinator_shards_key, remember_entity_key_index,
+    remember_entity_key_index_for, remember_entity_shard_key, remember_entity_shard_replicator_key,
+    shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -2479,6 +2480,85 @@ fn region_actor_completes_store_backed_shard_child_handoff() {
             .unwrap()
             .is_none()
     );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn handoff_worker_completes_store_backed_region_shard_handoff() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("handoff-worker-store-backed-region").unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let done = kit.create_probe::<HandoffWorkerDone>("done").unwrap();
+    let state = kit.create_probe::<ShardRegionSnapshot>("state").unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    let plan = ShardRebalancePlan {
+        shard: "shard-1".to_string(),
+        from_region: "region-a".to_string(),
+        participants: BTreeSet::from(["region-a".to_string()]),
+        begin_handoff: crate::BeginHandOff {
+            shard_id: "shard-1".to_string(),
+        },
+    };
+    let mut transport = HandoffTransport::new();
+    transport.insert_target(HandoffRegionTarget::new("region-a", region.clone()));
+    let worker = kit
+        .system()
+        .spawn(
+            "handoff-worker",
+            HandoffWorkerActor::props(
+                plan,
+                "stop".to_string(),
+                Duration::from_millis(500),
+                transport,
+            ),
+        )
+        .unwrap();
+
+    worker
+        .tell(HandoffWorkerMsg::Start {
+            reply_to: done.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        done.expect_msg(Duration::from_millis(500)).unwrap(),
+        HandoffWorkerDone {
+            shard: "shard-1".to_string(),
+            ok: true,
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+    assert!(!snapshot.local_shards.contains("shard-1"));
+    assert!(!snapshot.handing_off_shards.contains("shard-1"));
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

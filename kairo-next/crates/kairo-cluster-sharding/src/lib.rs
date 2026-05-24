@@ -11,6 +11,7 @@ mod entity_type;
 mod envelope;
 mod errors;
 mod handoff_transport;
+mod handoff_worker;
 mod hashing;
 mod protocol;
 mod region_actor;
@@ -49,6 +50,10 @@ pub use errors::ShardingError;
 pub use handoff_transport::{
     HandoffDeliveryFailure, HandoffDeliveryReport, HandoffDeliveryTarget, HandoffRegionTarget,
     HandoffTransport,
+};
+pub use handoff_worker::{
+    HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg, HandoffWorkerPhase,
+    HandoffWorkerSnapshot,
 };
 pub use hashing::{DEFAULT_SHARD_COUNT, default_shard_id_for, shard_id_for, stable_hash_entity_id};
 pub use protocol::{
