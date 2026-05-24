@@ -11,6 +11,7 @@ mod errors;
 mod hashing;
 mod protocol;
 mod region_runtime;
+mod shard_runtime;
 
 pub use allocation::{LeastShardAllocationStrategy, ShardAllocationStrategy, ShardAllocations};
 pub use codec::{
@@ -35,6 +36,10 @@ pub use protocol::{
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
     ShardRegionRuntime, ShardStartedPlan,
+};
+pub use shard_runtime::{
+    EntityDelivery, EntityTerminatedPlan, PassivateIgnoreReason, PassivatePlan, ShardDeliverPlan,
+    ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardRuntime,
 };
 
 pub type EntityId = String;

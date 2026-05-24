@@ -298,6 +298,12 @@ Implemented:
   forwards buffered messages when a remote home is learned, starts local shards
   for local homes or `HostShard`, drops handoff buffers to preserve ordering,
   and emits explicit handoff ack/stopped plans.
+- `kairo-cluster-sharding` now has a focused shard entity runtime planner for
+  local shard behavior: first messages start entities, active entities receive
+  business messages directly, passivating entities buffer later messages,
+  passivation sends the configured stop message once, termination removes or
+  restarts entities depending on buffered messages, and shard handoff emits
+  stopper or stopped plans.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -383,8 +389,8 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
-- Sharding region, shard, coordinator allocation, handoff, passivation,
-  rebalancing, and remember-entity storage.
+- Actor-backed sharding region/shard/coordinator wiring, coordinator rebalance
+  scheduling, transport-backed handoff delivery, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.
