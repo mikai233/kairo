@@ -5,9 +5,9 @@ use kairo_actor::{ActorRef, AskResult};
 
 use crate::{
     BeginHandOffPlan, GetShardHome, HandOff, HandOffPlan, HostShardPlan, RegionDropReason,
-    RegionId, RegionRoutePlan, ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan, ShardId,
-    ShardMsg, ShardRegionRuntime, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
-    ShardingError,
+    RegionId, RegionRegistrationStatus, RegionRoutePlan, ShardDeliverPlan, ShardHandOffPlan,
+    ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStarted, ShardStartedPlan,
+    ShardStopped, ShardingEnvelope, ShardingError,
 };
 
 pub enum ShardRegionMsg<M> {
@@ -64,6 +64,10 @@ pub enum ShardRegionMsg<M> {
         result: AskResult<bool>,
         reply_to: ActorRef<RegionLocalHandOffCompletionPlan>,
     },
+    CoordinatorRegistrationResult {
+        result: Result<crate::CoordinatorStateSnapshot, ShardingError>,
+    },
+    RetryCoordinatorRegistration,
     MarkShardStopped {
         shard: ShardId,
         reply_to: Option<ActorRef<ShardRegionSnapshot>>,
@@ -168,6 +172,7 @@ pub struct ShardRegionSnapshot {
     pub starting_shards: BTreeSet<ShardId>,
     pub handing_off_shards: BTreeSet<ShardId>,
     pub total_buffered: usize,
+    pub registration_status: RegionRegistrationStatus,
 }
 
 impl<M> From<&ShardRegionRuntime<M>> for ShardRegionSnapshot {
@@ -178,6 +183,7 @@ impl<M> From<&ShardRegionRuntime<M>> for ShardRegionSnapshot {
             starting_shards: value.starting_shards().clone(),
             handing_off_shards: value.handing_off_shards().clone(),
             total_buffered: value.total_buffered_count(),
+            registration_status: RegionRegistrationStatus::Disabled,
         }
     }
 }

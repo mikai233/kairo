@@ -13,7 +13,8 @@ use crate::{
     HostShardPlan, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
     RebalanceSkipReason, RegionBufferedReplayPlan, RegionDropReason,
     RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan,
-    RegionRoutePlan, RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
+    RegionRegistrationConfig, RegionRegistrationStatus, RegionRoutePlan,
+    RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
     RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
     RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
     RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
@@ -1839,6 +1840,7 @@ fn region_actor_buffers_unknown_shard_and_requests_home_once() {
             starting_shards: BTreeSet::new(),
             handing_off_shards: BTreeSet::new(),
             total_buffered: 2,
+            registration_status: RegionRegistrationStatus::Disabled,
         }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
@@ -2881,6 +2883,173 @@ fn coordinator_actor_registers_local_regions_for_handoff_transport() {
     assert!(
         completed,
         "registered region targets should be available to handoff workers"
+    );
+    region_b
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_b_state.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        region_b_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .contains("shard-1")
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_self_registers_with_local_coordinator_for_handoff() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-self-registration").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                RebalanceThenAllocateStrategy::new(["shard-1"], "region-b"),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region_a = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards_and_registration(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+                RegionRegistrationConfig::new(coordinator.clone(), Duration::from_millis(20)),
+            ),
+        )
+        .unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards_and_registration(
+                "region-b",
+                "orders",
+                10,
+                10,
+                BTreeMap::new(),
+                Duration::from_millis(500),
+                RegionRegistrationConfig::new(coordinator.clone(), Duration::from_millis(20)),
+            ),
+        )
+        .unwrap();
+    let coordinator_state = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+    let region_a_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-a-state")
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let rebalance = kit
+        .create_probe::<Result<RebalancePlan, ShardingError>>("rebalance")
+        .unwrap();
+    let region_b_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-b-state")
+        .unwrap();
+
+    let mut registered = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let state = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        registered = state.allocations.contains_key("region-a")
+            && state.allocations.contains_key("region-b");
+        if registered {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        registered,
+        "regions should register themselves with coordinator"
+    );
+
+    region_a
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_a_state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        region_a_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .registration_status,
+        RegionRegistrationStatus::Registered
+    );
+
+    region_a
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::ApplyEvent {
+            event: CoordinatorEvent::ShardHomeAllocated {
+                shard: "shard-1".to_string(),
+                region: "region-a".to_string(),
+            },
+            reply_to: None,
+        })
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::PlanRebalance {
+            reply_to: rebalance.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        rebalance
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        RebalancePlan::Started { ref shards }
+            if shards.len() == 1 && shards[0].shard == "shard-1"
+    ));
+
+    let mut completed = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let state = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        completed = state
+            .allocations
+            .get("region-b")
+            .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
+        if completed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        completed,
+        "self-registered region targets should be available to handoff workers"
     );
     region_b
         .tell(ShardRegionMsg::GetState {

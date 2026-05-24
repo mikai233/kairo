@@ -8,24 +8,36 @@ use crate::region_protocol::{
     RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan, ShardRegionMsg,
     ShardRegionSnapshot,
 };
+use crate::region_registration::{
+    RegionRegistration, RegionRegistrationConfig, RegionRegistrationStatus,
+};
 use crate::region_shards::LocalShardSpawner;
 use crate::{
-    EntityId, HostShardPlan, RegionId, RegionRoutePlan, ShardDeliverPlan, ShardHandOffPlan,
-    ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope,
+    CoordinatorStateSnapshot, EntityId, HandoffRegionTarget, HostShardPlan, RegionId,
+    RegionRoutePlan, ShardCoordinatorMsg, ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan,
+    ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope, ShardingError,
 };
 
-pub struct ShardRegionActor<M> {
+pub struct ShardRegionActor<M>
+where
+    M: Send + 'static,
+{
     runtime: ShardRegionRuntime<M>,
     local_shard_spawner: Option<LocalShardSpawner>,
     local_shards: BTreeMap<ShardId, ActorRef<ShardMsg<M>>>,
+    registration: Option<RegionRegistration<M>>,
 }
 
-impl<M> ShardRegionActor<M> {
+impl<M> ShardRegionActor<M>
+where
+    M: Send + 'static,
+{
     pub fn new(self_region: impl Into<RegionId>, buffer_capacity: usize) -> Self {
         Self {
             runtime: ShardRegionRuntime::new(self_region, buffer_capacity),
             local_shard_spawner: None,
             local_shards: BTreeMap::new(),
+            registration: None,
         }
     }
 
@@ -38,6 +50,28 @@ impl<M> ShardRegionActor<M> {
             runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
             local_shard_spawner: Some(LocalShardSpawner::plain(shard_buffer_capacity)),
             local_shards: BTreeMap::new(),
+            registration: None,
+        }
+    }
+
+    pub fn new_with_local_shards_and_registration(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        coordinator: ActorRef<ShardCoordinatorMsg<M>>,
+        retry_interval: Duration,
+    ) -> Self
+    where
+        M: Send + 'static,
+    {
+        Self {
+            runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
+            local_shard_spawner: Some(LocalShardSpawner::plain(shard_buffer_capacity)),
+            local_shards: BTreeMap::new(),
+            registration: Some(RegionRegistration::new(RegionRegistrationConfig::new(
+                coordinator,
+                retry_interval,
+            ))),
         }
     }
 
@@ -58,6 +92,32 @@ impl<M> ShardRegionActor<M> {
                 timeout,
             )),
             local_shards: BTreeMap::new(),
+            registration: None,
+        }
+    }
+
+    pub fn new_with_local_remember_store_shards_and_registration(
+        self_region: impl Into<RegionId>,
+        type_name: impl Into<String>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        remembered_entities_by_shard: BTreeMap<ShardId, BTreeSet<EntityId>>,
+        timeout: Duration,
+        registration: RegionRegistrationConfig<M>,
+    ) -> Self
+    where
+        M: Send + 'static,
+    {
+        Self {
+            runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
+            local_shard_spawner: Some(LocalShardSpawner::with_local_remember_stores(
+                type_name,
+                shard_buffer_capacity,
+                remembered_entities_by_shard,
+                timeout,
+            )),
+            local_shards: BTreeMap::new(),
+            registration: Some(RegionRegistration::new(registration)),
         }
     }
 
@@ -80,6 +140,28 @@ impl<M> ShardRegionActor<M> {
         let self_region = self_region.into();
         Props::new(move || {
             Self::new_with_local_shards(self_region, region_buffer_capacity, shard_buffer_capacity)
+        })
+    }
+
+    pub fn props_with_local_shards_and_registration(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        coordinator: ActorRef<ShardCoordinatorMsg<M>>,
+        retry_interval: Duration,
+    ) -> Props<Self>
+    where
+        M: Send + 'static,
+    {
+        let self_region = self_region.into();
+        Props::new(move || {
+            Self::new_with_local_shards_and_registration(
+                self_region,
+                region_buffer_capacity,
+                shard_buffer_capacity,
+                coordinator.clone(),
+                retry_interval,
+            )
         })
     }
 
@@ -108,6 +190,33 @@ impl<M> ShardRegionActor<M> {
         })
     }
 
+    pub fn props_with_local_remember_store_shards_and_registration(
+        self_region: impl Into<RegionId>,
+        type_name: impl Into<String>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        remembered_entities_by_shard: BTreeMap<ShardId, BTreeSet<EntityId>>,
+        timeout: Duration,
+        registration: RegionRegistrationConfig<M>,
+    ) -> Props<Self>
+    where
+        M: Send + 'static,
+    {
+        let self_region = self_region.into();
+        let type_name = type_name.into();
+        Props::new(move || {
+            Self::new_with_local_remember_store_shards_and_registration(
+                self_region,
+                type_name.clone(),
+                region_buffer_capacity,
+                shard_buffer_capacity,
+                remembered_entities_by_shard.clone(),
+                timeout,
+                registration.clone(),
+            )
+        })
+    }
+
     pub fn runtime(&self) -> &ShardRegionRuntime<M> {
         &self.runtime
     }
@@ -118,6 +227,10 @@ where
     M: Send + 'static,
 {
     type Msg = ShardRegionMsg<M>;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.register_with_coordinator(ctx)
+    }
 
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
@@ -202,10 +315,16 @@ where
                 let plan = self.apply_local_shard_handoff_stopper_result(ctx, shard, result)?;
                 let _ = reply_to.tell(plan);
             }
+            ShardRegionMsg::CoordinatorRegistrationResult { result } => {
+                self.apply_registration_result(result, ctx)?;
+            }
+            ShardRegionMsg::RetryCoordinatorRegistration => {
+                self.register_with_coordinator(ctx)?;
+            }
             ShardRegionMsg::MarkShardStopped { shard, reply_to } => {
                 self.runtime.mark_shard_stopped(&shard);
                 self.local_shards.remove(&shard);
-                reply_optional(reply_to, ShardRegionSnapshot::from(&self.runtime));
+                reply_optional(reply_to, self.snapshot());
             }
             ShardRegionMsg::SetGracefulShutdown { in_progress } => {
                 self.runtime.set_graceful_shutdown_in_progress(in_progress);
@@ -214,7 +333,7 @@ where
                 self.runtime.set_preparing_for_shutdown(preparing);
             }
             ShardRegionMsg::GetState { reply_to } => {
-                let _ = reply_to.tell(ShardRegionSnapshot::from(&self.runtime));
+                let _ = reply_to.tell(self.snapshot());
             }
             ShardRegionMsg::GetLocalShard { shard, reply_to } => {
                 let _ = reply_to.tell(self.local_shards.get(&shard).cloned());
@@ -247,6 +366,58 @@ where
             started: started.started,
             buffered: started.buffered,
         })
+    }
+
+    fn register_with_coordinator(&mut self, ctx: &Context<ShardRegionMsg<M>>) -> ActorResult {
+        let Some(registration) = &mut self.registration else {
+            return Ok(());
+        };
+        if registration.is_registered() {
+            return Ok(());
+        }
+
+        let reply_to =
+            ctx.message_adapter(|result| ShardRegionMsg::CoordinatorRegistrationResult { result })?;
+        let target = HandoffRegionTarget::new(self.runtime.self_region().clone(), ctx.myself());
+        let _ = registration
+            .coordinator()
+            .tell(ShardCoordinatorMsg::RegisterLocalRegion { target, reply_to });
+        ctx.schedule_once_self(
+            registration.retry_interval(),
+            ShardRegionMsg::RetryCoordinatorRegistration,
+        );
+        Ok(())
+    }
+
+    fn apply_registration_result(
+        &mut self,
+        result: Result<CoordinatorStateSnapshot, ShardingError>,
+        ctx: &Context<ShardRegionMsg<M>>,
+    ) -> ActorResult {
+        match result {
+            Ok(_) => {
+                if let Some(registration) = &mut self.registration {
+                    registration.mark_registered();
+                }
+                Ok(())
+            }
+            Err(_) => {
+                if let Some(registration) = &mut self.registration {
+                    registration.mark_registering();
+                }
+                self.register_with_coordinator(ctx)
+            }
+        }
+    }
+
+    fn snapshot(&self) -> ShardRegionSnapshot {
+        let mut snapshot = ShardRegionSnapshot::from(&self.runtime);
+        snapshot.registration_status = self
+            .registration
+            .as_ref()
+            .map(RegionRegistration::status)
+            .unwrap_or(RegionRegistrationStatus::Disabled);
+        snapshot
     }
 
     fn dispatch_local_route_plan(

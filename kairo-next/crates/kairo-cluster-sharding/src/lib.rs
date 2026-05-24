@@ -18,6 +18,7 @@ mod hashing;
 mod protocol;
 mod region_actor;
 mod region_protocol;
+mod region_registration;
 mod region_runtime;
 mod region_shards;
 mod remember;
@@ -70,6 +71,7 @@ pub use region_protocol::{
     RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan, ShardRegionMsg,
     ShardRegionSnapshot,
 };
+pub use region_registration::{RegionRegistrationConfig, RegionRegistrationStatus};
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
     ShardRegionRuntime, ShardStartedPlan,

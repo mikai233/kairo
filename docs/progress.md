@@ -534,6 +534,11 @@ Implemented:
   turn, treats duplicate registrations idempotently like Pekko's `Register`
   path, and allows registered local regions to participate in subsequent
   coordinator-driven handoff workers.
+- `kairo-cluster-sharding` shard region actors can now self-register with a
+  local typed coordinator during actor startup, retry registration until the
+  coordinator acknowledges it, expose registration status in region snapshots,
+  and use the registered typed region target for coordinator-driven local
+  handoff without requiring callers to send explicit registration messages.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -681,8 +686,8 @@ Not yet implemented:
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need automatic coordinator/region/shard
   orchestration, including restart backoff policy integration and broader
-  region self-registration/retry bootstrap beyond explicit local registration
-  messages.
+  cluster-event-driven coordinator discovery beyond explicitly supplied local
+  coordinator refs.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
