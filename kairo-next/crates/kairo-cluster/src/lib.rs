@@ -2,6 +2,7 @@
 
 mod convergence;
 mod events;
+mod failure_detector;
 mod gossip;
 mod leader;
 mod leader_actions;
@@ -12,6 +13,10 @@ mod vector_clock;
 
 pub use convergence::{Convergence, ConvergenceBlocker};
 pub use events::{ClusterEvent, ClusterEvents, MemberEvent, ReachabilityEvent};
+pub use failure_detector::{
+    DeadlineFailureDetector, DeadlineFailureDetectorSettings, FailureDetectorError,
+    FailureDetectorRegistry,
+};
 pub use gossip::Gossip;
 pub use leader::LeaderSelection;
 pub use leader_actions::{LeaderActionError, LeaderActionOutcome, LeaderActions};

@@ -188,6 +188,11 @@ Implemented:
   old and new gossip snapshots, including member status events, removed-member
   events, reachability events, leader and role-leader changes, seen changes,
   reachability summaries, and tombstone changes in publication order.
+- `kairo-cluster::DeadlineFailureDetector` and `FailureDetectorRegistry`
+  provide deterministic heartbeat monitoring with Pekko-style semantics:
+  unmonitored resources are available, first heartbeat starts monitoring,
+  resources become unavailable after heartbeat interval plus acceptable pause,
+  and removal forgets detector state.
 
 Not yet implemented:
 
@@ -197,8 +202,8 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
-- Cluster membership actors, failure detection, actor-backed cluster event
-  subscription/publication, and downing hooks.
+- Cluster membership actors, heartbeat sender/receiver actors, actor-backed
+  cluster event subscription/publication, and downing hooks.
 
 ## Last Validation
 
