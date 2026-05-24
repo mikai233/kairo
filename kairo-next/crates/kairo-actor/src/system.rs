@@ -112,10 +112,40 @@ impl ActorSystem {
     where
         A: Actor,
     {
+        self.spawn_under_with_name(parent_path, name, props, false)
+    }
+
+    pub(crate) fn spawn_anonymous_under<A>(
+        &self,
+        parent_path: &ActorPath,
+        props: Props<A>,
+    ) -> Result<ActorRef<A::Msg>, ActorError>
+    where
+        A: Actor,
+    {
+        let id = self.inner.next_anonymous.fetch_add(1, Ordering::Relaxed);
+        let name = format!("$anon-{id}");
+        self.spawn_under_with_name(parent_path, &name, props, true)
+    }
+
+    fn user_root_path(&self) -> ActorPath {
+        ActorPath::root(self.address.clone(), "user")
+    }
+
+    fn spawn_under_with_name<A>(
+        &self,
+        parent_path: &ActorPath,
+        name: &str,
+        props: Props<A>,
+        allow_reserved_name: bool,
+    ) -> Result<ActorRef<A::Msg>, ActorError>
+    where
+        A: Actor,
+    {
         if self.is_terminating() {
             return Err(ActorError::SystemTerminating);
         }
-        validate_actor_name(name)?;
+        validate_actor_name(name, allow_reserved_name)?;
 
         let uid = self.inner.next_uid.fetch_add(1, Ordering::Relaxed);
         let registry_key = format!("{parent_path}/{name}");
@@ -172,23 +202,6 @@ impl ActorSystem {
 
         Ok(actor_ref)
     }
-
-    pub(crate) fn spawn_anonymous_under<A>(
-        &self,
-        parent_path: &ActorPath,
-        props: Props<A>,
-    ) -> Result<ActorRef<A::Msg>, ActorError>
-    where
-        A: Actor,
-    {
-        let id = self.inner.next_anonymous.fetch_add(1, Ordering::Relaxed);
-        let name = format!("$anon-{id}");
-        self.spawn_under(parent_path, &name, props)
-    }
-
-    fn user_root_path(&self) -> ActorPath {
-        ActorPath::root(self.address.clone(), "user")
-    }
 }
 
 #[derive(Debug)]
@@ -218,8 +231,13 @@ impl ActorSystemBuilder {
     }
 }
 
-fn validate_actor_name(name: &str) -> Result<(), ActorError> {
-    if name.is_empty() || name.contains('/') || name.contains('#') {
+fn validate_actor_name(name: &str, allow_reserved: bool) -> Result<(), ActorError> {
+    let valid = if allow_reserved {
+        ActorPath::is_valid_internal_name(name)
+    } else {
+        ActorPath::is_valid_actor_name(name)
+    };
+    if !valid {
         return Err(ActorError::InvalidName(name.to_string()));
     }
     Ok(())

@@ -63,6 +63,10 @@ pub struct ActorPath {
 }
 
 impl ActorPath {
+    pub fn is_valid_actor_name(name: &str) -> bool {
+        is_valid_path_element(name, false)
+    }
+
     pub fn new(value: impl Into<String>) -> Self {
         let value = value.into();
         let (address, segments) =
@@ -102,6 +106,10 @@ impl ActorPath {
 
     pub(crate) fn root(address: Address, name: impl Into<String>) -> Self {
         Self::from_parts(address, vec![PathSegment::new(name, None)])
+    }
+
+    pub(crate) fn is_valid_internal_name(name: &str) -> bool {
+        is_valid_path_element(name, true)
     }
 
     pub(crate) fn child(&self, name: impl Into<String>, uid: Option<u64>) -> Self {
@@ -170,4 +178,36 @@ fn parse_segment(segment: &str) -> PathSegment {
     };
     let uid = uid.parse().ok();
     PathSegment::new(name, uid)
+}
+
+fn is_valid_path_element(name: &str, allow_reserved: bool) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+
+    let bytes = name.as_bytes();
+    if bytes[0] == b'$' && !allow_reserved {
+        return false;
+    }
+
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if is_valid_path_byte(byte) {
+            index += 1;
+        } else if byte == b'%'
+            && index + 2 < bytes.len()
+            && bytes[index + 1].is_ascii_hexdigit()
+            && bytes[index + 2].is_ascii_hexdigit()
+        {
+            index += 3;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn is_valid_path_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"-_.*$+:@&=,!~';".contains(&byte)
 }

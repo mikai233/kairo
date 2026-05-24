@@ -106,6 +106,31 @@ fn duplicate_live_actor_name_is_rejected() {
 }
 
 #[test]
+fn user_actor_names_follow_path_element_rules() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let valid = system
+        .spawn("worker-1_.*+:@&=,!~';%20", Props::new(|| Noop))
+        .unwrap();
+
+    assert!(valid.path().as_str().contains("/worker-1_.*+:@&=,!~';%20#"));
+
+    for invalid in [
+        "",
+        "$reserved",
+        "bad/name",
+        "bad#name",
+        "bad name",
+        "naive?",
+        "naiveä",
+        "bad%",
+        "bad%zz",
+    ] {
+        let error = system.spawn(invalid, Props::new(|| Noop)).unwrap_err();
+        assert!(matches!(error, ActorError::InvalidName(name) if name == invalid));
+    }
+}
+
+#[test]
 fn stop_prevents_later_user_message_delivery() {
     let system = ActorSystem::builder("test").build().unwrap();
     let counter = system

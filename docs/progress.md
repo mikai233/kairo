@@ -31,12 +31,15 @@ Implemented:
 - System stop drains queued user messages to dead letters before delivery.
 - Duplicate live names under `/user` are rejected; stopped names can be reused
   with a new path incarnation.
+- User actor names follow stable actor path element validation; `$`-prefixed
+  names are reserved for internal actors such as anonymous children.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop
   dead letters, duplicate names, path incarnation reuse, context system access,
   child spawning, parent/child stop ordering, recipient behavior, and
   `PostStop` signal delivery, missing-ref dead letters, and dispatcher
-  throughput settings, actor-system termination, context parent/child
-  introspection, context child stop, and invalid context stop targets.
+  throughput settings, actor-system termination, actor name validation, context
+  parent/child introspection, context child stop, and invalid context stop
+  targets.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
