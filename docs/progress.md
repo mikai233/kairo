@@ -194,6 +194,10 @@ Implemented:
   version, and payload bytes using explicit big-endian fields and rejects
   invalid frame magic, unsupported frame versions, and truncated payloads before
   a concrete TCP transport is introduced.
+- `kairo-remote` now has a focused transport bridge module that adapts
+  `RemoteOutbound` envelope sends to framed byte sinks and adapts framed bytes
+  back into the typed `RemoteInbound` delivery pipeline while preserving
+  explicit send, frame, and codec failures.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.

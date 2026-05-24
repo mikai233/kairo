@@ -10,6 +10,7 @@ mod protocol;
 mod provider;
 mod remote_ref;
 mod settings;
+mod transport;
 
 pub use association::{AssociationState, RemoteAssociation};
 pub use codec::{
@@ -30,3 +31,4 @@ pub use protocol::{
 pub use provider::RemoteActorRefProvider;
 pub use remote_ref::RemoteActorRef;
 pub use settings::RemoteSettings;
+pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};
