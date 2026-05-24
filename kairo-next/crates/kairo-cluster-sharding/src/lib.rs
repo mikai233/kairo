@@ -4,6 +4,7 @@ mod allocation;
 mod codec;
 mod coordinator;
 mod coordinator_actor;
+mod coordinator_handoff;
 mod coordinator_runtime;
 mod coordinator_store;
 mod entity_ref;
@@ -39,6 +40,7 @@ pub use codec::{
 };
 pub use coordinator::{CoordinatorEvent, CoordinatorState};
 pub use coordinator_actor::{CoordinatorStateSnapshot, ShardCoordinatorActor, ShardCoordinatorMsg};
+pub use coordinator_handoff::CoordinatorHandoff;
 pub use coordinator_runtime::{
     CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan, RebalanceCompletionPlan,
     RebalancePlan, RebalanceSkipReason, ShardRebalancePlan,

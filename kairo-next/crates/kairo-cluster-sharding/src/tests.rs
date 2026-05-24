@@ -2563,6 +2563,127 @@ fn handoff_worker_completes_store_backed_region_shard_handoff() {
 }
 
 #[test]
+fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
+    let mut state = CoordinatorState::new();
+    for region in ["region-a", "region-b"] {
+        state
+            .apply(CoordinatorEvent::ShardRegionRegistered {
+                region: region.to_string(),
+            })
+            .unwrap();
+    }
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-handoff-worker").unwrap();
+    let region_a = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+                "region-b",
+                "orders",
+                10,
+                10,
+                BTreeMap::new(),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    region_a
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    let mut transport = HandoffTransport::new();
+    transport.insert_target(HandoffRegionTarget::new("region-a", region_a.clone()));
+    transport.insert_target(HandoffRegionTarget::new("region-b", region_b));
+
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                FixedRebalanceStrategy::new(["shard-1"]),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                transport,
+            ),
+        )
+        .unwrap();
+    let rebalance = kit
+        .create_probe::<Result<RebalancePlan, ShardingError>>("rebalance")
+        .unwrap();
+    let snapshot = kit
+        .create_probe::<CoordinatorStateSnapshot>("snapshot")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::PlanRebalance {
+            reply_to: rebalance.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        rebalance
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        RebalancePlan::Started { ref shards }
+            if shards.len() == 1 && shards[0].shard == "shard-1"
+    ));
+
+    let mut completed = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: snapshot.actor_ref(),
+            })
+            .unwrap();
+        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
+        completed = !state.rebalance_in_progress.contains_key("shard-1")
+            && state
+                .allocations
+                .get("region-a")
+                .is_some_and(|shards| !shards.contains(&"shard-1".to_string()));
+        if completed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        completed,
+        "coordinator should clear rebalance and deallocate shard after worker completion"
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn handoff_transport_sends_begin_to_participants_then_handoff_to_owner() {
     let kit = kairo_testkit::ActorSystemTestKit::new("handoff-transport").unwrap();
     let region_a = kit

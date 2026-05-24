@@ -1,28 +1,34 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorRef, ActorResult, AskError, Context, Props};
+use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, AskError, Context, Props};
 
+use crate::coordinator_handoff::CoordinatorHandoff;
 use crate::coordinator_store::{CoordinatorRememberStore, LocalCoordinatorRememberStoreProvider};
 use crate::{
-    CoordinatorEvent, CoordinatorRuntime, CoordinatorState, GetShardHomePlan,
-    LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan, RegionId,
-    RememberCoordinatorStoreMsg, RememberCoordinatorStoreState, RememberCoordinatorUpdateDone,
-    RememberedShards, ShardAllocationStrategy, ShardId, ShardingError,
+    CoordinatorEvent, CoordinatorRuntime, CoordinatorState, GetShardHomePlan, HandoffTransport,
+    HandoffWorkerDone, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
+    RegionId, RememberCoordinatorStoreMsg, RememberCoordinatorStoreState,
+    RememberCoordinatorUpdateDone, RememberedShards, ShardAllocationStrategy, ShardId,
+    ShardingError,
 };
 
 pub const REBALANCE_TIMER_KEY: &str = "sharding-coordinator-rebalance";
 
-pub struct ShardCoordinatorActor {
+pub struct ShardCoordinatorActor<M = ()>
+where
+    M: Send + 'static,
+{
     runtime: CoordinatorRuntime,
     strategy: Box<dyn ShardAllocationStrategy + Send>,
     rebalance_interval: Option<Duration>,
     remember_store: Option<CoordinatorRememberStore>,
     local_remember_store_provider: Option<LocalCoordinatorRememberStoreProvider>,
     waiting_for_remember_store_load: bool,
+    handoff: Option<CoordinatorHandoff<M>>,
 }
 
-impl ShardCoordinatorActor {
+impl ShardCoordinatorActor<()> {
     pub fn new(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -34,6 +40,7 @@ impl ShardCoordinatorActor {
             remember_store: None,
             local_remember_store_provider: None,
             waiting_for_remember_store_load: false,
+            handoff: None,
         }
     }
 
@@ -49,6 +56,7 @@ impl ShardCoordinatorActor {
             remember_store: None,
             local_remember_store_provider: None,
             waiting_for_remember_store_load: false,
+            handoff: None,
         }
     }
 
@@ -65,6 +73,7 @@ impl ShardCoordinatorActor {
             remember_store: Some(CoordinatorRememberStore::new(remember_store, timeout)),
             local_remember_store_provider: None,
             waiting_for_remember_store_load: true,
+            handoff: None,
         }
     }
 
@@ -84,6 +93,7 @@ impl ShardCoordinatorActor {
                 timeout,
             )),
             waiting_for_remember_store_load: true,
+            handoff: None,
         }
     }
 
@@ -131,6 +141,45 @@ impl ShardCoordinatorActor {
         Props::new(move || Self::with_local_remember_store(state, strategy, store_state, timeout))
             .with_stash_capacity(stash_capacity)
     }
+}
+
+impl<M> ShardCoordinatorActor<M>
+where
+    M: Clone + Send + 'static,
+{
+    pub fn with_handoff(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        stop_message: M,
+        handoff_timeout: Duration,
+        transport: HandoffTransport<M>,
+    ) -> Self {
+        Self {
+            runtime: CoordinatorRuntime::new(state),
+            strategy: Box::new(strategy),
+            rebalance_interval: None,
+            remember_store: None,
+            local_remember_store_provider: None,
+            waiting_for_remember_store_load: false,
+            handoff: Some(CoordinatorHandoff::new(
+                stop_message,
+                handoff_timeout,
+                transport,
+            )),
+        }
+    }
+
+    pub fn props_with_handoff(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        stop_message: M,
+        handoff_timeout: Duration,
+        transport: HandoffTransport<M>,
+    ) -> Props<Self> {
+        Props::new(move || {
+            Self::with_handoff(state, strategy, stop_message, handoff_timeout, transport)
+        })
+    }
 
     pub fn runtime(&self) -> &CoordinatorRuntime {
         &self.runtime
@@ -174,6 +223,7 @@ pub enum ShardCoordinatorMsg {
         ok: bool,
         reply_to: ActorRef<Result<RebalanceCompletionPlan, ShardingError>>,
     },
+    HandoffWorkerDone(HandoffWorkerDone),
     RebalanceTick {
         reply_to: Option<ActorRef<Result<RebalancePlan, ShardingError>>>,
     },
@@ -202,7 +252,10 @@ pub struct CoordinatorStateSnapshot {
     pub remember_entities: bool,
 }
 
-impl Actor for ShardCoordinatorActor {
+impl<M> Actor for ShardCoordinatorActor<M>
+where
+    M: Clone + Send + 'static,
+{
     type Msg = ShardCoordinatorMsg;
 
     fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
@@ -263,6 +316,7 @@ impl Actor for ShardCoordinatorActor {
             }
             ShardCoordinatorMsg::PlanRebalance { reply_to } => {
                 let result = self.runtime.plan_rebalance(self.strategy.as_ref());
+                self.spawn_handoff_workers(ctx, &result)?;
                 let _ = reply_to.tell(result);
             }
             ShardCoordinatorMsg::CompleteRebalance {
@@ -273,8 +327,10 @@ impl Actor for ShardCoordinatorActor {
                 let result = self.runtime.complete_rebalance(shard, ok);
                 let _ = reply_to.tell(result);
             }
+            ShardCoordinatorMsg::HandoffWorkerDone(done) => self.apply_handoff_worker_done(done)?,
             ShardCoordinatorMsg::RebalanceTick { reply_to } => {
                 let result = self.runtime.plan_rebalance(self.strategy.as_ref());
+                self.spawn_handoff_workers(ctx, &result)?;
                 reply_optional(reply_to, result);
             }
             ShardCoordinatorMsg::RememberStoreLoadResult { result } => {
@@ -304,7 +360,10 @@ impl Actor for ShardCoordinatorActor {
     }
 }
 
-impl ShardCoordinatorActor {
+impl<M> ShardCoordinatorActor<M>
+where
+    M: Clone + Send + 'static,
+{
     fn receive_loading(
         &mut self,
         ctx: &mut Context<ShardCoordinatorMsg>,
@@ -372,6 +431,30 @@ impl ShardCoordinatorActor {
             store.add_shard(ctx, shard.clone())?;
         }
         Ok(())
+    }
+
+    fn spawn_handoff_workers(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg>,
+        result: &Result<RebalancePlan, ShardingError>,
+    ) -> ActorResult {
+        let (Some(handoff), Ok(RebalancePlan::Started { shards })) = (&mut self.handoff, result)
+        else {
+            return Ok(());
+        };
+
+        handoff.spawn_workers(ctx, shards)?;
+        Ok(())
+    }
+
+    fn apply_handoff_worker_done(&mut self, done: HandoffWorkerDone) -> ActorResult {
+        if let Some(handoff) = &mut self.handoff {
+            handoff.remove_worker(&done.shard);
+        }
+        self.runtime
+            .complete_rebalance(done.shard, done.ok)
+            .map(|_| ())
+            .map_err(|error| ActorError::Message(error.to_string()))
     }
 
     fn stop_for_remember_store_failure(
