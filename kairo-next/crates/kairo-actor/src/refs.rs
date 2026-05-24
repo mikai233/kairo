@@ -245,8 +245,8 @@ impl LocalActorHandle {
         (self.stop)();
     }
 
-    pub(crate) fn wait_for_stop(&self) {
-        self.terminated.wait_unbounded();
+    pub(crate) fn wait_for_stop(&self, timeout: Duration) -> bool {
+        self.terminated.wait(timeout)
     }
 }
 
@@ -280,15 +280,5 @@ impl TerminationLatch {
             }
         }
         true
-    }
-
-    fn wait_unbounded(&self) {
-        let mut stopped = self.stopped.lock().expect("termination latch poisoned");
-        while !*stopped {
-            stopped = self
-                .changed
-                .wait(stopped)
-                .expect("termination latch poisoned");
-        }
     }
 }

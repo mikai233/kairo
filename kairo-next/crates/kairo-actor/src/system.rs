@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::actor::{Actor, Context, Props};
 use crate::dead_letters::DeadLetters;
@@ -23,6 +24,8 @@ pub struct ActorSystem {
 pub(crate) struct ActorSystemInner {
     next_uid: AtomicU64,
     next_anonymous: AtomicU64,
+    terminating: AtomicBool,
+    terminated: AtomicBool,
     names: Mutex<HashMap<String, u64>>,
     children: Mutex<HashMap<String, Vec<LocalActorHandle>>>,
     dispatcher: DispatcherSettings,
@@ -57,6 +60,21 @@ impl ActorSystem {
         actor.request_stop();
     }
 
+    pub fn is_terminating(&self) -> bool {
+        self.inner.terminating.load(Ordering::Acquire)
+    }
+
+    pub fn is_terminated(&self) -> bool {
+        self.inner.terminated.load(Ordering::Acquire)
+    }
+
+    pub fn terminate(&self, timeout: Duration) -> Result<(), ActorError> {
+        self.inner.terminating.store(true, Ordering::Release);
+        stop_children_with_timeout(&self.inner, &self.user_root_path(), timeout)?;
+        self.inner.terminated.store(true, Ordering::Release);
+        Ok(())
+    }
+
     pub fn missing_ref<M>(&self, path: impl Into<String>) -> ActorRef<M> {
         ActorRef::missing(ActorPath::new(path), self.inner.dead_letters.clone())
     }
@@ -82,6 +100,9 @@ impl ActorSystem {
     where
         A: Actor,
     {
+        if self.is_terminating() {
+            return Err(ActorError::SystemTerminating);
+        }
         validate_actor_name(name)?;
 
         let uid = self.inner.next_uid.fetch_add(1, Ordering::Relaxed);
@@ -160,6 +181,10 @@ impl ActorSystem {
         let id = self.inner.next_anonymous.fetch_add(1, Ordering::Relaxed);
         let name = format!("$anon-{id}");
         self.spawn_under(parent_path, &name, props)
+    }
+
+    fn user_root_path(&self) -> String {
+        format!("kairo://{}/user", self.name)
     }
 }
 
@@ -283,6 +308,14 @@ where
 }
 
 fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) {
+    let _ = stop_children_with_timeout(system_inner, parent_path, Duration::MAX);
+}
+
+fn stop_children_with_timeout(
+    system_inner: &ActorSystemInner,
+    parent_path: &str,
+    timeout: Duration,
+) -> Result<(), ActorError> {
     let children = system_inner
         .children
         .lock()
@@ -294,9 +327,18 @@ fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) {
         child.request_stop();
     }
 
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .unwrap_or_else(|| Instant::now() + Duration::from_secs(60 * 60 * 24 * 365));
     for child in children {
-        child.wait_for_stop();
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
+            .ok_or(ActorError::TerminationTimeout)?;
+        if !child.wait_for_stop(remaining) {
+            return Err(ActorError::TerminationTimeout);
+        }
     }
+    Ok(())
 }
 
 fn remove_child_from_parent(

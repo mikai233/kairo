@@ -10,6 +10,10 @@ pub enum ActorError {
     InvalidName(String),
     #[error("actor `{0}` already exists")]
     DuplicateName(String),
+    #[error("actor system is terminating")]
+    SystemTerminating,
+    #[error("actor system termination timed out")]
+    TerminationTimeout,
     #[error("dispatcher throughput must be greater than zero")]
     InvalidThroughput,
 }

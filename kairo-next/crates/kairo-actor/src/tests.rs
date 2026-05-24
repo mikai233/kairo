@@ -500,3 +500,60 @@ fn post_stop_signal_is_delivered_during_termination() {
     );
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
+
+#[test]
+fn actor_system_terminate_stops_top_level_actors() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (stopped_tx, stopped_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "probe",
+            Props::new(move || StopProbe {
+                stopped: stopped_tx,
+            }),
+        )
+        .unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+
+    stopped_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(actor.is_stopped());
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminating());
+    assert!(system.is_terminated());
+}
+
+#[test]
+fn actor_system_terminate_rejects_later_spawns() {
+    let system = ActorSystem::builder("test").build().unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+    let error = system.spawn("late", Props::new(|| Noop)).unwrap_err();
+
+    assert!(matches!(error, ActorError::SystemTerminating));
+}
+
+#[test]
+fn actor_system_terminate_times_out_waiting_for_blocked_actor_start() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (_release_tx, release_rx) = mpsc::channel();
+    let received = Arc::new(AtomicU64::new(0));
+    let _actor = system
+        .spawn(
+            "blocked",
+            Props::new({
+                let received = Arc::clone(&received);
+                move || BlockingStart {
+                    release: release_rx,
+                    received,
+                }
+            }),
+        )
+        .unwrap();
+
+    let error = system.terminate(Duration::from_millis(10)).unwrap_err();
+
+    assert!(matches!(error, ActorError::TerminationTimeout));
+    assert!(system.is_terminating());
+    assert!(!system.is_terminated());
+}

@@ -13,6 +13,8 @@ Implemented:
 - Actors receive a synchronous `Signal::PostStop` during local termination.
 - `Context::stop(ctx.myself())` stops the current local actor ref.
 - `ActorSystem::stop` can stop an idle local actor through the system lane.
+- `ActorSystem::terminate` stops top-level `/user` actors, waits for
+  termination, and rejects later spawns.
 - `Context::system`, `Context::spawn`, and `Context::spawn_anonymous` are
   available for local actors.
 - `ActorSystemBuilder::dispatcher_throughput` configures local mailbox batch
@@ -28,14 +30,14 @@ Implemented:
   dead letters, duplicate names, path incarnation reuse, context system access,
   child spawning, parent/child stop ordering, recipient behavior, and
   `PostStop` signal delivery, missing-ref dead letters, and dispatcher
-  throughput settings.
+  throughput settings, and actor-system termination.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
-- External `ActorSystem` stop APIs and coordinated shutdown.
+- Coordinated shutdown.
 - Death watch, supervision, timers, ask, adapters, event stream, receptionist,
   and deterministic testkit support.
 
