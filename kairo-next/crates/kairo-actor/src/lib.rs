@@ -1,11 +1,11 @@
 //! Typed local actor API and runtime primitives.
 
 use std::any::type_name;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -181,7 +181,7 @@ impl DeadLetters {
 #[derive(Debug)]
 pub struct ActorRef<M> {
     path: ActorPath,
-    mailbox: mpsc::Sender<M>,
+    mailbox: Arc<Mailbox<M>>,
     stopped: Arc<AtomicBool>,
     dead_letters: DeadLetters,
     _message: PhantomData<fn(M)>,
@@ -214,12 +214,12 @@ impl<M: Send + 'static> ActorRef<M> {
             });
         }
 
-        self.mailbox.send(message).map_err(|error| {
+        self.mailbox.enqueue_user(message).map_err(|message| {
             self.stopped.store(true, Ordering::Release);
             self.dead_letters
                 .publish::<M>(self.path.clone(), "actor mailbox is closed");
             SendError {
-                message: error.0,
+                message,
                 reason: "actor mailbox is closed".to_string(),
             }
         })
@@ -228,6 +228,16 @@ impl<M: Send + 'static> ActorRef<M> {
     pub fn as_any(&self) -> AnyActorRef {
         AnyActorRef {
             path: self.path.clone(),
+        }
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::Acquire)
+    }
+
+    fn request_stop(&self) {
+        if !self.stopped.swap(true, Ordering::AcqRel) {
+            self.mailbox.enqueue_system(SystemMessage::Stop);
         }
     }
 }
@@ -290,8 +300,92 @@ impl<M: Send + 'static> Context<M> {
     pub fn stop(&mut self, actor: ActorRef<M>) {
         if actor.path == self.myself.path {
             self.stop_requested = true;
-            actor.stopped.store(true, Ordering::Release);
+            actor.request_stop();
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SystemMessage {
+    Stop,
+}
+
+#[derive(Debug)]
+enum Dequeued<M> {
+    System(SystemMessage),
+    User(M),
+    Closed,
+}
+
+#[derive(Debug)]
+struct Mailbox<M> {
+    state: Mutex<MailboxState<M>>,
+    ready: Condvar,
+}
+
+#[derive(Debug)]
+struct MailboxState<M> {
+    system: VecDeque<SystemMessage>,
+    user: VecDeque<M>,
+    closed: bool,
+}
+
+impl<M> Default for Mailbox<M> {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new(MailboxState {
+                system: VecDeque::new(),
+                user: VecDeque::new(),
+                closed: false,
+            }),
+            ready: Condvar::new(),
+        }
+    }
+}
+
+impl<M> Mailbox<M> {
+    fn enqueue_user(&self, message: M) -> Result<(), M> {
+        let mut state = self.state.lock().expect("mailbox poisoned");
+        if state.closed {
+            return Err(message);
+        }
+        state.user.push_back(message);
+        self.ready.notify_one();
+        Ok(())
+    }
+
+    fn enqueue_system(&self, message: SystemMessage) {
+        let mut state = self.state.lock().expect("mailbox poisoned");
+        if state.closed {
+            return;
+        }
+        state.system.push_back(message);
+        self.ready.notify_one();
+    }
+
+    fn dequeue(&self) -> Dequeued<M> {
+        let mut state = self.state.lock().expect("mailbox poisoned");
+        loop {
+            if let Some(message) = state.system.pop_front() {
+                return Dequeued::System(message);
+            }
+            if let Some(message) = state.user.pop_front() {
+                return Dequeued::User(message);
+            }
+            if state.closed {
+                return Dequeued::Closed;
+            }
+            state = self.ready.wait(state).expect("mailbox poisoned");
+        }
+    }
+
+    fn close_and_drain_user(&self) -> Vec<M> {
+        let mut state = self.state.lock().expect("mailbox poisoned");
+        state.closed = true;
+        state.system.clear();
+        let messages = state.user.drain(..).collect();
+        self.ready.notify_all();
+        messages
     }
 }
 
@@ -326,6 +420,10 @@ impl ActorSystem {
         self.inner.dead_letters.clone()
     }
 
+    pub fn stop<M: Send + 'static>(&self, actor: &ActorRef<M>) {
+        actor.request_stop();
+    }
+
     pub fn spawn<A>(
         &self,
         name: impl AsRef<str>,
@@ -346,7 +444,7 @@ impl ActorSystem {
             names.insert(name.to_string(), uid);
         }
 
-        let (mailbox, receiver) = mpsc::channel();
+        let mailbox = Arc::new(Mailbox::default());
         let path = ActorPath::new(format!("kairo://{}/user/{}#{}", self.name, name, uid));
         let stopped = Arc::new(AtomicBool::new(false));
         let actor_ref = ActorRef {
@@ -367,7 +465,6 @@ impl ActorSystem {
                 run_actor(
                     props,
                     thread_ref,
-                    receiver,
                     stopped,
                     dead_letters,
                     system_inner,
@@ -414,7 +511,6 @@ fn validate_actor_name(name: &str) -> Result<(), ActorError> {
 fn run_actor<A>(
     props: Props<A>,
     actor_ref: ActorRef<A::Msg>,
-    receiver: mpsc::Receiver<A::Msg>,
     stopped: Arc<AtomicBool>,
     dead_letters: DeadLetters,
     system_inner: Arc<ActorSystemInner>,
@@ -433,19 +529,19 @@ fn run_actor<A>(
     }
 
     while !stopped.load(Ordering::Acquire) {
-        match receiver.recv() {
-            Ok(message) => {
+        match actor_ref.mailbox.dequeue() {
+            Dequeued::System(SystemMessage::Stop) | Dequeued::Closed => {
+                stopped.store(true, Ordering::Release);
+            }
+            Dequeued::User(message) => {
                 if actor.receive(&mut context, message).is_err() || context.stop_requested {
                     stopped.store(true, Ordering::Release);
                 }
             }
-            Err(_) => {
-                stopped.store(true, Ordering::Release);
-            }
         }
     }
 
-    for message in receiver.try_iter() {
+    for message in actor_ref.mailbox.close_and_drain_user() {
         drop(message);
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
     }
@@ -543,5 +639,95 @@ mod tests {
         let records = system.dead_letters().records();
         assert_eq!(records[0].recipient(), counter.path());
         assert_eq!(records[0].reason(), "actor is stopped");
+    }
+
+    struct StopProbe {
+        stopped: mpsc::Sender<()>,
+    }
+
+    impl Actor for StopProbe {
+        type Msg = ();
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+            Ok(())
+        }
+
+        fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+            self.stopped
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))
+        }
+    }
+
+    #[test]
+    fn actor_system_stop_wakes_idle_actor() {
+        let system = ActorSystem::builder("test").build().unwrap();
+        let (stopped_tx, stopped_rx) = mpsc::channel();
+        let actor = system
+            .spawn(
+                "probe",
+                Props::new(move || StopProbe {
+                    stopped: stopped_tx,
+                }),
+            )
+            .unwrap();
+
+        system.stop(&actor);
+
+        stopped_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(actor.is_stopped());
+    }
+
+    struct BlockingStart {
+        release: mpsc::Receiver<()>,
+        received: Arc<AtomicU64>,
+    }
+
+    impl Actor for BlockingStart {
+        type Msg = ();
+
+        fn started(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+            self.release
+                .recv()
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+            Ok(())
+        }
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+            self.received.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn system_stop_drains_queued_user_messages_to_dead_letters() {
+        let system = ActorSystem::builder("test").build().unwrap();
+        let (release_tx, release_rx) = mpsc::channel();
+        let received = Arc::new(AtomicU64::new(0));
+        let actor = system
+            .spawn(
+                "blocked",
+                Props::new({
+                    let received = Arc::clone(&received);
+                    move || BlockingStart {
+                        release: release_rx,
+                        received,
+                    }
+                }),
+            )
+            .unwrap();
+
+        actor.tell(()).unwrap();
+        actor.tell(()).unwrap();
+        system.stop(&actor);
+        release_tx.send(()).unwrap();
+
+        assert!(
+            system
+                .dead_letters()
+                .wait_for_len(2, Duration::from_secs(1))
+        );
+        assert_eq!(received.load(Ordering::Relaxed), 0);
+        assert_eq!(system.dead_letters().records()[0].recipient(), actor.path());
     }
 }
