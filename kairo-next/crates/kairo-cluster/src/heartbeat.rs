@@ -228,6 +228,23 @@ impl HeartbeatSenderState {
         changed
     }
 
+    pub fn trigger_expected_first_heartbeat(&self, from: &UniqueAddress, now: Duration) -> Self {
+        if !self.active_receivers().contains(from) || self.failure_detector.is_monitoring(from) {
+            return self.clone();
+        }
+
+        let mut changed = self.clone();
+        changed.failure_detector.heartbeat(from.clone(), now);
+        changed
+    }
+
+    pub fn reset_failure_detector(&self) -> Self {
+        let mut changed = self.clone();
+        changed.failure_detector.reset();
+        changed.old_receivers_now_unreachable.clear();
+        changed
+    }
+
     fn membership_change(&self, new_ring: HeartbeatNodeRing, now: Duration) -> Self {
         let old_receivers = self.ring.my_receivers();
         let new_receivers = new_ring.my_receivers();
@@ -385,6 +402,51 @@ mod tests {
                 .contains(&removed_receiver)
         );
         assert!(!changed.failure_detector().is_monitoring(&removed_receiver));
+    }
+
+    #[test]
+    fn expected_first_heartbeat_starts_monitoring_active_receiver() {
+        let self_node = node("a", 1);
+        let node_b = node("b", 2);
+        let state = HeartbeatSenderState::new(self_node, 2, settings())
+            .unwrap()
+            .add_member(node_b.clone(), ms(0));
+
+        let changed = state.trigger_expected_first_heartbeat(&node_b, ms(500));
+
+        assert!(changed.failure_detector().is_monitoring(&node_b));
+        assert_eq!(
+            changed
+                .failure_detector()
+                .detector(&node_b)
+                .and_then(|detector| detector.latest_heartbeat_at()),
+            Some(ms(500))
+        );
+    }
+
+    #[test]
+    fn expected_first_heartbeat_ignores_inactive_receiver() {
+        let state = empty_state("a");
+        let node_b = node("b", 2);
+
+        let changed = state.trigger_expected_first_heartbeat(&node_b, ms(500));
+
+        assert!(!changed.failure_detector().is_monitoring(&node_b));
+    }
+
+    #[test]
+    fn reset_failure_detector_forgets_all_monitored_receivers() {
+        let self_node = node("a", 1);
+        let node_b = node("b", 2);
+        let state = HeartbeatSenderState::new(self_node, 2, settings())
+            .unwrap()
+            .add_member(node_b.clone(), ms(0))
+            .heartbeat_response(&node_b, ms(100));
+
+        let changed = state.reset_failure_detector();
+
+        assert!(!changed.failure_detector().is_monitoring(&node_b));
+        assert!(changed.old_receivers_now_unreachable().is_empty());
     }
 
     #[test]

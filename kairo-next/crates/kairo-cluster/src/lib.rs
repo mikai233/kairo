@@ -7,6 +7,7 @@ mod events;
 mod failure_detector;
 mod gossip;
 mod heartbeat;
+mod heartbeat_actor;
 mod leader;
 mod leader_actions;
 mod member;
@@ -26,9 +27,13 @@ pub use failure_detector::{
 };
 pub use gossip::Gossip;
 pub use heartbeat::{HeartbeatError, HeartbeatNodeRing, HeartbeatSenderState};
+pub use heartbeat_actor::{
+    HeartbeatClock, HeartbeatReceiver, HeartbeatReceiverMsg, HeartbeatSender, HeartbeatSenderMsg,
+    HeartbeatSenderSettings, HeartbeatSenderSnapshot, SystemHeartbeatClock,
+};
 pub use leader::LeaderSelection;
 pub use leader_actions::{LeaderActionError, LeaderActionOutcome, LeaderActions};
 pub use member::{Member, MemberStatus, UniqueAddress};
-pub use protocol::{GossipEnvelope, Join, Welcome};
+pub use protocol::{GossipEnvelope, Heartbeat, HeartbeatRsp, Join, Welcome};
 pub use reachability::{Reachability, ReachabilityRecord, ReachabilityStatus};
 pub use vector_clock::{VectorClock, VectorClockNode, VectorClockOrdering};

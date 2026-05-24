@@ -498,3 +498,33 @@ Consequences:
   convergence, leader actions, or downing hooks are implemented.
 - Later cluster daemons can build on these pure transitions instead of
   embedding merge rules in actor behavior.
+
+## ADR-0021: Cluster Heartbeat I/O Uses Typed Routes First
+
+Status: Accepted
+
+Context:
+Pekko's cluster heartbeat sender resolves a remote heartbeat receiver through
+an actor selection at `/system/cluster/heartbeatReceiver`, sends a heartbeat,
+and updates the failure detector when the receiver replies. Kairo does not yet
+have the remote provider and association cache needed to resolve remote system
+actor paths, but the heartbeat sender/receiver behavior is needed by the
+cluster runtime milestone.
+
+Decision:
+The first Kairo heartbeat actor slice keeps the Pekko state transitions but
+uses an explicit typed route table from `UniqueAddress` to
+`ActorRef<HeartbeatReceiverMsg>`. `HeartbeatReceiver` replies to the supplied
+typed sender ref, and `HeartbeatSender` owns periodic tick handling,
+current-state initialization, cluster event updates, expected-first-heartbeat
+monitoring, and response-driven failure-detector updates. Stable wire metadata
+for `Heartbeat` and `HeartbeatRsp` lives in the cluster `protocol` module so
+the later remote transport can carry the same protocol messages.
+
+Consequences:
+- The heartbeat runtime remains actor-backed and testable before remote actor
+  selection exists.
+- Cluster membership remains gossip/failure-detector based; route registration
+  is a transport addressing concern, not membership authority.
+- The route table can be replaced or populated by remote association/provider
+  code later without changing the heartbeat state machine or wire manifests.

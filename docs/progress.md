@@ -202,6 +202,12 @@ Implemented:
   deterministic ring ordering, configured receiver limits, unreachable receiver
   inclusion, and continued monitoring of removed-but-unavailable receivers until
   recovery.
+- `kairo-cluster::HeartbeatReceiver` and `HeartbeatSender` provide the first
+  actor-backed heartbeat I/O slice: current-state initialization, typed
+  receiver route registration, periodic tick scheduling, heartbeat request and
+  response messages with stable remote manifests, expected-first-heartbeat
+  monitoring, cluster membership/reachability event updates, and
+  failure-detector cleanup on stop.
 - `kairo-cluster::ClusterEventPublisher` is an actor-backed cluster event
   publisher that stores the latest gossip, publishes `ClusterEvent` diffs to
   typed subscribers, supports initial state replay as events, handles explicit
@@ -215,8 +221,8 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
-- Cluster membership actors, heartbeat sender/receiver actor I/O, public
-  cluster subscription facade, and concrete downing providers.
+- Cluster membership actors, public cluster subscription facade, remote-backed
+  heartbeat receiver routing, and concrete downing providers.
 
 ## Last Validation
 
