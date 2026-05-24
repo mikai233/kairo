@@ -215,6 +215,10 @@ Implemented:
   convert `DeltaPropagation<Delta>` batches into remote protocol messages using
   registered CRDT data codecs, and reject manifest/version mismatches on
   decode.
+- `DeltaPropagationTransport` publishes collected delta batches to typed
+  `Recipient<ReplicatorDeltaPropagation>` targets, skips empty batches,
+  reports missing targets and send/encode failures explicitly, and keeps the
+  transport-facing orchestration separate from CRDT state and codecs.
 - `DeltaReceiveTracker` tracks receive-side per-replica/key delta sequence
   numbers and models Pekko-style duplicate, missing, invalid-range, and
   in-order apply decisions before the transport loop is wired in.

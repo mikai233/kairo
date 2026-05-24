@@ -6,6 +6,7 @@ mod crdt_codec;
 mod data;
 mod delta;
 mod delta_receive;
+mod delta_transport;
 mod delta_wire;
 mod envelope;
 mod errors;
@@ -38,6 +39,9 @@ pub use crdt_codec::{
 pub use data::{DeltaReplicatedData, ReplicatedData, ReplicatedDelta};
 pub use delta::{DeltaPropagation, DeltaPropagationEntry, DeltaPropagationLog};
 pub use delta_receive::{DeltaReceiveStatus, DeltaReceiveTracker};
+pub use delta_transport::{
+    DeltaPropagationTarget, DeltaPropagationTransport, DeltaTransportFailure, DeltaTransportReport,
+};
 pub use delta_wire::{
     DecodedReplicatorDelta, decode_delta, decode_delta_propagation, encode_delta_propagation,
 };
