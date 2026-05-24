@@ -159,6 +159,9 @@ Implemented:
   to the region.
 - Shard IDs use documented 64-bit FNV-1a over entity id bytes with
   `hash % shard_count`; `DEFAULT_SHARD_COUNT` is 100.
+- `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
+  and prune operations with Pekko-style `Same`, `Before`, `After`, and
+  `Concurrent` ordering semantics.
 
 Not yet implemented:
 
@@ -168,6 +171,8 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
+- Cluster gossip membership, reachability, failure detection, convergence,
+  leader actions, and downing hooks.
 
 ## Last Validation
 

@@ -1,9 +1,11 @@
 //! Gossip-based cluster membership and cluster events.
 
 mod protocol;
+mod vector_clock;
 
 pub use kairo_actor::Address;
 pub use protocol::{GossipEnvelope, Join, Welcome};
+pub use vector_clock::{VectorClock, VectorClockNode, VectorClockOrdering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemberStatus {
