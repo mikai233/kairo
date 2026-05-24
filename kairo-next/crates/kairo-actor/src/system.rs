@@ -17,7 +17,7 @@ use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
 use crate::registry::ActorRegistry;
 use crate::scheduler::{Cancellable, ManualScheduler, Scheduler};
 use crate::signal::Signal;
-use crate::supervision::SupervisorStrategy;
+use crate::supervision::{SupervisionState, SupervisorStrategy};
 use crate::timers::TimerState;
 
 #[derive(Debug, Clone)]
@@ -460,6 +460,7 @@ fn run_actor<A>(
         stop_requested: false,
         timers: TimerState::default(),
     };
+    let mut supervision_state = SupervisionState::default();
 
     if actor.started(&mut context).is_err() || context.stop_requested {
         actor_ref.target.stopped.store(true, Ordering::Release);
@@ -478,6 +479,7 @@ fn run_actor<A>(
             &mut context,
             &props,
             &system_inner,
+            &mut supervision_state,
         );
         let mut processed_user = usize::from(processed);
 
@@ -492,6 +494,7 @@ fn run_actor<A>(
                 &mut context,
                 &props,
                 &system_inner,
+                &mut supervision_state,
             ) {
                 processed_user += 1;
             }
@@ -526,6 +529,7 @@ fn process_dequeued<A>(
     context: &mut Context<A::Msg>,
     props: &Props<A>,
     system_inner: &ActorSystemInner,
+    supervision_state: &mut SupervisionState,
 ) -> bool
 where
     A: Actor,
@@ -547,6 +551,7 @@ where
                 context,
                 props,
                 system_inner,
+                supervision_state,
             ) || context.stop_requested
             {
                 actor_ref.target.stopped.store(true, Ordering::Release);
@@ -561,6 +566,7 @@ where
                 context,
                 props,
                 system_inner,
+                supervision_state,
             ) || context.stop_requested
             {
                 actor_ref.target.stopped.store(true, Ordering::Release);
@@ -576,6 +582,7 @@ where
                     context,
                     props,
                     system_inner,
+                    supervision_state,
                 ) || context.stop_requested
                 {
                     actor_ref.target.stopped.store(true, Ordering::Release);
@@ -595,6 +602,7 @@ fn apply_receive_result<A>(
     context: &mut Context<A::Msg>,
     props: &Props<A>,
     system_inner: &ActorSystemInner,
+    supervision_state: &mut SupervisionState,
 ) -> bool
 where
     A: Actor,
@@ -608,6 +616,13 @@ where
         SupervisorStrategy::Resume => false,
         SupervisorStrategy::Restart => {
             restart_actor(actor_ref, actor, context, props, system_inner).is_err()
+        }
+        SupervisorStrategy::RestartWithLimit {
+            max_restarts,
+            within,
+        } => {
+            !supervision_state.restart_allowed(max_restarts, within, Instant::now())
+                || restart_actor(actor_ref, actor, context, props, system_inner).is_err()
         }
     }
 }

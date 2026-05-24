@@ -877,6 +877,59 @@ fn restart_supervision_rebuilds_actor_state_and_keeps_ref_path() {
     assert!(!actor.is_stopped());
 }
 
+#[test]
+fn restart_supervision_stops_when_restart_limit_is_exceeded() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (restarted_tx, restarted_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "supervised",
+            Props::restartable(move || SupervisionProbe {
+                value: 0,
+                restarted: Some(restarted_tx.clone()),
+            })
+            .with_supervisor(SupervisorStrategy::restart_with_limit(
+                1,
+                Duration::from_secs(60),
+            )),
+        )
+        .unwrap();
+
+    actor.tell(SupervisionMsg::Fail).unwrap();
+    restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    actor.tell(SupervisionMsg::Fail).unwrap();
+
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn restart_supervision_limit_resets_after_time_window() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (restarted_tx, restarted_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "supervised",
+            Props::restartable(move || SupervisionProbe {
+                value: 0,
+                restarted: Some(restarted_tx.clone()),
+            })
+            .with_supervisor(SupervisorStrategy::restart_with_limit(
+                1,
+                Duration::from_millis(25),
+            )),
+        )
+        .unwrap();
+
+    actor.tell(SupervisionMsg::Fail).unwrap();
+    restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    thread::sleep(Duration::from_millis(60));
+    actor.tell(SupervisionMsg::Fail).unwrap();
+    restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    actor.tell(SupervisionMsg::Fail).unwrap();
+
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+}
+
 enum WatchProbeMsg {
     WatchTwice {
         subject: ActorRef<()>,

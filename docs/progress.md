@@ -113,6 +113,10 @@ Implemented:
 - `Props::restartable` provides the reusable actor factory required by restart
   supervision, which sends `Signal::PreRestart`, cancels timers, stops children,
   rebuilds actor state, reruns `started`, and preserves the actor ref path.
+- `SupervisorStrategy::restart_with_limit` supports Pekko-style bounded
+  restarts by allowing a configured number of restarts within a time window,
+  stopping the actor when the limit is exceeded, and resetting the count after
+  the window elapses.
 - Supervision strategy definitions live in a focused `supervision` module.
 - `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
   queue, plus `ActorSystemTestKit` for creating probe-backed local actor
@@ -446,7 +450,7 @@ Implemented:
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
-- Parent-level supervision escalation and restart limits/backoff.
+- Parent-level supervision escalation and backoff supervision.
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
