@@ -410,6 +410,10 @@ Implemented:
   that wraps the local pubsub state in synchronous actor turns, sends typed
   subscribe acks, publish reports, and current-topic replies, watches
   subscribers, and removes terminated subscribers from all local topics.
+- `kairo-cluster-tools` now has a focused distributed pubsub registration
+  state with Pekko-style versioned owner buckets, present/tombstone entries,
+  peer-version delta collection, delta merge, tombstone pruning, broadcast
+  target planning, and deterministic one-target-per-group planning.
 
 Not yet implemented:
 
