@@ -15,6 +15,7 @@ mod protocol;
 mod provider;
 mod remote_ref;
 mod remote_watch;
+mod remote_watch_actor;
 mod settings;
 mod stream;
 mod stream_inbound;
@@ -45,6 +46,10 @@ pub use protocol::{
 pub use provider::RemoteActorRefProvider;
 pub use remote_ref::RemoteActorRef;
 pub use remote_watch::{RemoteDeathWatchEffect, RemoteDeathWatchState};
+pub use remote_watch_actor::{
+    RemoteDeathWatchActor, RemoteDeathWatchCommand, RemoteDeathWatchEffectSink,
+    RemoteDeathWatchStats,
+};
 pub use settings::RemoteSettings;
 pub use stream::{
     RemoteStreamDecoder, RemoteStreamEncoder, RemoteStreamFrame, RemoteStreamId,

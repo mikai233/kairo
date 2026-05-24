@@ -56,6 +56,10 @@ impl RemoteDeathWatchState {
         self.watchees_by_address.len()
     }
 
+    pub fn unreachable_address_count(&self) -> usize {
+        self.unreachable.len()
+    }
+
     pub fn is_watching_address(&self, address: &str) -> bool {
         self.watchees_by_address.contains_key(address)
     }

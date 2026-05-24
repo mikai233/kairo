@@ -241,6 +241,12 @@ Implemented:
   start/stop/send effects, re-watches after remote UID changes, emits
   address-terminated effects for unreachable addresses, and resets failure
   detection when watching resumes after an unreachable observation.
+- `kairo-remote` now has an actor-backed remote death-watch command handler
+  that wraps the focused state machine in synchronous actor turns, emits
+  transport-neutral effects through an explicit sink boundary, handles
+  heartbeat ticks, heartbeat acks, unreachable observations, watch/unwatch
+  commands, and reports deterministic watch statistics for tests and future
+  diagnostics.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
