@@ -609,3 +609,28 @@ Consequences:
   boundary requires `M: RemoteMessage`.
 - The later provider work must preserve this wire-envelope behavior while
   adding local/remote resolution into the public actor-system API.
+
+## ADR-0025: Initial Backoff Supervision Is Deterministic
+
+Status: Accepted
+
+Context:
+Pekko's backoff supervisor uses exponential delays capped by `maxBackoff` and
+can add random jitter through `randomFactor`. Kairo needs the restart
+state-machine semantics for local supervision and later sharding passivation
+work, while keeping early M2 behavior dependency-light and deterministic under
+manual time.
+
+Decision:
+The initial `BackoffSupervisor` implements the on-stop restart flow with
+`min_backoff * 2^restart_count` capped by `max_backoff`, typed child/restart
+queries, manual reset, and automatic reset scheduling. It intentionally omits
+jitter/random-factor configuration until there is a concrete runtime need and a
+chosen randomness/testing policy.
+
+Consequences:
+- Backoff tests are deterministic with `ManualScheduler`.
+- The observable restart ordering and capped exponential state transitions are
+  available without adding a random dependency.
+- Jitter can be added later as an explicit settings field without changing the
+  child-watch and delayed-restart state machine.

@@ -134,6 +134,10 @@ Implemented:
   supervision policy to the escalated failure. A parent with the default stop
   strategy stops, while a restartable parent can restart and stop its children
   through the existing restart path.
+- `BackoffSupervisor` provides a structured on-stop supervisor actor with
+  explicit `BackoffSupervisorSettings`, deterministic exponential restart
+  delays capped by `max_backoff`, manual or automatic restart-count reset, typed
+  child queries, and typed message forwarding to the current child.
 - Supervision strategy definitions live in a focused `supervision` module.
 - `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
   queue, plus `ActorSystemTestKit` for creating probe-backed local actor
@@ -699,7 +703,6 @@ Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop and
   restart-time child handling.
-- Backoff supervision.
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
