@@ -400,6 +400,11 @@ Implemented:
   forwards buffered messages when a remote home is learned, starts local shards
   for local homes or `HostShard`, drops handoff buffers to preserve ordering,
   and emits explicit handoff ack/stopped plans.
+- `kairo-cluster-sharding` now has an actor-backed shard-region boundary that
+  wraps the focused region runtime in synchronous actor turns, accepts explicit
+  route, host-shard, shard-home, shard-started, begin-handoff, handoff, and
+  shard-stopped commands, and replies with deterministic route, start,
+  handoff, and state snapshot plans.
 - `kairo-cluster-sharding` now has a focused shard entity runtime planner for
   local shard behavior: first messages start entities, active entities receive
   business messages directly, passivating entities buffer later messages,
@@ -555,7 +560,7 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
-- Actor-backed sharding region/shard wiring, coordinator rebalance timers,
+- Actor-backed sharding shard wiring, coordinator rebalance timers,
   transport-backed handoff delivery, and distributed-data-backed
   remember-entity store actors.
 - Cluster singleton child spawning/proxy routing and distributed pubsub

@@ -11,6 +11,7 @@ mod envelope;
 mod errors;
 mod hashing;
 mod protocol;
+mod region_actor;
 mod region_runtime;
 mod remember;
 mod shard_runtime;
@@ -39,6 +40,7 @@ pub use protocol::{
     BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
     ShardHome, ShardStarted, ShardStopped,
 };
+pub use region_actor::{ShardRegionActor, ShardRegionMsg, ShardRegionSnapshot};
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
     ShardRegionRuntime, ShardStartedPlan,
