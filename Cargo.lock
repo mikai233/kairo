@@ -73,6 +73,7 @@ dependencies = [
 name = "kairo-distributed-data"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "kairo-actor",
  "kairo-cluster",
  "kairo-serialization",

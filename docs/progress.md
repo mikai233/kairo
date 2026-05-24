@@ -129,6 +129,10 @@ Implemented:
 - `RemoteMessage`, `MessageCodec<M>`, `DynCodec`, `SerializedMessage`, and
   `RemoteEnvelope` define the stable metadata and payload boundary for remote
   messages.
+- `kairo-serialization::WireWriter` and `WireReader` provide a small shared
+  stable binary helper for explicit system-protocol codecs, using
+  length-prefixed UTF-8 strings and big-endian numeric fields instead of Rust
+  memory layout.
 - `Registry` implements explicit codec registration, outbound type lookup, and
   inbound `(serializer_id, manifest)` lookup.
 - Serialization registration rejects empty manifests, duplicate serializer ids,
@@ -169,6 +173,9 @@ Implemented:
   deserializing `RemoteEnvelope` payloads through the registry and passing the
   typed message, recipient wire data, and optional sender wire data to an
   explicit local delivery boundary.
+- `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
+  explicit codecs and serializer ids for the initial replicator get, update,
+  subscribe, and changed protocol messages.
 - Serialization tests cover rolling-version decode behavior by proving codecs
   receive the wire `version` and can decode older payload shapes under the same
   stable manifest.
@@ -255,10 +262,10 @@ Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Parent-level supervision escalation and restart limits/backoff.
-- Full actor-system local/remote provider integration, cluster/ddata/sharding
-  protocol codecs, optional codec helper crates, transport-backed
-  associations, actor-system-backed inbound target resolution, and broader
-  cross-crate compatibility fixtures.
+- Full actor-system local/remote provider integration, cluster/sharding
+  protocol codecs, optional codec helper crates, transport-backed associations,
+  actor-system-backed inbound target resolution, and broader cross-crate
+  compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
