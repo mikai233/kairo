@@ -162,6 +162,10 @@ Implemented:
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
+- `kairo-cluster::Reachability` stores immutable observer/subject records with
+  per-observer versions, reachable-by-default semantics, terminated-over-
+  unreachable aggregation, pruning of all-reachable observer rows, and
+  newest-observer-row merge behavior.
 
 Not yet implemented:
 
