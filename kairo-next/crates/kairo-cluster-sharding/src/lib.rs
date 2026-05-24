@@ -54,7 +54,9 @@ pub use protocol::{
     BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
     ShardHome, ShardStarted, ShardStopped,
 };
-pub use region_actor::{ShardRegionActor, ShardRegionMsg, ShardRegionSnapshot};
+pub use region_actor::{
+    RegionLocalRoutePlan, ShardRegionActor, ShardRegionMsg, ShardRegionSnapshot,
+};
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
     ShardRegionRuntime, ShardStartedPlan,

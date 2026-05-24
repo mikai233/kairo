@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
+use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 
 use crate::region_shards::LocalShardSpawner;
 use crate::{
     BeginHandOffPlan, EntityId, HandOffPlan, HostShardPlan, RegionId, RegionRoutePlan,
-    ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStartedPlan, ShardingEnvelope,
-    ShardingError,
+    ShardDeliverPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStartedPlan,
+    ShardingEnvelope, ShardingError,
 };
 
 pub struct ShardRegionActor<M> {
@@ -115,6 +115,12 @@ pub enum ShardRegionMsg<M> {
         message: ShardingEnvelope<M>,
         reply_to: ActorRef<RegionRoutePlan<M>>,
     },
+    RouteToLocalShard {
+        shard: ShardId,
+        message: ShardingEnvelope<M>,
+        route_reply_to: ActorRef<RegionLocalRoutePlan<M>>,
+        delivery_reply_to: ActorRef<ShardDeliverPlan<M>>,
+    },
     HostShard {
         shard: ShardId,
         reply_to: ActorRef<HostShardPlan<M>>,
@@ -156,6 +162,31 @@ pub enum ShardRegionMsg<M> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegionLocalRoutePlan<M> {
+    DeliveredToLocalShard {
+        shard: ShardId,
+    },
+    MissingLocalShard {
+        shard: ShardId,
+        message: ShardingEnvelope<M>,
+    },
+    Forward {
+        shard: ShardId,
+        region: RegionId,
+        message: ShardingEnvelope<M>,
+    },
+    Buffered {
+        shard: ShardId,
+        request: Option<crate::GetShardHome>,
+    },
+    Dropped {
+        shard: Option<ShardId>,
+        reason: crate::RegionDropReason,
+        message: ShardingEnvelope<M>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShardRegionSnapshot {
     pub self_region: RegionId,
     pub local_shards: BTreeSet<ShardId>,
@@ -179,6 +210,16 @@ where
             } => {
                 let plan = self.runtime.route(shard, message);
                 let _ = reply_to.tell(plan);
+            }
+            ShardRegionMsg::RouteToLocalShard {
+                shard,
+                message,
+                route_reply_to,
+                delivery_reply_to,
+            } => {
+                let plan = self.runtime.route(shard, message);
+                let local_plan = self.dispatch_local_route_plan(plan, delivery_reply_to)?;
+                let _ = route_reply_to.tell(local_plan);
             }
             ShardRegionMsg::HostShard { shard, reply_to } => {
                 let plan = self.runtime.host_shard(shard);
@@ -254,6 +295,48 @@ where
             started: started.started,
             buffered: started.buffered,
         })
+    }
+
+    fn dispatch_local_route_plan(
+        &self,
+        plan: RegionRoutePlan<M>,
+        delivery_reply_to: ActorRef<ShardDeliverPlan<M>>,
+    ) -> Result<RegionLocalRoutePlan<M>, ActorError> {
+        match plan {
+            RegionRoutePlan::DeliverLocal { shard, message } => {
+                let Some(shard_ref) = self.local_shards.get(&shard) else {
+                    return Ok(RegionLocalRoutePlan::MissingLocalShard { shard, message });
+                };
+                shard_ref
+                    .tell(ShardMsg::Deliver {
+                        message,
+                        reply_to: delivery_reply_to,
+                    })
+                    .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+                Ok(RegionLocalRoutePlan::DeliveredToLocalShard { shard })
+            }
+            RegionRoutePlan::Forward {
+                shard,
+                region,
+                message,
+            } => Ok(RegionLocalRoutePlan::Forward {
+                shard,
+                region,
+                message,
+            }),
+            RegionRoutePlan::Buffered { shard, request } => {
+                Ok(RegionLocalRoutePlan::Buffered { shard, request })
+            }
+            RegionRoutePlan::Dropped {
+                shard,
+                reason,
+                message,
+            } => Ok(RegionLocalRoutePlan::Dropped {
+                shard,
+                reason,
+                message,
+            }),
+        }
     }
 
     fn maybe_start_local_shard_from_home_plan(
