@@ -198,6 +198,10 @@ Implemented:
   `RemoteOutbound` envelope sends to framed byte sinks and adapts framed bytes
   back into the typed `RemoteInbound` delivery pipeline while preserving
   explicit send, frame, and codec failures.
+- `kairo-remote` now has focused remote stream framing for future TCP
+  associations, including explicit connection magic, stable control/ordinary/
+  large stream ids, big-endian frame lengths, incremental decode, max-frame
+  rejection, and truncated stream detection.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.

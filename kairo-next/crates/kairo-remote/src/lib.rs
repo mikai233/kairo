@@ -10,6 +10,7 @@ mod protocol;
 mod provider;
 mod remote_ref;
 mod settings;
+mod stream;
 mod transport;
 
 pub use association::{AssociationState, RemoteAssociation};
@@ -31,4 +32,8 @@ pub use protocol::{
 pub use provider::RemoteActorRefProvider;
 pub use remote_ref::RemoteActorRef;
 pub use settings::RemoteSettings;
+pub use stream::{
+    RemoteStreamDecoder, RemoteStreamEncoder, RemoteStreamFrame, RemoteStreamId,
+    decode_remote_stream_header, encode_remote_stream_frame, encode_remote_stream_header,
+};
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};
