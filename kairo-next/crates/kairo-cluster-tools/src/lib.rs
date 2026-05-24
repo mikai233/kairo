@@ -1,14 +1,12 @@
 //! Higher-level cluster utilities built on top of `kairo-cluster`.
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TopicName(String);
+mod singleton;
+mod topic;
 
-impl TopicName {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
+pub use singleton::{
+    SingletonOldestChange, SingletonOldestObservation, SingletonOldestTracker, SingletonScope,
+};
+pub use topic::TopicName;
 
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+#[cfg(test)]
+mod tests;

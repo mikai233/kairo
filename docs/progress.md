@@ -388,6 +388,11 @@ Implemented:
   codecs and serializer ids for heartbeat, heartbeat response, join, welcome,
   and gossip envelope messages, including member lists, seen state,
   reachability versions/records, vector clocks, and tombstones.
+- `kairo-cluster-tools` is split into focused topic and singleton modules, and
+  now has Pekko-style singleton oldest-member tracking that filters by role,
+  sorts eligible UP members by cluster age, reports oldest changes from member
+  events, and marks takeover unsafe while older leaving/exiting/down members
+  are still present.
 
 Not yet implemented:
 
@@ -401,6 +406,8 @@ Not yet implemented:
 - Actor-backed sharding region/shard/coordinator wiring, coordinator rebalance
   timers, transport-backed handoff delivery, and distributed-data-backed
   remember-entity store actors.
+- Actor-backed cluster singleton manager/proxy handover and distributed pubsub
+  mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.
