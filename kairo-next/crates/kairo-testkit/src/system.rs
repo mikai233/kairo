@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use kairo_actor::{ActorError, ActorSystem};
 
-use crate::TestProbe;
+use crate::{ManualTime, TestProbe};
 
 #[derive(Debug)]
 pub struct ActorSystemTestKit {
@@ -14,6 +14,14 @@ impl ActorSystemTestKit {
         Ok(Self {
             system: ActorSystem::builder(name).build()?,
         })
+    }
+
+    pub fn with_manual_time(name: impl Into<String>) -> Result<(Self, ManualTime), ActorError> {
+        let manual_time = ManualTime::new();
+        let system = ActorSystem::builder(name)
+            .manual_scheduler(manual_time.scheduler())
+            .build()?;
+        Ok((Self { system }, manual_time))
     }
 
     pub fn system(&self) -> &ActorSystem {

@@ -118,12 +118,16 @@ Implemented:
   `ManualTimeHandle`.
 - Testkit code is split into focused `probe`, `manual_time`, and `system`
   modules instead of living in one crate root.
+- `ActorSystemBuilder::manual_scheduler` can build actor systems backed by a
+  manual scheduler, and `ActorSystemTestKit::with_manual_time` wires that
+  scheduler into `ManualTime`.
+- Manual time now drives `ActorSystem::schedule_once`, single actor timers, and
+  repeated fixed-delay/fixed-rate timer backends without real sleeps.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
-- Parent-level supervision escalation, restart limits/backoff, and
-  actor-system scheduler injection for manual-time-driven timers.
+- Parent-level supervision escalation and restart limits/backoff.
 
 ## Last Validation
 

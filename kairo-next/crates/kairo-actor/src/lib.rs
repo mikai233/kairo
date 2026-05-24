@@ -36,7 +36,7 @@ pub use event_stream::EventStream;
 pub use path::{ActorPath, Address};
 pub use receptionist::{Listing, Receptionist, ServiceKey};
 pub use refs::{ActorRef, AnyActorRef, IgnoreRef, Recipient};
-pub use scheduler::Cancellable;
+pub use scheduler::{Cancellable, ManualScheduler};
 pub use signal::Signal;
 pub use supervision::SupervisorStrategy;
 pub use system::{ActorSystem, ActorSystemBuilder};
@@ -47,7 +47,7 @@ pub mod prelude {
     pub use crate::{
         Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, AskError, AskResult,
         Cancellable, Context, CoordinatedShutdown, DeadLetter, DeadLetters, DispatcherSettings,
-        EventStream, IgnoreRef, Listing, PHASE_ACTOR_SYSTEM_TERMINATE,
+        EventStream, IgnoreRef, Listing, ManualScheduler, PHASE_ACTOR_SYSTEM_TERMINATE,
         PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE, PHASE_BEFORE_CLUSTER_SHUTDOWN,
         PHASE_BEFORE_SERVICE_UNBIND, PHASE_CLUSTER_EXITING, PHASE_CLUSTER_EXITING_DONE,
         PHASE_CLUSTER_LEAVE, PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION, PHASE_CLUSTER_SHUTDOWN,

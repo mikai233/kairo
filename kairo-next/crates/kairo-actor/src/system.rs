@@ -15,7 +15,7 @@ use crate::path::{ActorPath, Address};
 use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
 use crate::registry::ActorRegistry;
-use crate::scheduler::{Cancellable, Scheduler};
+use crate::scheduler::{Cancellable, ManualScheduler, Scheduler};
 use crate::signal::Signal;
 use crate::supervision::SupervisorStrategy;
 use crate::timers::TimerState;
@@ -48,6 +48,7 @@ impl ActorSystem {
         ActorSystemBuilder {
             name: name.into(),
             dispatcher: DispatcherSettings::default(),
+            scheduler: Scheduler::default(),
         }
     }
 
@@ -397,11 +398,17 @@ impl ActorSystem {
 pub struct ActorSystemBuilder {
     name: String,
     dispatcher: DispatcherSettings,
+    scheduler: Scheduler,
 }
 
 impl ActorSystemBuilder {
     pub fn dispatcher_throughput(mut self, throughput: usize) -> Self {
         self.dispatcher = DispatcherSettings::new(throughput);
+        self
+    }
+
+    pub fn manual_scheduler(mut self, scheduler: ManualScheduler) -> Self {
+        self.scheduler = scheduler.into_scheduler();
         self
     }
 
@@ -414,6 +421,7 @@ impl ActorSystemBuilder {
             name: self.name,
             inner: Arc::new(ActorSystemInner {
                 dispatcher: self.dispatcher,
+                scheduler: self.scheduler,
                 ..ActorSystemInner::default()
             }),
         })

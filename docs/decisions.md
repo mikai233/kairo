@@ -343,3 +343,31 @@ Consequences:
   non-replayable captured state such as receivers.
 - The first slice covers local self failure; parent deciders, escalation, retry
   limits, and backoff are deferred.
+
+## ADR-0015: Manual Time Uses The Actor Scheduler Boundary
+
+Status: Accepted
+
+Context:
+Pekko manual time is an explicitly triggered scheduler used by tests so timer
+and scheduled-message behavior can be verified without sleeping. Kairo already
+had real-time scheduler methods on `ActorSystem` and `Context`, but testkit
+manual time could only send directly to actor refs until the actor runtime had
+a scheduler injection boundary.
+
+Decision:
+Kairo keeps the real thread-sleeping scheduler as the default actor-system
+backend and adds a `ManualScheduler` backend selected through
+`ActorSystemBuilder`. `kairo-testkit::ManualTime` wraps that backend, and
+`ActorSystemTestKit::with_manual_time` builds systems whose `schedule_once`,
+single timers, fixed-delay timers, and fixed-rate timers are advanced by the
+test thread.
+
+Consequences:
+- Production actor systems keep the existing real-time behavior by default.
+- Tests can deterministically advance actor scheduler work without adding an
+  async runtime or global clock.
+- Scheduler backend state remains inside `kairo-actor`, avoiding a dependency
+  cycle between the actor runtime and testkit.
+- More precise virtual-time semantics, including time dilation and coordinated
+  shutdown phase timeouts, can be layered on this boundary later.
