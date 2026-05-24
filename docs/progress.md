@@ -172,6 +172,10 @@ Implemented:
   ordering.
 - Cluster member data now lives in a focused `member` module instead of the
   crate root.
+- `kairo-cluster::Convergence` checks Pekko-style gossip convergence for the
+  current node, including first-convergence seen requirements, exiting
+  confirmations, ignoring DOWN observers, and allowing unreachable DOWN or
+  EXITING members to be skipped.
 
 Not yet implemented:
 
@@ -181,8 +185,8 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
-- Cluster gossip membership, reachability, failure detection, convergence,
-  leader actions, and downing hooks.
+- Cluster membership actors, failure detection, leader actions, and downing
+  hooks.
 
 ## Last Validation
 

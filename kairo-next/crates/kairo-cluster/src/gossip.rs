@@ -29,6 +29,16 @@ impl Gossip {
         &self.members
     }
 
+    pub fn member(&self, node: &UniqueAddress) -> Option<&Member> {
+        self.members
+            .iter()
+            .find(|member| &member.unique_address == node)
+    }
+
+    pub fn has_member(&self, node: &UniqueAddress) -> bool {
+        self.member(node).is_some()
+    }
+
     pub fn seen_by(&self) -> &HashSet<UniqueAddress> {
         &self.seen
     }

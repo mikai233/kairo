@@ -12,6 +12,25 @@ pub enum MemberStatus {
 }
 
 impl MemberStatus {
+    pub fn participates_in_convergence(self) -> bool {
+        matches!(self, Self::Up | Self::Leaving)
+    }
+
+    pub fn participates_in_first_convergence(self) -> bool {
+        matches!(
+            self,
+            Self::Joining | Self::WeaklyUp | Self::Up | Self::Leaving
+        )
+    }
+
+    pub fn can_skip_unreachable_for_convergence(self) -> bool {
+        matches!(self, Self::Down | Self::Exiting)
+    }
+
+    pub fn observes_convergence_reachability(self) -> bool {
+        !matches!(self, Self::Down)
+    }
+
     pub fn is_removed_by_single_sided_merge(self) -> bool {
         matches!(self, Self::Down | Self::Exiting | Self::Removed)
     }
