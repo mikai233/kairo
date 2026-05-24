@@ -283,6 +283,11 @@ Implemented:
   least-shard allocation strategy that allocates new shards to the least-loaded
   region, limits rebalance rounds by absolute and relative limits, and skips
   rebalance when another shard is already in progress.
+- `kairo-cluster-sharding` now has a focused coordinator state module with
+  explicit coordinator events for region/proxy registration, termination, shard
+  home allocation/deallocation, and remember-entities unallocated shard
+  tracking, matching Pekko's event-applied coordinator state shape before the
+  actor-backed coordinator is wired in.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.

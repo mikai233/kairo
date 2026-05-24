@@ -6,6 +6,11 @@ pub enum ShardingError {
     InvalidRebalanceLimit,
     NoShardRegions,
     UnknownRegion(String),
+    RegionAlreadyRegistered(String),
+    UnknownRegionProxy(String),
+    RegionProxyAlreadyRegistered(String),
+    UnknownShard(String),
+    ShardAlreadyAllocated(String),
 }
 
 impl Display for ShardingError {
@@ -17,6 +22,17 @@ impl Display for ShardingError {
             }
             Self::NoShardRegions => f.write_str("no shard regions are available"),
             Self::UnknownRegion(region) => write!(f, "unknown shard region {region}"),
+            Self::RegionAlreadyRegistered(region) => {
+                write!(f, "shard region {region} is already registered")
+            }
+            Self::UnknownRegionProxy(proxy) => write!(f, "unknown shard region proxy {proxy}"),
+            Self::RegionProxyAlreadyRegistered(proxy) => {
+                write!(f, "shard region proxy {proxy} is already registered")
+            }
+            Self::UnknownShard(shard) => write!(f, "unknown shard {shard}"),
+            Self::ShardAlreadyAllocated(shard) => {
+                write!(f, "shard {shard} is already allocated")
+            }
         }
     }
 }

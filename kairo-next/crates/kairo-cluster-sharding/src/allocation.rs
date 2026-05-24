@@ -24,6 +24,14 @@ impl ShardAllocations {
         self.regions.insert(region.into(), Vec::new()).is_none()
     }
 
+    pub fn contains_region(&self, region: &RegionId) -> bool {
+        self.regions.contains_key(region)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.regions.is_empty()
+    }
+
     pub fn remove_region(&mut self, region: &RegionId) -> Option<Vec<ShardId>> {
         self.regions.remove(region)
     }
@@ -73,6 +81,10 @@ impl ShardAllocations {
 
     pub fn regions(&self) -> impl Iterator<Item = &RegionId> {
         self.regions.keys()
+    }
+
+    pub fn shards(&self) -> impl Iterator<Item = &ShardId> {
+        self.regions.values().flat_map(|shards| shards.iter())
     }
 
     pub fn shards_for(&self, region: &RegionId) -> Option<&[ShardId]> {

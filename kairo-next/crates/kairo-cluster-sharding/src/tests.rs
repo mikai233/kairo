@@ -5,8 +5,9 @@ use std::time::Duration;
 use kairo_actor::{Actor, ActorError, ActorResult, ActorSystem, Context, Props};
 
 use crate::{
-    EntityRef, LeastShardAllocationStrategy, ShardAllocationStrategy, ShardAllocations,
-    ShardingEnvelope, ShardingError, default_shard_id_for, shard_id_for, stable_hash_entity_id,
+    CoordinatorEvent, CoordinatorState, EntityRef, LeastShardAllocationStrategy,
+    ShardAllocationStrategy, ShardAllocations, ShardingEnvelope, ShardingError,
+    default_shard_id_for, shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -177,6 +178,155 @@ fn least_shard_strategy_phase_two_moves_one_shard_to_empty_region() {
     let rebalanced = strategy.rebalance(&allocations, &BTreeSet::new()).unwrap();
 
     assert_eq!(rebalanced, BTreeSet::from(["1".to_string()]));
+}
+
+#[test]
+fn coordinator_state_applies_region_and_proxy_registration_events() {
+    let mut state = CoordinatorState::new();
+
+    state
+        .apply(CoordinatorEvent::ShardRegionRegistered {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardRegionProxyRegistered {
+            proxy: "proxy-a".to_string(),
+        })
+        .unwrap();
+
+    assert!(state.allocations().contains_region(&"region-a".to_string()));
+    assert!(state.proxies().contains("proxy-a"));
+    assert!(!state.is_empty());
+    assert_eq!(
+        state
+            .apply(CoordinatorEvent::ShardRegionRegistered {
+                region: "region-a".to_string(),
+            })
+            .unwrap_err(),
+        ShardingError::RegionAlreadyRegistered("region-a".to_string())
+    );
+}
+
+#[test]
+fn coordinator_state_allocates_and_deallocates_shard_homes() {
+    let mut state = CoordinatorState::new();
+    state
+        .apply(CoordinatorEvent::ShardRegionRegistered {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        state.shard_home(&"shard-1".to_string()),
+        Some(&"region-a".to_string())
+    );
+    assert_eq!(state.all_shards(), BTreeSet::from(["shard-1".to_string()]));
+    assert_eq!(
+        state
+            .apply(CoordinatorEvent::ShardHomeAllocated {
+                shard: "shard-1".to_string(),
+                region: "region-a".to_string(),
+            })
+            .unwrap_err(),
+        ShardingError::ShardAlreadyAllocated("shard-1".to_string())
+    );
+
+    state
+        .apply(CoordinatorEvent::ShardHomeDeallocated {
+            shard: "shard-1".to_string(),
+        })
+        .unwrap();
+    assert_eq!(state.shard_home(&"shard-1".to_string()), None);
+    assert!(state.all_shards().is_empty());
+}
+
+#[test]
+fn coordinator_state_remembers_unallocated_shards_when_enabled() {
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state
+        .apply(CoordinatorEvent::ShardRegionRegistered {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardHomeDeallocated {
+            shard: "shard-1".to_string(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        state.unallocated_shards(),
+        &BTreeSet::from(["shard-1".to_string()])
+    );
+    assert_eq!(state.all_shards(), BTreeSet::from(["shard-1".to_string()]));
+
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    assert!(state.unallocated_shards().is_empty());
+}
+
+#[test]
+fn coordinator_state_terminates_regions_and_proxies() {
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state
+        .apply(CoordinatorEvent::ShardRegionRegistered {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardRegionProxyRegistered {
+            proxy: "proxy-a".to_string(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+
+    state
+        .apply(CoordinatorEvent::ShardRegionTerminated {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardRegionProxyTerminated {
+            proxy: "proxy-a".to_string(),
+        })
+        .unwrap();
+
+    assert!(!state.allocations().contains_region(&"region-a".to_string()));
+    assert!(!state.proxies().contains("proxy-a"));
+    assert_eq!(
+        state.unallocated_shards(),
+        &BTreeSet::from(["shard-1".to_string()])
+    );
+    assert_eq!(
+        state
+            .apply(CoordinatorEvent::ShardRegionTerminated {
+                region: "region-a".to_string(),
+            })
+            .unwrap_err(),
+        ShardingError::UnknownRegion("region-a".to_string())
+    );
 }
 
 struct RegionProbe {

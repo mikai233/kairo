@@ -2,6 +2,7 @@
 
 mod allocation;
 mod codec;
+mod coordinator;
 mod entity_ref;
 mod entity_type;
 mod envelope;
@@ -18,6 +19,7 @@ pub use codec::{
     SHARD_STARTED_SERIALIZER_ID, SHARD_STOPPED_SERIALIZER_ID, ShardHomeCodec, ShardStartedCodec,
     ShardStoppedCodec, register_sharding_protocol_codecs,
 };
+pub use coordinator::{CoordinatorEvent, CoordinatorState};
 pub use entity_ref::EntityRef;
 pub use entity_type::EntityTypeKey;
 pub use envelope::ShardingEnvelope;
