@@ -263,6 +263,11 @@ Implemented:
   watch/unwatch/heartbeat/heartbeat-ack protocol messages through the
   registered codecs, routes them to the actor-backed remote watcher, and
   rejects unknown death-watch manifests or missing codecs explicitly.
+- `kairo-remote` now has a focused inbound frame router that decodes remote
+  envelope frames once, dispatches remote death-watch manifests from the
+  control lane to the system inbound boundary, routes ordinary business
+  manifests to the typed inbound delivery path, and rejects misrouted
+  death-watch frames on non-control lanes.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.

@@ -8,6 +8,7 @@ mod codec;
 mod error;
 mod frame;
 mod inbound;
+mod inbound_router;
 mod lanes;
 mod local_delivery;
 mod outbound;
@@ -38,6 +39,7 @@ pub use codec::{
 pub use error::{RemoteError, Result};
 pub use frame::{decode_remote_envelope_frame, encode_remote_envelope_frame};
 pub use inbound::{InboundMessage, RemoteInbound, RemoteInboundDelivery};
+pub use inbound_router::{RemoteInboundFrameRouter, is_remote_death_watch_manifest};
 pub use kairo_actor::ActorPath;
 pub use kairo_serialization::{RemoteEnvelope, SerializedMessage};
 pub use lanes::{LaneRemoteOutbound, RemoteLaneClassifier, RemoteLaneSink, lane_send_failure};
