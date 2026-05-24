@@ -202,6 +202,10 @@ Implemented:
   associations, including explicit connection magic, stable control/ordinary/
   large stream ids, big-endian frame lengths, incremental decode, max-frame
   rejection, and truncated stream detection.
+- `kairo-remote` now has a focused outbound lane module that classifies
+  stable remote system manifests onto the control lane, ordinary business
+  messages onto the ordinary lane, optionally routes large encoded frames to a
+  large lane, and propagates lane send failures explicitly.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
