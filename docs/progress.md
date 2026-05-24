@@ -206,6 +206,10 @@ Implemented:
   stable remote system manifests onto the control lane, ordinary business
   messages onto the ordinary lane, optionally routes large encoded frames to a
   large lane, and propagates lane send failures explicitly.
+- `kairo-remote` now has a focused stream-sink bridge that writes control,
+  ordinary, and large lane frames to independent stream byte sinks, preserves
+  one connection header per lane stream, and propagates stream write failures
+  with lane context.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
