@@ -12,6 +12,7 @@ mod provider;
 mod remote_ref;
 mod settings;
 mod stream;
+mod stream_inbound;
 mod stream_sink;
 mod transport;
 
@@ -39,5 +40,6 @@ pub use stream::{
     RemoteStreamDecoder, RemoteStreamEncoder, RemoteStreamFrame, RemoteStreamId,
     decode_remote_stream_header, encode_remote_stream_frame, encode_remote_stream_header,
 };
+pub use stream_inbound::{RemoteFrameHandler, StreamFrameInbound};
 pub use stream_sink::{RemoteByteSink, RemoteStreamWriter, StreamLaneSink, stream_send_failure};
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};

@@ -210,6 +210,10 @@ Implemented:
   ordinary, and large lane frames to independent stream byte sinks, preserves
   one connection header per lane stream, and propagates stream write failures
   with lane context.
+- `kairo-remote` now has a focused inbound stream bridge that incrementally
+  decodes stream bytes, dispatches complete frame payloads with their stable
+  stream id, propagates handler failures, and detects truncated inbound
+  streams before TCP socket wiring is introduced.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
