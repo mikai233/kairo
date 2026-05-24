@@ -1,5 +1,6 @@
 use crate::error::{ActorError, ActorResult};
 use crate::refs::ActorRef;
+use crate::signal::Signal;
 use crate::system::ActorSystem;
 
 pub trait Actor: Send + 'static {
@@ -11,6 +12,13 @@ pub trait Actor: Send + 'static {
 
     fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
         Ok(())
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PostStop => self.stopped(ctx),
+            Signal::PreRestart => Ok(()),
+        }
     }
 
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult;

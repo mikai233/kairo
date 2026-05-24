@@ -9,6 +9,7 @@ use crate::error::ActorError;
 use crate::mailbox::{Dequeued, Mailbox, SystemMessage};
 use crate::path::{ActorPath, Address};
 use crate::refs::{ActorRef, LocalActorHandle, TerminationLatch};
+use crate::signal::Signal;
 
 #[derive(Debug, Clone)]
 pub struct ActorSystem {
@@ -212,7 +213,7 @@ fn run_actor<A>(
     }
 
     stop_children(&system_inner, actor_ref.path.as_str());
-    let _ = actor.stopped(&mut context);
+    let _ = actor.signal(&mut context, Signal::PostStop);
     actor_ref.terminated.mark_stopped();
     system_inner
         .names

@@ -420,3 +420,43 @@ fn parent_stop_waits_for_children_before_stopped_hook() {
     assert_eq!(second, StopEvent::Parent);
     assert!(parent.wait_for_stop(Duration::from_secs(1)));
 }
+
+struct SignalProbe {
+    signals: mpsc::Sender<Signal>,
+}
+
+impl Actor for SignalProbe {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn signal(&mut self, _ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        self.signals
+            .send(signal)
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+#[test]
+fn post_stop_signal_is_delivered_during_termination() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (signals_tx, signals_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "signal-probe",
+            Props::new(move || SignalProbe {
+                signals: signals_tx,
+            }),
+        )
+        .unwrap();
+
+    system.stop(&actor);
+
+    assert_eq!(
+        signals_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Signal::PostStop
+    );
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+}

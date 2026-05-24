@@ -10,6 +10,7 @@ Implemented:
 - `ActorRef<M>::tell` enqueues typed messages into the actor mailbox.
 - `ActorRef<M>` and `IgnoreRef<M>` implement the `Recipient<M>` send boundary.
 - Actors process messages one at a time through synchronous `Actor::receive`.
+- Actors receive a synchronous `Signal::PostStop` during local termination.
 - `Context::stop(ctx.myself())` stops the current local actor ref.
 - `ActorSystem::stop` can stop an idle local actor through the system lane.
 - `Context::system`, `Context::spawn`, and `Context::spawn_anonymous` are
@@ -22,7 +23,8 @@ Implemented:
   with a new path incarnation.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop
   dead letters, duplicate names, path incarnation reuse, context system access,
-  child spawning, parent/child stop ordering, and recipient behavior.
+  child spawning, parent/child stop ordering, recipient behavior, and
+  `PostStop` signal delivery.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
 

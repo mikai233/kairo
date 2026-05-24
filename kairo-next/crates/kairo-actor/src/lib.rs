@@ -6,6 +6,7 @@ mod error;
 mod mailbox;
 mod path;
 mod refs;
+mod signal;
 mod system;
 
 pub use actor::{Actor, Context, Props};
@@ -13,12 +14,13 @@ pub use dead_letters::{DeadLetter, DeadLetters};
 pub use error::{ActorError, ActorResult, SendError};
 pub use path::{ActorPath, Address};
 pub use refs::{ActorRef, AnyActorRef, IgnoreRef, Recipient};
+pub use signal::Signal;
 pub use system::{ActorSystem, ActorSystemBuilder};
 
 pub mod prelude {
     pub use crate::{
         Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, Context, DeadLetter,
-        DeadLetters, IgnoreRef, Props, Recipient,
+        DeadLetters, IgnoreRef, Props, Recipient, Signal,
     };
 }
 
