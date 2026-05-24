@@ -297,12 +297,37 @@ impl<A> Props<A> {
 #[derive(Debug)]
 pub struct Context<M> {
     myself: ActorRef<M>,
+    system: ActorSystem,
     stop_requested: bool,
 }
 
 impl<M: Send + 'static> Context<M> {
     pub fn myself(&self) -> ActorRef<M> {
         self.myself.clone()
+    }
+
+    pub fn system(&self) -> &ActorSystem {
+        &self.system
+    }
+
+    pub fn spawn<A>(
+        &self,
+        name: impl AsRef<str>,
+        props: Props<A>,
+    ) -> Result<ActorRef<A::Msg>, ActorError>
+    where
+        A: Actor,
+    {
+        self.system
+            .spawn_under(self.myself.path.as_str(), name.as_ref(), props)
+    }
+
+    pub fn spawn_anonymous<A>(&self, props: Props<A>) -> Result<ActorRef<A::Msg>, ActorError>
+    where
+        A: Actor,
+    {
+        self.system
+            .spawn_anonymous_under(self.myself.path.as_str(), props)
     }
 
     pub fn stop(&mut self, actor: ActorRef<M>) {
@@ -397,7 +422,7 @@ impl<M> Mailbox<M> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ActorSystem {
     name: String,
     address: Address,
@@ -407,6 +432,7 @@ pub struct ActorSystem {
 #[derive(Debug, Default)]
 struct ActorSystemInner {
     next_uid: AtomicU64,
+    next_anonymous: AtomicU64,
     names: Mutex<HashMap<String, u64>>,
     dead_letters: DeadLetters,
 }
@@ -440,20 +466,33 @@ impl ActorSystem {
     where
         A: Actor,
     {
-        let name = name.as_ref();
+        let parent_path = format!("kairo://{}/user", self.name);
+        self.spawn_under(&parent_path, name.as_ref(), props)
+    }
+
+    fn spawn_under<A>(
+        &self,
+        parent_path: &str,
+        name: &str,
+        props: Props<A>,
+    ) -> Result<ActorRef<A::Msg>, ActorError>
+    where
+        A: Actor,
+    {
         validate_actor_name(name)?;
 
         let uid = self.inner.next_uid.fetch_add(1, Ordering::Relaxed);
+        let registry_key = format!("{parent_path}/{name}");
         {
             let mut names = self.inner.names.lock().expect("actor registry poisoned");
-            if names.contains_key(name) {
+            if names.contains_key(&registry_key) {
                 return Err(ActorError::DuplicateName(name.to_string()));
             }
-            names.insert(name.to_string(), uid);
+            names.insert(registry_key.clone(), uid);
         }
 
         let mailbox = Arc::new(Mailbox::default());
-        let path = ActorPath::new(format!("kairo://{}/user/{}#{}", self.name, name, uid));
+        let path = ActorPath::new(format!("{parent_path}/{name}#{uid}"));
         let stopped = Arc::new(AtomicBool::new(false));
         let actor_ref = ActorRef {
             path: path.clone(),
@@ -466,6 +505,8 @@ impl ActorSystem {
         let dead_letters = self.inner.dead_letters.clone();
         let system_inner = Arc::clone(&self.inner);
         let actor_name = name.to_string();
+        let registry_key_for_thread = registry_key.clone();
+        let thread_system = self.clone();
 
         if let Err(error) = thread::Builder::new()
             .name(format!("kairo-actor-{actor_name}"))
@@ -476,7 +517,8 @@ impl ActorSystem {
                     stopped,
                     dead_letters,
                     system_inner,
-                    actor_name,
+                    registry_key_for_thread,
+                    thread_system,
                 );
             })
         {
@@ -484,13 +526,26 @@ impl ActorSystem {
                 .names
                 .lock()
                 .expect("actor registry poisoned")
-                .remove(name);
+                .remove(&registry_key);
             return Err(ActorError::Message(format!(
                 "failed to spawn actor thread: {error}"
             )));
         }
 
         Ok(actor_ref)
+    }
+
+    fn spawn_anonymous_under<A>(
+        &self,
+        parent_path: &str,
+        props: Props<A>,
+    ) -> Result<ActorRef<A::Msg>, ActorError>
+    where
+        A: Actor,
+    {
+        let id = self.inner.next_anonymous.fetch_add(1, Ordering::Relaxed);
+        let name = format!("$anon-{id}");
+        self.spawn_under(parent_path, &name, props)
     }
 }
 
@@ -522,13 +577,15 @@ fn run_actor<A>(
     stopped: Arc<AtomicBool>,
     dead_letters: DeadLetters,
     system_inner: Arc<ActorSystemInner>,
-    actor_name: String,
+    registry_key: String,
+    thread_system: ActorSystem,
 ) where
     A: Actor,
 {
     let mut actor = props.build();
     let mut context = Context {
         myself: actor_ref.clone(),
+        system: thread_system,
         stop_requested: false,
     };
 
@@ -559,7 +616,7 @@ fn run_actor<A>(
         .names
         .lock()
         .expect("actor registry poisoned")
-        .remove(&actor_name);
+        .remove(&registry_key);
 }
 
 pub mod prelude {
@@ -785,5 +842,103 @@ mod tests {
         );
         assert_eq!(received.load(Ordering::Relaxed), 0);
         assert_eq!(system.dead_letters().records()[0].recipient(), actor.path());
+    }
+
+    struct Noop;
+
+    impl Actor for Noop {
+        type Msg = ();
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+            Ok(())
+        }
+    }
+
+    enum ParentMsg {
+        SpawnNamed(mpsc::Sender<ActorPath>),
+        SpawnAnonymous(mpsc::Sender<(ActorPath, ActorPath)>),
+        SystemName(mpsc::Sender<String>),
+    }
+
+    struct Parent;
+
+    impl Actor for Parent {
+        type Msg = ParentMsg;
+
+        fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+            match msg {
+                ParentMsg::SpawnNamed(reply_to) => {
+                    let child = ctx.spawn("child", Props::new(|| Noop))?;
+                    reply_to
+                        .send(child.path().clone())
+                        .map_err(|error| ActorError::Message(error.to_string()))?;
+                }
+                ParentMsg::SpawnAnonymous(reply_to) => {
+                    let first = ctx.spawn_anonymous(Props::new(|| Noop))?;
+                    let second = ctx.spawn_anonymous(Props::new(|| Noop))?;
+                    reply_to
+                        .send((first.path().clone(), second.path().clone()))
+                        .map_err(|error| ActorError::Message(error.to_string()))?;
+                }
+                ParentMsg::SystemName(reply_to) => {
+                    reply_to
+                        .send(ctx.system().name().to_string())
+                        .map_err(|error| ActorError::Message(error.to_string()))?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn context_spawn_places_children_under_parent_path() {
+        let system = ActorSystem::builder("test").build().unwrap();
+        let parent = system.spawn("parent", Props::new(|| Parent)).unwrap();
+        let (reply_tx, reply_rx) = mpsc::channel();
+
+        parent.tell(ParentMsg::SpawnNamed(reply_tx)).unwrap();
+
+        let child_path = reply_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            child_path
+                .as_str()
+                .starts_with(&format!("{}/child#", parent.path()))
+        );
+    }
+
+    #[test]
+    fn context_spawn_anonymous_creates_unique_child_names() {
+        let system = ActorSystem::builder("test").build().unwrap();
+        let parent = system.spawn("parent", Props::new(|| Parent)).unwrap();
+        let (reply_tx, reply_rx) = mpsc::channel();
+
+        parent.tell(ParentMsg::SpawnAnonymous(reply_tx)).unwrap();
+
+        let (first, second) = reply_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_ne!(first, second);
+        assert!(
+            first
+                .as_str()
+                .starts_with(&format!("{}/$anon-", parent.path()))
+        );
+        assert!(
+            second
+                .as_str()
+                .starts_with(&format!("{}/$anon-", parent.path()))
+        );
+    }
+
+    #[test]
+    fn context_exposes_actor_system_handle() {
+        let system = ActorSystem::builder("test").build().unwrap();
+        let parent = system.spawn("parent", Props::new(|| Parent)).unwrap();
+        let (reply_tx, reply_rx) = mpsc::channel();
+
+        parent.tell(ParentMsg::SystemName(reply_tx)).unwrap();
+
+        assert_eq!(
+            reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            "test"
+        );
     }
 }
