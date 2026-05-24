@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TopicName(String);
 
 impl TopicName {

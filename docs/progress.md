@@ -402,6 +402,10 @@ Implemented:
   topic modules, with typed local subscriptions, duplicate suppression,
   unsubscribe/removal handling, broadcast delivery, and deterministic
   one-message-per-group publish routing for the first pubsub foundation.
+- `kairo-cluster-tools` now has a focused local pubsub mediator state over
+  named local topics, including current-topic listing, routed publish,
+  subscribe/unsubscribe delegation, empty-topic cleanup, and subscriber removal
+  across all topics.
 
 Not yet implemented:
 

@@ -1,11 +1,14 @@
+use std::collections::BTreeSet;
+use std::time::Duration;
+
 use kairo_actor::Address;
 use kairo_cluster::{ClusterEvent, Member, MemberEvent, MemberStatus, UniqueAddress};
 use kairo_testkit::ActorSystemTestKit;
-use std::time::Duration;
 
 use crate::{
-    LocalTopic, SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState,
-    SingletonOldestChange, SingletonOldestTracker, SingletonScope, TopicName, TopicPublishMode,
+    LocalPubSub, LocalTopic, SingletonManagerEffect, SingletonManagerRuntime,
+    SingletonManagerState, SingletonOldestChange, SingletonOldestTracker, SingletonScope,
+    TopicName, TopicPublishMode,
 };
 
 #[test]
@@ -376,6 +379,96 @@ fn local_topic_unsubscribe_and_remove_subscriber_updates_empty_state() {
     let report = topic.publish("ignored".to_string(), TopicPublishMode::Broadcast);
     assert_eq!(report.delivered, 0);
     assert!(report.no_subscribers);
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn local_pubsub_lists_topics_and_removes_empty_topics() {
+    let kit = ActorSystemTestKit::new("pubsub-topics").unwrap();
+    let direct = kit.create_probe::<String>("direct").unwrap();
+    let grouped = kit.create_probe::<String>("grouped").unwrap();
+    let orders = TopicName::new("orders");
+    let jobs = TopicName::new("jobs");
+    let mut pubsub = LocalPubSub::new();
+
+    pubsub.subscribe(orders.clone(), direct.actor_ref());
+    pubsub.subscribe_group(jobs.clone(), "workers", grouped.actor_ref());
+    assert_eq!(
+        pubsub.current_topics(),
+        BTreeSet::from([jobs.clone(), orders.clone()])
+    );
+
+    assert!(pubsub.unsubscribe(&orders, &direct.actor_ref()));
+    assert_eq!(pubsub.current_topics(), BTreeSet::from([jobs.clone()]));
+
+    assert!(pubsub.unsubscribe_group(&jobs, "workers", &grouped.actor_ref()));
+    assert!(pubsub.current_topics().is_empty());
+    assert_eq!(pubsub.topic_count(), 0);
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn local_pubsub_routes_publish_to_named_topic_only() {
+    let kit = ActorSystemTestKit::new("pubsub-route").unwrap();
+    let orders_probe = kit.create_probe::<String>("orders-probe").unwrap();
+    let jobs_probe = kit.create_probe::<String>("jobs-probe").unwrap();
+    let orders = TopicName::new("orders");
+    let jobs = TopicName::new("jobs");
+    let mut pubsub = LocalPubSub::new();
+
+    pubsub.subscribe(orders.clone(), orders_probe.actor_ref());
+    pubsub.subscribe(jobs.clone(), jobs_probe.actor_ref());
+
+    let report = pubsub.publish(&orders, "created".to_string(), TopicPublishMode::Broadcast);
+    assert_eq!(report.topic, orders);
+    assert_eq!(report.report.delivered, 1);
+    assert!(!report.report.no_subscribers);
+    orders_probe
+        .expect_msg_eq("created".to_string(), Duration::from_millis(200))
+        .unwrap();
+    jobs_probe.expect_no_msg(Duration::from_millis(30)).unwrap();
+
+    let missing = pubsub.publish(
+        &TopicName::new("missing"),
+        "lost".to_string(),
+        TopicPublishMode::Broadcast,
+    );
+    assert_eq!(missing.report.delivered, 0);
+    assert!(missing.report.no_subscribers);
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn local_pubsub_removes_subscriber_from_all_topics() {
+    let kit = ActorSystemTestKit::new("pubsub-remove").unwrap();
+    let shared = kit.create_probe::<String>("shared").unwrap();
+    let other = kit.create_probe::<String>("other").unwrap();
+    let orders = TopicName::new("orders");
+    let jobs = TopicName::new("jobs");
+    let mut pubsub = LocalPubSub::new();
+
+    pubsub.subscribe(orders.clone(), shared.actor_ref());
+    pubsub.subscribe_group(jobs.clone(), "workers", shared.actor_ref());
+    pubsub.subscribe_group(jobs.clone(), "workers", other.actor_ref());
+
+    assert_eq!(
+        pubsub.remove_subscriber(&shared.actor_ref()),
+        vec![jobs.clone(), orders.clone()]
+    );
+    assert_eq!(pubsub.current_topics(), BTreeSet::from([jobs.clone()]));
+    assert_eq!(
+        pubsub
+            .topic(&jobs)
+            .map(|topic| topic.group_subscriber_count("workers")),
+        Some(1)
+    );
+
+    let report = pubsub.publish(&jobs, "work".to_string(), TopicPublishMode::OnePerGroup);
+    assert_eq!(report.report.delivered, 1);
+    other
+        .expect_msg_eq("work".to_string(), Duration::from_millis(200))
+        .unwrap();
+    shared.expect_no_msg(Duration::from_millis(30)).unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

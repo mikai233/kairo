@@ -18,7 +18,7 @@ pub struct TopicPublishReport {
 }
 
 impl TopicPublishReport {
-    fn empty() -> Self {
+    pub fn empty_for_no_subscribers() -> Self {
         Self {
             delivered: 0,
             failed: 0,
@@ -146,7 +146,7 @@ impl<M: Send + 'static> LocalTopic<M> {
     where
         M: Clone,
     {
-        let mut report = TopicPublishReport::empty();
+        let mut report = TopicPublishReport::empty_for_no_subscribers();
         for subscriber in &self.subscribers {
             record_delivery(&mut report, subscriber, message.clone());
         }
@@ -162,7 +162,7 @@ impl<M: Send + 'static> LocalTopic<M> {
     where
         M: Clone,
     {
-        let mut report = TopicPublishReport::empty();
+        let mut report = TopicPublishReport::empty_for_no_subscribers();
         for group in self.groups.values_mut() {
             if let Some(subscriber) = group.next_subscriber() {
                 record_delivery(&mut report, &subscriber, message.clone());
