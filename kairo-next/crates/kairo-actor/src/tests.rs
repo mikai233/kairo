@@ -118,6 +118,26 @@ fn stop_prevents_later_user_message_delivery() {
     assert_eq!(records[0].reason(), "actor is stopped");
 }
 
+#[test]
+fn missing_actor_ref_sends_to_dead_letters() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let missing: ActorRef<CounterMsg> = system.missing_ref("kairo://test/user/missing#404");
+
+    let error = missing.tell(CounterMsg::Increment).unwrap_err();
+
+    assert_eq!(error.reason(), "actor does not exist");
+    assert!(missing.is_stopped());
+    assert!(missing.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert_eq!(records[0].recipient(), missing.path());
+    assert_eq!(records[0].reason(), "actor does not exist");
+}
+
 struct StopProbe {
     stopped: mpsc::Sender<()>,
 }

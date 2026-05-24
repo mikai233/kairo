@@ -15,11 +15,16 @@ pub trait Recipient<M: Send + 'static> {
 
 pub struct ActorRef<M> {
     pub(crate) path: ActorPath,
-    pub(crate) mailbox: Arc<Mailbox<M>>,
-    pub(crate) stopped: Arc<AtomicBool>,
-    pub(crate) terminated: Arc<TerminationLatch>,
+    pub(crate) target: ActorRefTarget<M>,
     pub(crate) dead_letters: DeadLetters,
     _message: PhantomData<fn(M)>,
+}
+
+pub(crate) struct ActorRefTarget<M> {
+    pub(crate) mailbox: Option<Arc<Mailbox<M>>>,
+    pub(crate) stopped: Arc<AtomicBool>,
+    pub(crate) terminated: Arc<TerminationLatch>,
+    stopped_reason: &'static str,
 }
 
 impl<M> ActorRef<M> {
@@ -32,9 +37,28 @@ impl<M> ActorRef<M> {
     ) -> Self {
         Self {
             path,
-            mailbox,
-            stopped,
-            terminated,
+            target: ActorRefTarget {
+                mailbox: Some(mailbox),
+                stopped,
+                terminated,
+                stopped_reason: "actor is stopped",
+            },
+            dead_letters,
+            _message: PhantomData,
+        }
+    }
+
+    pub(crate) fn missing(path: ActorPath, dead_letters: DeadLetters) -> Self {
+        let terminated = Arc::new(TerminationLatch::default());
+        terminated.mark_stopped();
+        Self {
+            path,
+            target: ActorRefTarget {
+                mailbox: None,
+                stopped: Arc::new(AtomicBool::new(true)),
+                terminated,
+                stopped_reason: "actor does not exist",
+            },
             dead_letters,
             _message: PhantomData,
         }
@@ -45,9 +69,7 @@ impl<M> Clone for ActorRef<M> {
     fn clone(&self) -> Self {
         Self {
             path: self.path.clone(),
-            mailbox: self.mailbox.clone(),
-            stopped: Arc::clone(&self.stopped),
-            terminated: Arc::clone(&self.terminated),
+            target: self.target.clone(),
             dead_letters: self.dead_letters.clone(),
             _message: PhantomData,
         }
@@ -58,7 +80,7 @@ impl<M> fmt::Debug for ActorRef<M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActorRef")
             .field("path", &self.path)
-            .field("stopped", &self.stopped.load(Ordering::Acquire))
+            .field("stopped", &self.target.stopped.load(Ordering::Acquire))
             .finish_non_exhaustive()
     }
 }
@@ -69,17 +91,26 @@ impl<M: Send + 'static> ActorRef<M> {
     }
 
     pub fn tell(&self, message: M) -> Result<(), SendError<M>> {
-        if self.stopped.load(Ordering::Acquire) {
+        if self.target.stopped.load(Ordering::Acquire) {
             self.dead_letters
-                .publish::<M>(self.path.clone(), "actor is stopped");
+                .publish::<M>(self.path.clone(), self.target.stopped_reason);
             return Err(SendError {
                 message,
-                reason: "actor is stopped".to_string(),
+                reason: self.target.stopped_reason.to_string(),
             });
         }
 
-        self.mailbox.enqueue_user(message).map_err(|message| {
-            self.stopped.store(true, Ordering::Release);
+        let Some(mailbox) = &self.target.mailbox else {
+            self.dead_letters
+                .publish::<M>(self.path.clone(), "actor does not exist");
+            return Err(SendError {
+                message,
+                reason: "actor does not exist".to_string(),
+            });
+        };
+
+        mailbox.enqueue_user(message).map_err(|message| {
+            self.target.stopped.store(true, Ordering::Release);
             self.dead_letters
                 .publish::<M>(self.path.clone(), "actor mailbox is closed");
             SendError {
@@ -96,16 +127,20 @@ impl<M: Send + 'static> ActorRef<M> {
     }
 
     pub fn is_stopped(&self) -> bool {
-        self.stopped.load(Ordering::Acquire)
+        self.target.stopped.load(Ordering::Acquire)
     }
 
     pub fn wait_for_stop(&self, timeout: Duration) -> bool {
-        self.terminated.wait(timeout)
+        self.target.terminated.wait(timeout)
     }
 
     pub(crate) fn request_stop(&self) {
-        if !self.stopped.swap(true, Ordering::AcqRel) {
-            self.mailbox.enqueue_system(SystemMessage::Stop);
+        if !self.target.stopped.swap(true, Ordering::AcqRel) {
+            if let Some(mailbox) = &self.target.mailbox {
+                mailbox.enqueue_system(SystemMessage::Stop);
+            } else {
+                self.target.terminated.mark_stopped();
+            }
         }
     }
 
@@ -113,8 +148,19 @@ impl<M: Send + 'static> ActorRef<M> {
         let actor = self.clone();
         LocalActorHandle {
             path: self.path.clone(),
-            terminated: Arc::clone(&self.terminated),
+            terminated: Arc::clone(&self.target.terminated),
             stop: Arc::new(move || actor.request_stop()),
+        }
+    }
+}
+
+impl<M> Clone for ActorRefTarget<M> {
+    fn clone(&self) -> Self {
+        Self {
+            mailbox: self.mailbox.clone(),
+            stopped: Arc::clone(&self.stopped),
+            terminated: Arc::clone(&self.terminated),
+            stopped_reason: self.stopped_reason,
         }
     }
 }

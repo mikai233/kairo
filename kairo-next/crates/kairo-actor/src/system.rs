@@ -48,6 +48,10 @@ impl ActorSystem {
         actor.request_stop();
     }
 
+    pub fn missing_ref<M>(&self, path: impl Into<String>) -> ActorRef<M> {
+        ActorRef::missing(ActorPath::new(path), self.inner.dead_letters.clone())
+    }
+
     pub fn spawn<A>(
         &self,
         name: impl AsRef<str>,
@@ -191,30 +195,35 @@ fn run_actor<A>(
     };
 
     if actor.started(&mut context).is_err() || context.stop_requested {
-        actor_ref.stopped.store(true, Ordering::Release);
+        actor_ref.target.stopped.store(true, Ordering::Release);
     }
 
-    while !actor_ref.stopped.load(Ordering::Acquire) {
-        match actor_ref.mailbox.dequeue() {
+    let mailbox = actor_ref
+        .target
+        .mailbox
+        .as_ref()
+        .expect("live actor ref must have a mailbox");
+    while !actor_ref.target.stopped.load(Ordering::Acquire) {
+        match mailbox.dequeue() {
             Dequeued::System(SystemMessage::Stop) | Dequeued::Closed => {
-                actor_ref.stopped.store(true, Ordering::Release);
+                actor_ref.target.stopped.store(true, Ordering::Release);
             }
             Dequeued::User(message) => {
                 if actor.receive(&mut context, message).is_err() || context.stop_requested {
-                    actor_ref.stopped.store(true, Ordering::Release);
+                    actor_ref.target.stopped.store(true, Ordering::Release);
                 }
             }
         }
     }
 
-    for message in actor_ref.mailbox.close_and_drain_user() {
+    for message in mailbox.close_and_drain_user() {
         drop(message);
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
     }
 
     stop_children(&system_inner, actor_ref.path.as_str());
     let _ = actor.signal(&mut context, Signal::PostStop);
-    actor_ref.terminated.mark_stopped();
+    actor_ref.target.terminated.mark_stopped();
     system_inner
         .names
         .lock()

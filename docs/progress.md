@@ -18,13 +18,14 @@ Implemented:
 - Stopping a local actor recursively requests child stops and runs the parent's
   `stopped` hook after children have terminated.
 - Sends after stop are rejected and recorded as dead letters.
+- Missing local actor refs reject user messages and record dead letters.
 - System stop drains queued user messages to dead letters before delivery.
 - Duplicate live names under `/user` are rejected; stopped names can be reused
   with a new path incarnation.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop
   dead letters, duplicate names, path incarnation reuse, context system access,
   child spawning, parent/child stop ordering, recipient behavior, and
-  `PostStop` signal delivery.
+  `PostStop` signal delivery, and missing-ref dead letters.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
 
