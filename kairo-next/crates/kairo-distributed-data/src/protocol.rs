@@ -47,6 +47,72 @@ impl RemoteMessage for ReplicatorChanged {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorWrite {
+    pub key: String,
+    pub from: Option<ReplicaId>,
+    pub envelope: ReplicatorDataEnvelope,
+}
+
+impl RemoteMessage for ReplicatorWrite {
+    const MANIFEST: &'static str = "kairo.ddata.write";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplicatorWriteAck;
+
+impl RemoteMessage for ReplicatorWriteAck {
+    const MANIFEST: &'static str = "kairo.ddata.write-ack";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplicatorWriteNack;
+
+impl RemoteMessage for ReplicatorWriteNack {
+    const MANIFEST: &'static str = "kairo.ddata.write-nack";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorRead {
+    pub key: String,
+    pub from: Option<ReplicaId>,
+}
+
+impl RemoteMessage for ReplicatorRead {
+    const MANIFEST: &'static str = "kairo.ddata.read";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorReadResult {
+    pub envelope: Option<ReplicatorDataEnvelope>,
+}
+
+impl RemoteMessage for ReplicatorReadResult {
+    const MANIFEST: &'static str = "kairo.ddata.read-result";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorDataEnvelope {
+    pub crdt_manifest: String,
+    pub crdt_version: u16,
+    pub payload: Bytes,
+}
+
+impl ReplicatorDataEnvelope {
+    pub fn new(data: SerializedCrdt) -> Self {
+        Self {
+            crdt_manifest: data.manifest().to_string(),
+            crdt_version: data.version(),
+            payload: data.into_payload(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplicatorDeltaPropagation {
     pub from: ReplicaId,
     pub reply: bool,
@@ -120,9 +186,15 @@ mod tests {
             ReplicatorDeltaPropagation::MANIFEST,
             "kairo.ddata.delta-propagation"
         );
+        assert_eq!(ReplicatorWrite::MANIFEST, "kairo.ddata.write");
+        assert_eq!(ReplicatorWriteAck::MANIFEST, "kairo.ddata.write-ack");
+        assert_eq!(ReplicatorWriteNack::MANIFEST, "kairo.ddata.write-nack");
+        assert_eq!(ReplicatorRead::MANIFEST, "kairo.ddata.read");
+        assert_eq!(ReplicatorReadResult::MANIFEST, "kairo.ddata.read-result");
         assert_eq!(ReplicatorDeltaAck::MANIFEST, "kairo.ddata.delta-ack");
         assert_eq!(ReplicatorDeltaNack::MANIFEST, "kairo.ddata.delta-nack");
         assert!(!ReplicatorUpdate::MANIFEST.contains(std::any::type_name::<ReplicatorUpdate>()));
+        assert!(!ReplicatorWrite::MANIFEST.contains(std::any::type_name::<ReplicatorWrite>()));
         assert!(
             !ReplicatorDeltaPropagation::MANIFEST
                 .contains(std::any::type_name::<ReplicatorDeltaPropagation>())

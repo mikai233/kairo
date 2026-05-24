@@ -5,8 +5,10 @@ use kairo_serialization::{
 };
 
 use crate::{
-    ReplicaId, ReplicatorChanged, ReplicatorDelta, ReplicatorDeltaAck, ReplicatorDeltaNack,
-    ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorSubscribe, ReplicatorUpdate,
+    ReplicaId, ReplicatorChanged, ReplicatorDataEnvelope, ReplicatorDelta, ReplicatorDeltaAck,
+    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorRead,
+    ReplicatorReadResult, ReplicatorSubscribe, ReplicatorUpdate, ReplicatorWrite,
+    ReplicatorWriteAck, ReplicatorWriteNack,
 };
 
 pub const REPLICATOR_GET_SERIALIZER_ID: u32 = 3_000;
@@ -16,6 +18,11 @@ pub const REPLICATOR_CHANGED_SERIALIZER_ID: u32 = 3_003;
 pub const REPLICATOR_DELTA_PROPAGATION_SERIALIZER_ID: u32 = 3_004;
 pub const REPLICATOR_DELTA_ACK_SERIALIZER_ID: u32 = 3_005;
 pub const REPLICATOR_DELTA_NACK_SERIALIZER_ID: u32 = 3_006;
+pub const REPLICATOR_WRITE_SERIALIZER_ID: u32 = 3_007;
+pub const REPLICATOR_WRITE_ACK_SERIALIZER_ID: u32 = 3_008;
+pub const REPLICATOR_WRITE_NACK_SERIALIZER_ID: u32 = 3_009;
+pub const REPLICATOR_READ_SERIALIZER_ID: u32 = 3_010;
+pub const REPLICATOR_READ_RESULT_SERIALIZER_ID: u32 = 3_011;
 
 pub fn register_ddata_protocol_codecs(registry: &mut Registry) -> kairo_serialization::Result<()> {
     registry.register::<ReplicatorGet, _>(ReplicatorGetCodec)?;
@@ -25,6 +32,11 @@ pub fn register_ddata_protocol_codecs(registry: &mut Registry) -> kairo_serializ
     registry.register::<ReplicatorDeltaPropagation, _>(ReplicatorDeltaPropagationCodec)?;
     registry.register::<ReplicatorDeltaAck, _>(ReplicatorDeltaAckCodec)?;
     registry.register::<ReplicatorDeltaNack, _>(ReplicatorDeltaNackCodec)?;
+    registry.register::<ReplicatorWrite, _>(ReplicatorWriteCodec)?;
+    registry.register::<ReplicatorWriteAck, _>(ReplicatorWriteAckCodec)?;
+    registry.register::<ReplicatorWriteNack, _>(ReplicatorWriteNackCodec)?;
+    registry.register::<ReplicatorRead, _>(ReplicatorReadCodec)?;
+    registry.register::<ReplicatorReadResult, _>(ReplicatorReadResultCodec)?;
     Ok(())
 }
 
@@ -225,6 +237,140 @@ impl MessageCodec<ReplicatorDeltaNack> for ReplicatorDeltaNackCodec {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ReplicatorWriteCodec;
+
+impl MessageCodec<ReplicatorWrite> for ReplicatorWriteCodec {
+    fn serializer_id(&self) -> u32 {
+        REPLICATOR_WRITE_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &ReplicatorWrite) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_string(&message.key)?;
+        writer.write_optional_string(message.from.as_ref().map(ReplicaId::as_str))?;
+        write_data_envelope(&mut writer, &message.envelope)?;
+        Ok(writer.finish())
+    }
+
+    fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<ReplicatorWrite> {
+        ensure_version::<ReplicatorWrite>(version)?;
+        let mut reader = WireReader::new(&payload);
+        Ok(ReplicatorWrite {
+            key: reader.read_string()?,
+            from: reader.read_optional_string()?.map(ReplicaId::new),
+            envelope: read_data_envelope(&mut reader)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplicatorWriteAckCodec;
+
+impl MessageCodec<ReplicatorWriteAck> for ReplicatorWriteAckCodec {
+    fn serializer_id(&self) -> u32 {
+        REPLICATOR_WRITE_ACK_SERIALIZER_ID
+    }
+
+    fn encode(&self, _message: &ReplicatorWriteAck) -> kairo_serialization::Result<Bytes> {
+        Ok(Bytes::new())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<ReplicatorWriteAck> {
+        ensure_version::<ReplicatorWriteAck>(version)?;
+        ensure_empty_payload(&payload, ReplicatorWriteAck::MANIFEST)?;
+        Ok(ReplicatorWriteAck)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplicatorWriteNackCodec;
+
+impl MessageCodec<ReplicatorWriteNack> for ReplicatorWriteNackCodec {
+    fn serializer_id(&self) -> u32 {
+        REPLICATOR_WRITE_NACK_SERIALIZER_ID
+    }
+
+    fn encode(&self, _message: &ReplicatorWriteNack) -> kairo_serialization::Result<Bytes> {
+        Ok(Bytes::new())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<ReplicatorWriteNack> {
+        ensure_version::<ReplicatorWriteNack>(version)?;
+        ensure_empty_payload(&payload, ReplicatorWriteNack::MANIFEST)?;
+        Ok(ReplicatorWriteNack)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplicatorReadCodec;
+
+impl MessageCodec<ReplicatorRead> for ReplicatorReadCodec {
+    fn serializer_id(&self) -> u32 {
+        REPLICATOR_READ_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &ReplicatorRead) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_string(&message.key)?;
+        writer.write_optional_string(message.from.as_ref().map(ReplicaId::as_str))?;
+        Ok(writer.finish())
+    }
+
+    fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<ReplicatorRead> {
+        ensure_version::<ReplicatorRead>(version)?;
+        let mut reader = WireReader::new(&payload);
+        Ok(ReplicatorRead {
+            key: reader.read_string()?,
+            from: reader.read_optional_string()?.map(ReplicaId::new),
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplicatorReadResultCodec;
+
+impl MessageCodec<ReplicatorReadResult> for ReplicatorReadResultCodec {
+    fn serializer_id(&self) -> u32 {
+        REPLICATOR_READ_RESULT_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &ReplicatorReadResult) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        match &message.envelope {
+            Some(envelope) => {
+                writer.write_bool(true);
+                write_data_envelope(&mut writer, envelope)?;
+            }
+            None => writer.write_bool(false),
+        }
+        Ok(writer.finish())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<ReplicatorReadResult> {
+        ensure_version::<ReplicatorReadResult>(version)?;
+        let mut reader = WireReader::new(&payload);
+        let envelope = if reader.read_bool()? {
+            Some(read_data_envelope(&mut reader)?)
+        } else {
+            None
+        };
+        Ok(ReplicatorReadResult { envelope })
+    }
+}
+
 fn ensure_version<M>(version: u16) -> kairo_serialization::Result<()>
 where
     M: kairo_serialization::RemoteMessage,
@@ -258,6 +404,25 @@ fn read_delta(reader: &mut WireReader<'_>) -> kairo_serialization::Result<Replic
         crdt_version: reader.read_u16()?,
         from_version: reader.read_u64()?,
         to_version: reader.read_u64()?,
+        payload: reader.read_bytes()?,
+    })
+}
+
+fn write_data_envelope(
+    writer: &mut WireWriter,
+    envelope: &ReplicatorDataEnvelope,
+) -> kairo_serialization::Result<()> {
+    writer.write_string(&envelope.crdt_manifest)?;
+    writer.write_u16(envelope.crdt_version);
+    writer.write_bytes(&envelope.payload)
+}
+
+fn read_data_envelope(
+    reader: &mut WireReader<'_>,
+) -> kairo_serialization::Result<ReplicatorDataEnvelope> {
+    Ok(ReplicatorDataEnvelope {
+        crdt_manifest: reader.read_string()?,
+        crdt_version: reader.read_u16()?,
         payload: reader.read_bytes()?,
     })
 }
@@ -426,6 +591,87 @@ mod tests {
         assert_eq!(
             registry.deserialize::<ReplicatorDeltaNack>(nack).unwrap(),
             ReplicatorDeltaNack
+        );
+    }
+
+    #[test]
+    fn ddata_protocol_codecs_round_trip_write_and_read_messages() {
+        let registry = registry();
+        let envelope = ReplicatorDataEnvelope {
+            crdt_manifest: crate::GCOUNTER_MANIFEST.to_string(),
+            crdt_version: crate::CRDT_CODEC_VERSION,
+            payload: Bytes::from_static(&[9, 8, 7]),
+        };
+        let write = ReplicatorWrite {
+            key: "counter-a".to_string(),
+            from: Some(ReplicaId::new("node-a")),
+            envelope: envelope.clone(),
+        };
+        let read = ReplicatorRead {
+            key: "counter-a".to_string(),
+            from: Some(ReplicaId::new("node-b")),
+        };
+        let read_result = ReplicatorReadResult {
+            envelope: Some(envelope),
+        };
+        let not_found = ReplicatorReadResult { envelope: None };
+
+        let serialized_write = registry.serialize(&write).unwrap();
+        let serialized_read = registry.serialize(&read).unwrap();
+        let serialized_read_result = registry.serialize(&read_result).unwrap();
+        let serialized_not_found = registry.serialize(&not_found).unwrap();
+
+        assert_eq!(
+            serialized_write.serializer_id,
+            REPLICATOR_WRITE_SERIALIZER_ID
+        );
+        assert_eq!(serialized_read.serializer_id, REPLICATOR_READ_SERIALIZER_ID);
+        assert_eq!(
+            serialized_read_result.serializer_id,
+            REPLICATOR_READ_RESULT_SERIALIZER_ID
+        );
+        assert_eq!(
+            registry
+                .deserialize::<ReplicatorWrite>(serialized_write)
+                .unwrap(),
+            write
+        );
+        assert_eq!(
+            registry
+                .deserialize::<ReplicatorRead>(serialized_read)
+                .unwrap(),
+            read
+        );
+        assert_eq!(
+            registry
+                .deserialize::<ReplicatorReadResult>(serialized_read_result)
+                .unwrap(),
+            read_result
+        );
+        assert_eq!(
+            registry
+                .deserialize::<ReplicatorReadResult>(serialized_not_found)
+                .unwrap(),
+            not_found
+        );
+    }
+
+    #[test]
+    fn ddata_protocol_codecs_round_trip_write_ack_and_nack() {
+        let registry = registry();
+
+        let ack = registry.serialize(&ReplicatorWriteAck).unwrap();
+        let nack = registry.serialize(&ReplicatorWriteNack).unwrap();
+
+        assert_eq!(ack.serializer_id, REPLICATOR_WRITE_ACK_SERIALIZER_ID);
+        assert_eq!(nack.serializer_id, REPLICATOR_WRITE_NACK_SERIALIZER_ID);
+        assert_eq!(
+            registry.deserialize::<ReplicatorWriteAck>(ack).unwrap(),
+            ReplicatorWriteAck
+        );
+        assert_eq!(
+            registry.deserialize::<ReplicatorWriteNack>(nack).unwrap(),
+            ReplicatorWriteNack
         );
     }
 

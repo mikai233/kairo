@@ -183,6 +183,10 @@ Implemented:
   first remote delta-propagation wire messages with explicit sender replica,
   reply flag, per-key CRDT manifest/version/payload metadata, from/to delta
   sequence numbers, and ack/nack responses.
+- `kairo-distributed-data::register_ddata_protocol_codecs` now registers
+  stable direct read/write aggregation protocol messages, including full CRDT
+  envelope payloads, optional sender replica metadata, write ack/nack, and
+  optional read results.
 - `kairo-distributed-data` now has focused CRDT foundation modules for
   `ReplicatedData`, delta CRDT contracts, `ReplicaId`, `GSet`, `GCounter`, and
   `PNCounter` instead of concentrating data logic in the crate root.
