@@ -186,6 +186,14 @@ Implemented:
   `GCounter` stores per-replica absolute counts and merges by maximum value;
   `PNCounter` composes increment and decrement `GCounter`s with explicit
   overflow errors for supported integer bounds.
+- `kairo-distributed-data` now exposes `ReadConsistency` and
+  `WriteConsistency` values, typed `DataEnvelope<D>`, local `GetResponse`,
+  `UpdateOutcome`, change notifications, and `ReplicatorState<D>` for the
+  first Pekko-style local get/update/write state transitions.
+- `ReplicatorState<D>` stores reset full state after local delta-CRDT updates,
+  returns the collected delta for later propagation, merges inbound full state
+  by CRDT merge, applies inbound deltas to existing or zero state, and flushes
+  changed keys deterministically for subscriber delivery.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, and stopped protocol
@@ -283,8 +291,9 @@ Not yet implemented:
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
-- Distributed-data replicator actor state, CRDT serialization codecs, write/read
-  consistency handling, pruning scheduling, and gossip-backed replication.
+- Distributed-data actor wiring around `ReplicatorState`, CRDT serialization
+  codecs, remote delta propagation, direct write/read aggregators, pruning
+  scheduling, and gossip-backed replication.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

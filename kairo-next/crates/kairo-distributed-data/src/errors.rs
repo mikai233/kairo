@@ -18,3 +18,21 @@ impl Display for CrdtError {
 }
 
 impl std::error::Error for CrdtError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConsistencyError {
+    ReplicaCountTooSmall { requested: usize },
+}
+
+impl Display for ConsistencyError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ReplicaCountTooSmall { requested } => write!(
+                f,
+                "replica count {requested} is too small; use local consistency for one replica"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ConsistencyError {}
