@@ -41,6 +41,13 @@ pub struct SendError<M> {
 }
 
 impl<M> SendError<M> {
+    pub fn new(message: M, reason: impl Into<String>) -> Self {
+        Self {
+            message,
+            reason: reason.into(),
+        }
+    }
+
     pub fn into_message(self) -> M {
         self.message
     }

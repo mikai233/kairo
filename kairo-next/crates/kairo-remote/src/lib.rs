@@ -1,15 +1,21 @@
 //! Remote actor references, associations, transports, and remote death watch.
 
+mod association;
+mod error;
+mod outbound;
 mod protocol;
+mod provider;
+mod remote_ref;
+mod settings;
 
-pub use kairo_actor::{ActorPath, ActorRef};
-pub use kairo_serialization::SerializedMessage;
+pub use association::{AssociationState, RemoteAssociation};
+pub use error::{RemoteError, Result};
+pub use kairo_actor::ActorPath;
+pub use kairo_serialization::{RemoteEnvelope, SerializedMessage};
+pub use outbound::RemoteOutbound;
 pub use protocol::{
     AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, UnwatchRemote, WatchRemote,
 };
-
-#[derive(Debug, Clone)]
-pub struct RemoteSettings {
-    pub canonical_hostname: String,
-    pub canonical_port: u16,
-}
+pub use provider::RemoteActorRefProvider;
+pub use remote_ref::RemoteActorRef;
+pub use settings::RemoteSettings;

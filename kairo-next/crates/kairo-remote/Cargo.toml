@@ -8,3 +8,7 @@ repository.workspace = true
 [dependencies]
 kairo-actor = { workspace = true }
 kairo-serialization = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+bytes = { workspace = true }

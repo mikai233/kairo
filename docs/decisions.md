@@ -580,3 +580,32 @@ Consequences:
   actor-backed provider can reuse the same policy decisions later.
 - Full split-brain resolver parity still requires stable-after scheduling,
   indirectly-connected handling, and lease-majority support.
+
+## ADR-0024: Remote Refs Start As Typed Recipient Boundaries
+
+Status: Accepted
+
+Context:
+Pekko's `RemoteActorRefProvider` resolves non-local paths into immutable
+`RemoteActorRef` values that serialize through the transport, while local paths
+stay with the local provider. Kairo's current local `ActorRef<M>` is still
+owned by `kairo-actor`; forcing a remote transport closure into that type now
+would couple provider internals before inbound dispatch, associations, and
+remote death watch are stable.
+
+Decision:
+The first remoting slice introduces `kairo_remote::RemoteActorRef<M>` as a
+typed `Recipient<M>` implementation. It keeps the target wire path, serializes
+`M: RemoteMessage` through the registry into a `RemoteEnvelope`, and hands the
+envelope to a `RemoteOutbound` boundary. `RemoteActorRefProvider` resolves only
+host-qualified remote paths into these refs and rejects local-only paths.
+Later actor-system provider integration can wrap or compose this same remote
+ref behavior when `ActorRef<M>` gains full location transparency.
+
+Consequences:
+- Remote send behavior is testable before TCP transport and inbound dispatch
+  exist.
+- Local-only messages still need no serialization because only the remote ref
+  boundary requires `M: RemoteMessage`.
+- The later provider work must preserve this wire-envelope behavior while
+  adding local/remote resolution into the public actor-system API.

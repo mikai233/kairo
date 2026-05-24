@@ -82,8 +82,10 @@ dependencies = [
 name = "kairo-remote"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "kairo-actor",
  "kairo-serialization",
+ "thiserror",
 ]
 
 [[package]]
