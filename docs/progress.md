@@ -639,6 +639,12 @@ Implemented:
   codecs and serializer ids for heartbeat, heartbeat response, join, welcome,
   and gossip envelope messages, including member lists, seen state,
   reachability versions/records, vector clocks, and tombstones.
+- `kairo-cluster` now has a focused transport-neutral membership wire bridge
+  that maps typed join, welcome, and gossip membership messages to serialized
+  stable cluster protocol payloads with target-node routing metadata, routes
+  inbound serialized payloads into the actor-backed membership state machine,
+  and uses an actor-backed outbound adapter for welcome/gossip talkback replies
+  without adding socket transport or a central membership authority.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member
@@ -750,9 +756,10 @@ Not yet implemented:
   explicitly supplied local coordinator refs.
 - Cluster singleton remote routing and distributed pubsub mediator socket or
   remote-association wiring beyond the transport-neutral status/delta bridge.
-- Multi-node cluster membership transport/routing, remote-backed heartbeat
-  receiver routing, actor-backed downing provider timing, indirectly-connected
-  split-brain handling, and lease-majority support.
+- Multi-node cluster membership socket or remote-association transport,
+  remote-backed heartbeat receiver routing, actor-backed downing provider
+  timing, indirectly-connected split-brain handling, and lease-majority
+  support.
 
 ## Last Validation
 

@@ -17,6 +17,7 @@ mod membership_actor;
 mod protocol;
 mod reachability;
 mod vector_clock;
+mod wire;
 
 pub use cluster::{Cluster, ClusterError};
 pub use codec::{
@@ -52,3 +53,7 @@ pub use membership_actor::{ClusterMembership, ClusterMembershipMsg};
 pub use protocol::{GossipEnvelope, Heartbeat, HeartbeatRsp, Join, Welcome};
 pub use reachability::{Reachability, ReachabilityRecord, ReachabilityStatus};
 pub use vector_clock::{VectorClock, VectorClockNode, VectorClockOrdering};
+pub use wire::{
+    ClusterMembershipWireError, ClusterMembershipWireInbound, ClusterMembershipWireOutbound,
+    ClusterMembershipWireOutboundActor, ClusterSerializedMembership,
+};
