@@ -15,8 +15,9 @@ pub use pubsub::{
     DistributedPubSubPublishReport, DistributedPubSubSnapshot, LocalPubSub, LocalPubSubActor,
     LocalPubSubMsg, PubSubBucket, PubSubDeliveryFailure, PubSubDeliveryPlan, PubSubDeliveryReport,
     PubSubDeliveryTarget, PubSubDeliveryTransport, PubSubGossipActor, PubSubGossipMsg,
-    PubSubGossipPeer, PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey,
-    PubSubRegistryState, PubSubRemoteTarget, PubSubSubscribeAck, PubSubTopicReport,
+    PubSubGossipPeer, PubSubGossipWireError, PubSubGossipWireInbound, PubSubGossipWireOutbound,
+    PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey, PubSubRegistryState,
+    PubSubRemoteTarget, PubSubSerializedGossip, PubSubSubscribeAck, PubSubTopicReport,
 };
 pub use singleton::{
     LocalSingletonManagerActor, LocalSingletonManagerMsg, LocalSingletonManagerSnapshot,

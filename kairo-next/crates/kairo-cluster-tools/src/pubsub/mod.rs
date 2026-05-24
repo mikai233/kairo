@@ -4,6 +4,7 @@ mod gossip;
 mod local;
 mod mediator;
 mod registry;
+mod wire;
 
 pub use actor::{CurrentTopics, LocalPubSubActor, LocalPubSubMsg, PubSubSubscribeAck};
 pub use delivery::{
@@ -18,4 +19,8 @@ pub use mediator::{
 };
 pub use registry::{
     PubSubBucket, PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey, PubSubRegistryState,
+};
+pub use wire::{
+    PubSubGossipWireError, PubSubGossipWireInbound, PubSubGossipWireOutbound,
+    PubSubSerializedGossip,
 };

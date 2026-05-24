@@ -711,6 +711,12 @@ Implemented:
   `UniqueAddress`, bucket versions, topic/group registry entries, tombstones,
   and known-version maps without relying on Rust type names, discriminants, or
   memory layout.
+- `kairo-cluster-tools` now has a focused transport-neutral pubsub gossip wire
+  bridge that maps actor-local status/delta gossip messages to serialized
+  stable pubsub wire messages, carries target-node routing metadata for future
+  transport wiring, and deserializes inbound status/delta payloads back into
+  the actor-backed gossip state machine with explicit target and manifest
+  validation.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -742,8 +748,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton remote routing and distributed pubsub mediator transport
-  wiring beyond stable status/delta codecs.
+- Cluster singleton remote routing and distributed pubsub mediator socket or
+  remote-association wiring beyond the transport-neutral status/delta bridge.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.
