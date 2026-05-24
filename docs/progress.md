@@ -446,6 +446,12 @@ Implemented:
   `shard-{typeName}-all` `GSet` key, typed replicator adapters, idempotent
   `AddShard` updates, explicit read/update failures, and deterministic actor
   tests over the local `ReplicatorActor`.
+- `kairo-cluster-sharding` now has a focused distributed-data-backed shard
+  remember-entity store actor using Pekko-compatible five-key
+  `shard-{typeName}-{shardId}-{index}` ORSet storage, eager initial load,
+  typed replicator adapters, grouped started/stopped updates by stable Java
+  string hash partition, idempotent unknown stops, reload verification through
+  a fresh store actor, and explicit read/update failures.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -591,9 +597,8 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
-- Sharding shard-level distributed-data-backed remember-entity persistence
-  still needs an actor-backed store over the new `ORSet` CRDT before
-  started/stopped entity updates can match Pekko's ORSet-backed store.
+- Sharding remember-entity stores still need to be wired into the coordinator,
+  region, and shard actor flows for automatic recovery-driven startup.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

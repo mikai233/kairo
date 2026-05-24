@@ -17,6 +17,7 @@ mod region_runtime;
 mod remember;
 mod remember_actor;
 mod remember_ddata;
+mod remember_shard_ddata;
 mod shard_actor;
 mod shard_runtime;
 
@@ -65,6 +66,10 @@ pub use remember_actor::{
 pub use remember_ddata::{
     RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
     RememberCoordinatorDDataStoreSnapshot, remember_coordinator_shards_key,
+};
+pub use remember_shard_ddata::{
+    RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
+    remember_entity_shard_replicator_key,
 };
 pub use shard_actor::{ShardActor, ShardMsg, ShardSnapshot};
 pub use shard_runtime::{

@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorResult, ActorSystem, Context, Props};
-use kairo_distributed_data::{GSet, ReplicatorActor};
+use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
 
 use crate::{
     BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState,
@@ -14,6 +14,7 @@ use crate::{
     RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
     RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
     RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
+    RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
     RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
     RememberShardStoreState, RememberShardUpdate, RememberedEntities, ShardActor,
     ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorMsg,
@@ -22,7 +23,7 @@ use crate::{
     ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
     ShardingError, default_shard_id_for, remember_coordinator_shards_key,
     remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
-    shard_id_for, stable_hash_entity_id,
+    remember_entity_shard_replicator_key, shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -326,6 +327,153 @@ fn remember_coordinator_ddata_store_adds_and_loads_shards() {
             read_consistency: kairo_distributed_data::ReadConsistency::local(),
             write_consistency: kairo_distributed_data::WriteConsistency::local(),
         }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn remember_shard_ddata_store_updates_and_reloads_entities() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("remember-shard-ddata-store").unwrap();
+    let replicator = kit
+        .system()
+        .spawn(
+            "replicator",
+            Props::new(ReplicatorActor::<ORSet<String>>::new),
+        )
+        .unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberShardDDataStoreActor::props(
+                "orders",
+                "shard-1",
+                ReplicaId::new("node-a"),
+                replicator.clone(),
+            ),
+        )
+        .unwrap();
+    let updates = kit
+        .create_probe::<Result<crate::RememberShardUpdateDone, ShardingError>>("updates")
+        .unwrap();
+    let entities = kit
+        .create_probe::<Result<RememberedEntities, ShardingError>>("entities")
+        .unwrap();
+    let state = kit
+        .create_probe::<RememberShardDDataStoreSnapshot>("state")
+        .unwrap();
+
+    store
+        .tell(RememberShardDDataStoreMsg::GetEntities {
+            reply_to: entities.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        entities.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(RememberedEntities {
+            entities: BTreeSet::new(),
+        })
+    );
+
+    store
+        .tell(RememberShardDDataStoreMsg::Update {
+            update: RememberShardUpdate::new(
+                ["entity-1".to_string(), "entity-2".to_string()],
+                std::iter::empty::<String>(),
+            ),
+            reply_to: updates.actor_ref(),
+        })
+        .unwrap();
+    let started = updates
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        started.started,
+        BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
+    );
+    assert!(started.stopped.is_empty());
+
+    store
+        .tell(RememberShardDDataStoreMsg::Update {
+            update: RememberShardUpdate::new(
+                ["entity-3".to_string()],
+                ["entity-1".to_string(), "missing".to_string()],
+            ),
+            reply_to: updates.actor_ref(),
+        })
+        .unwrap();
+    let changed = updates
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+    assert_eq!(changed.started, BTreeSet::from(["entity-3".to_string()]));
+    assert_eq!(
+        changed.stopped,
+        BTreeSet::from(["entity-1".to_string(), "missing".to_string()])
+    );
+
+    store
+        .tell(RememberShardDDataStoreMsg::GetEntities {
+            reply_to: entities.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        entities.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(RememberedEntities {
+            entities: BTreeSet::from(["entity-2".to_string(), "entity-3".to_string()]),
+        })
+    );
+
+    store
+        .tell(RememberShardDDataStoreMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(snapshot.type_name, "orders");
+    assert_eq!(snapshot.shard_id, "shard-1");
+    assert!(snapshot.loaded);
+    assert!(snapshot.pending_load_keys.is_empty());
+    assert_eq!(snapshot.pending_updates, 0);
+    assert_eq!(
+        snapshot
+            .entities_by_key
+            .values()
+            .flat_map(|ids| ids.iter().cloned())
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from(["entity-2".to_string(), "entity-3".to_string()])
+    );
+
+    let reloaded = kit
+        .system()
+        .spawn(
+            "store-reloaded",
+            RememberShardDDataStoreActor::props(
+                "orders",
+                "shard-1",
+                ReplicaId::new("node-a"),
+                replicator,
+            ),
+        )
+        .unwrap();
+    reloaded
+        .tell(RememberShardDDataStoreMsg::GetEntities {
+            reply_to: entities.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        entities.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(RememberedEntities {
+            entities: BTreeSet::from(["entity-2".to_string(), "entity-3".to_string()]),
+        })
+    );
+
+    assert_eq!(
+        remember_entity_shard_replicator_key("orders", "shard-1", 2)
+            .unwrap()
+            .as_str(),
+        "shard-orders-shard-1-2"
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
