@@ -11,6 +11,7 @@ mod errors;
 mod hashing;
 mod protocol;
 mod region_runtime;
+mod remember;
 mod shard_runtime;
 
 pub use allocation::{LeastShardAllocationStrategy, ShardAllocationStrategy, ShardAllocations};
@@ -39,6 +40,11 @@ pub use protocol::{
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
     ShardRegionRuntime, ShardStartedPlan,
+};
+pub use remember::{
+    REMEMBER_ENTITY_SHARD_KEY_COUNT, RememberCoordinatorStoreState, RememberCoordinatorUpdateDone,
+    RememberShardStoreState, RememberShardUpdate, RememberShardUpdateDone, RememberedShards,
+    remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
 };
 pub use shard_runtime::{
     EntityDelivery, EntityTerminatedPlan, PassivateIgnoreReason, PassivatePlan, ShardDeliverPlan,

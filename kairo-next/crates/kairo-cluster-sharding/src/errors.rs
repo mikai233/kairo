@@ -11,6 +11,11 @@ pub enum ShardingError {
     RegionProxyAlreadyRegistered(String),
     UnknownShard(String),
     ShardAlreadyAllocated(String),
+    InvalidRememberEntityKeyCount,
+    InvalidRememberEntityKeyIndex {
+        index: usize,
+        key_count: usize,
+    },
     InconsistentShardHome {
         shard: String,
         current_region: String,
@@ -38,6 +43,13 @@ impl Display for ShardingError {
             Self::ShardAlreadyAllocated(shard) => {
                 write!(f, "shard {shard} is already allocated")
             }
+            Self::InvalidRememberEntityKeyCount => {
+                f.write_str("remember entity key count must be greater than zero")
+            }
+            Self::InvalidRememberEntityKeyIndex { index, key_count } => write!(
+                f,
+                "remember entity key index {index} is outside 0..{key_count}"
+            ),
             Self::InconsistentShardHome {
                 shard,
                 current_region,

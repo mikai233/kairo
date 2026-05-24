@@ -8,10 +8,12 @@ use crate::{
     BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState, EntityRef,
     GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan, HandOff, HandOffPlan, HostShard,
     HostShardPlan, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
-    RebalanceSkipReason, RegionDropReason, RegionRoutePlan, ShardAllocationStrategy,
-    ShardAllocations, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
-    ShardHomePlan, ShardRegionRuntime, ShardRuntime, ShardStarted, ShardStopped, ShardingEnvelope,
-    ShardingError, default_shard_id_for, shard_id_for, stable_hash_entity_id,
+    RebalanceSkipReason, RegionDropReason, RegionRoutePlan, RememberCoordinatorStoreState,
+    RememberShardStoreState, RememberShardUpdate, ShardAllocationStrategy, ShardAllocations,
+    ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan,
+    ShardRegionRuntime, ShardRuntime, ShardStarted, ShardStopped, ShardingEnvelope, ShardingError,
+    default_shard_id_for, remember_entity_key_index, remember_entity_key_index_for,
+    remember_entity_shard_key, shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -55,6 +57,95 @@ fn shard_id_rejects_zero_shards() {
     assert_eq!(
         shard_id_for("counter-1", 0),
         Err(ShardingError::InvalidShardCount)
+    );
+}
+
+#[test]
+fn remember_entity_keys_use_pekkos_stable_partitioning() {
+    assert_eq!(remember_entity_key_index("entity-1"), 3);
+    assert_eq!(remember_entity_key_index("entity-2"), 2);
+    assert_eq!(remember_entity_key_index("counter-1"), 2);
+    assert_eq!(
+        remember_entity_shard_key("orders", "shard-1", 3).unwrap(),
+        "shard-orders-shard-1-3"
+    );
+}
+
+#[test]
+fn remember_entity_key_helpers_reject_invalid_counts_and_indexes() {
+    assert_eq!(
+        remember_entity_key_index_for("entity-1", 0),
+        Err(ShardingError::InvalidRememberEntityKeyCount)
+    );
+    assert_eq!(
+        remember_entity_shard_key("orders", "shard-1", 5),
+        Err(ShardingError::InvalidRememberEntityKeyIndex {
+            index: 5,
+            key_count: 5,
+        })
+    );
+}
+
+#[test]
+fn remember_shard_store_loads_and_updates_partitioned_entities() {
+    let mut state = RememberShardStoreState::with_entities(
+        "orders",
+        "shard-1",
+        ["entity-1".to_string(), "entity-2".to_string()],
+    );
+
+    assert_eq!(
+        state.remembered_entities(),
+        BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
+    );
+    assert_eq!(
+        state.entities_for_key(3),
+        Some(&BTreeSet::from(["entity-1".to_string()]))
+    );
+    assert_eq!(
+        state.entities_for_key(2),
+        Some(&BTreeSet::from(["entity-2".to_string()]))
+    );
+
+    let done = state
+        .apply_update(RememberShardUpdate::new(
+            ["entity-3".to_string()],
+            ["entity-1".to_string()],
+        ))
+        .unwrap();
+
+    assert_eq!(done.started, BTreeSet::from(["entity-3".to_string()]));
+    assert_eq!(done.stopped, BTreeSet::from(["entity-1".to_string()]));
+    assert_eq!(
+        state.remembered_entities(),
+        BTreeSet::from(["entity-2".to_string(), "entity-3".to_string()])
+    );
+}
+
+#[test]
+fn remember_shard_store_treats_stopping_unknown_entity_as_idempotent() {
+    let mut state = RememberShardStoreState::new("orders", "shard-1");
+
+    state
+        .apply_update(RememberShardUpdate::new(
+            std::iter::empty::<String>(),
+            ["missing".to_string()],
+        ))
+        .unwrap();
+
+    assert!(state.remembered_entities().is_empty());
+}
+
+#[test]
+fn remember_coordinator_store_remembers_shards_additively() {
+    let mut state = RememberCoordinatorStoreState::with_shards(["1".to_string()]);
+
+    assert_eq!(state.get_shards().shards, BTreeSet::from(["1".to_string()]));
+    assert_eq!(state.add_shard("2").shard, "2");
+    assert_eq!(state.add_shard("2").shard, "2");
+    assert_eq!(
+        state.remembered_shards(),
+        &BTreeSet::from(["1".to_string(), "2".to_string()])
     );
 }
 

@@ -309,6 +309,10 @@ Implemented:
   passivation sends the configured stop message once, termination removes or
   restarts entities depending on buffered messages, and shard handoff emits
   stopper or stopped plans.
+- `kairo-cluster-sharding` now has focused remember-entity store state for the
+  coordinator's add-only remembered shard set and each shard's started/stopped
+  entity set, including Pekko-compatible five-key partitioning based on stable
+  Java string hashing for future distributed-data-backed storage.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -395,7 +399,8 @@ Not yet implemented:
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
 - Actor-backed sharding region/shard/coordinator wiring, coordinator rebalance
-  timers, transport-backed handoff delivery, and remember-entity storage.
+  timers, transport-backed handoff delivery, and distributed-data-backed
+  remember-entity store actors.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
   receiver routing, actor-backed downing provider timing, indirectly-connected
   split-brain handling, and lease-majority support.
