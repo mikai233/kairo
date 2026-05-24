@@ -22,8 +22,11 @@ pub struct ActorRef<M> {
     _message: PhantomData<fn(M)>,
 }
 
+type AdapterSend<M> = Arc<dyn Fn(M) -> Result<(), SendError<M>> + Send + Sync>;
+
 pub(crate) struct ActorRefTarget<M> {
     pub(crate) mailbox: Option<Arc<Mailbox<M>>>,
+    pub(crate) adapter: Option<AdapterSend<M>>,
     pub(crate) stopped: Arc<AtomicBool>,
     pub(crate) terminated: Arc<TerminationLatch>,
     stopped_reason: &'static str,
@@ -41,6 +44,7 @@ impl<M> ActorRef<M> {
             path,
             target: ActorRefTarget {
                 mailbox: Some(mailbox),
+                adapter: None,
                 stopped,
                 terminated,
                 stopped_reason: "actor is stopped",
@@ -57,9 +61,65 @@ impl<M> ActorRef<M> {
             path,
             target: ActorRefTarget {
                 mailbox: None,
+                adapter: None,
                 stopped: Arc::new(AtomicBool::new(true)),
                 terminated,
                 stopped_reason: "actor does not exist",
+            },
+            dead_letters,
+            _message: PhantomData,
+        }
+    }
+
+    pub(crate) fn adapter<N, F>(path: ActorPath, owner: ActorRef<N>, map: F) -> Self
+    where
+        M: Send + 'static,
+        N: Send + 'static,
+        F: FnMut(M) -> N + Send + 'static,
+    {
+        let mailbox = owner
+            .target
+            .mailbox
+            .clone()
+            .expect("message adapters require a live local owner mailbox");
+        let owner_stopped = Arc::clone(&owner.target.stopped);
+        let map = Arc::new(Mutex::new(map));
+        let adapter_path = path.clone();
+        let dead_letters = owner.dead_letters.clone();
+        let adapter_dead_letters = dead_letters.clone();
+        let adapter = Arc::new(move |message: M| {
+            if owner_stopped.load(Ordering::Acquire) {
+                adapter_dead_letters.publish::<M>(adapter_path.clone(), "actor is stopped");
+                return Err(SendError {
+                    message,
+                    reason: "actor is stopped".to_string(),
+                });
+            }
+
+            let map = Arc::clone(&map);
+            mailbox
+                .enqueue_adapted(message, move |message| {
+                    let mut map = map.lock().expect("message adapter poisoned");
+                    (map)(message)
+                })
+                .map_err(|message| {
+                    adapter_dead_letters
+                        .publish::<M>(adapter_path.clone(), "actor mailbox is closed");
+                    SendError {
+                        message,
+                        reason: "actor mailbox is closed".to_string(),
+                    }
+                })
+        });
+        let terminated = Arc::new(TerminationLatch::default());
+        Self {
+            path,
+            target: ActorRefTarget {
+                mailbox: None,
+                adapter: Some(adapter),
+                stopped: Arc::new(AtomicBool::new(false)),
+                terminated,
+                stopped_reason: "actor is stopped",
             },
             dead_letters,
             _message: PhantomData,
@@ -100,6 +160,10 @@ impl<M: Send + 'static> ActorRef<M> {
                 message,
                 reason: self.target.stopped_reason.to_string(),
             });
+        }
+
+        if let Some(adapter) = &self.target.adapter {
+            return adapter(message);
         }
 
         let Some(mailbox) = &self.target.mailbox else {
@@ -169,6 +233,13 @@ impl<M: Send + 'static> ActorRef<M> {
     }
 
     pub(crate) fn request_stop(&self) {
+        if self.target.adapter.is_some() {
+            if !self.target.stopped.swap(true, Ordering::AcqRel) {
+                self.target.terminated.mark_stopped();
+            }
+            return;
+        }
+
         if !self.target.stopped.swap(true, Ordering::AcqRel) {
             if let Some(mailbox) = &self.target.mailbox {
                 mailbox.enqueue_system(SystemMessage::Stop);
@@ -192,6 +263,7 @@ impl<M> Clone for ActorRefTarget<M> {
     fn clone(&self) -> Self {
         Self {
             mailbox: self.mailbox.clone(),
+            adapter: self.adapter.clone(),
             stopped: Arc::clone(&self.stopped),
             terminated: Arc::clone(&self.terminated),
             stopped_reason: self.stopped_reason,

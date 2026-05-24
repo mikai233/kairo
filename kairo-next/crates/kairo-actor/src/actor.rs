@@ -1,3 +1,4 @@
+use crate::adapters;
 use crate::error::{ActorError, ActorResult};
 use crate::event_stream::EventStream;
 use crate::path::ActorPath;
@@ -98,6 +99,14 @@ impl<M: Send + 'static> Context<M> {
         Map: FnOnce(Result<T, E>) -> M + Send + 'static,
     {
         tasks::pipe_to_self(self.myself.clone(), task, map)
+    }
+
+    pub fn message_adapter<U, F>(&self, map: F) -> Result<ActorRef<U>, ActorError>
+    where
+        U: Send + 'static,
+        F: FnMut(U) -> M + Send + 'static,
+    {
+        adapters::message_adapter(&self.system, self.myself.clone(), map)
     }
 
     pub fn watch<N: Send + 'static>(&mut self, actor: &ActorRef<N>) -> ActorResult {

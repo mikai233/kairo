@@ -204,3 +204,28 @@ Consequences:
 - Local messages still require no serialization.
 - A later async executor or deterministic testkit backend can replace the task
   runner without changing the typed mailbox reentry contract.
+
+## ADR-0010: Message Adapters Enqueue Owner-Mailbox Closures
+
+Status: Accepted
+
+Context:
+Pekko typed `messageAdapter` returns an `ActorRef<U>` for an external protocol,
+but adapted messages are processed by the owning actor and the adapter function
+is run on the owner actor turn. Kairo needs the same mailbox reentry behavior
+without exposing erased messages as the primary API.
+
+Decision:
+Kairo message adapters create typed adapter refs that enqueue an adapted user
+envelope into the owner mailbox. The envelope owns the external message and a
+mapping closure, and the runtime evaluates the closure immediately before
+calling the owner's `Actor::receive`. Adapter refs have internal `$adapter-*`
+paths and do not spawn a separate worker actor.
+
+Consequences:
+- Adapter mapping can mutate adapter closure state only on the owner actor turn.
+- Adapted messages share the owner mailbox instead of crossing a second actor
+  mailbox.
+- Local adapters remain typed and require no serialization.
+- Registered one-per-message-type adapter replacement can be layered on top of
+  this lower-level adapter ref mechanism later.

@@ -1,6 +1,7 @@
 //! Typed local actor API and runtime primitives.
 
 mod actor;
+mod adapters;
 mod dead_letters;
 mod death_watch;
 mod dispatcher;

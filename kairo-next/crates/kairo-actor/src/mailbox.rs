@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::{Condvar, Mutex};
 
 use crate::signal::Signal;
@@ -17,17 +18,18 @@ pub(crate) enum Dequeued<M> {
     Closed,
 }
 
-#[derive(Debug)]
 pub(crate) enum UserEnvelope<M> {
     Message(M),
     Timer(TimerEnvelope<M>),
+    Adapted(Box<dyn FnOnce() -> M + Send>),
 }
 
-impl<M> UserEnvelope<M> {
-    fn into_message(self) -> M {
+impl<M: fmt::Debug> fmt::Debug for UserEnvelope<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            UserEnvelope::Message(message) => message,
-            UserEnvelope::Timer(timer) => timer.into_message(),
+            Self::Message(message) => f.debug_tuple("Message").field(message).finish(),
+            Self::Timer(timer) => f.debug_tuple("Timer").field(timer).finish(),
+            Self::Adapted(_) => f.debug_tuple("Adapted").finish_non_exhaustive(),
         }
     }
 }
@@ -79,6 +81,22 @@ impl<M> Mailbox<M> {
         Ok(())
     }
 
+    pub(crate) fn enqueue_adapted<U, F>(&self, message: U, adapt: F) -> Result<(), U>
+    where
+        U: Send + 'static,
+        F: FnOnce(U) -> M + Send + 'static,
+    {
+        let mut state = self.state.lock().expect("mailbox poisoned");
+        if state.closed {
+            return Err(message);
+        }
+        state
+            .user
+            .push_back(UserEnvelope::Adapted(Box::new(move || adapt(message))));
+        self.ready.notify_one();
+        Ok(())
+    }
+
     pub(crate) fn enqueue_system(&self, message: SystemMessage) {
         let mut state = self.state.lock().expect("mailbox poisoned");
         if state.closed {
@@ -118,16 +136,13 @@ impl<M> Mailbox<M> {
         None
     }
 
-    pub(crate) fn close_and_drain_user(&self) -> Vec<M> {
+    pub(crate) fn close_and_drain_user(&self) -> usize {
         let mut state = self.state.lock().expect("mailbox poisoned");
         state.closed = true;
         state.system.clear();
-        let messages = state
-            .user
-            .drain(..)
-            .map(UserEnvelope::into_message)
-            .collect();
+        let drained = state.user.len();
+        state.user.clear();
         self.ready.notify_all();
-        messages
+        drained
     }
 }

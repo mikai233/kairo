@@ -169,6 +169,17 @@ impl ActorSystem {
         self.inner.registry.is_child_of(parent_path, child_path)
     }
 
+    pub(crate) fn next_adapter_path(
+        &self,
+        owner_path: &ActorPath,
+    ) -> Result<ActorPath, ActorError> {
+        if self.is_terminating() {
+            return Err(ActorError::SystemTerminating);
+        }
+        let id = self.inner.next_anonymous.fetch_add(1, Ordering::Relaxed);
+        Ok(owner_path.child(format!("$adapter-{id}"), Some(id)))
+    }
+
     pub(crate) fn watch<M, N>(
         &self,
         watcher: ActorRef<M>,
@@ -440,8 +451,7 @@ fn run_actor<A>(
     }
 
     context.cancel_all_timers();
-    for message in mailbox.close_and_drain_user() {
-        drop(message);
+    for _ in 0..mailbox.close_and_drain_user() {
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
     }
 
@@ -476,6 +486,12 @@ where
         }
         Dequeued::User(UserEnvelope::Message(message)) => {
             if actor.receive(context, message).is_err() || context.stop_requested {
+                actor_ref.target.stopped.store(true, Ordering::Release);
+            }
+            true
+        }
+        Dequeued::User(UserEnvelope::Adapted(adapt)) => {
+            if actor.receive(context, adapt()).is_err() || context.stop_requested {
                 actor_ref.target.stopped.store(true, Ordering::Release);
             }
             true

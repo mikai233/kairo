@@ -85,12 +85,16 @@ Implemented:
   and `Context::pipe_to_self` maps task success or failure back into the
   actor's protocol through the normal mailbox.
 - Task bridge state and handles live in a focused `tasks` module.
+- `Context::message_adapter` creates typed local adapter refs that enqueue
+  adapted protocol messages into the owning actor's mailbox.
+- Adapted user-message envelopes live in the mailbox runtime, and adapter ref
+  construction lives in a focused `adapters` module.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Coordinated shutdown.
-- Supervision, ask, adapters, receptionist, and deterministic testkit support.
+- Supervision, ask, receptionist, and deterministic testkit support.
 
 ## Last Validation
 
