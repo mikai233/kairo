@@ -2446,6 +2446,194 @@ fn shard_actor_completes_remember_update_before_buffered_delivery() {
 }
 
 #[test]
+fn shard_runtime_remember_entities_writes_stop_after_passivated_termination() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    runtime.recover_remembered_entities(["entity-1".to_string()]);
+    runtime.passivate("entity-1", "stop".to_string());
+    let stop_update =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
+
+    assert_eq!(
+        runtime.entity_terminated("entity-1"),
+        crate::EntityTerminatedPlan::RememberUpdate {
+            update: stop_update.clone(),
+        }
+    );
+    assert_eq!(
+        runtime.entity_state(&"entity-1".to_string()),
+        Some(ShardEntityState::RememberingStop)
+    );
+
+    assert_eq!(
+        runtime.remember_update_done(stop_update),
+        RememberUpdateDonePlan {
+            deliveries: Vec::new(),
+            next_update: None,
+        }
+    );
+    assert_eq!(runtime.entity_state(&"entity-1".to_string()), None);
+    assert!(!runtime.remember_update_in_progress());
+}
+
+#[test]
+fn shard_runtime_remember_entities_restarts_buffered_after_stop_update() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    runtime.recover_remembered_entities(["entity-1".to_string()]);
+    runtime.passivate("entity-1", "stop".to_string());
+    assert_eq!(
+        runtime.deliver(ShardingEnvelope::new("entity-1", "next".to_string())),
+        ShardDeliverPlan::Buffered {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+    let stop_update =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
+    let start_update =
+        RememberShardUpdate::new(["entity-1".to_string()], std::iter::empty::<String>());
+
+    assert_eq!(
+        runtime.entity_terminated("entity-1"),
+        crate::EntityTerminatedPlan::RememberUpdate {
+            update: stop_update.clone(),
+        }
+    );
+    assert_eq!(
+        runtime.remember_update_done(stop_update),
+        RememberUpdateDonePlan {
+            deliveries: Vec::new(),
+            next_update: Some(start_update.clone()),
+        }
+    );
+    assert_eq!(runtime.entity_state(&"entity-1".to_string()), None);
+    assert_eq!(runtime.buffered_count(&"entity-1".to_string()), 1);
+
+    assert_eq!(
+        runtime.remember_update_done(start_update),
+        RememberUpdateDonePlan {
+            deliveries: vec![crate::EntityDelivery::new("entity-1", "next".to_string())],
+            next_update: None,
+        }
+    );
+    assert_eq!(
+        runtime.entity_state(&"entity-1".to_string()),
+        Some(ShardEntityState::Active)
+    );
+}
+
+#[test]
+fn shard_runtime_batches_remember_stop_while_start_update_is_in_progress() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    runtime.recover_remembered_entities(["entity-1".to_string()]);
+    runtime.passivate("entity-1", "stop".to_string());
+    let start_update =
+        RememberShardUpdate::new(["entity-2".to_string()], std::iter::empty::<String>());
+    let stop_update =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
+
+    assert_eq!(
+        runtime.deliver(ShardingEnvelope::new("entity-2", "first".to_string())),
+        ShardDeliverPlan::RememberUpdate {
+            update: start_update.clone(),
+        }
+    );
+    assert_eq!(
+        runtime.entity_terminated("entity-1"),
+        crate::EntityTerminatedPlan::RememberUpdateQueued {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+
+    assert_eq!(
+        runtime.remember_update_done(start_update),
+        RememberUpdateDonePlan {
+            deliveries: vec![crate::EntityDelivery::new("entity-2", "first".to_string())],
+            next_update: Some(stop_update.clone()),
+        }
+    );
+    assert_eq!(
+        runtime.remember_update_done(stop_update),
+        RememberUpdateDonePlan {
+            deliveries: Vec::new(),
+            next_update: None,
+        }
+    );
+    assert_eq!(runtime.entity_state(&"entity-1".to_string()), None);
+    assert_eq!(
+        runtime.entity_state(&"entity-2".to_string()),
+        Some(ShardEntityState::Active)
+    );
+}
+
+#[test]
+fn shard_actor_completes_remember_stop_update_before_removal() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-remember-stop").unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_entities("shard-1", 10),
+        )
+        .unwrap();
+    let recovery = kit
+        .create_probe::<RememberedEntitiesPlan>("recovery")
+        .unwrap();
+    let passivation = kit
+        .create_probe::<crate::PassivatePlan<String>>("passivation")
+        .unwrap();
+    let termination = kit
+        .create_probe::<crate::EntityTerminatedPlan<String>>("termination")
+        .unwrap();
+    let done = kit
+        .create_probe::<RememberUpdateDonePlan<String>>("remember-done")
+        .unwrap();
+    let stop_update =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
+
+    shard
+        .tell(ShardMsg::RecoverRememberedEntities {
+            entities: vec!["entity-1".to_string()],
+            reply_to: recovery.actor_ref(),
+        })
+        .unwrap();
+    recovery.expect_msg(Duration::from_millis(500)).unwrap();
+    shard
+        .tell(ShardMsg::Passivate {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+            reply_to: passivation.actor_ref(),
+        })
+        .unwrap();
+    passivation.expect_msg(Duration::from_millis(500)).unwrap();
+    shard
+        .tell(ShardMsg::EntityTerminated {
+            entity_id: "entity-1".to_string(),
+            reply_to: termination.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        termination.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::EntityTerminatedPlan::RememberUpdate {
+            update: stop_update.clone(),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::RememberUpdateDone {
+            update: stop_update,
+            reply_to: done.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        done.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberUpdateDonePlan {
+            deliveries: Vec::new(),
+            next_update: None,
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_actor_buffers_passivating_entity_and_restarts_on_termination() {
     let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-passivation").unwrap();
     let shard = kit

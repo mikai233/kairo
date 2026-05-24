@@ -54,6 +54,23 @@ impl ShardRememberState {
         }
     }
 
+    pub(crate) fn record_stop(&mut self, entity_id: EntityId) -> Option<RememberShardUpdate> {
+        if !self.enabled {
+            return None;
+        }
+        self.pending_starts.remove(&entity_id);
+        if self.update_in_progress {
+            self.pending_stops.insert(entity_id);
+            None
+        } else {
+            self.update_in_progress = true;
+            Some(RememberShardUpdate::new(
+                std::iter::empty::<EntityId>(),
+                [entity_id],
+            ))
+        }
+    }
+
     pub(crate) fn complete_update(
         &mut self,
         update: &RememberShardUpdate,

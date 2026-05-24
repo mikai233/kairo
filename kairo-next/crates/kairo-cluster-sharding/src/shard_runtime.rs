@@ -34,6 +34,7 @@ impl<M> EntityDelivery<M> {
 pub enum ShardEntityState {
     Active,
     Passivating,
+    RememberingStop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +86,8 @@ pub enum PassivateIgnoreReason {
 pub enum EntityTerminatedPlan<M> {
     Removed { entity_id: EntityId },
     Restart { buffered: Vec<EntityDelivery<M>> },
+    RememberUpdate { update: RememberShardUpdate },
+    RememberUpdateQueued { entity_id: EntityId },
     IgnoredUnknown { entity_id: EntityId },
 }
 
@@ -166,7 +169,13 @@ impl<M> ShardRuntime<M> {
     }
 
     pub fn active_entity_ids(&self) -> Vec<EntityId> {
-        self.entities.keys().cloned().collect()
+        self.entities
+            .iter()
+            .filter_map(|(entity_id, state)| match state {
+                ShardEntityState::Active | ShardEntityState::Passivating => Some(entity_id.clone()),
+                ShardEntityState::RememberingStop => None,
+            })
+            .collect()
     }
 
     pub fn entity_count(&self) -> usize {
@@ -241,14 +250,16 @@ impl<M> ShardRuntime<M> {
             Some(ShardEntityState::Active) => ShardDeliverPlan::Deliver {
                 delivery: EntityDelivery::new(entity_id, message),
             },
-            Some(ShardEntityState::Passivating) => match self.buffer_message(&entity_id, message) {
-                Ok(()) => ShardDeliverPlan::Buffered { entity_id },
-                Err(message) => ShardDeliverPlan::Dropped {
-                    entity_id: Some(entity_id),
-                    reason: ShardDropReason::BufferFull,
-                    message,
-                },
-            },
+            Some(ShardEntityState::Passivating | ShardEntityState::RememberingStop) => {
+                match self.buffer_message(&entity_id, message) {
+                    Ok(()) => ShardDeliverPlan::Buffered { entity_id },
+                    Err(message) => ShardDeliverPlan::Dropped {
+                        entity_id: Some(entity_id),
+                        reason: ShardDropReason::BufferFull,
+                        message,
+                    },
+                }
+            }
             None if self.remember_entities() => {
                 self.buffer_new_remembered_entity(entity_id, message)
             }
@@ -275,8 +286,13 @@ impl<M> ShardRuntime<M> {
         }
 
         for entity_id in update.stopped() {
+            let has_buffered_messages = self.buffered_count(entity_id) > 0;
             self.entities.remove(entity_id);
-            self.message_buffers.remove(entity_id);
+            if self.remember_entities() && has_buffered_messages {
+                let _ = self.remember.record_start(entity_id.clone());
+            } else {
+                self.message_buffers.remove(entity_id);
+            }
         }
 
         let next_update = self.remember.complete_update(&update);
@@ -300,10 +316,12 @@ impl<M> ShardRuntime<M> {
                     stop_message,
                 }
             }
-            Some(ShardEntityState::Passivating) => PassivatePlan::Ignored {
-                entity_id,
-                reason: PassivateIgnoreReason::AlreadyPassivating,
-            },
+            Some(ShardEntityState::Passivating | ShardEntityState::RememberingStop) => {
+                PassivatePlan::Ignored {
+                    entity_id,
+                    reason: PassivateIgnoreReason::AlreadyPassivating,
+                }
+            }
             None => PassivatePlan::Ignored {
                 entity_id,
                 reason: PassivateIgnoreReason::UnknownEntity,
@@ -313,12 +331,22 @@ impl<M> ShardRuntime<M> {
 
     pub fn entity_terminated(&mut self, entity_id: impl Into<EntityId>) -> EntityTerminatedPlan<M> {
         let entity_id = entity_id.into();
-        match self.entities.remove(&entity_id) {
+        match self.entities.get(&entity_id).copied() {
             Some(ShardEntityState::Active) => {
+                self.entities.remove(&entity_id);
                 self.message_buffers.remove(&entity_id);
                 EntityTerminatedPlan::Removed { entity_id }
             }
+            Some(ShardEntityState::Passivating) if self.remember_entities() => {
+                self.entities
+                    .insert(entity_id.clone(), ShardEntityState::RememberingStop);
+                match self.remember.record_stop(entity_id.clone()) {
+                    Some(update) => EntityTerminatedPlan::RememberUpdate { update },
+                    None => EntityTerminatedPlan::RememberUpdateQueued { entity_id },
+                }
+            }
             Some(ShardEntityState::Passivating) => {
+                self.entities.remove(&entity_id);
                 let buffered = self.drain_buffer(&entity_id);
                 if buffered.is_empty() {
                     EntityTerminatedPlan::Removed { entity_id }
@@ -332,6 +360,9 @@ impl<M> ShardRuntime<M> {
                             .collect(),
                     }
                 }
+            }
+            Some(ShardEntityState::RememberingStop) => {
+                EntityTerminatedPlan::RememberUpdateQueued { entity_id }
             }
             None => EntityTerminatedPlan::IgnoredUnknown { entity_id },
         }
