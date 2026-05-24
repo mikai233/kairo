@@ -278,6 +278,11 @@ Implemented:
   to the region.
 - Shard IDs use documented 64-bit FNV-1a over entity id bytes with
   `hash % shard_count`; `DEFAULT_SHARD_COUNT` is 100.
+- `kairo-cluster-sharding` now has a focused allocation module with
+  `ShardAllocations`, a synchronous `ShardAllocationStrategy` boundary, and a
+  least-shard allocation strategy that allocates new shards to the least-loaded
+  region, limits rebalance rounds by absolute and relative limits, and skips
+  rebalance when another shard is already in progress.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.

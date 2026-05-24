@@ -1,5 +1,6 @@
 //! Cluster sharding API surface and protocols.
 
+mod allocation;
 mod codec;
 mod entity_ref;
 mod entity_type;
@@ -8,6 +9,7 @@ mod errors;
 mod hashing;
 mod protocol;
 
+pub use allocation::{LeastShardAllocationStrategy, ShardAllocationStrategy, ShardAllocations};
 pub use codec::{
     BEGIN_HANDOFF_ACK_SERIALIZER_ID, BEGIN_HANDOFF_SERIALIZER_ID, BeginHandOffAckCodec,
     BeginHandOffCodec, GET_SHARD_HOME_SERIALIZER_ID, GetShardHomeCodec, HANDOFF_SERIALIZER_ID,
@@ -27,6 +29,7 @@ pub use protocol::{
 };
 
 pub type EntityId = String;
+pub type RegionId = String;
 pub type ShardId = String;
 
 #[cfg(test)]
