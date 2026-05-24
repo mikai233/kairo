@@ -179,6 +179,13 @@ Implemented:
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
+- `kairo-distributed-data` now has focused CRDT foundation modules for
+  `ReplicatedData`, delta CRDT contracts, `ReplicaId`, `GSet`, `GCounter`, and
+  `PNCounter` instead of concentrating data logic in the crate root.
+- `GSet` preserves immutable add-only union semantics with accumulated deltas;
+  `GCounter` stores per-replica absolute counts and merges by maximum value;
+  `PNCounter` composes increment and decrement `GCounter`s with explicit
+  overflow errors for supported integer bounds.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, and stopped protocol
@@ -276,6 +283,8 @@ Not yet implemented:
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
+- Distributed-data replicator actor state, CRDT serialization codecs, write/read
+  consistency handling, pruning scheduling, and gossip-backed replication.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

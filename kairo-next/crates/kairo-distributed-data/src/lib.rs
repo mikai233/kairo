@@ -1,7 +1,17 @@
 //! CRDT-based replicated data for Kairo clusters.
 
 mod codec;
+mod data;
+mod errors;
+mod gcounter;
+mod gset;
+mod key;
+mod pncounter;
 mod protocol;
+mod replica;
+
+#[cfg(test)]
+mod tests;
 
 pub use codec::{
     REPLICATOR_CHANGED_SERIALIZER_ID, REPLICATOR_GET_SERIALIZER_ID,
@@ -9,17 +19,11 @@ pub use codec::{
     ReplicatorGetCodec, ReplicatorSubscribeCodec, ReplicatorUpdateCodec,
     register_ddata_protocol_codecs,
 };
+pub use data::{DeltaReplicatedData, ReplicatedData, ReplicatedDelta};
+pub use errors::CrdtError;
+pub use gcounter::GCounter;
+pub use gset::GSet;
+pub use key::ReplicatorKey;
+pub use pncounter::PNCounter;
 pub use protocol::{ReplicatorChanged, ReplicatorGet, ReplicatorSubscribe, ReplicatorUpdate};
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ReplicatorKey(String);
-
-impl ReplicatorKey {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
+pub use replica::ReplicaId;
