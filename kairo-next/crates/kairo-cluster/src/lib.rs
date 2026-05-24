@@ -12,6 +12,7 @@ mod heartbeat_actor;
 mod leader;
 mod leader_actions;
 mod member;
+mod membership_actor;
 mod protocol;
 mod reachability;
 mod vector_clock;
@@ -37,6 +38,7 @@ pub use heartbeat_actor::{
 pub use leader::LeaderSelection;
 pub use leader_actions::{LeaderActionError, LeaderActionOutcome, LeaderActions};
 pub use member::{Member, MemberStatus, UniqueAddress};
+pub use membership_actor::{ClusterMembership, ClusterMembershipMsg};
 pub use protocol::{GossipEnvelope, Heartbeat, HeartbeatRsp, Join, Welcome};
 pub use reachability::{Reachability, ReachabilityRecord, ReachabilityStatus};
 pub use vector_clock::{VectorClock, VectorClockNode, VectorClockOrdering};

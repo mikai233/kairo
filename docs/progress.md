@@ -217,6 +217,13 @@ Implemented:
   through `ClusterSubscriptionEvent`, replay-as-events subscriptions,
   event-only subscriptions, unsubscribe, current-state requests, and explicit
   publisher-unavailable errors.
+- `kairo-cluster::ClusterMembership` provides the first actor-backed membership
+  slice: self-join bootstrapping, remote join handling with `Welcome`, gossip
+  envelope merge and talkback, reachability observations, explicit downing,
+  convergence-gated leader actions, current-state/current-gossip requests, and
+  event-publisher updates. Cluster `Join`, `Welcome`, and `GossipEnvelope`
+  protocol structs now carry the membership data needed by those transitions
+  while retaining stable manifests.
 
 Not yet implemented:
 
@@ -226,8 +233,8 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
-- Cluster membership actors, remote-backed heartbeat receiver routing, and
-  concrete downing providers.
+- Multi-node cluster membership transport/routing, remote-backed heartbeat
+  receiver routing, and concrete downing providers.
 
 ## Last Validation
 

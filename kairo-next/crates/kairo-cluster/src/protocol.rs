@@ -1,6 +1,6 @@
 use kairo_serialization::RemoteMessage;
 
-use crate::UniqueAddress;
+use crate::{Gossip, UniqueAddress};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Heartbeat {
@@ -29,6 +29,7 @@ impl RemoteMessage for HeartbeatRsp {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Join {
     pub node: UniqueAddress,
+    pub roles: Vec<String>,
 }
 
 impl RemoteMessage for Join {
@@ -39,6 +40,7 @@ impl RemoteMessage for Join {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Welcome {
     pub from: UniqueAddress,
+    pub gossip: Gossip,
 }
 
 impl RemoteMessage for Welcome {
@@ -51,6 +53,7 @@ pub struct GossipEnvelope {
     pub from: UniqueAddress,
     pub to: UniqueAddress,
     pub sequence_nr: u64,
+    pub gossip: Gossip,
 }
 
 impl RemoteMessage for GossipEnvelope {

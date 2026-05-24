@@ -109,6 +109,15 @@ impl Gossip {
         }
     }
 
+    pub fn merge_seen(&self, other: &Self) -> Self {
+        let mut seen = self.seen.clone();
+        seen.extend(other.seen.iter().cloned());
+        Self {
+            seen,
+            ..self.clone()
+        }
+    }
+
     pub fn only_seen(&self, node: UniqueAddress) -> Self {
         Self {
             seen: HashSet::from([node]),
@@ -271,6 +280,23 @@ mod tests {
             &HashSet::from([node_a])
         );
         assert!(gossip.clear_seen().seen_by().is_empty());
+    }
+
+    #[test]
+    fn merge_seen_unions_seen_tables_without_changing_membership() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let left =
+            Gossip::from_members([member(node_a.clone(), MemberStatus::Up)]).seen(node_a.clone());
+        let right = Gossip::from_members([member(node_b.clone(), MemberStatus::Up)])
+            .seen(node_b.clone())
+            .seen(node_c.clone());
+
+        let merged = left.merge_seen(&right);
+
+        assert_eq!(merged.members(), left.members());
+        assert_eq!(merged.seen_by(), &HashSet::from([node_a, node_b, node_c]));
     }
 
     #[test]
