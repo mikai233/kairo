@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -6,14 +6,22 @@ use kairo_actor::{Actor, ActorResult, ActorSystem, Address, Context, Props};
 use kairo_cluster::UniqueAddress;
 
 use crate::{
-    ConsistencyError, CrdtDataCodec, CrdtError, DataEnvelope, DeltaReplicatedData, GCounter,
-    GCounterCodec, GSet, GSetStringCodec, GetResponse, PNCounter, PNCounterCodec, ReadConsistency,
-    ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorKey,
-    ReplicatorState, UpdateResponse, WriteConsistency,
+    ConsistencyError, CrdtDataCodec, CrdtError, DataEnvelope, DeltaPropagationLog,
+    DeltaReplicatedData, GCounter, GCounterCodec, GSet, GSetStringCodec, GetResponse, PNCounter,
+    PNCounterCodec, ReadConsistency, ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor,
+    ReplicatorActorMsg, ReplicatorKey, ReplicatorState, UpdateResponse, WriteConsistency,
 };
 
 fn replica(id: &str) -> ReplicaId {
     ReplicaId::new(id)
+}
+
+fn delta_counter(id: &str, amount: u128) -> GCounter {
+    GCounter::new()
+        .increment(replica(id), amount)
+        .unwrap()
+        .delta()
+        .unwrap()
 }
 
 #[test]
@@ -225,6 +233,105 @@ fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
             .to_string()
             .contains("unsupported")
     );
+}
+
+#[test]
+fn delta_propagation_log_records_versions_and_merges_unsent_deltas() {
+    let key = ReplicatorKey::new("counter");
+    let node_a = replica("node-a");
+    let node_b = replica("node-b");
+    let mut log = DeltaPropagationLog::new([node_a.clone(), node_b.clone()]);
+
+    assert_eq!(
+        log.record_delta(key.clone(), Some(delta_counter("a", 1))),
+        1
+    );
+    assert_eq!(
+        log.record_delta(key.clone(), Some(delta_counter("b", 2))),
+        2
+    );
+    assert_eq!(log.current_version(&key), 2);
+
+    let propagations = log.collect_propagations();
+
+    assert_eq!(propagations.len(), 2);
+    for node in [node_a, node_b] {
+        let entry = propagations
+            .get(&node)
+            .unwrap()
+            .entries()
+            .get(&key)
+            .unwrap();
+        assert_eq!(entry.from_version(), 1);
+        assert_eq!(entry.to_version(), 2);
+        assert_eq!(entry.delta().value().unwrap(), 3);
+    }
+}
+
+#[test]
+fn delta_propagation_log_advances_versions_for_no_payload_entries() {
+    let key = ReplicatorKey::new("counter");
+    let node = replica("node");
+    let mut log = DeltaPropagationLog::new([node]);
+
+    log.record_delta(key.clone(), None);
+    log.record_delta(key.clone(), Some(delta_counter("a", 1)));
+
+    let propagations = log.collect_propagations();
+
+    assert!(propagations.is_empty());
+    assert_eq!(log.current_version(&key), 2);
+    assert!(log.has_delta_entries(&key));
+}
+
+#[test]
+fn delta_propagation_log_selects_nodes_by_round_robin_slice() {
+    let key = ReplicatorKey::new("counter");
+    let nodes = (0..12)
+        .map(|idx| replica(&format!("node-{idx:02}")))
+        .collect::<Vec<_>>();
+    let mut log = DeltaPropagationLog::new(nodes.clone()).with_gossip_interval_divisor(5);
+    log.record_delta(key.clone(), Some(delta_counter("a", 1)));
+
+    let first = log.collect_propagations();
+    log.record_delta(key.clone(), Some(delta_counter("a", 2)));
+    let second = log.collect_propagations();
+
+    assert_eq!(first.keys().cloned().collect::<Vec<_>>(), nodes[0..3]);
+    assert_eq!(second.keys().cloned().collect::<Vec<_>>(), nodes[3..6]);
+}
+
+#[test]
+fn delta_propagation_log_cleans_entries_after_all_nodes_have_seen_them() {
+    let key = ReplicatorKey::new("counter");
+    let mut log = DeltaPropagationLog::new([replica("a"), replica("b")]);
+    log.record_delta(key.clone(), Some(delta_counter("a", 1)));
+
+    log.collect_propagations();
+    log.cleanup_delta_entries();
+
+    assert!(!log.has_delta_entries(&key));
+    assert_eq!(log.current_version(&key), 1);
+}
+
+#[test]
+fn delta_propagation_log_deletes_key_and_forgets_removed_nodes() {
+    let key = ReplicatorKey::new("counter");
+    let node_a = replica("node-a");
+    let node_b = replica("node-b");
+    let mut log = DeltaPropagationLog::new([node_a.clone(), node_b.clone()]);
+    log.record_delta(key.clone(), Some(delta_counter("a", 1)));
+    log.collect_propagations();
+
+    log.cleanup_removed_node(&node_b);
+    log.set_nodes([node_a]);
+    log.cleanup_delta_entries();
+    assert!(!log.has_delta_entries(&key));
+
+    log.record_delta(key.clone(), Some(delta_counter("a", 2)));
+    log.delete_key(&key);
+    assert_eq!(log.current_version(&key), 0);
+    assert!(!log.has_delta_entries(&key));
 }
 
 #[test]
@@ -574,6 +681,63 @@ fn replicator_actor_can_unsubscribe_from_later_flushes() {
     replicator.tell(ReplicatorActorMsg::FlushChanges).unwrap();
 
     assert!(change_rx.recv_timeout(Duration::from_millis(100)).is_err());
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn replicator_actor_collects_delta_propagations_from_local_updates() {
+    let system = ActorSystem::builder("ddata-replicator-delta")
+        .build()
+        .unwrap();
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let (update_ref, update_rx) = forward_ref(&system, "update-replies");
+    let (delta_ref, delta_rx) = forward_ref::<BTreeMap<ReplicaId, crate::DeltaPropagation<GCounter>>>(
+        &system,
+        "delta-replies",
+    );
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("remote");
+    let node = replica("local");
+
+    replicator
+        .tell(ReplicatorActorMsg::SetDeltaNodes {
+            nodes: vec![remote.clone()],
+        })
+        .unwrap();
+    replicator
+        .tell(ReplicatorActorMsg::Update {
+            key: key.clone(),
+            initial: GCounter::new(),
+            consistency: WriteConsistency::local(),
+            modify: Box::new(move |counter| {
+                counter
+                    .increment(node.clone(), 3)
+                    .map_err(|e| e.to_string())
+            }),
+            reply_to: update_ref,
+        })
+        .unwrap();
+    update_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    replicator
+        .tell(ReplicatorActorMsg::CollectDeltaPropagations {
+            reply_to: delta_ref,
+        })
+        .unwrap();
+
+    let propagations = delta_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let entry = propagations
+        .get(&remote)
+        .unwrap()
+        .entries()
+        .get(&key)
+        .unwrap();
+    assert_eq!(entry.from_version(), 1);
+    assert_eq!(entry.to_version(), 1);
+    assert_eq!(entry.delta().value().unwrap(), 3);
 
     system.terminate(Duration::from_secs(1)).unwrap();
 }

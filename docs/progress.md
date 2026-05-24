@@ -203,6 +203,13 @@ Implemented:
 - `kairo-distributed-data` now has stable built-in CRDT data codecs for string
   `GSet`, `GCounter`, and `PNCounter`, with explicit manifests, codec version
   metadata, deterministic sorted encoding, and big-endian counter values.
+- `kairo-distributed-data::DeltaPropagationLog` tracks per-key delta sequence
+  numbers, merges unsent deltas per target, advances sequence numbers for
+  no-payload updates, selects remote replicas by Pekko-style round-robin
+  slices, and cleans delta entries after all current targets have seen them.
+- `ReplicatorActor<D>` records local update deltas into the propagation log and
+  exposes explicit target-node configuration, propagation collection, and
+  cleanup messages for the future remote transport loop.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, and stopped protocol
@@ -300,8 +307,8 @@ Not yet implemented:
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
-- Distributed-data remote delta propagation, direct write/read aggregators,
-  pruning scheduling, and gossip-backed replication.
+- Distributed-data transport-backed remote delta propagation, direct write/read
+  aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

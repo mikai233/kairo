@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 
 use crate::{
-    DataEnvelope, DeltaReplicatedData, GetResponse, ReplicatorChange, ReplicatorKey,
-    ReplicatorState, UpdateResponse, WriteConsistency,
+    DataEnvelope, DeltaPropagation, DeltaPropagationLog, DeltaReplicatedData, GetResponse,
+    ReplicaId, ReplicatorChange, ReplicatorKey, ReplicatorState, UpdateResponse, WriteConsistency,
 };
 
 pub struct ReplicatorActor<D>
@@ -13,6 +13,7 @@ where
     D::Delta: Send + 'static,
 {
     state: ReplicatorState<D>,
+    delta_log: DeltaPropagationLog<D::Delta>,
     subscribers: BTreeMap<ReplicatorKey, Vec<ActorRef<ReplicatorChange<D>>>>,
     remote_replica_count: usize,
 }
@@ -29,6 +30,7 @@ where
     pub fn with_remote_replica_count(remote_replica_count: usize) -> Self {
         Self {
             state: ReplicatorState::new(),
+            delta_log: DeltaPropagationLog::new([]),
             subscribers: BTreeMap::new(),
             remote_replica_count,
         }
@@ -36,6 +38,10 @@ where
 
     pub fn state(&self) -> &ReplicatorState<D> {
         &self.state
+    }
+
+    pub fn delta_log(&self) -> &DeltaPropagationLog<D::Delta> {
+        &self.delta_log
     }
 }
 
@@ -74,6 +80,13 @@ where
         key: ReplicatorKey,
         delta: D::Delta,
     },
+    SetDeltaNodes {
+        nodes: Vec<ReplicaId>,
+    },
+    CollectDeltaPropagations {
+        reply_to: ActorRef<BTreeMap<ReplicaId, DeltaPropagation<D::Delta>>>,
+    },
+    CleanupDeltaEntries,
     Subscribe {
         key: ReplicatorKey,
         subscriber: ActorRef<ReplicatorChange<D>>,
@@ -117,10 +130,15 @@ where
                 reply_to,
             } => {
                 let response = match self.state.update_local(key.clone(), initial, modify) {
-                    Ok(outcome) if consistency.is_local(self.remote_replica_count) => {
-                        UpdateResponse::Success(outcome)
+                    Ok(outcome) => {
+                        self.delta_log
+                            .record_delta(key.clone(), outcome.delta().cloned());
+                        if consistency.is_local(self.remote_replica_count) {
+                            UpdateResponse::Success(outcome)
+                        } else {
+                            UpdateResponse::Timeout { key }
+                        }
                     }
-                    Ok(_) => UpdateResponse::Timeout { key },
                     Err(reason) => UpdateResponse::ModifyFailure { key, reason },
                 };
                 tell_or_actor_error(&reply_to, response)?;
@@ -130,6 +148,16 @@ where
             }
             ReplicatorActorMsg::WriteDelta { key, delta } => {
                 self.state.write_delta(key, delta);
+            }
+            ReplicatorActorMsg::SetDeltaNodes { nodes } => {
+                self.delta_log.set_nodes(nodes);
+            }
+            ReplicatorActorMsg::CollectDeltaPropagations { reply_to } => {
+                let propagations = self.delta_log.collect_propagations();
+                tell_or_actor_error(&reply_to, propagations)?;
+            }
+            ReplicatorActorMsg::CleanupDeltaEntries => {
+                self.delta_log.cleanup_delta_entries();
             }
             ReplicatorActorMsg::Subscribe { key, subscriber } => {
                 self.subscribe(key, subscriber);

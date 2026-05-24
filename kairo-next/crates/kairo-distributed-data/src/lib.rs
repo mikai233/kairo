@@ -4,6 +4,7 @@ mod codec;
 mod consistency;
 mod crdt_codec;
 mod data;
+mod delta;
 mod envelope;
 mod errors;
 mod gcounter;
@@ -31,6 +32,7 @@ pub use crdt_codec::{
     GSetStringCodec, PNCOUNTER_MANIFEST, PNCounterCodec, SerializedCrdt,
 };
 pub use data::{DeltaReplicatedData, ReplicatedData, ReplicatedDelta};
+pub use delta::{DeltaPropagation, DeltaPropagationEntry, DeltaPropagationLog};
 pub use envelope::DataEnvelope;
 pub use errors::{ConsistencyError, CrdtError};
 pub use gcounter::GCounter;
