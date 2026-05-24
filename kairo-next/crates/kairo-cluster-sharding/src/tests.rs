@@ -2622,7 +2622,7 @@ fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
 
     let mut transport = HandoffTransport::new();
     transport.insert_target(HandoffRegionTarget::new("region-a", region_a.clone()));
-    transport.insert_target(HandoffRegionTarget::new("region-b", region_b));
+    transport.insert_target(HandoffRegionTarget::new("region-b", region_b.clone()));
 
     let coordinator = kit
         .system()
@@ -2630,7 +2630,7 @@ fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
             "coordinator",
             ShardCoordinatorActor::props_with_handoff(
                 state,
-                FixedRebalanceStrategy::new(["shard-1"]),
+                RebalanceThenAllocateStrategy::new(["shard-1"], "region-b"),
                 "stop".to_string(),
                 Duration::from_millis(500),
                 transport,
@@ -2642,6 +2642,9 @@ fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
         .unwrap();
     let snapshot = kit
         .create_probe::<CoordinatorStateSnapshot>("snapshot")
+        .unwrap();
+    let region_b_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-b-state")
         .unwrap();
 
     coordinator
@@ -2669,8 +2672,8 @@ fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
         completed = !state.rebalance_in_progress.contains_key("shard-1")
             && state
                 .allocations
-                .get("region-a")
-                .is_some_and(|shards| !shards.contains(&"shard-1".to_string()));
+                .get("region-b")
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
         if completed {
             break;
         }
@@ -2678,7 +2681,20 @@ fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
     }
     assert!(
         completed,
-        "coordinator should clear rebalance and deallocate shard after worker completion"
+        "coordinator should clear rebalance and reallocate shard after worker completion"
+    );
+    region_b
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_b_state.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        region_b_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .contains("shard-1"),
+        "new owner region should receive HostShard after reallocation"
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -4236,6 +4252,39 @@ impl ShardAllocationStrategy for FixedRebalanceStrategy {
         _in_progress: &BTreeSet<String>,
     ) -> Result<BTreeSet<String>, ShardingError> {
         Ok(self.shards.clone())
+    }
+}
+
+struct RebalanceThenAllocateStrategy {
+    rebalance_shards: BTreeSet<String>,
+    allocation_region: String,
+}
+
+impl RebalanceThenAllocateStrategy {
+    fn new<const N: usize>(rebalance_shards: [&str; N], allocation_region: &str) -> Self {
+        Self {
+            rebalance_shards: rebalance_shards.into_iter().map(str::to_string).collect(),
+            allocation_region: allocation_region.to_string(),
+        }
+    }
+}
+
+impl ShardAllocationStrategy for RebalanceThenAllocateStrategy {
+    fn allocate_shard(
+        &self,
+        _requester: &String,
+        _shard: &String,
+        _current: &ShardAllocations,
+    ) -> Result<String, ShardingError> {
+        Ok(self.allocation_region.clone())
+    }
+
+    fn rebalance(
+        &self,
+        _current: &ShardAllocations,
+        _in_progress: &BTreeSet<String>,
+    ) -> Result<BTreeSet<String>, ShardingError> {
+        Ok(self.rebalance_shards.clone())
     }
 }
 

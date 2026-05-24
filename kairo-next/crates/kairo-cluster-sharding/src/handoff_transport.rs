@@ -5,7 +5,7 @@ use std::time::Duration;
 use kairo_actor::{ActorRef, Recipient};
 
 use crate::{
-    BeginHandOffPlan, HandOffPlan, RegionId, RegionLocalHandOffCompletionPlan,
+    BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionId, RegionLocalHandOffCompletionPlan,
     RegionLocalHandOffPlan, ShardHandOffPlan, ShardRebalancePlan, ShardRegionMsg,
 };
 
@@ -69,6 +69,7 @@ impl HandoffDeliveryReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandoffDeliveryTarget {
     BeginHandOff { region: RegionId },
+    HostShard { region: RegionId },
     HandOff { region: RegionId },
     CompleteHandOff { region: RegionId },
 }
@@ -193,6 +194,38 @@ where
         reply_to: ActorRef<HandOffPlan>,
     ) -> HandoffDeliveryReport {
         self.send_handoff_to(&plan.from_region, &plan.shard, reply_to)
+    }
+
+    pub fn send_host_shard_to(
+        &self,
+        region: &RegionId,
+        shard: &str,
+        reply_to: ActorRef<HostShardPlan<M>>,
+    ) -> HandoffDeliveryReport {
+        let mut sent_to = Vec::new();
+        let mut failures = Vec::new();
+        let target = HandoffDeliveryTarget::HostShard {
+            region: region.clone(),
+        };
+        let Some(recipient) = self.targets.get(region) else {
+            failures.push(HandoffDeliveryFailure::MissingTarget { target });
+            return HandoffDeliveryReport { sent_to, failures };
+        };
+
+        let message = ShardRegionMsg::HostShard {
+            shard: shard.to_string(),
+            reply_to,
+        };
+        if let Err(error) = recipient.recipient.tell(message) {
+            failures.push(HandoffDeliveryFailure::SendFailed {
+                target,
+                reason: error.reason().to_string(),
+            });
+        } else {
+            sent_to.push(target);
+        }
+
+        HandoffDeliveryReport { sent_to, failures }
     }
 
     pub fn send_handoff_to(

@@ -224,6 +224,9 @@ pub enum ShardCoordinatorMsg {
         reply_to: ActorRef<Result<RebalanceCompletionPlan, ShardingError>>,
     },
     HandoffWorkerDone(HandoffWorkerDone),
+    HostShardObserved {
+        shard: ShardId,
+    },
     RebalanceTick {
         reply_to: Option<ActorRef<Result<RebalancePlan, ShardingError>>>,
     },
@@ -327,7 +330,10 @@ where
                 let result = self.runtime.complete_rebalance(shard, ok);
                 let _ = reply_to.tell(result);
             }
-            ShardCoordinatorMsg::HandoffWorkerDone(done) => self.apply_handoff_worker_done(done)?,
+            ShardCoordinatorMsg::HandoffWorkerDone(done) => {
+                self.apply_handoff_worker_done(ctx, done)?
+            }
+            ShardCoordinatorMsg::HostShardObserved { shard: _ } => {}
             ShardCoordinatorMsg::RebalanceTick { reply_to } => {
                 let result = self.runtime.plan_rebalance(self.strategy.as_ref());
                 self.spawn_handoff_workers(ctx, &result)?;
@@ -447,14 +453,50 @@ where
         Ok(())
     }
 
-    fn apply_handoff_worker_done(&mut self, done: HandoffWorkerDone) -> ActorResult {
+    fn apply_handoff_worker_done(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg>,
+        done: HandoffWorkerDone,
+    ) -> ActorResult {
         if let Some(handoff) = &mut self.handoff {
             handoff.remove_worker(&done.shard);
         }
-        self.runtime
+        let completion = self
+            .runtime
             .complete_rebalance(done.shard, done.ok)
-            .map(|_| ())
-            .map_err(|error| ActorError::Message(error.to_string()))
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        self.reallocate_completed_rebalance(ctx, completion)
+    }
+
+    fn reallocate_completed_rebalance(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg>,
+        completion: RebalanceCompletionPlan,
+    ) -> ActorResult {
+        let RebalanceCompletionPlan::Deallocated {
+            retry_get_shard_home,
+            pending_requesters,
+            ..
+        } = completion
+        else {
+            return Ok(());
+        };
+
+        let requester = pending_requesters
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| "coordinator".to_string());
+        let result = self.runtime.request_shard_home(
+            requester,
+            retry_get_shard_home.shard_id,
+            self.strategy.as_ref(),
+        );
+        self.persist_allocated_shard(ctx, &result)?;
+        let plan = result.map_err(|error| ActorError::Message(error.to_string()))?;
+        if let Some(handoff) = &self.handoff {
+            handoff.dispatch_host_shard(ctx, &plan)?;
+        }
+        Ok(())
     }
 
     fn stop_for_remember_store_failure(

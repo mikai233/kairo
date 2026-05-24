@@ -519,6 +519,10 @@ Implemented:
   children through a structured coordinator handoff module, worker completion
   is observed through the coordinator mailbox, and successful completion clears
   in-progress rebalance state and deallocates the shard home.
+- `kairo-cluster-sharding` coordinator-driven handoff now re-enters the normal
+  shard-home allocation path after successful worker completion and dispatches
+  `HostShard` to the newly selected region through the structured handoff
+  transport.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -665,8 +669,8 @@ Not yet implemented:
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need automatic coordinator/region/shard
-  orchestration, including restart backoff policy integration and post-handoff
-  reallocation/host-shard dispatch after coordinator-driven completion.
+  orchestration, including restart backoff policy integration and broader
+  region/coordinator bootstrap wiring.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

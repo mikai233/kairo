@@ -4,8 +4,8 @@ use std::time::Duration;
 use kairo_actor::{ActorError, ActorRef, Context};
 
 use crate::{
-    HandoffTransport, HandoffWorkerActor, HandoffWorkerMsg, ShardCoordinatorMsg, ShardId,
-    ShardRebalancePlan,
+    GetShardHomePlan, HandoffTransport, HandoffWorkerActor, HandoffWorkerMsg, ShardCoordinatorMsg,
+    ShardId, ShardRebalancePlan,
 };
 
 pub struct CoordinatorHandoff<M>
@@ -60,6 +60,37 @@ where
 
     pub fn remove_worker(&mut self, shard: &ShardId) {
         self.active_workers.remove(shard);
+    }
+
+    pub fn dispatch_host_shard(
+        &self,
+        ctx: &Context<ShardCoordinatorMsg>,
+        plan: &GetShardHomePlan,
+    ) -> Result<(), ActorError> {
+        let GetShardHomePlan::Allocated {
+            host_region,
+            host_shard,
+            ..
+        } = plan
+        else {
+            return Ok(());
+        };
+
+        let shard = host_shard.shard_id.clone();
+        let reply_to = ctx.message_adapter(move |_| ShardCoordinatorMsg::HostShardObserved {
+            shard: shard.clone(),
+        })?;
+        let report = self
+            .transport
+            .send_host_shard_to(host_region, &host_shard.shard_id, reply_to);
+        if report.is_success() {
+            Ok(())
+        } else {
+            Err(ActorError::Message(format!(
+                "failed to dispatch host shard: {:?}",
+                report.failures()
+            )))
+        }
     }
 
     pub fn active_worker_shards(&self) -> Vec<ShardId> {
