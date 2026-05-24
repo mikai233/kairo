@@ -402,6 +402,11 @@ Implemented:
   fixed-delay rebalance ticks, expose manual tick messages for deterministic
   tests, track in-progress rebalances in snapshots, and cancel/restart the
   rebalance timer when shutdown preparation changes.
+- `kairo-cluster-sharding` now has a transport-neutral handoff delivery
+  boundary that sends `BeginHandOff` to all planned handoff participants,
+  sends `HandOff` to the owning region after acknowledgement orchestration,
+  preserves typed region command recipients for local or future remote refs,
+  and reports missing or failed delivery targets explicitly.
 - `kairo-cluster-sharding` now has a focused shard-region runtime planner that
   buffers unknown shard messages, requests shard homes once per buffered shard,
   forwards buffered messages when a remote home is learned, starts local shards
@@ -577,8 +582,7 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
-- Sharding transport-backed handoff delivery and distributed-data-backed
-  remember-entity store persistence.
+- Sharding distributed-data-backed remember-entity store persistence.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

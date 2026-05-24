@@ -9,6 +9,7 @@ mod entity_ref;
 mod entity_type;
 mod envelope;
 mod errors;
+mod handoff_transport;
 mod hashing;
 mod protocol;
 mod region_actor;
@@ -37,6 +38,10 @@ pub use entity_ref::EntityRef;
 pub use entity_type::EntityTypeKey;
 pub use envelope::ShardingEnvelope;
 pub use errors::ShardingError;
+pub use handoff_transport::{
+    HandoffDeliveryFailure, HandoffDeliveryReport, HandoffDeliveryTarget, HandoffRegionTarget,
+    HandoffTransport,
+};
 pub use hashing::{DEFAULT_SHARD_COUNT, default_shard_id_for, shard_id_for, stable_hash_entity_id};
 pub use protocol::{
     BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
