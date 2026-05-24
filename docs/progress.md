@@ -89,12 +89,16 @@ Implemented:
   adapted protocol messages into the owning actor's mailbox.
 - Adapted user-message envelopes live in the mailbox runtime, and adapter ref
   construction lives in a focused `adapters` module.
+- `Context::ask` creates a one-shot typed local reply ref, maps replies or
+  `AskError::Timeout` back into the owning actor's mailbox, and rejects late
+  replies after completion.
+- Ask state and timeout handling live in a focused `asks` module.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop.
 - Coordinated shutdown.
-- Supervision, ask, receptionist, and deterministic testkit support.
+- Supervision, receptionist, and deterministic testkit support.
 
 ## Last Validation
 

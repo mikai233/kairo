@@ -180,6 +180,14 @@ impl ActorSystem {
         Ok(owner_path.child(format!("$adapter-{id}"), Some(id)))
     }
 
+    pub(crate) fn next_ask_path(&self, owner_path: &ActorPath) -> Result<ActorPath, ActorError> {
+        if self.is_terminating() {
+            return Err(ActorError::SystemTerminating);
+        }
+        let id = self.inner.next_anonymous.fetch_add(1, Ordering::Relaxed);
+        Ok(owner_path.child(format!("$ask-{id}"), Some(id)))
+    }
+
     pub(crate) fn watch<M, N>(
         &self,
         watcher: ActorRef<M>,

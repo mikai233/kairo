@@ -2,6 +2,7 @@
 
 mod actor;
 mod adapters;
+mod asks;
 mod dead_letters;
 mod death_watch;
 mod dispatcher;
@@ -18,6 +19,7 @@ mod tasks;
 mod timers;
 
 pub use actor::{Actor, Context, Props};
+pub use asks::{AskError, AskResult};
 pub use dead_letters::{DeadLetter, DeadLetters};
 pub use dispatcher::DispatcherSettings;
 pub use error::{ActorError, ActorResult, SendError};
@@ -32,9 +34,9 @@ pub use timers::TimerKey;
 
 pub mod prelude {
     pub use crate::{
-        Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, Cancellable, Context,
-        DeadLetter, DeadLetters, DispatcherSettings, EventStream, IgnoreRef, Props, Recipient,
-        Signal, TaskHandle, TimerKey,
+        Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, AskError, AskResult,
+        Cancellable, Context, DeadLetter, DeadLetters, DispatcherSettings, EventStream, IgnoreRef,
+        Props, Recipient, Signal, TaskHandle, TimerKey,
     };
 }
 

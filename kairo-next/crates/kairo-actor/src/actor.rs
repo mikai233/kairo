@@ -1,4 +1,5 @@
 use crate::adapters;
+use crate::asks::{self, AskError};
 use crate::error::{ActorError, ActorResult};
 use crate::event_stream::EventStream;
 use crate::path::ActorPath;
@@ -107,6 +108,29 @@ impl<M: Send + 'static> Context<M> {
         F: FnMut(U) -> M + Send + 'static,
     {
         adapters::message_adapter(&self.system, self.myself.clone(), map)
+    }
+
+    pub fn ask<Req, Res, Create, Map>(
+        &self,
+        target: ActorRef<Req>,
+        timeout: Duration,
+        create_request: Create,
+        map_response: Map,
+    ) -> ActorResult
+    where
+        Req: Send + 'static,
+        Res: Send + 'static,
+        Create: FnOnce(ActorRef<Res>) -> Req,
+        Map: FnOnce(Result<Res, AskError>) -> M + Send + 'static,
+    {
+        asks::ask(
+            &self.system,
+            self.myself.clone(),
+            target,
+            timeout,
+            create_request,
+            map_response,
+        )
     }
 
     pub fn watch<N: Send + 'static>(&mut self, actor: &ActorRef<N>) -> ActorResult {

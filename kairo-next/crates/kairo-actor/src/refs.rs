@@ -125,6 +125,32 @@ impl<M> ActorRef<M> {
             _message: PhantomData,
         }
     }
+
+    pub(crate) fn function<F>(
+        path: ActorPath,
+        dead_letters: DeadLetters,
+        stopped: Arc<AtomicBool>,
+        terminated: Arc<TerminationLatch>,
+        stopped_reason: &'static str,
+        send: F,
+    ) -> Self
+    where
+        M: Send + 'static,
+        F: Fn(M) -> Result<(), SendError<M>> + Send + Sync + 'static,
+    {
+        Self {
+            path,
+            target: ActorRefTarget {
+                mailbox: None,
+                adapter: Some(Arc::new(send)),
+                stopped,
+                terminated,
+                stopped_reason,
+            },
+            dead_letters,
+            _message: PhantomData,
+        }
+    }
 }
 
 impl<M> Clone for ActorRef<M> {

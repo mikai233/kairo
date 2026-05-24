@@ -229,3 +229,32 @@ Consequences:
 - Local adapters remain typed and require no serialization.
 - Registered one-per-message-type adapter replacement can be layered on top of
   this lower-level adapter ref mechanism later.
+
+## ADR-0011: Local Ask Uses One-Shot Reply Refs
+
+Status: Accepted
+
+Context:
+Pekko typed `ActorContext.ask` creates a temporary reply ref, sends a request
+containing that ref, and maps either the reply or timeout back into the owning
+actor's protocol through `pipeToSelf`. The response mapper is evaluated as part
+of the owning actor's message processing rather than on the replying actor or
+timeout thread.
+
+Decision:
+Kairo local ask creates a one-shot typed reply ref under the owner path with an
+internal `$ask-*` name. The first reply or timeout wins through shared atomic
+completion state. The winning result is enqueued as an adapted owner-mailbox
+message, where the mapper converts `AskResult<Res>` into the owner's protocol
+immediately before `Actor::receive`.
+
+Consequences:
+- Ask response mapping follows the same synchronous actor-turn rule as message
+  adapters.
+- Late replies are rejected and recorded in dead letters after the ask is
+  completed.
+- Local ask requires no serialization and does not introduce implicit sender as
+  the primary user API.
+- The initial implementation uses a dependency-free timeout thread; a later
+  deterministic scheduler can replace that timing backend without changing the
+  public ask contract.
