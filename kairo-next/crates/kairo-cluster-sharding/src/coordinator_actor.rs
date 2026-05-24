@@ -6,9 +6,9 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, AskError, Context, P
 use crate::coordinator_handoff::CoordinatorHandoff;
 use crate::coordinator_store::{CoordinatorRememberStore, LocalCoordinatorRememberStoreProvider};
 use crate::{
-    CoordinatorEvent, CoordinatorRuntime, CoordinatorState, GetShardHomePlan, HandoffTransport,
-    HandoffWorkerDone, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
-    RegionId, RememberCoordinatorStoreMsg, RememberCoordinatorStoreState,
+    CoordinatorEvent, CoordinatorRuntime, CoordinatorState, GetShardHomePlan, HandoffRegionTarget,
+    HandoffTransport, HandoffWorkerDone, LeastShardAllocationStrategy, RebalanceCompletionPlan,
+    RebalancePlan, RegionId, RememberCoordinatorStoreMsg, RememberCoordinatorStoreState,
     RememberCoordinatorUpdateDone, RememberedShards, ShardAllocationStrategy, ShardId,
     ShardingError,
 };
@@ -187,7 +187,10 @@ where
 }
 
 #[derive(Clone)]
-pub enum ShardCoordinatorMsg {
+pub enum ShardCoordinatorMsg<M = ()>
+where
+    M: Send + 'static,
+{
     ApplyEvent {
         event: CoordinatorEvent,
         reply_to: Option<ActorRef<Result<CoordinatorStateSnapshot, ShardingError>>>,
@@ -214,6 +217,10 @@ pub enum ShardCoordinatorMsg {
         requester: RegionId,
         shard: ShardId,
         reply_to: ActorRef<Result<GetShardHomePlan, ShardingError>>,
+    },
+    RegisterLocalRegion {
+        target: HandoffRegionTarget<M>,
+        reply_to: ActorRef<Result<CoordinatorStateSnapshot, ShardingError>>,
     },
     PlanRebalance {
         reply_to: ActorRef<Result<RebalancePlan, ShardingError>>,
@@ -259,7 +266,7 @@ impl<M> Actor for ShardCoordinatorActor<M>
 where
     M: Clone + Send + 'static,
 {
-    type Msg = ShardCoordinatorMsg;
+    type Msg = ShardCoordinatorMsg<M>;
 
     fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
         self.spawn_local_remember_store_if_needed(ctx)?;
@@ -317,6 +324,10 @@ where
                 self.persist_allocated_shard(ctx, &result)?;
                 let _ = reply_to.tell(result);
             }
+            ShardCoordinatorMsg::RegisterLocalRegion { target, reply_to } => {
+                let result = self.register_local_region(target);
+                let _ = reply_to.tell(result);
+            }
             ShardCoordinatorMsg::PlanRebalance { reply_to } => {
                 let result = self.runtime.plan_rebalance(self.strategy.as_ref());
                 self.spawn_handoff_workers(ctx, &result)?;
@@ -372,8 +383,8 @@ where
 {
     fn receive_loading(
         &mut self,
-        ctx: &mut Context<ShardCoordinatorMsg>,
-        msg: ShardCoordinatorMsg,
+        ctx: &mut Context<ShardCoordinatorMsg<M>>,
+        msg: ShardCoordinatorMsg<M>,
     ) -> ActorResult {
         match msg {
             ShardCoordinatorMsg::RememberStoreLoadResult { result } => {
@@ -386,7 +397,7 @@ where
 
     fn spawn_local_remember_store_if_needed(
         &mut self,
-        ctx: &Context<ShardCoordinatorMsg>,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
     ) -> ActorResult {
         if self.remember_store.is_some() {
             return Ok(());
@@ -398,7 +409,7 @@ where
         Ok(())
     }
 
-    fn request_remember_store_load(&self, ctx: &Context<ShardCoordinatorMsg>) -> ActorResult {
+    fn request_remember_store_load(&self, ctx: &Context<ShardCoordinatorMsg<M>>) -> ActorResult {
         if let Some(store) = &self.remember_store {
             store.load(ctx)?;
         }
@@ -407,7 +418,7 @@ where
 
     fn apply_remember_store_load(
         &mut self,
-        ctx: &mut Context<ShardCoordinatorMsg>,
+        ctx: &mut Context<ShardCoordinatorMsg<M>>,
         result: Result<RememberedShards, AskError>,
     ) -> ActorResult {
         let remembered = match result {
@@ -421,7 +432,7 @@ where
 
     fn persist_allocated_shard(
         &self,
-        ctx: &Context<ShardCoordinatorMsg>,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
         result: &Result<GetShardHomePlan, ShardingError>,
     ) -> ActorResult {
         let Ok(GetShardHomePlan::Allocated {
@@ -441,7 +452,7 @@ where
 
     fn spawn_handoff_workers(
         &mut self,
-        ctx: &Context<ShardCoordinatorMsg>,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
         result: &Result<RebalancePlan, ShardingError>,
     ) -> ActorResult {
         let (Some(handoff), Ok(RebalancePlan::Started { shards })) = (&mut self.handoff, result)
@@ -453,9 +464,26 @@ where
         Ok(())
     }
 
+    fn register_local_region(
+        &mut self,
+        target: HandoffRegionTarget<M>,
+    ) -> Result<CoordinatorStateSnapshot, ShardingError> {
+        let region = target.region().clone();
+        if !self.runtime.state().allocations().contains_region(&region) {
+            self.runtime
+                .apply_event(CoordinatorEvent::ShardRegionRegistered {
+                    region: region.clone(),
+                })?;
+        }
+        if let Some(handoff) = &mut self.handoff {
+            handoff.register_region_target(target);
+        }
+        Ok(CoordinatorStateSnapshot::from(&self.runtime))
+    }
+
     fn apply_handoff_worker_done(
         &mut self,
-        ctx: &Context<ShardCoordinatorMsg>,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
         done: HandoffWorkerDone,
     ) -> ActorResult {
         if let Some(handoff) = &mut self.handoff {
@@ -470,7 +498,7 @@ where
 
     fn reallocate_completed_rebalance(
         &mut self,
-        ctx: &Context<ShardCoordinatorMsg>,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
         completion: RebalanceCompletionPlan,
     ) -> ActorResult {
         let RebalanceCompletionPlan::Deallocated {
@@ -501,7 +529,7 @@ where
 
     fn stop_for_remember_store_failure(
         &mut self,
-        ctx: &mut Context<ShardCoordinatorMsg>,
+        ctx: &mut Context<ShardCoordinatorMsg<M>>,
     ) -> ActorResult {
         ctx.stop(ctx.myself())
     }
@@ -544,11 +572,13 @@ impl From<&CoordinatorState> for CoordinatorStateSnapshot {
     }
 }
 
-fn start_rebalance_timer(
-    ctx: &mut Context<ShardCoordinatorMsg>,
+fn start_rebalance_timer<M>(
+    ctx: &mut Context<ShardCoordinatorMsg<M>>,
     initial_delay: Duration,
     interval: Duration,
-) {
+) where
+    M: Clone + Send + 'static,
+{
     ctx.start_timer_with_fixed_delay(
         REBALANCE_TIMER_KEY,
         initial_delay,

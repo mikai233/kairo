@@ -18,7 +18,10 @@ impl CoordinatorRememberStore {
         Self { store, timeout }
     }
 
-    pub(crate) fn load(&self, ctx: &Context<ShardCoordinatorMsg>) -> ActorResult {
+    pub(crate) fn load<M>(&self, ctx: &Context<ShardCoordinatorMsg<M>>) -> ActorResult
+    where
+        M: Send + 'static,
+    {
         let store = self.store.clone();
         ctx.ask(
             store,
@@ -32,7 +35,7 @@ impl CoordinatorRememberStore {
 
     pub(crate) fn add_shard(
         &self,
-        ctx: &Context<ShardCoordinatorMsg>,
+        ctx: &Context<ShardCoordinatorMsg<impl Send + 'static>>,
         shard: ShardId,
     ) -> ActorResult {
         let store = self.store.clone();
@@ -62,7 +65,7 @@ impl LocalCoordinatorRememberStoreProvider {
 
     pub(crate) fn spawn(
         &mut self,
-        ctx: &Context<ShardCoordinatorMsg>,
+        ctx: &Context<ShardCoordinatorMsg<impl Send + 'static>>,
     ) -> Result<CoordinatorRememberStore, ActorError> {
         let state = self
             .state

@@ -4,8 +4,8 @@ use std::time::Duration;
 use kairo_actor::{ActorError, ActorRef, Context};
 
 use crate::{
-    GetShardHomePlan, HandoffTransport, HandoffWorkerActor, HandoffWorkerMsg, ShardCoordinatorMsg,
-    ShardId, ShardRebalancePlan,
+    GetShardHomePlan, HandoffRegionTarget, HandoffTransport, HandoffWorkerActor, HandoffWorkerMsg,
+    ShardCoordinatorMsg, ShardId, ShardRebalancePlan,
 };
 
 pub struct CoordinatorHandoff<M>
@@ -33,7 +33,7 @@ where
 
     pub fn spawn_workers(
         &mut self,
-        ctx: &Context<ShardCoordinatorMsg>,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
         plans: &[ShardRebalancePlan],
     ) -> Result<Vec<ShardId>, ActorError> {
         let mut spawned = Vec::new();
@@ -62,9 +62,13 @@ where
         self.active_workers.remove(shard);
     }
 
+    pub fn register_region_target(&mut self, target: HandoffRegionTarget<M>) {
+        self.transport.insert_target(target);
+    }
+
     pub fn dispatch_host_shard(
         &self,
-        ctx: &Context<ShardCoordinatorMsg>,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
         plan: &GetShardHomePlan,
     ) -> Result<(), ActorError> {
         let GetShardHomePlan::Allocated {

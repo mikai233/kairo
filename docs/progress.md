@@ -528,6 +528,12 @@ Implemented:
   from typed local shard-region refs, rejects duplicate region IDs, and lets
   coordinator-driven handoff tests use structured bootstrap data instead of
   duplicating manual state/transport wiring.
+- `kairo-cluster-sharding` shard coordinator actors can now accept typed local
+  region registrations through the coordinator mailbox. Registration updates
+  coordinator region state and the handoff transport target table in one actor
+  turn, treats duplicate registrations idempotently like Pekko's `Register`
+  path, and allows registered local regions to participate in subsequent
+  coordinator-driven handoff workers.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -675,8 +681,8 @@ Not yet implemented:
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need automatic coordinator/region/shard
   orchestration, including restart backoff policy integration and broader
-  actor-backed region registration/bootstrap beyond local static topology
-  helpers.
+  region self-registration/retry bootstrap beyond explicit local registration
+  messages.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat
