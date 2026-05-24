@@ -257,6 +257,13 @@ Implemented:
   typed remote-replicator recipients, sends primary replicas separately from
   secondary fallback replicas, and reports missing targets, encode failures,
   and send failures without mixing transport orchestration into CRDT state.
+- `ReplicatorActor<D>` can now apply direct remote `ReplicatorWrite` messages
+  by decoding manifest-tagged CRDT envelopes, merging full state, and returning
+  typed ack/nack results; it can also serve direct remote `ReplicatorRead`
+  messages by encoding optional local envelopes as `ReplicatorReadResult`.
+- Direct read/write receive behavior lives in a focused distributed-data module
+  so remote protocol handling stays separate from CRDT state, aggregation
+  planning, and transport send orchestration.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, and stopped protocol

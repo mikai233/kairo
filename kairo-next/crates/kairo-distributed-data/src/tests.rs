@@ -10,13 +10,14 @@ use crate::{
     AggregationTransportOperation, ConsistencyError, CrdtDataCodec, CrdtError, DataEnvelope,
     DeltaPropagationLog, DeltaPropagationTarget, DeltaPropagationTransport, DeltaReceiveFailure,
     DeltaReceiveReply, DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData,
-    DeltaTransportFailure, GCounter, GCounterCodec, GSet, GSetStringCodec, GetResponse, PNCounter,
-    PNCounterCodec, ReadAggregationOutcome, ReadAggregationPlan, ReadAggregatorState,
-    ReadConsistency, ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor,
-    ReplicatorActorMsg, ReplicatorKey, ReplicatorState, UpdateResponse, WriteAggregationOutcome,
-    WriteAggregationPlan, WriteAggregatorState, WriteConsistency, calculate_majority,
-    decode_data_envelope, decode_delta_propagation, decode_read_result, encode_data_envelope,
-    encode_delta_propagation, encode_read_result, encode_write,
+    DeltaTransportFailure, DirectReadResult, DirectWriteResult, GCounter, GCounterCodec, GSet,
+    GSetStringCodec, GetResponse, PNCounter, PNCounterCodec, ReadAggregationOutcome,
+    ReadAggregationPlan, ReadAggregatorState, ReadConsistency, ReplicaId, ReplicatedData,
+    ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorKey, ReplicatorState,
+    UpdateResponse, WriteAggregationOutcome, WriteAggregationPlan, WriteAggregatorState,
+    WriteConsistency, calculate_majority, decode_data_envelope, decode_delta_propagation,
+    decode_read_result, encode_data_envelope, encode_delta_propagation, encode_read,
+    encode_read_result, encode_write,
 };
 
 fn replica(id: &str) -> ReplicaId {
@@ -1014,6 +1015,77 @@ fn aggregation_transport_reports_missing_targets_without_stopping_other_sends() 
 }
 
 #[test]
+fn direct_read_write_receive_applies_writes_and_serves_reads() {
+    let key = ReplicatorKey::new("counter");
+    let from = replica("remote");
+    let envelope = DataEnvelope::new(
+        GCounter::new()
+            .increment(from.clone(), 6)
+            .unwrap()
+            .reset_delta(),
+    );
+    let write = encode_write(&key, Some(from.clone()), &envelope, &GCounterCodec).unwrap();
+    let mut state = ReplicatorState::<GCounter>::new();
+
+    let write_result = crate::apply_write(&mut state, &write, &GCounterCodec);
+
+    assert!(write_result.is_ack());
+    assert_eq!(write_result.key(), &key);
+    assert_eq!(write_result.from(), Some(&from));
+    assert!(matches!(
+        write_result,
+        DirectWriteResult::Ack { changed: true, .. }
+    ));
+    assert_eq!(state.envelope(&key).unwrap().data().value().unwrap(), 6);
+
+    let read = encode_read(&key, Some(from.clone()));
+    let read_result = crate::serve_read(&state, &read, &GCounterCodec).unwrap();
+
+    assert_eq!(read_result.key(), &key);
+    assert_eq!(read_result.from(), Some(&from));
+    assert_eq!(
+        decode_read_result(read_result.message(), &GCounterCodec)
+            .unwrap()
+            .unwrap()
+            .data()
+            .value()
+            .unwrap(),
+        6
+    );
+
+    let missing = crate::serve_read(
+        &state,
+        &encode_read(&ReplicatorKey::new("missing"), None),
+        &GCounterCodec,
+    )
+    .unwrap();
+    assert_eq!(missing.message().envelope, None);
+}
+
+#[test]
+fn direct_write_receive_nacks_decode_failures_without_changing_state() {
+    let key = ReplicatorKey::new("counter");
+    let mut state = ReplicatorState::<GCounter>::new();
+    let write = crate::ReplicatorWrite {
+        key: key.as_str().to_string(),
+        from: Some(replica("remote")),
+        envelope: crate::ReplicatorDataEnvelope {
+            crdt_manifest: crate::GSET_STRING_MANIFEST.to_string(),
+            crdt_version: crate::CRDT_CODEC_VERSION,
+            payload: bytes::Bytes::new(),
+        },
+    };
+
+    let result = crate::apply_write(&mut state, &write, &GCounterCodec);
+
+    assert!(matches!(
+        result,
+        DirectWriteResult::Nack { reason, .. } if reason.contains("expected CRDT manifest")
+    ));
+    assert!(!state.contains_key(&key));
+}
+
+#[test]
 fn replicator_state_gets_missing_and_existing_local_values() {
     let key = ReplicatorKey::new("counter-a");
     let node = replica("a");
@@ -1533,6 +1605,119 @@ fn replicator_actor_plans_remote_write_and_reports_quorum_errors() {
             required: 3,
             available: 2,
         }
+    );
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn replicator_actor_applies_remote_write_and_serves_remote_read_messages() {
+    let system = ActorSystem::builder("ddata-replicator-direct-read-write")
+        .build()
+        .unwrap();
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let (write_result_ref, write_result_rx) = forward_ref(&system, "write-results");
+    let (read_result_ref, read_result_rx) =
+        forward_ref::<Result<DirectReadResult, String>>(&system, "read-results");
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("remote");
+    let envelope = DataEnvelope::new(
+        GCounter::new()
+            .increment(remote.clone(), 8)
+            .unwrap()
+            .reset_delta(),
+    );
+    let write = encode_write(&key, Some(remote.clone()), &envelope, &GCounterCodec).unwrap();
+    let write_codec: Arc<dyn CrdtDataCodec<GCounter> + Send + Sync> = Arc::new(GCounterCodec);
+    let read_codec: Arc<dyn CrdtDataCodec<GCounter> + Send + Sync> = Arc::new(GCounterCodec);
+
+    replicator
+        .tell(ReplicatorActorMsg::ApplyWrite {
+            write,
+            codec: write_codec,
+            reply_to: write_result_ref,
+        })
+        .unwrap();
+    assert!(matches!(
+        write_result_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        DirectWriteResult::Ack { changed: true, .. }
+    ));
+
+    replicator
+        .tell(ReplicatorActorMsg::ServeRead {
+            read: encode_read(&key, Some(remote.clone())),
+            codec: read_codec,
+            reply_to: read_result_ref,
+        })
+        .unwrap();
+
+    let read_result = read_result_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(read_result.key(), &key);
+    assert_eq!(read_result.from(), Some(&remote));
+    assert_eq!(
+        decode_read_result(read_result.message(), &GCounterCodec)
+            .unwrap()
+            .unwrap()
+            .data()
+            .value()
+            .unwrap(),
+        8
+    );
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn replicator_actor_nacks_remote_write_decode_failures() {
+    let system = ActorSystem::builder("ddata-replicator-direct-write-nack")
+        .build()
+        .unwrap();
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let (write_result_ref, write_result_rx) = forward_ref(&system, "write-results");
+    let (get_ref, get_rx) = forward_ref(&system, "get-replies");
+    let key = ReplicatorKey::new("counter");
+    let write = crate::ReplicatorWrite {
+        key: key.as_str().to_string(),
+        from: Some(replica("remote")),
+        envelope: crate::ReplicatorDataEnvelope {
+            crdt_manifest: crate::GSET_STRING_MANIFEST.to_string(),
+            crdt_version: crate::CRDT_CODEC_VERSION,
+            payload: bytes::Bytes::new(),
+        },
+    };
+    let codec: Arc<dyn CrdtDataCodec<GCounter> + Send + Sync> = Arc::new(GCounterCodec);
+
+    replicator
+        .tell(ReplicatorActorMsg::ApplyWrite {
+            write,
+            codec,
+            reply_to: write_result_ref,
+        })
+        .unwrap();
+    assert!(matches!(
+        write_result_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        DirectWriteResult::Nack { reason, .. } if reason.contains("expected CRDT manifest")
+    ));
+
+    replicator
+        .tell(ReplicatorActorMsg::Get {
+            key: key.clone(),
+            consistency: ReadConsistency::local(),
+            reply_to: get_ref,
+        })
+        .unwrap();
+    assert_eq!(
+        get_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        GetResponse::NotFound { key }
     );
 
     system.terminate(Duration::from_secs(1)).unwrap();

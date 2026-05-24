@@ -6,9 +6,10 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 use crate::{
     AggregationError, CrdtDataCodec, DataEnvelope, DeltaPropagation, DeltaPropagationLog,
     DeltaPropagationReceiveReport, DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData,
-    GetResponse, ReadAggregationPlan, ReadAggregatorState, ReadConsistency, ReplicaId,
-    ReplicatorChange, ReplicatorDeltaPropagation, ReplicatorKey, ReplicatorState, UpdateResponse,
-    WriteAggregationPlan, WriteAggregatorState, WriteConsistency,
+    DirectReadResult, DirectWriteResult, GetResponse, ReadAggregationPlan, ReadAggregatorState,
+    ReadConsistency, ReplicaId, ReplicatorChange, ReplicatorDeltaPropagation, ReplicatorKey,
+    ReplicatorRead, ReplicatorState, ReplicatorWrite, UpdateResponse, WriteAggregationPlan,
+    WriteAggregatorState, WriteConsistency,
 };
 
 pub struct ReplicatorActor<D>
@@ -110,6 +111,16 @@ where
         propagation: ReplicatorDeltaPropagation,
         codec: Arc<dyn CrdtDataCodec<D::Delta> + Send + Sync>,
         reply_to: ActorRef<DeltaPropagationReceiveReport>,
+    },
+    ApplyWrite {
+        write: ReplicatorWrite,
+        codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,
+        reply_to: ActorRef<DirectWriteResult>,
+    },
+    ServeRead {
+        read: ReplicatorRead,
+        codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,
+        reply_to: ActorRef<Result<DirectReadResult, String>>,
     },
     SetRemoteReplicas {
         nodes: Vec<ReplicaId>,
@@ -223,6 +234,25 @@ where
                     codec.as_ref(),
                 );
                 tell_or_actor_error(&reply_to, report)?;
+            }
+            ReplicatorActorMsg::ApplyWrite {
+                write,
+                codec,
+                reply_to,
+            } => {
+                let result = crate::apply_write(&mut self.state, &write, codec.as_ref());
+                tell_or_actor_error(&reply_to, result)?;
+            }
+            ReplicatorActorMsg::ServeRead {
+                read,
+                codec,
+                reply_to,
+            } => {
+                let result =
+                    crate::serve_read(&self.state, &read, codec.as_ref()).map_err(|error| {
+                        format!("failed to encode read result for key {}: {error}", read.key)
+                    });
+                tell_or_actor_error(&reply_to, result)?;
             }
             ReplicatorActorMsg::SetRemoteReplicas { nodes, unreachable } => {
                 self.remote_replica_count = nodes.len();

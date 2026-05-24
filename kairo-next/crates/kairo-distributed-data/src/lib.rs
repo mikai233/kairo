@@ -18,6 +18,7 @@ mod gset;
 mod key;
 mod pncounter;
 mod protocol;
+mod read_write_receive;
 mod replica;
 mod replicator_actor;
 mod response;
@@ -80,6 +81,7 @@ pub use protocol::{
     ReplicatorReadResult, ReplicatorSubscribe, ReplicatorUpdate, ReplicatorWrite,
     ReplicatorWriteAck, ReplicatorWriteNack,
 };
+pub use read_write_receive::{DirectReadResult, DirectWriteResult, apply_write, serve_read};
 pub use replica::ReplicaId;
 pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};
 pub use response::{GetResponse, ReplicatorChange, UpdateOutcome, UpdateResponse};
