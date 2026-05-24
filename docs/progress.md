@@ -236,6 +236,11 @@ Implemented:
   resolves remote recipient wire data through an `ActorSystem`, tells the
   typed local actor, and routes unknown or type-mismatched targets through
   missing-ref dead-letter diagnostics.
+- `kairo-remote` now has a focused remote death-watch state module that tracks
+  watched remote actor pairs and watched addresses, plans heartbeat
+  start/stop/send effects, re-watches after remote UID changes, emits
+  address-terminated effects for unreachable addresses, and resets failure
+  detection when watching resumes after an unreachable observation.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
