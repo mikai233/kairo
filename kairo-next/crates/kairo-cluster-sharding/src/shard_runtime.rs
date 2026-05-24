@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::{EntityId, ShardId, ShardStopped, ShardingEnvelope};
 
@@ -107,6 +107,13 @@ pub enum ShardHandOffPlan<M> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RememberedEntitiesPlan {
+    pub started: Vec<EntityId>,
+    pub already_active: Vec<EntityId>,
+    pub ignored_empty: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShardRuntime<M> {
     shard_id: ShardId,
     buffer_capacity: usize,
@@ -158,6 +165,36 @@ impl<M> ShardRuntime<M> {
 
     pub fn set_preparing_for_shutdown(&mut self, preparing: bool) {
         self.preparing_for_shutdown = preparing;
+    }
+
+    pub fn recover_remembered_entities(
+        &mut self,
+        entities: impl IntoIterator<Item = EntityId>,
+    ) -> RememberedEntitiesPlan {
+        let mut started = Vec::new();
+        let mut already_active = Vec::new();
+        let mut ignored_empty = 0;
+
+        for entity_id in entities.into_iter().collect::<BTreeSet<_>>() {
+            if entity_id.is_empty() {
+                ignored_empty += 1;
+                continue;
+            }
+            match self.entities.get(&entity_id) {
+                Some(_) => already_active.push(entity_id),
+                None => {
+                    self.entities
+                        .insert(entity_id.clone(), ShardEntityState::Active);
+                    started.push(entity_id);
+                }
+            }
+        }
+
+        RememberedEntitiesPlan {
+            started,
+            already_active,
+            ignored_empty,
+        }
     }
 
     pub fn deliver(&mut self, envelope: ShardingEnvelope<M>) -> ShardDeliverPlan<M> {

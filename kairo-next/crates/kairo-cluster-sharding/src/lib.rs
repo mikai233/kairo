@@ -73,8 +73,9 @@ pub use remember_shard_ddata::{
 };
 pub use shard_actor::{ShardActor, ShardMsg, ShardSnapshot};
 pub use shard_runtime::{
-    EntityDelivery, EntityTerminatedPlan, PassivateIgnoreReason, PassivatePlan, ShardDeliverPlan,
-    ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardRuntime,
+    EntityDelivery, EntityTerminatedPlan, PassivateIgnoreReason, PassivatePlan,
+    RememberedEntitiesPlan, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
+    ShardRuntime,
 };
 
 pub type EntityId = String;

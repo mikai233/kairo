@@ -16,14 +16,15 @@ use crate::{
     RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
     RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
     RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
-    RememberShardStoreState, RememberShardUpdate, RememberedEntities, ShardActor,
-    ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorMsg,
-    ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
-    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot,
-    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
-    ShardingError, default_shard_id_for, remember_coordinator_shards_key,
-    remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
-    remember_entity_shard_replicator_key, shard_id_for, stable_hash_entity_id,
+    RememberShardStoreState, RememberShardUpdate, RememberedEntities, RememberedEntitiesPlan,
+    ShardActor, ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor,
+    ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
+    ShardHomePlan, ShardMsg, ShardRebalancePlan, ShardRegionActor, ShardRegionMsg,
+    ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime, ShardSnapshot, ShardStarted,
+    ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError, default_shard_id_for,
+    remember_coordinator_shards_key, remember_entity_key_index, remember_entity_key_index_for,
+    remember_entity_shard_key, remember_entity_shard_replicator_key, shard_id_for,
+    stable_hash_entity_id,
 };
 
 #[test]
@@ -2214,6 +2215,103 @@ fn shard_actor_starts_entity_then_delivers_directly() {
             shard_id: "shard-1".to_string(),
             active_entities: vec!["entity-1".to_string()],
             entity_count: 1,
+            total_buffered: 0,
+            handoff_in_progress: false,
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn shard_runtime_recovers_remembered_entities_as_active() {
+    let mut runtime = ShardRuntime::<String>::new("shard-1", 10);
+    runtime.deliver(ShardingEnvelope::new("entity-b", "first".to_string()));
+
+    let plan = runtime.recover_remembered_entities([
+        "entity-c".to_string(),
+        "entity-a".to_string(),
+        "entity-b".to_string(),
+        "".to_string(),
+    ]);
+
+    assert_eq!(
+        plan,
+        RememberedEntitiesPlan {
+            started: vec!["entity-a".to_string(), "entity-c".to_string()],
+            already_active: vec!["entity-b".to_string()],
+            ignored_empty: 1,
+        }
+    );
+    assert_eq!(
+        runtime.active_entity_ids(),
+        vec![
+            "entity-a".to_string(),
+            "entity-b".to_string(),
+            "entity-c".to_string()
+        ]
+    );
+    assert_eq!(
+        runtime.deliver(ShardingEnvelope::new("entity-a", "message".to_string())),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-a", "message".to_string()),
+        }
+    );
+}
+
+#[test]
+fn shard_actor_recovers_remembered_entities_before_delivery() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-remembered-recovery").unwrap();
+    let shard = kit
+        .system()
+        .spawn("shard", ShardActor::<String>::props("shard-1", 10))
+        .unwrap();
+    let recovery = kit
+        .create_probe::<RememberedEntitiesPlan>("recovery")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let state = kit.create_probe::<ShardSnapshot>("state").unwrap();
+
+    shard
+        .tell(ShardMsg::RecoverRememberedEntities {
+            entities: vec!["entity-2".to_string(), "entity-1".to_string()],
+            reply_to: recovery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        recovery.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberedEntitiesPlan {
+            started: vec!["entity-1".to_string(), "entity-2".to_string()],
+            already_active: Vec::new(),
+            ignored_empty: 0,
+        }
+    );
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "message".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "message".to_string()),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: vec!["entity-1".to_string(), "entity-2".to_string()],
+            entity_count: 2,
             total_buffered: 0,
             handoff_in_progress: false,
         }

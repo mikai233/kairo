@@ -1,8 +1,8 @@
 use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
 
 use crate::{
-    EntityId, EntityTerminatedPlan, PassivatePlan, ShardDeliverPlan, ShardHandOffPlan, ShardId,
-    ShardRuntime, ShardingEnvelope,
+    EntityId, EntityTerminatedPlan, PassivatePlan, RememberedEntitiesPlan, ShardDeliverPlan,
+    ShardHandOffPlan, ShardId, ShardRuntime, ShardingEnvelope,
 };
 
 pub struct ShardActor<M> {
@@ -49,6 +49,10 @@ pub enum ShardMsg<M> {
     },
     HandOffStopperTerminated {
         reply_to: ActorRef<bool>,
+    },
+    RecoverRememberedEntities {
+        entities: Vec<EntityId>,
+        reply_to: ActorRef<RememberedEntitiesPlan>,
     },
     SetPreparingForShutdown {
         preparing: bool,
@@ -104,6 +108,10 @@ where
             ShardMsg::HandOffStopperTerminated { reply_to } => {
                 let was_in_progress = self.runtime.handoff_stopper_terminated();
                 let _ = reply_to.tell(was_in_progress);
+            }
+            ShardMsg::RecoverRememberedEntities { entities, reply_to } => {
+                let plan = self.runtime.recover_remembered_entities(entities);
+                let _ = reply_to.tell(plan);
             }
             ShardMsg::SetPreparingForShutdown { preparing } => {
                 self.runtime.set_preparing_for_shutdown(preparing);
