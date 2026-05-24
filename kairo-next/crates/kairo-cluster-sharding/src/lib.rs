@@ -19,6 +19,7 @@ mod remember_actor;
 mod remember_ddata;
 mod remember_shard_ddata;
 mod shard_actor;
+mod shard_loading;
 mod shard_remember;
 mod shard_runtime;
 

@@ -465,6 +465,11 @@ Implemented:
   in an explicit remembering-stop state until confirmation, restart buffered
   messages through a follow-up remembered start, and batch stops behind an
   in-flight remember-store update.
+- `kairo-cluster-sharding` shard actors can now start in an explicit
+  remember-entity loading phase, stash normal shard messages until remembered
+  entity IDs are loaded, recover those IDs, and replay the stashed messages in
+  order so remembered entities receive direct deliveries and new entities still
+  trigger remembered-start store updates.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -611,8 +616,8 @@ Not yet implemented:
 - Distributed-data transport-backed remote delta propagation, direct write/read
   aggregators, pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need automatic coordinator/region/shard
-  orchestration, including actor-spawned store providers, load-time stashing,
-  timeouts, and restart-on-store-failure behavior.
+  orchestration, including actor-spawned store providers, timeout scheduling,
+  store update delivery, and restart-on-store-failure behavior.
 - Cluster singleton child spawning/proxy routing and distributed pubsub
   mediator/topic replication.
 - Multi-node cluster membership transport/routing, remote-backed heartbeat

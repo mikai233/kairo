@@ -1,5 +1,8 @@
+use std::collections::VecDeque;
+
 use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
 
+use crate::shard_loading::ShardRememberLoadState;
 use crate::{
     EntityId, EntityTerminatedPlan, PassivatePlan, RememberShardUpdate, RememberUpdateDonePlan,
     RememberedEntitiesPlan, ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardRuntime,
@@ -8,12 +11,14 @@ use crate::{
 
 pub struct ShardActor<M> {
     runtime: ShardRuntime<M>,
+    remember_load: ShardRememberLoadState<M>,
 }
 
 impl<M> ShardActor<M> {
     pub fn new(shard_id: impl Into<ShardId>, buffer_capacity: usize) -> Self {
         Self {
             runtime: ShardRuntime::new(shard_id, buffer_capacity),
+            remember_load: ShardRememberLoadState::ready(),
         }
     }
 
@@ -23,6 +28,17 @@ impl<M> ShardActor<M> {
     ) -> Self {
         Self {
             runtime: ShardRuntime::new_with_remember_entities(shard_id, buffer_capacity),
+            remember_load: ShardRememberLoadState::ready(),
+        }
+    }
+
+    pub fn new_loading_remembered_entities(
+        shard_id: impl Into<ShardId>,
+        buffer_capacity: usize,
+    ) -> Self {
+        Self {
+            runtime: ShardRuntime::new_with_remember_entities(shard_id, buffer_capacity),
+            remember_load: ShardRememberLoadState::loading(),
         }
     }
 
@@ -43,6 +59,17 @@ impl<M> ShardActor<M> {
     {
         let shard_id = shard_id.into();
         Props::new(move || Self::new_with_remember_entities(shard_id, buffer_capacity))
+    }
+
+    pub fn props_loading_remembered_entities(
+        shard_id: impl Into<ShardId>,
+        buffer_capacity: usize,
+    ) -> Props<Self>
+    where
+        M: Send + 'static,
+    {
+        let shard_id = shard_id.into();
+        Props::new(move || Self::new_loading_remembered_entities(shard_id, buffer_capacity))
     }
 
     pub fn runtime(&self) -> &ShardRuntime<M> {
@@ -75,6 +102,10 @@ pub enum ShardMsg<M> {
         entities: Vec<EntityId>,
         reply_to: ActorRef<RememberedEntitiesPlan>,
     },
+    RememberedEntitiesLoaded {
+        entities: Vec<EntityId>,
+        reply_to: ActorRef<RememberedEntitiesPlan>,
+    },
     RememberUpdateDone {
         update: RememberShardUpdate,
         reply_to: ActorRef<RememberUpdateDonePlan<M>>,
@@ -102,7 +133,55 @@ where
 {
     type Msg = ShardMsg<M>;
 
-    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        if self.remember_load.is_loading() {
+            return self.receive_while_loading(ctx, msg);
+        }
+
+        self.receive_initialized(ctx, msg)
+    }
+}
+
+impl<M> ShardActor<M>
+where
+    M: Send + 'static,
+{
+    fn receive_while_loading(
+        &mut self,
+        ctx: &mut Context<ShardMsg<M>>,
+        msg: ShardMsg<M>,
+    ) -> ActorResult {
+        match msg {
+            ShardMsg::RecoverRememberedEntities { entities, reply_to }
+            | ShardMsg::RememberedEntitiesLoaded { entities, reply_to } => {
+                let plan = self.runtime.recover_remembered_entities(entities);
+                let _ = reply_to.tell(plan);
+                let stashed = self.remember_load.mark_ready();
+                self.replay_stashed(ctx, stashed)
+            }
+            other => {
+                self.remember_load.stash(other);
+                Ok(())
+            }
+        }
+    }
+
+    fn replay_stashed(
+        &mut self,
+        ctx: &mut Context<ShardMsg<M>>,
+        mut stashed: VecDeque<ShardMsg<M>>,
+    ) -> ActorResult {
+        while let Some(message) = stashed.pop_front() {
+            self.receive_initialized(ctx, message)?;
+        }
+        Ok(())
+    }
+
+    fn receive_initialized(
+        &mut self,
+        _ctx: &mut Context<ShardMsg<M>>,
+        msg: ShardMsg<M>,
+    ) -> ActorResult {
         match msg {
             ShardMsg::Deliver { message, reply_to } => {
                 let plan = self.runtime.deliver(message);
@@ -135,6 +214,10 @@ where
                 let _ = reply_to.tell(was_in_progress);
             }
             ShardMsg::RecoverRememberedEntities { entities, reply_to } => {
+                let plan = self.runtime.recover_remembered_entities(entities);
+                let _ = reply_to.tell(plan);
+            }
+            ShardMsg::RememberedEntitiesLoaded { entities, reply_to } => {
                 let plan = self.runtime.recover_remembered_entities(entities);
                 let _ = reply_to.tell(plan);
             }

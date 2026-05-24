@@ -2320,6 +2320,101 @@ fn shard_actor_recovers_remembered_entities_before_delivery() {
 }
 
 #[test]
+fn shard_actor_stashes_delivery_until_remembered_entities_loaded() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-loading-stash").unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_loading_remembered_entities("shard-1", 10),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let recovery = kit
+        .create_probe::<RememberedEntitiesPlan>("recovery")
+        .unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "message".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    deliveries.expect_no_msg(Duration::from_millis(30)).unwrap();
+
+    shard
+        .tell(ShardMsg::RememberedEntitiesLoaded {
+            entities: vec!["entity-1".to_string()],
+            reply_to: recovery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        recovery.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberedEntitiesPlan {
+            started: vec!["entity-1".to_string()],
+            already_active: Vec::new(),
+            ignored_empty: 0,
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "message".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn shard_actor_replays_stashed_new_entity_as_remember_start_after_load() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-loading-new-entity").unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_loading_remembered_entities("shard-1", 10),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let recovery = kit
+        .create_probe::<RememberedEntitiesPlan>("recovery")
+        .unwrap();
+    let update = RememberShardUpdate::new(["entity-2".to_string()], std::iter::empty::<String>());
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-2", "message".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    deliveries.expect_no_msg(Duration::from_millis(30)).unwrap();
+
+    shard
+        .tell(ShardMsg::RememberedEntitiesLoaded {
+            entities: Vec::new(),
+            reply_to: recovery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        recovery.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberedEntitiesPlan {
+            started: Vec::new(),
+            already_active: Vec::new(),
+            ignored_empty: 0,
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate { update }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_runtime_remember_entities_writes_start_before_delivery() {
     let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
 
