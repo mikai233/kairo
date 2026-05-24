@@ -70,6 +70,33 @@ impl Gossip {
         }
     }
 
+    pub fn update_members(&self, changed_members: impl IntoIterator<Item = Member>) -> Self {
+        let changed_members: HashMap<_, _> = changed_members
+            .into_iter()
+            .map(|member| (member.unique_address.clone(), member))
+            .collect();
+        if changed_members.is_empty() {
+            return self.clone();
+        }
+
+        let members: Vec<_> = self
+            .members
+            .iter()
+            .cloned()
+            .map(|member| {
+                changed_members
+                    .get(&member.unique_address)
+                    .cloned()
+                    .unwrap_or(member)
+            })
+            .collect();
+
+        Self {
+            members: normalize_members(members),
+            ..self.clone()
+        }
+    }
+
     pub fn seen(&self, node: UniqueAddress) -> Self {
         if self.seen.contains(&node) {
             return self.clone();

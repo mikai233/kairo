@@ -180,6 +180,10 @@ Implemented:
   `kairo-cluster::LeaderSelection` chooses the current or role-specific leader
   from reachable non-DOWN members using Pekko-style UP/LEAVING preference and
   fallback status ordering.
+- `kairo-cluster::LeaderActions` applies convergence-gated member transitions:
+  JOINING/WEAKLY_UP to UP with assigned age, LEAVING to EXITING, and
+  unreachable or confirmed DOWN/EXITING removals with tombstones and
+  version/seen updates.
 
 Not yet implemented:
 
@@ -189,8 +193,8 @@ Not yet implemented:
   optional codec helper crates, and broader cross-crate compatibility fixtures.
 - Sharding region, shard, coordinator allocation, handoff, passivation,
   rebalancing, and remember-entity storage.
-- Cluster membership actors, failure detection, convergence-driven member
-  status transitions, and downing hooks.
+- Cluster membership actors, failure detection, event publication around
+  leader action outcomes, and downing hooks.
 
 ## Last Validation
 
