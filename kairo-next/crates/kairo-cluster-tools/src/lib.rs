@@ -7,7 +7,9 @@ pub use singleton::{
     SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange,
     SingletonOldestObservation, SingletonOldestTracker, SingletonScope,
 };
-pub use topic::TopicName;
+pub use topic::{
+    LocalTopic, TopicName, TopicPublishMode, TopicPublishReport, TopicSubscriptionChange,
+};
 
 #[cfg(test)]
 mod tests;

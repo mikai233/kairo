@@ -398,6 +398,10 @@ Implemented:
   start-singleton, stop-singleton, handover, takeover, and manager-stop
   effects, covering safe immediate startup, delayed takeover, previous-oldest
   removal, and handover completion before actor wiring is added.
+- `kairo-cluster-tools` topic support is split into focused name and local
+  topic modules, with typed local subscriptions, duplicate suppression,
+  unsubscribe/removal handling, broadcast delivery, and deterministic
+  one-message-per-group publish routing for the first pubsub foundation.
 
 Not yet implemented:
 
