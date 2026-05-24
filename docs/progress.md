@@ -166,6 +166,12 @@ Implemented:
   per-observer versions, reachable-by-default semantics, terminated-over-
   unreachable aggregation, pruning of all-reachable observer rows, and
   newest-observer-row merge behavior.
+- `kairo-cluster::Gossip` stores members, seen state, reachability, vector
+  clocks, and tombstones, and merges them using Pekko-style tombstone,
+  vector-clock prune, highest member status, reachability merge, and seen-reset
+  ordering.
+- Cluster member data now lives in a focused `member` module instead of the
+  crate root.
 
 Not yet implemented:
 

@@ -472,3 +472,29 @@ Consequences:
   discriminants, or process-local hash seeding.
 - Future region/coordinator code can reuse the same stable hashing helper and
   expose configurable shard counts without changing the hash algorithm.
+
+## ADR-0020: Gossip Merge Is Pure Cluster State
+
+Status: Accepted
+
+Context:
+Pekko gossip membership is an immutable data structure containing members,
+seen state, reachability, vector clock versions, and tombstones. Merging two
+gossips first combines tombstones, prunes vector-clock entries for removed
+nodes, picks the highest-priority member status for duplicate members, merges
+reachability by observer record version, and clears `seen` for the new view.
+
+Decision:
+`kairo-cluster::Gossip` starts as a pure Rust state model with no transport or
+daemon behavior. It stores normalized members, a seen set, reachability,
+vector-clock state, and tombstones. Merge follows Pekko's observable order:
+tombstones, vector-clock prune, member status priority, reachability merge, and
+seen reset.
+
+Consequences:
+- Cluster membership remains gossip-based and does not introduce a central
+  membership authority.
+- The state machine can be tested deterministically before heartbeat,
+  convergence, leader actions, or downing hooks are implemented.
+- Later cluster daemons can build on these pure transitions instead of
+  embedding merge rules in actor behavior.
