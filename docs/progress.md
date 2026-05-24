@@ -247,6 +247,11 @@ Implemented:
   heartbeat ticks, heartbeat acks, unreachable observations, watch/unwatch
   commands, and reports deterministic watch statistics for tests and future
   diagnostics.
+- `kairo-remote` now has a focused remote death-watch outbound effect sink
+  that serializes watch, unwatch, heartbeat, and re-watch effects through the
+  registered remote protocol codecs to the stable `/system/remote-watch`
+  recipient path on the target address, observes local timer/failure-detector
+  effects explicitly, and propagates missing-codec or outbound failures.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
