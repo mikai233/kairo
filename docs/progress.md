@@ -371,6 +371,12 @@ Implemented:
   aggregator child refs as stable `ActorRefWireData` senders, and
   `ReplicatorRemoteEnvelopeOutbound` preserves that sender metadata so remote
   ACK/NACK/read-result replies can target the aggregation child.
+- `kairo-distributed-data` now has a focused inbound remote-reply bridge for
+  sender-addressed aggregation replies. `ReplicatorRemoteReplyInbound` decodes
+  stable ACK/NACK/read-result manifests, tags them with the source
+  `ReplicaId`, resolves the `RemoteEnvelope` recipient `ActorRefWireData` to a
+  local temporary write or read aggregation child, and routes missing or
+  mistyped targets through normal actor dead-letter diagnostics.
 - `kairo-distributed-data` now has a focused remote-envelope bridge that wraps
   stable replicator payloads in `RemoteEnvelope` recipient/sender metadata,
   preserving the sender actor-ref wire data needed to correlate remote
@@ -789,9 +795,9 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, resolving sender-addressed remote replies
-  back into temporary aggregation session actors, pruning scheduling, and
-  gossip-backed replication.
+  propagation/direct read/write, end-to-end request sender to reply-recipient
+  association wiring across nodes, pruning scheduling, and gossip-backed
+  replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
