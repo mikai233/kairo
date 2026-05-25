@@ -590,6 +590,11 @@ Implemented:
   TCP association runtime together, applying membership snapshots/events,
   retrying due failed dials, and clearing active routes plus pending reconnects
   during shutdown.
+- `kairo-distributed-data` now has an actor-backed TCP peer connector that
+  subscribes to cluster snapshots/events, applies membership-derived ddata peer
+  routes through `ReplicatorTcpPeerRuntime`, drives explicit and timer-based
+  retry turns, exposes typed snapshots for deterministic tests, and shuts down
+  the owned runtime when the connector actor stops.
 - `kairo-distributed-data` now has stable full-state gossip status and gossip
   payload manifests, explicit codecs, and a focused gossip planning module
   that builds chunked digest status messages, detects differing or missing
@@ -1108,9 +1113,9 @@ Not yet implemented:
   crates, reader supervision/restart policy, richer actor-system lifecycle
   wiring around the existing TCP association primitives, and broader
   cross-crate compatibility fixtures.
-- Distributed-data still needs actor-backed connector wiring and
-  bootstrap/shutdown integration beyond the focused TCP association runtime,
-  peer-route owner, reconnect state, and peer runtime.
+- Distributed-data still needs bootstrap/shutdown integration beyond the
+  focused TCP association runtime, peer-route owner, reconnect state, peer
+  runtime, and actor-backed connector.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

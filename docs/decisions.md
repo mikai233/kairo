@@ -1854,3 +1854,31 @@ Consequences:
   cleanup without actor connector wiring.
 - Actor-backed cluster subscription and coordinated-shutdown bootstrap remain
   future work.
+
+## ADR-0066: Distributed-Data TCP Peer Connector Is Actor-Driven
+
+Status: Accepted
+
+Context:
+Distributed-data TCP peer routing now has pure route, reconnect, and runtime
+owners, but it still needed the actor boundary that subscribes to cluster
+events and drives retries through actor timers. Pekko's replicator keeps
+membership/reachability updates actor-driven and treats transport as local
+delivery state.
+
+Decision:
+Kairo adds `ReplicatorTcpPeerConnector` as a focused actor module. The
+connector subscribes to `Cluster` with an initial snapshot, forwards cluster
+snapshots/events into `ReplicatorTcpPeerRuntime`, drives retries through
+explicit messages or fixed-delay actor timers, exposes a typed snapshot for
+tests and diagnostics, unsubscribes when stopped, and shuts down the owned peer
+runtime from the actor stop path. Connector tests use `kairo-testkit` as a
+dev-dependency to verify cluster subscription, retry, route removal, and
+manual-time timer behavior.
+
+Consequences:
+- Distributed-data socket peer ownership can now run from actor turns instead
+  of only direct method calls.
+- Membership and reachability remain cluster-derived; the connector does not
+  invent a socket-backed membership source.
+- Runtime bootstrap and coordinated-shutdown registration remain future work.

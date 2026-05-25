@@ -1405,6 +1405,11 @@ Remote association integration:
   multi-peer ownership boundary for distributed-data sockets. It applies
   cluster snapshots/events, retries due failed dials, clears routes and pending
   retries on shutdown, and still treats sockets only as delivery state.
+- `ReplicatorTcpPeerConnector` is the actor-backed bridge from cluster
+  subscription events and actor timers into the peer runtime. It subscribes for
+  an initial snapshot, applies later membership/reachability events, drives
+  explicit or timer-based retry turns, exposes typed snapshots for tests, and
+  shuts down the owned runtime when the actor stops.
 
 Sharding uses this later for coordinator state and remember entities. MVP
 sharding may start with an in-memory coordinator store to prove the routing

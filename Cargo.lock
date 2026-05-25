@@ -108,6 +108,7 @@ dependencies = [
  "kairo-cluster",
  "kairo-remote",
  "kairo-serialization",
+ "kairo-testkit",
 ]
 
 [[package]]
