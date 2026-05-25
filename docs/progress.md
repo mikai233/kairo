@@ -576,6 +576,11 @@ Implemented:
   dialing-side lane readers, and routes bidirectional `/system/ddata`
   request/reply envelopes through the same socket association primitives used
   by actor remoting.
+- `kairo-distributed-data` now has a focused TCP peer-route owner that consumes
+  cluster membership-derived dial/remove plans, applies them to
+  `ReplicatorTcpAssociationRuntime`, keeps route registrations separate from
+  membership state, and closes/removes cached ddata routes when peers become
+  locally unreachable or leave.
 - `kairo-distributed-data` now has stable full-state gossip status and gossip
   payload manifests, explicit codecs, and a focused gossip planning module
   that builds chunked digest status messages, detects differing or missing
@@ -1094,9 +1099,9 @@ Not yet implemented:
   crates, reader supervision/restart policy, richer actor-system lifecycle
   wiring around the existing TCP association primitives, and broader
   cross-crate compatibility fixtures.
-- Distributed-data still needs broader socket lifecycle integration around
-  cluster-derived replica discovery, reconnect policy, and multi-peer runtime
-  ownership beyond the focused configured-peer TCP association slice.
+- Distributed-data still needs reconnect policy, multi-peer runtime ownership,
+  actor-backed connector wiring, and bootstrap/shutdown integration beyond the
+  focused TCP association runtime and peer-route owner.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

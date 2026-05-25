@@ -1385,6 +1385,17 @@ Remote association integration:
   source of cluster membership truth,
 - concrete socket associations are expected to populate the shared cache once
   socket-backed transport exists.
+- `ReplicatorTcpAssociationRuntime` is the configured-peer socket runtime for
+  `/system/ddata` traffic. It binds a handshaken TCP listener, owns a shared
+  `RemoteAssociationCache`, association registry, route installer, dialer, and
+  dialing-side lane readers, and routes bidirectional request/reply envelopes
+  through remote association frames.
+- `ReplicatorTcpPeerRoutes` consumes cluster membership-derived
+  `ClusterAssociationPeerChange` values, applies them to
+  `ReplicatorTcpAssociationRuntime`, owns per-peer route registrations, and
+  closes/removes cached routes when peers become locally unreachable or leave.
+  It deliberately keeps cluster membership state out of distributed-data socket
+  route ownership.
 
 Sharding uses this later for coordinator state and remember entities. MVP
 sharding may start with an in-memory coordinator store to prove the routing

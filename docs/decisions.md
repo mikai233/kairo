@@ -1775,3 +1775,31 @@ Consequences:
 - Coordinated shutdown closes the connector-owned runtime through the actor
   stop path, preserving the same cleanup behavior as explicit actor stop.
 - End-to-end examples and multi-node tests remain future work.
+
+## ADR-0063: Distributed-Data TCP Peer Routes Stay Membership-Derived
+
+Status: Accepted
+
+Context:
+`ReplicatorTcpAssociationRuntime` can bind and dial concrete ddata socket
+associations, but distributed-data still needed a reusable owner for
+cluster-derived peer routes. Pekko's replicator derives remote peers from
+cluster member and reachability events; socket associations are delivery paths,
+not membership truth.
+
+Decision:
+Kairo adds `ReplicatorTcpPeerRoutes` in a focused module. It consumes
+`ClusterAssociationPeerChange` values produced by the shared cluster peer
+planner, dials routes through `ReplicatorTcpAssociationRuntime`, tracks
+per-peer route registrations, closes the guarded association when removing a
+known route, and removes cached routes when peers leave or become locally
+unreachable. The ddata TCP runtime exposes a narrow `remove_route` method so
+route ownership does not manipulate cache internals directly.
+
+Consequences:
+- Distributed-data gets the first multi-peer socket route ownership boundary
+  while preserving gossip/reachability as the only membership source.
+- The route owner can be reused by later reconnect state, runtime lifecycle,
+  actor connector, and bootstrap modules.
+- Reconnect policy and actor-backed multi-peer runtime ownership remain future
+  work.

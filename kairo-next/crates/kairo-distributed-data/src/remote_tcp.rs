@@ -133,6 +133,10 @@ impl ReplicatorTcpAssociationRuntime {
         Ok(registration)
     }
 
+    pub fn remove_route(&self, address: &RemoteAssociationAddress) -> bool {
+        self.association_cache.remove_route(address).is_some()
+    }
+
     pub fn shutdown(self) -> RemoteResult<TcpAssociationListenerReport> {
         self.shutdown_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
     }
