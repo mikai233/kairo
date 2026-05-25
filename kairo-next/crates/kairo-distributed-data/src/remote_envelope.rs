@@ -240,6 +240,7 @@ impl ReplicatorRemoteEnvelopeInbound {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::sync::mpsc::{self, Receiver};
     use std::time::Duration;
 
@@ -248,10 +249,12 @@ mod tests {
 
     use super::*;
     use crate::{
-        CrdtDataCodec, DataEnvelope, DeltaReplicatedData, GCounter, GCounterCodec,
-        REPLICATOR_READ_RESULT_SERIALIZER_ID, REPLICATOR_READ_SERIALIZER_ID,
-        REPLICATOR_WRITE_ACK_SERIALIZER_ID, REPLICATOR_WRITE_SERIALIZER_ID, ReplicatorDataEnvelope,
-        ReplicatorKey, register_ddata_protocol_codecs,
+        AggregationTarget, AggregationTransport, CrdtDataCodec, DataEnvelope, DeltaReplicatedData,
+        GCounter, GCounterCodec, REPLICATOR_READ_RESULT_SERIALIZER_ID,
+        REPLICATOR_READ_SERIALIZER_ID, REPLICATOR_WRITE_ACK_SERIALIZER_ID,
+        REPLICATOR_WRITE_SERIALIZER_ID, ReadAggregationPlan, ReadAggregatorState, ReadConsistency,
+        ReplicatorDataEnvelope, ReplicatorKey, WriteAggregationPlan, WriteAggregatorState,
+        WriteConsistency, register_ddata_protocol_codecs,
     };
 
     struct Forward<M> {
@@ -409,6 +412,68 @@ mod tests {
                 .deserialize::<ReplicatorReadResult>(sent.envelope.message)
                 .unwrap(),
             read_result
+        );
+        system.terminate(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn aggregation_remote_target_preserves_session_sender_actor_ref() {
+        let system = ActorSystem::builder("ddata-aggregation-remote-envelope")
+            .build()
+            .unwrap();
+        let registry = registry();
+        let (outbound_ref, outbound_rx) = probe::<ReplicatorRemoteEnvelope>(&system, "remote-out");
+        let outbound =
+            ReplicatorRemoteEnvelopeOutbound::new(target(), None, registry.clone(), outbound_ref);
+        let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+        transport.insert_target(AggregationTarget::remote_envelope(
+            replica("remote"),
+            outbound.clone(),
+            outbound,
+        ));
+        let key = ReplicatorKey::new("counter");
+        let write_state = WriteAggregatorState::new(
+            key.clone(),
+            &WriteConsistency::to(2, Duration::from_secs(1)).unwrap(),
+            vec![replica("remote")],
+        )
+        .unwrap();
+        let write_plan = WriteAggregationPlan::new(
+            write_state.clone(),
+            write_state.select_replicas(&BTreeSet::new()),
+        );
+
+        let report = transport.publish_write_with_sender(
+            &write_plan,
+            &DataEnvelope::new(counter("local", 5)),
+            &sender(),
+        );
+        assert_eq!(report.sent_to(), &[replica("remote")]);
+        let sent = outbound_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(sent.envelope.sender, Some(sender()));
+        assert_eq!(
+            sent.envelope.message.serializer_id,
+            REPLICATOR_WRITE_SERIALIZER_ID
+        );
+
+        let read_state = ReadAggregatorState::<GCounter>::new(
+            key,
+            &ReadConsistency::from(2, Duration::from_secs(1)).unwrap(),
+            vec![replica("remote")],
+            None,
+        )
+        .unwrap();
+        let read_plan = ReadAggregationPlan::new(
+            read_state.clone(),
+            read_state.select_replicas(&BTreeSet::new()),
+        );
+        let report = transport.publish_read_with_sender(&read_plan, &sender());
+        assert_eq!(report.sent_to(), &[replica("remote")]);
+        let sent = outbound_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(sent.envelope.sender, Some(sender()));
+        assert_eq!(
+            sent.envelope.message.serializer_id,
+            REPLICATOR_READ_SERIALIZER_ID
         );
         system.terminate(Duration::from_secs(1)).unwrap();
     }

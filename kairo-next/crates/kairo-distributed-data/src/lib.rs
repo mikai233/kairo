@@ -55,7 +55,7 @@ pub use aggregation_session::{
 };
 pub use aggregation_transport::{
     AggregationTarget, AggregationTransport, AggregationTransportFailure,
-    AggregationTransportOperation, AggregationTransportReport,
+    AggregationTransportOperation, AggregationTransportReport, SenderAwareRecipient,
 };
 pub use aggregation_wire::{
     decode_data_envelope, decode_read_result, encode_data_envelope, encode_read,

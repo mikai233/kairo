@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
+use kairo_serialization::ActorRefWireData;
 
 use crate::{
     AggregationTransport, AggregationTransportReport, CrdtDataCodec, DataEnvelope,
@@ -42,6 +43,7 @@ where
     timeout: Duration,
     reply_to: ActorRef<UpdateResponse<D::Delta>>,
     events: Option<ActorRef<WriteAggregationSessionEvent>>,
+    sender: Option<ActorRefWireData>,
 }
 
 impl<D, Codec> WriteAggregationSession<D, Codec>
@@ -65,6 +67,7 @@ where
             timeout,
             reply_to,
             events: None,
+            sender: None,
         }
     }
 
@@ -85,6 +88,7 @@ where
             timeout,
             reply_to,
             events: Some(events),
+            sender: None,
         }
     }
 }
@@ -104,7 +108,11 @@ where
             let timeout = self.timeout;
             move || WriteAggregationActor::with_timeout(plan, timeout, events)
         }))?;
-        let report = self.transport.publish_write(&self.plan, &self.envelope);
+        let sender = actor_ref_wire_data(&aggregator)?;
+        self.sender = Some(sender.clone());
+        let report = self
+            .transport
+            .publish_write_with_sender(&self.plan, &self.envelope, &sender);
         self.emit(WriteAggregationSessionEvent::Started {
             reply_to: aggregator,
             report,
@@ -131,11 +139,20 @@ where
     ) -> ActorResult {
         match event {
             WriteAggregationActorEvent::RetryFullState { replica } => {
-                let report = self.transport.publish_write_to_replicas(
-                    std::slice::from_ref(&replica),
-                    &self.plan,
-                    &self.envelope,
-                );
+                let report = if let Some(sender) = &self.sender {
+                    self.transport.publish_write_to_replicas_with_sender(
+                        std::slice::from_ref(&replica),
+                        &self.plan,
+                        &self.envelope,
+                        sender,
+                    )
+                } else {
+                    self.transport.publish_write_to_replicas(
+                        std::slice::from_ref(&replica),
+                        &self.plan,
+                        &self.envelope,
+                    )
+                };
                 self.emit(WriteAggregationSessionEvent::RetryFullState {
                     key: self.plan.state().key().clone(),
                     replica,
@@ -213,6 +230,7 @@ where
     timeout: Duration,
     reply_to: ActorRef<GetResponse<D>>,
     events: Option<ActorRef<ReadAggregationSessionEvent>>,
+    sender: Option<ActorRefWireData>,
 }
 
 impl<D, Codec> ReadAggregationSession<D, Codec>
@@ -234,6 +252,7 @@ where
             timeout,
             reply_to,
             events: None,
+            sender: None,
         }
     }
 
@@ -253,6 +272,7 @@ where
             timeout,
             reply_to,
             events: Some(events),
+            sender: None,
         }
     }
 }
@@ -272,7 +292,9 @@ where
             let timeout = self.timeout;
             move || ReadAggregationActor::with_timeout(plan, codec, timeout, events)
         }))?;
-        let report = self.transport.publish_read(&self.plan);
+        let sender = actor_ref_wire_data(&aggregator)?;
+        self.sender = Some(sender.clone());
+        let report = self.transport.publish_read_with_sender(&self.plan, &sender);
         self.emit(ReadAggregationSessionEvent::Started {
             reply_to: aggregator,
             report,
@@ -333,6 +355,18 @@ where
     target
         .tell(message)
         .map_err(|error| ActorError::Message(error.reason().to_string()))
+}
+
+fn actor_ref_wire_data<M>(actor: &ActorRef<M>) -> Result<ActorRefWireData, ActorError>
+where
+    M: Send + 'static,
+{
+    ActorRefWireData::new(actor.path().to_string()).map_err(|error| {
+        ActorError::Message(format!(
+            "failed to encode aggregation reply actor ref {}: {error}",
+            actor.path()
+        ))
+    })
 }
 
 #[cfg(test)]
