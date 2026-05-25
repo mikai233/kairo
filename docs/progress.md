@@ -157,6 +157,8 @@ Implemented:
 - `TestProbe<M>` can register typed death-watch messages through
   `watch_with`, and `TestProbe<AnyActorRef>` provides `watch_terminated` and
   `expect_terminated` helpers for deterministic local lifecycle assertions.
+- `kairo-testkit::await_assert` retries result-returning test assertions until
+  success or timeout and reports the final error with attempt metadata.
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.

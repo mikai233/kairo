@@ -1992,3 +1992,28 @@ Consequences:
   catch-all dynamic event queue.
 - External code still cannot observe local actor state transitions without an
   explicit watched actor ref and explicit typed notification message.
+
+## ADR-0071: Await Assertions Retry Result Values Instead Of Panics
+
+Status: Accepted
+
+Context:
+Pekko's typed testkit `awaitAssert` retries a by-name assertion, catching
+non-fatal exceptions until the assertion succeeds or the timeout expires.
+Rust test assertions usually panic, but panic catching imposes unwind-safety
+constraints and is a poor default API for deterministic actor tests.
+
+Decision:
+Kairo adds `kairo-testkit::await_assert` as a focused polling helper that
+retries a `FnMut() -> Result<T, E>` until it returns `Ok(T)` or the timeout
+expires. The timeout error preserves the attempt count, elapsed time, and last
+error value. Zero retry intervals yield the thread instead of sleeping, and
+zero maximum duration still evaluates the assertion once.
+
+Consequences:
+- Tests can express eventually true conditions without relying on panic
+  recovery.
+- The helper preserves Pekko's polling behavior while using Rust's explicit
+  `Result` contract.
+- Callers that want panic-style assertions can wrap them in their own
+  `catch_unwind` boundary, but the testkit default remains explicit and typed.
