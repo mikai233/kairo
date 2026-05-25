@@ -828,6 +828,9 @@ TCP association dialing:
   `RemoteAssociationAddress` values, the sender system UID, and the lane id.
   Listeners reject lanes addressed to another local address, lanes from mixed
   remote association incarnations, or duplicate lane ids,
+- `TcpAcceptedAssociation` and `TcpAssociationListenerReport` retain the
+  accepted remote identity when handshakes are enabled, preserving the address
+  and UID that a later association registry and quarantine layer will need,
 - `TcpRemoteActorSystem<M>` composes the concrete TCP listener, association
   cache, route installer, dialer, remote actor-ref provider, actor-system
   inbound router, and remote death-watch actor into one lifecycle owner for a

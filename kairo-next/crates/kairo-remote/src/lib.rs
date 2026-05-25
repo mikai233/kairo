@@ -78,9 +78,10 @@ pub use stream_inbound::{RemoteFrameHandler, StreamFrameInbound};
 pub use stream_sink::{RemoteByteSink, RemoteStreamWriter, StreamLaneSink, stream_send_failure};
 pub use system_inbound::ActorSystemRemoteInbound;
 pub use tcp::{
-    TcpAcceptedAssociation, TcpAssociationDialer, TcpAssociationListener,
-    TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReadReport,
-    TcpAssociationReaderHandle, TcpAssociationStreamReader, TcpRemoteByteSink,
+    TcpAcceptedAssociation, TcpAssociationDialer, TcpAssociationHandshake, TcpAssociationIdentity,
+    TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
+    TcpAssociationReadReport, TcpAssociationReaderHandle, TcpAssociationStreamReader,
+    TcpRemoteByteSink,
 };
 pub use tcp_runtime::TcpRemoteActorSystem;
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};

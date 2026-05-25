@@ -6,7 +6,10 @@ use kairo_actor::{Actor, ActorResult, ActorSystem, Context, Props};
 use kairo_serialization::{MessageCodec, Registry, RemoteMessage, SerializationRegistry};
 
 use super::TcpRemoteActorSystem;
-use crate::{RemoteAssociationAddress, RemoteSettings, register_remote_protocol_codecs};
+use crate::{
+    RemoteAssociationAddress, RemoteSettings, TcpAssociationIdentity,
+    register_remote_protocol_codecs,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Ping {
@@ -94,6 +97,16 @@ fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
         22,
     )
     .unwrap();
+    let sender_identity = TcpAssociationIdentity::new(
+        RemoteAssociationAddress::new(
+            "kairo",
+            "sender",
+            sender_remote.settings().canonical_hostname.clone(),
+            Some(sender_remote.settings().canonical_port),
+        )
+        .unwrap(),
+        22,
+    );
     let receiver_address = RemoteAssociationAddress::new(
         "kairo",
         "receiver",
@@ -121,6 +134,7 @@ fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
     assert_eq!(sender_report.accepted_associations, 0);
     let receiver_report = receiver_remote.shutdown().unwrap();
     assert_eq!(receiver_report.accepted_associations, 1);
+    assert_eq!(receiver_report.remote_identities, vec![sender_identity]);
     assert_eq!(receiver_report.read.streams, 3);
     assert_eq!(receiver_report.read.frames, 1);
 }

@@ -155,6 +155,7 @@ impl TcpAssociationListener {
 
     fn run_accept_loop(self, stop: Arc<AtomicBool>) -> Result<TcpAssociationListenerReport> {
         let mut accepted_associations = 0_usize;
+        let mut remote_identities = Vec::new();
         let mut reader_handles = Vec::new();
         let mut first_error = None;
 
@@ -162,6 +163,9 @@ impl TcpAssociationListener {
             match self.try_accept_association(&stop) {
                 Ok(Some(accepted)) => {
                     accepted_associations += 1;
+                    if let Some(identity) = accepted.remote_identity().cloned() {
+                        remote_identities.push(identity);
+                    }
                     reader_handles.push(accepted.spawn_lane_readers());
                 }
                 Ok(None) => thread::sleep(self.accept_poll_interval),
@@ -193,6 +197,7 @@ impl TcpAssociationListener {
         } else {
             Ok(TcpAssociationListenerReport {
                 accepted_associations,
+                remote_identities,
                 read,
             })
         }
@@ -289,6 +294,10 @@ pub struct TcpAcceptedAssociation {
 }
 
 impl TcpAcceptedAssociation {
+    pub fn remote_identity(&self) -> Option<&TcpAssociationIdentity> {
+        self.remote_identity.as_ref()
+    }
+
     pub fn remote_address(&self) -> Option<&RemoteAssociationAddress> {
         self.remote_identity
             .as_ref()
@@ -384,6 +393,7 @@ pub struct TcpAssociationReadReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpAssociationListenerReport {
     pub accepted_associations: usize,
+    pub remote_identities: Vec<TcpAssociationIdentity>,
     pub read: TcpAssociationReadReport,
 }
 

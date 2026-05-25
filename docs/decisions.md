@@ -1246,9 +1246,16 @@ rejects mixed remote addresses or UIDs, and rejects duplicate lane ids. Raw
 listener tests may still omit the local address to exercise stream framing
 without the association handshake layer.
 
+Accepted handshaken associations keep their remote identity on
+`TcpAcceptedAssociation`, and listener-loop shutdown reports collect those
+identities. This mirrors Pekko's association registry direction without yet
+implementing the full UID-indexed registry or quarantine state machine.
+
 Consequences:
 - `TcpRemoteActorSystem` now validates the peer and target address before
   delivering normal remote envelope frames.
+- TCP listener reports expose explicit peer incarnation evidence for future
+  diagnostics, association registry indexing, and quarantine decisions.
 - The handshake format does not rely on Rust type names, enum discriminants,
   or memory layout.
 - Quarantine after UID changes, retry/backoff, and reliable system-message

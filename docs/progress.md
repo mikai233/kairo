@@ -272,6 +272,10 @@ Implemented:
   those handshakes so accepted control, ordinary, and large lanes are
   addressed to the local canonical node and come from one remote association
   incarnation.
+- TCP listener lifecycle reports now retain accepted handshaken remote
+  identities, including address and UID, so later association-registry,
+  quarantine, and diagnostics work can build on explicit peer incarnation
+  evidence instead of re-parsing socket paths.
 - `kairo-remote` now has a focused TCP actor-system runtime boundary that
   binds a listener, owns the local association cache, provider, dialer, remote
   death-watch actor, and inbound router composition, and clears outbound
