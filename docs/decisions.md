@@ -1234,20 +1234,22 @@ lane when a `TcpAssociationDialer` has a configured local association address.
 The handshake carries:
 
 - explicit local and remote `RemoteAssociationAddress` values,
+- the sender system UID, matching Pekko's use of `UniqueAddress` as the
+  source identity in `HandshakeReq`,
 - the lane id for the stream,
 - a fixed magic/version prefix plus length-prefixed stable wire payloads.
 
 `TcpAssociationListener` can be configured with its local association address.
 In that mode it reads one handshake from each accepted lane before handing the
 stream to frame readers, rejects handshakes addressed to another local node,
-rejects mixed remote addresses, and rejects duplicate lane ids. Raw listener
-tests may still omit the local address to exercise stream framing without the
-association handshake layer.
+rejects mixed remote addresses or UIDs, and rejects duplicate lane ids. Raw
+listener tests may still omit the local address to exercise stream framing
+without the association handshake layer.
 
 Consequences:
 - `TcpRemoteActorSystem` now validates the peer and target address before
   delivering normal remote envelope frames.
 - The handshake format does not rely on Rust type names, enum discriminants,
   or memory layout.
-- Full remote UID tracking, quarantine after UID changes, retry/backoff, and
-  reliable system-message delivery remain separate remote milestones.
+- Quarantine after UID changes, retry/backoff, and reliable system-message
+  delivery remain separate remote milestones.

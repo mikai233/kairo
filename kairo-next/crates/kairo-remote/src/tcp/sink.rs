@@ -7,7 +7,7 @@ use bytes::Bytes;
 
 use crate::{RemoteAssociationAddress, RemoteByteSink, RemoteError, RemoteStreamId, Result};
 
-use super::{TcpAssociationHandshake, encode_tcp_association_handshake};
+use super::{TcpAssociationHandshake, TcpAssociationIdentity, encode_tcp_association_handshake};
 
 #[derive(Debug)]
 pub struct TcpRemoteByteSink {
@@ -23,13 +23,13 @@ impl TcpRemoteByteSink {
 
     pub fn connect_handshaken(
         address: &RemoteAssociationAddress,
-        local_address: &RemoteAssociationAddress,
+        local_identity: &TcpAssociationIdentity,
         stream_id: RemoteStreamId,
         timeout: Option<Duration>,
     ) -> Result<Self> {
         let mut stream = Self::connect_stream(address, timeout)?;
         let handshake =
-            TcpAssociationHandshake::new(stream_id, local_address.clone(), address.clone());
+            TcpAssociationHandshake::new(stream_id, local_identity.clone(), address.clone());
         stream
             .write_all(&encode_tcp_association_handshake(&handshake)?)
             .map_err(|error| tcp_outbound_failure(address, error))?;

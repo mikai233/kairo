@@ -267,10 +267,11 @@ Implemented:
   associations, starts their independent lane readers, and joins them through
   an explicit `TcpAssociationListenerHandle` report.
 - TCP lane streams can now carry an explicit association handshake with stable
-  local/remote association addresses and lane ids before normal stream frames;
-  actor-system TCP runtimes require and validate those handshakes so accepted
-  control, ordinary, and large lanes are addressed to the local canonical
-  node and come from one remote association.
+  local/remote association addresses, the sender system UID, and lane ids
+  before normal stream frames; actor-system TCP runtimes require and validate
+  those handshakes so accepted control, ordinary, and large lanes are
+  addressed to the local canonical node and come from one remote association
+  incarnation.
 - `kairo-remote` now has a focused TCP actor-system runtime boundary that
   binds a listener, owns the local association cache, provider, dialer, remote
   death-watch actor, and inbound router composition, and clears outbound

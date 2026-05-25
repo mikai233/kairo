@@ -97,7 +97,10 @@ where
             .spawn_accept_loop()?;
         let installer = RemoteAssociationRouteInstaller::new(association_cache.clone());
         let dialer = TcpAssociationDialer::new(installer)
-            .with_local_address(local_association_address(&system, &effective_settings)?)
+            .with_local_identity(
+                local_association_address(&system, &effective_settings)?,
+                local_system_uid,
+            )
             .with_connect_timeout(Duration::from_secs(1));
         let provider = RemoteActorRefProvider::new(
             system.name().to_string(),

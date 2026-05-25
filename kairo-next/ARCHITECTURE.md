@@ -825,9 +825,9 @@ TCP association dialing:
   counts through `TcpAssociationListenerHandle`,
 - concrete TCP actor-system runtimes send and require an explicit association
   handshake before stream frames. The handshake carries stable local/remote
-  `RemoteAssociationAddress` values and the lane id, and listeners reject
-  lanes addressed to another local address, lanes from mixed remote
-  associations, or duplicate lane ids,
+  `RemoteAssociationAddress` values, the sender system UID, and the lane id.
+  Listeners reject lanes addressed to another local address, lanes from mixed
+  remote association incarnations, or duplicate lane ids,
 - `TcpRemoteActorSystem<M>` composes the concrete TCP listener, association
   cache, route installer, dialer, remote actor-ref provider, actor-system
   inbound router, and remote death-watch actor into one lifecycle owner for a

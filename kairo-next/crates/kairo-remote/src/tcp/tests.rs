@@ -289,7 +289,7 @@ fn tcp_listener_validates_handshaken_lanes_before_reading_frames() {
     let handle = thread::spawn(move || {
         let accepted = listener.accept_association().unwrap();
         accepted_tx
-            .send(accepted.remote_address().cloned())
+            .send((accepted.remote_address().cloned(), accepted.remote_uid()))
             .unwrap();
         accepted.drain().unwrap()
     });
@@ -297,13 +297,13 @@ fn tcp_listener_validates_handshaken_lanes_before_reading_frames() {
     let cache = RemoteAssociationCache::new();
     let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone());
     let dialer = TcpAssociationDialer::new(installer)
-        .with_local_address(remote_address.clone())
+        .with_local_identity(remote_address.clone(), 22)
         .with_connect_timeout(Duration::from_secs(1));
     let registration = dialer.dial(association_address("receiver", port)).unwrap();
 
     assert_eq!(
         accepted_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
-        Some(remote_address)
+        (Some(remote_address), Some(22))
     );
 
     cache.send(envelope_to("receiver", port, 55)).unwrap();
@@ -335,7 +335,7 @@ fn tcp_listener_rejects_handshake_for_different_local_address() {
     let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
     let handshake = TcpAssociationHandshake::new(
         RemoteStreamId::Control,
-        association_address("sender", 25521),
+        TcpAssociationIdentity::new(association_address("sender", 25521), 22),
         association_address("other", 25520),
     );
     stream

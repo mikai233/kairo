@@ -5,21 +5,41 @@ use kairo_serialization::{WireReader, WireWriter};
 
 use crate::{RemoteAssociationAddress, RemoteError, RemoteStreamId, Result};
 
-const TCP_HANDSHAKE_MAGIC: [u8; 4] = *b"KAH1";
-const TCP_HANDSHAKE_VERSION: u8 = 1;
+const TCP_HANDSHAKE_MAGIC: [u8; 4] = *b"KAH2";
+const TCP_HANDSHAKE_VERSION: u8 = 2;
 const TCP_HANDSHAKE_PREFIX_LEN: usize = TCP_HANDSHAKE_MAGIC.len() + 1 + 4;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TcpAssociationIdentity {
+    address: RemoteAssociationAddress,
+    uid: u64,
+}
+
+impl TcpAssociationIdentity {
+    pub fn new(address: RemoteAssociationAddress, uid: u64) -> Self {
+        Self { address, uid }
+    }
+
+    pub fn address(&self) -> &RemoteAssociationAddress {
+        &self.address
+    }
+
+    pub fn uid(&self) -> u64 {
+        self.uid
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpAssociationHandshake {
     stream_id: RemoteStreamId,
-    from: RemoteAssociationAddress,
+    from: TcpAssociationIdentity,
     to: RemoteAssociationAddress,
 }
 
 impl TcpAssociationHandshake {
     pub fn new(
         stream_id: RemoteStreamId,
-        from: RemoteAssociationAddress,
+        from: TcpAssociationIdentity,
         to: RemoteAssociationAddress,
     ) -> Self {
         Self {
@@ -33,7 +53,7 @@ impl TcpAssociationHandshake {
         self.stream_id
     }
 
-    pub fn from(&self) -> &RemoteAssociationAddress {
+    pub fn from(&self) -> &TcpAssociationIdentity {
         &self.from
     }
 
@@ -45,7 +65,7 @@ impl TcpAssociationHandshake {
 pub fn encode_tcp_association_handshake(handshake: &TcpAssociationHandshake) -> Result<Bytes> {
     let mut payload = WireWriter::new();
     payload.write_u8(handshake.stream_id.as_u8());
-    write_address(&mut payload, &handshake.from)?;
+    write_identity(&mut payload, &handshake.from)?;
     write_address(&mut payload, &handshake.to)?;
     let payload = payload.finish();
     let len = u32::try_from(payload.len()).map_err(|_| {
@@ -90,7 +110,7 @@ pub fn validate_tcp_association_handshakes(
     local_address: &RemoteAssociationAddress,
     expected_streams: usize,
     handshakes: &[TcpAssociationHandshake],
-) -> Result<Option<RemoteAssociationAddress>> {
+) -> Result<Option<TcpAssociationIdentity>> {
     if handshakes.is_empty() {
         return Ok(None);
     }
@@ -113,9 +133,11 @@ pub fn validate_tcp_association_handshakes(
         }
         if handshake.from() != &remote {
             return Err(RemoteError::InvalidFrame(format!(
-                "tcp association mixed remote addresses {} and {}",
-                remote,
-                handshake.from()
+                "tcp association mixed remote identities {}#{} and {}#{}",
+                remote.address(),
+                remote.uid(),
+                handshake.from().address(),
+                handshake.from().uid()
             )));
         }
         if seen.contains(&handshake.stream_id()) {
@@ -132,9 +154,21 @@ pub fn validate_tcp_association_handshakes(
 fn decode_tcp_association_handshake_payload(bytes: Bytes) -> Result<TcpAssociationHandshake> {
     let mut reader = WireReader::new(&bytes);
     let stream_id = RemoteStreamId::try_from_u8(reader.read_u8()?)?;
-    let from = read_address(&mut reader)?;
+    let from = read_identity(&mut reader)?;
     let to = read_address(&mut reader)?;
     Ok(TcpAssociationHandshake::new(stream_id, from, to))
+}
+
+fn write_identity(writer: &mut WireWriter, identity: &TcpAssociationIdentity) -> Result<()> {
+    write_address(writer, identity.address())?;
+    writer.write_u64(identity.uid());
+    Ok(())
+}
+
+fn read_identity(reader: &mut WireReader<'_>) -> Result<TcpAssociationIdentity> {
+    let address = read_address(reader)?;
+    let uid = reader.read_u64()?;
+    Ok(TcpAssociationIdentity::new(address, uid))
 }
 
 fn write_address(writer: &mut WireWriter, address: &RemoteAssociationAddress) -> Result<()> {
@@ -171,7 +205,7 @@ mod tests {
     fn tcp_handshake_round_trips_addresses_and_lane_id() {
         let handshake = TcpAssociationHandshake::new(
             RemoteStreamId::Ordinary,
-            address("sender", 25521),
+            TcpAssociationIdentity::new(address("sender", 25521), 22),
             address("receiver", 25520),
         );
 
@@ -187,7 +221,7 @@ mod tests {
     fn tcp_handshake_validation_rejects_wrong_local_target() {
         let handshake = TcpAssociationHandshake::new(
             RemoteStreamId::Control,
-            address("sender", 25521),
+            TcpAssociationIdentity::new(address("sender", 25521), 22),
             address("other", 25520),
         );
 
@@ -202,7 +236,7 @@ mod tests {
     #[test]
     fn tcp_handshake_validation_rejects_duplicate_lanes() {
         let local = address("receiver", 25520);
-        let remote = address("sender", 25521);
+        let remote = TcpAssociationIdentity::new(address("sender", 25521), 22);
         let handshakes = vec![
             TcpAssociationHandshake::new(RemoteStreamId::Ordinary, remote.clone(), local.clone()),
             TcpAssociationHandshake::new(RemoteStreamId::Ordinary, remote, local.clone()),
@@ -213,5 +247,29 @@ mod tests {
 
         assert!(matches!(error, RemoteError::InvalidFrame(_)));
         assert!(error.to_string().contains("duplicated"));
+    }
+
+    #[test]
+    fn tcp_handshake_validation_rejects_mixed_remote_uids() {
+        let local = address("receiver", 25520);
+        let remote = address("sender", 25521);
+        let handshakes = vec![
+            TcpAssociationHandshake::new(
+                RemoteStreamId::Control,
+                TcpAssociationIdentity::new(remote.clone(), 22),
+                local.clone(),
+            ),
+            TcpAssociationHandshake::new(
+                RemoteStreamId::Ordinary,
+                TcpAssociationIdentity::new(remote, 23),
+                local.clone(),
+            ),
+        ];
+
+        let error = validate_tcp_association_handshakes(&local, 2, &handshakes)
+            .expect_err("mixed remote uid should be rejected");
+
+        assert!(matches!(error, RemoteError::InvalidFrame(_)));
+        assert!(error.to_string().contains("mixed remote identities"));
     }
 }

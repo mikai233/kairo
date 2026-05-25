@@ -14,7 +14,8 @@ use crate::{
 };
 
 use super::{
-    TcpAssociationHandshake, read_tcp_association_handshake, validate_tcp_association_handshakes,
+    TcpAssociationHandshake, TcpAssociationIdentity, read_tcp_association_handshake,
+    validate_tcp_association_handshakes,
 };
 
 const DEFAULT_EXPECTED_LANE_STREAMS: usize = 3;
@@ -134,10 +135,10 @@ impl TcpAssociationListener {
             self.read_handshake(&mut stream, &mut handshakes)?;
             streams.push(TcpAcceptedStream { peer, stream });
         }
-        let remote_address = self.validate_handshakes(&handshakes)?;
+        let remote_identity = self.validate_handshakes(&handshakes)?;
         Ok(TcpAcceptedAssociation {
             reader: self.reader.clone(),
-            remote_address,
+            remote_identity,
             streams,
         })
     }
@@ -230,10 +231,10 @@ impl TcpAssociationListener {
                 }
             }
         }
-        let remote_address = self.validate_handshakes(&handshakes)?;
+        let remote_identity = self.validate_handshakes(&handshakes)?;
         Ok(Some(TcpAcceptedAssociation {
             reader: self.reader.clone(),
-            remote_address,
+            remote_identity,
             streams,
         }))
     }
@@ -252,7 +253,7 @@ impl TcpAssociationListener {
     fn validate_handshakes(
         &self,
         handshakes: &[TcpAssociationHandshake],
-    ) -> Result<Option<RemoteAssociationAddress>> {
+    ) -> Result<Option<TcpAssociationIdentity>> {
         match &self.local_address {
             Some(local_address) => validate_tcp_association_handshakes(
                 local_address,
@@ -283,13 +284,21 @@ impl TcpAssociationListenerHandle {
 
 pub struct TcpAcceptedAssociation {
     reader: TcpAssociationStreamReader,
-    remote_address: Option<RemoteAssociationAddress>,
+    remote_identity: Option<TcpAssociationIdentity>,
     streams: Vec<TcpAcceptedStream>,
 }
 
 impl TcpAcceptedAssociation {
     pub fn remote_address(&self) -> Option<&RemoteAssociationAddress> {
-        self.remote_address.as_ref()
+        self.remote_identity
+            .as_ref()
+            .map(TcpAssociationIdentity::address)
+    }
+
+    pub fn remote_uid(&self) -> Option<u64> {
+        self.remote_identity
+            .as_ref()
+            .map(TcpAssociationIdentity::uid)
     }
 
     pub fn stream_count(&self) -> usize {

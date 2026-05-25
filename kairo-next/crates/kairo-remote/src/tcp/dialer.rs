@@ -6,13 +6,13 @@ use crate::{
     RemoteStreamId,
 };
 
-use super::TcpRemoteByteSink;
+use super::{TcpAssociationIdentity, TcpRemoteByteSink};
 
 #[derive(Clone)]
 pub struct TcpAssociationDialer {
     installer: RemoteAssociationRouteInstaller,
     connect_timeout: Option<Duration>,
-    local_address: Option<RemoteAssociationAddress>,
+    local_identity: Option<TcpAssociationIdentity>,
 }
 
 impl TcpAssociationDialer {
@@ -20,7 +20,7 @@ impl TcpAssociationDialer {
         Self {
             installer,
             connect_timeout: None,
-            local_address: None,
+            local_identity: None,
         }
     }
 
@@ -30,7 +30,16 @@ impl TcpAssociationDialer {
     }
 
     pub fn with_local_address(mut self, local_address: RemoteAssociationAddress) -> Self {
-        self.local_address = Some(local_address);
+        self.local_identity = Some(TcpAssociationIdentity::new(local_address, 0));
+        self
+    }
+
+    pub fn with_local_identity(
+        mut self,
+        local_address: RemoteAssociationAddress,
+        local_uid: u64,
+    ) -> Self {
+        self.local_identity = Some(TcpAssociationIdentity::new(local_address, local_uid));
         self
     }
 
@@ -59,10 +68,10 @@ impl TcpAssociationDialer {
         address: &RemoteAssociationAddress,
         stream_id: RemoteStreamId,
     ) -> crate::Result<TcpRemoteByteSink> {
-        match &self.local_address {
-            Some(local_address) => TcpRemoteByteSink::connect_handshaken(
+        match &self.local_identity {
+            Some(local_identity) => TcpRemoteByteSink::connect_handshaken(
                 address,
-                local_address,
+                local_identity,
                 stream_id,
                 self.connect_timeout,
             ),
