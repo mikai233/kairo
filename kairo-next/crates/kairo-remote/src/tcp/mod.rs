@@ -5,7 +5,7 @@ mod sink;
 pub use self::dialer::TcpAssociationDialer;
 pub use self::inbound::{
     TcpAcceptedAssociation, TcpAssociationListener, TcpAssociationReadReport,
-    TcpAssociationStreamReader,
+    TcpAssociationReaderHandle, TcpAssociationStreamReader,
 };
 pub use self::sink::TcpRemoteByteSink;
 

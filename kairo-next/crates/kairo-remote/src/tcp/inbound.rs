@@ -1,6 +1,7 @@
 use std::io::Read;
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::Arc;
+use std::thread::{self, JoinHandle};
 
 use bytes::Bytes;
 
@@ -133,11 +134,60 @@ impl TcpAcceptedAssociation {
         }
         Ok(report)
     }
+
+    pub fn spawn_lane_readers(self) -> TcpAssociationReaderHandle {
+        let joins = self
+            .streams
+            .into_iter()
+            .map(|accepted| {
+                let reader = self.reader.clone();
+                thread::spawn(move || {
+                    reader.read_stream(accepted.peer.to_string(), accepted.stream)
+                })
+            })
+            .collect();
+        TcpAssociationReaderHandle { joins }
+    }
 }
 
 struct TcpAcceptedStream {
     peer: SocketAddr,
     stream: TcpStream,
+}
+
+pub struct TcpAssociationReaderHandle {
+    joins: Vec<JoinHandle<Result<TcpAssociationReadReport>>>,
+}
+
+impl TcpAssociationReaderHandle {
+    pub fn join(self) -> Result<TcpAssociationReadReport> {
+        let mut report = TcpAssociationReadReport {
+            streams: 0,
+            frames: 0,
+        };
+        let mut first_error = None;
+        for join in self.joins {
+            match join.join() {
+                Ok(Ok(stream_report)) => {
+                    report.streams += stream_report.streams;
+                    report.frames += stream_report.frames;
+                }
+                Ok(Err(error)) => {
+                    first_error.get_or_insert(error);
+                }
+                Err(_) => {
+                    first_error.get_or_insert_with(|| {
+                        RemoteError::Inbound("tcp lane reader panicked".to_string())
+                    });
+                }
+            }
+        }
+        if let Some(error) = first_error {
+            Err(error)
+        } else {
+            Ok(report)
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

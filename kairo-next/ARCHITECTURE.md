@@ -812,9 +812,13 @@ TCP association dialing:
 - `TcpAssociationListener` accepts the expected lane streams for one
   association and `TcpAssociationStreamReader` drains each TCP stream through
   the existing remote stream decoder and `RemoteFrameHandler` boundary,
+- `TcpAcceptedAssociation::spawn_lane_readers` can move accepted lane streams
+  onto background reader threads and join them through an explicit
+  `TcpAssociationReaderHandle`, allowing one lane to deliver frames while the
+  other lane streams remain open,
 - these TCP pieces remain transport primitives; handshakes, reconnect policy,
-  long-running listener loops, and actor-system lifecycle ownership remain
-  separate integration work.
+  long-running listener loops, reader supervision/restart policy, and
+  actor-system lifecycle ownership remain separate integration work.
 
 Outbound lanes:
 

@@ -1126,3 +1126,29 @@ Consequences:
   distributed-data association inbound, or cluster-tools system inbound.
 - Long-running listener loops, handshakes, reconnect/backoff behavior, and
   coordinated shutdown ownership remain later integration work.
+
+## ADR-0043: Accepted TCP Associations Own Independent Lane Readers
+
+Status: Accepted
+
+Context:
+Pekko Artery keeps TCP lane streams alive independently and dispatches decoded
+frames to the appropriate inbound lane while other streams on the same
+association remain open. Kairo's first inbound TCP slice could drain accepted
+streams sequentially, which is enough for closed test sockets but does not
+match the concurrent lane shape needed by live associations.
+
+Decision:
+`TcpAcceptedAssociation` exposes `spawn_lane_readers`, which moves each
+accepted lane stream into its own reader thread and returns an explicit
+`TcpAssociationReaderHandle`. Joining the handle waits for all lane readers,
+accumulates their stream/frame counts, and returns the first reader failure or
+panic after every thread has been joined.
+
+Consequences:
+- Live TCP associations can dispatch ordinary, control, or large-lane frames
+  without waiting for sibling lane streams to close first.
+- The reader handle is explicit lifecycle state that a future actor-system
+  remote provider can own, stop, and supervise.
+- Reader restart policy, handshake validation, listener loops, and coordinated
+  shutdown ownership remain separate integration work.

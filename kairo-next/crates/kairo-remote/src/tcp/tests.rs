@@ -25,6 +25,26 @@ impl CollectingFrameHandler {
     }
 }
 
+struct ChannelFrameHandler {
+    tx: Mutex<mpsc::Sender<(RemoteStreamId, Bytes)>>,
+}
+
+impl ChannelFrameHandler {
+    fn new(tx: mpsc::Sender<(RemoteStreamId, Bytes)>) -> Self {
+        Self { tx: Mutex::new(tx) }
+    }
+}
+
+impl RemoteFrameHandler for ChannelFrameHandler {
+    fn handle_frame(&self, stream_id: RemoteStreamId, frame: Bytes) -> crate::Result<()> {
+        self.tx
+            .lock()
+            .expect("channel frame handler poisoned")
+            .send((stream_id, frame))
+            .map_err(|error| RemoteError::Inbound(error.to_string()))
+    }
+}
+
 impl RemoteFrameHandler for CollectingFrameHandler {
     fn handle_frame(&self, stream_id: RemoteStreamId, frame: Bytes) -> crate::Result<()> {
         self.frames
@@ -181,6 +201,37 @@ fn tcp_association_listener_drains_dialed_lane_streams_to_frame_handler() {
     assert_eq!(frames[0].0, RemoteStreamId::Ordinary);
     let decoded = decode_remote_envelope_frame(frames[0].1.clone()).unwrap();
     assert_eq!(decoded.message.payload, Bytes::from_static(&[13]));
+}
+
+#[test]
+fn tcp_accepted_association_can_read_lanes_while_streams_remain_open() {
+    let (frame_tx, frame_rx) = mpsc::channel();
+    let handler = Arc::new(ChannelFrameHandler::new(frame_tx)) as Arc<dyn RemoteFrameHandler>;
+    let listener = TcpAssociationListener::bind(("127.0.0.1", 0), handler).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let accept_handle = thread::spawn(move || {
+        let accepted = listener.accept_association().unwrap();
+        accepted.spawn_lane_readers()
+    });
+
+    let cache = RemoteAssociationCache::new();
+    let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone());
+    let dialer = TcpAssociationDialer::new(installer).with_connect_timeout(Duration::from_secs(1));
+    let registration = dialer.dial(address(port)).unwrap();
+    let reader_handle = accept_handle.join().unwrap();
+
+    cache.send(envelope(port, 21)).unwrap();
+    let (stream_id, frame) = frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(stream_id, RemoteStreamId::Ordinary);
+    let decoded = decode_remote_envelope_frame(frame).unwrap();
+    assert_eq!(decoded.message.payload, Bytes::from_static(&[21]));
+
+    drop(registration);
+    drop(cache);
+    drop(dialer);
+    let report = reader_handle.join().unwrap();
+    assert_eq!(report.streams, 3);
+    assert_eq!(report.frames, 1);
 }
 
 #[test]
