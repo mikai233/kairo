@@ -6,9 +6,9 @@ use kairo_cluster::UniqueAddress;
 use kairo_serialization::{ActorRefWireData, Registry, SerializationError};
 
 use crate::{
-    AggregationTarget, AggregationTransport, DeltaPropagationTarget, DeltaPropagationTransport,
-    ReplicaId, ReplicatorClusterRoutes, ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeOutbound,
-    ReplicatorRemoteTarget,
+    AggregationTarget, AggregationTargetRegistry, AggregationTransport, DeltaPropagationTarget,
+    DeltaPropagationTargetRegistry, DeltaPropagationTransport, ReplicaId, ReplicatorClusterRoutes,
+    ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteTarget,
 };
 
 pub const DEFAULT_REPLICATOR_REMOTE_PATH: &str = "/system/ddata";
@@ -57,6 +57,32 @@ pub struct ReplicatorRemoteTargetRegistrationReport {
 impl ReplicatorRemoteTargetRegistrationReport {
     pub fn registered(&self) -> &[ReplicaId] {
         &self.registered
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorRemoteRouteRegistrationReport {
+    delta_registered: Vec<ReplicaId>,
+    aggregation_registered: Vec<ReplicaId>,
+}
+
+impl ReplicatorRemoteRouteRegistrationReport {
+    pub fn new(
+        delta_registered: impl IntoIterator<Item = ReplicaId>,
+        aggregation_registered: impl IntoIterator<Item = ReplicaId>,
+    ) -> Self {
+        Self {
+            delta_registered: delta_registered.into_iter().collect(),
+            aggregation_registered: aggregation_registered.into_iter().collect(),
+        }
+    }
+
+    pub fn delta_registered(&self) -> &[ReplicaId] {
+        &self.delta_registered
+    }
+
+    pub fn aggregation_registered(&self) -> &[ReplicaId] {
+        &self.aggregation_registered
     }
 }
 
@@ -124,6 +150,14 @@ impl ReplicatorRemoteRouteTargets {
         routes: &ReplicatorClusterRoutes,
         transport: &mut DeltaPropagationTransport<Codec>,
     ) -> Result<ReplicatorRemoteTargetRegistrationReport, ReplicatorRemoteTargetError> {
+        self.set_delta_target_registry(routes, &transport.target_registry())
+    }
+
+    pub fn set_delta_target_registry(
+        &self,
+        routes: &ReplicatorClusterRoutes,
+        registry: &DeltaPropagationTargetRegistry,
+    ) -> Result<ReplicatorRemoteTargetRegistrationReport, ReplicatorRemoteTargetError> {
         let targets = routes
             .remote_nodes()
             .iter()
@@ -133,7 +167,7 @@ impl ReplicatorRemoteRouteTargets {
             .iter()
             .map(|target| target.replica().clone())
             .collect();
-        transport.set_targets(targets);
+        registry.set_targets(targets);
         Ok(ReplicatorRemoteTargetRegistrationReport { registered })
     }
 
@@ -141,6 +175,14 @@ impl ReplicatorRemoteRouteTargets {
         &self,
         routes: &ReplicatorClusterRoutes,
         transport: &mut AggregationTransport<Codec>,
+    ) -> Result<ReplicatorRemoteTargetRegistrationReport, ReplicatorRemoteTargetError> {
+        self.set_aggregation_target_registry(routes, &transport.target_registry())
+    }
+
+    pub fn set_aggregation_target_registry(
+        &self,
+        routes: &ReplicatorClusterRoutes,
+        registry: &AggregationTargetRegistry,
     ) -> Result<ReplicatorRemoteTargetRegistrationReport, ReplicatorRemoteTargetError> {
         let targets = routes
             .remote_nodes()
@@ -151,7 +193,7 @@ impl ReplicatorRemoteRouteTargets {
             .iter()
             .map(|target| target.replica().clone())
             .collect();
-        transport.set_targets(targets);
+        registry.set_targets(targets);
         Ok(ReplicatorRemoteTargetRegistrationReport { registered })
     }
 

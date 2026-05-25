@@ -139,7 +139,8 @@ pub use remote_reply::{
 };
 pub use remote_request::{ReplicatorRemoteRequestError, ReplicatorRemoteRequestInbound};
 pub use remote_targets::{
-    DEFAULT_REPLICATOR_REMOTE_PATH, ReplicatorRemoteRouteTargets, ReplicatorRemoteTargetError,
+    DEFAULT_REPLICATOR_REMOTE_PATH, ReplicatorRemoteRouteRegistrationReport,
+    ReplicatorRemoteRouteTargets, ReplicatorRemoteTargetError,
     ReplicatorRemoteTargetRegistrationReport,
 };
 pub use replica::ReplicaId;

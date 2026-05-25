@@ -465,6 +465,11 @@ Implemented:
   `UniqueAddress` routes into stable remote-envelope targets at the documented
   `/system/ddata` replicator path for delta propagation and aggregation
   messages.
+- The distributed-data cluster connector can now own remote route-target
+  registries and refresh them from cluster route state in the same actor turn
+  that forwards route updates to the replicator, so delta propagation and
+  direct read/write aggregation sessions can discover remote-envelope targets
+  from cluster membership changes.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -868,8 +873,7 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, actor-wired application of route target
-  registration, and gossip-backed replication.
+  propagation/direct read/write and gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

@@ -5,9 +5,11 @@ use kairo_cluster::{
 };
 
 use crate::{
-    DeltaReplicatedData, RemovedNodePruningTick, RemovedNodePruningTickReport, ReplicaId,
-    ReplicatorActorMsg, ReplicatorClusterConnectorTimingSettings, ReplicatorClusterRouteReport,
-    ReplicatorClusterRouteUpdate, ReplicatorClusterRoutes, SharedReplicatorClusterConnectorClock,
+    AggregationTargetRegistry, DeltaPropagationTargetRegistry, DeltaReplicatedData,
+    RemovedNodePruningTick, RemovedNodePruningTickReport, ReplicaId, ReplicatorActorMsg,
+    ReplicatorClusterConnectorTimingSettings, ReplicatorClusterRouteReport,
+    ReplicatorClusterRouteUpdate, ReplicatorClusterRoutes, ReplicatorRemoteRouteRegistrationReport,
+    ReplicatorRemoteRouteTargets, SharedReplicatorClusterConnectorClock,
     SystemReplicatorClusterConnectorClock,
 };
 
@@ -47,6 +49,10 @@ where
     pruning_settings: ReplicatorClusterPruningSettings,
     timing_settings: ReplicatorClusterConnectorTimingSettings,
     clock: SharedReplicatorClusterConnectorClock,
+    remote_route_targets: Option<ReplicatorRemoteRouteTargets>,
+    delta_target_registry: Option<DeltaPropagationTargetRegistry>,
+    aggregation_target_registry: Option<AggregationTargetRegistry>,
+    last_target_registration: Option<ReplicatorRemoteRouteRegistrationReport>,
 }
 
 impl<D> ReplicatorClusterConnector<D>
@@ -74,6 +80,10 @@ where
             pruning_settings: ReplicatorClusterPruningSettings::new(0, 0),
             timing_settings: ReplicatorClusterConnectorTimingSettings::default(),
             clock: std::sync::Arc::new(SystemReplicatorClusterConnectorClock::new()),
+            remote_route_targets: None,
+            delta_target_registry: None,
+            aggregation_target_registry: None,
+            last_target_registration: None,
         }
     }
 
@@ -99,6 +109,10 @@ where
             pruning_settings: ReplicatorClusterPruningSettings::new(0, 0),
             timing_settings: ReplicatorClusterConnectorTimingSettings::default(),
             clock: std::sync::Arc::new(SystemReplicatorClusterConnectorClock::new()),
+            remote_route_targets: None,
+            delta_target_registry: None,
+            aggregation_target_registry: None,
+            last_target_registration: None,
         }
     }
 
@@ -122,6 +136,18 @@ where
 
     pub fn with_clock(mut self, clock: SharedReplicatorClusterConnectorClock) -> Self {
         self.clock = clock;
+        self
+    }
+
+    pub fn with_remote_route_targets(
+        mut self,
+        targets: ReplicatorRemoteRouteTargets,
+        delta_registry: Option<DeltaPropagationTargetRegistry>,
+        aggregation_registry: Option<AggregationTargetRegistry>,
+    ) -> Self {
+        self.remote_route_targets = Some(targets);
+        self.delta_target_registry = delta_registry;
+        self.aggregation_target_registry = aggregation_registry;
         self
     }
 }
@@ -154,6 +180,7 @@ pub struct ReplicatorClusterConnectorSnapshot {
     pub all_reachable_time_nanos: u64,
     pub last_report: Option<ReplicatorClusterRouteReport>,
     pub last_pruning_report: Option<RemovedNodePruningTickReport>,
+    pub last_target_registration: Option<ReplicatorRemoteRouteRegistrationReport>,
 }
 
 impl<D> Actor for ReplicatorClusterConnector<D>
@@ -266,7 +293,9 @@ where
         }
     }
 
-    fn apply_route_update(&self, update: ReplicatorClusterRouteUpdate) -> ActorResult {
+    fn apply_route_update(&mut self, update: ReplicatorClusterRouteUpdate) -> ActorResult {
+        self.register_remote_route_targets()?;
+
         let Some(reply_to) = self.route_report_adapter.clone() else {
             return Err(ActorError::Message(
                 "replicator cluster connector route adapter is not initialized".to_string(),
@@ -280,6 +309,38 @@ where
                 reply_to,
             })
             .map_err(|error| ActorError::Message(error.reason().to_string()))
+    }
+
+    fn register_remote_route_targets(&mut self) -> ActorResult {
+        let Some(targets) = &self.remote_route_targets else {
+            return Ok(());
+        };
+
+        let delta_registered = if let Some(registry) = &self.delta_target_registry {
+            targets
+                .set_delta_target_registry(&self.routes, registry)
+                .map_err(|error| ActorError::Message(error.to_string()))?
+                .registered()
+                .to_vec()
+        } else {
+            Vec::new()
+        };
+
+        let aggregation_registered = if let Some(registry) = &self.aggregation_target_registry {
+            targets
+                .set_aggregation_target_registry(&self.routes, registry)
+                .map_err(|error| ActorError::Message(error.to_string()))?
+                .registered()
+                .to_vec()
+        } else {
+            Vec::new()
+        };
+
+        self.last_target_registration = Some(ReplicatorRemoteRouteRegistrationReport::new(
+            delta_registered,
+            aggregation_registered,
+        ));
+        Ok(())
     }
 
     fn advance_all_reachable_clock(&mut self, now_nanos: u64) {
@@ -329,6 +390,7 @@ where
             all_reachable_time_nanos: self.all_reachable_time_nanos,
             last_report: self.last_report.clone(),
             last_pruning_report: self.last_pruning_report.clone(),
+            last_target_registration: self.last_target_registration.clone(),
         }
     }
 }
@@ -354,9 +416,14 @@ mod tests {
         ClusterEvent, ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberEvent,
         MemberStatus, Reachability, ReachabilityEvent,
     };
+    use kairo_serialization::Registry;
 
     use super::*;
-    use crate::{GCounter, ReplicatorActor, ReplicatorClusterConnectorClock};
+    use crate::{
+        DeltaPropagationLog, DeltaPropagationTransport, GCounter, GCounterCodec, ReplicatorActor,
+        ReplicatorClusterConnectorClock, ReplicatorKey, ReplicatorRemoteEnvelope,
+        register_ddata_protocol_codecs,
+    };
 
     #[test]
     fn connector_subscribes_to_cluster_events_and_updates_replicator_routes() {
@@ -595,6 +662,111 @@ mod tests {
         system.terminate(Duration::from_secs(1)).unwrap();
     }
 
+    #[test]
+    fn connector_registers_remote_route_targets_from_cluster_routes() {
+        let system = ActorSystem::builder("ddata-cluster-connector-targets")
+            .build()
+            .unwrap();
+        let self_node = node("self", 1);
+        let peer = node("peer", 2);
+        let weak = node("weak", 3);
+        let publisher = system
+            .spawn(
+                "publisher",
+                Props::new({
+                    let self_node = self_node.clone();
+                    move || ClusterEventPublisher::new(self_node)
+                }),
+            )
+            .unwrap();
+        let cluster = Cluster::new(publisher.clone());
+        let replicator = system
+            .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+            .unwrap();
+        let (outbound, outbound_rx) =
+            forward_ref::<ReplicatorRemoteEnvelope>(&system, "remote-out");
+        let delta_targets = DeltaPropagationTargetRegistry::new();
+        let aggregation_targets = AggregationTargetRegistry::new();
+        let route_targets = ReplicatorRemoteRouteTargets::new(registry(), outbound);
+
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(
+                Gossip::from_members([
+                    member(self_node.clone(), MemberStatus::Up, ["ddata"]),
+                    member(peer.clone(), MemberStatus::Up, ["ddata"]),
+                    member(weak.clone(), MemberStatus::WeaklyUp, ["ddata"]),
+                ]),
+            ))
+            .unwrap();
+
+        let connector = system
+            .spawn(
+                "connector",
+                Props::new({
+                    let cluster = cluster.clone();
+                    let self_node = self_node.clone();
+                    let replicator = replicator.clone();
+                    let route_targets = route_targets.clone();
+                    let delta_targets = delta_targets.clone();
+                    let aggregation_targets = aggregation_targets.clone();
+                    move || {
+                        ReplicatorClusterConnector::with_required_roles(
+                            cluster,
+                            self_node,
+                            replicator,
+                            ["ddata"],
+                        )
+                        .with_remote_route_targets(
+                            route_targets,
+                            Some(delta_targets),
+                            Some(aggregation_targets),
+                        )
+                    }
+                }),
+            )
+            .unwrap();
+        let (snapshot_ref, snapshot_rx) =
+            forward_ref::<ReplicatorClusterConnectorSnapshot>(&system, "target-snapshots");
+
+        let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+            snapshot
+                .last_target_registration
+                .as_ref()
+                .is_some_and(|report| report.delta_registered().len() == 2)
+        });
+        let registration = snapshot.last_target_registration.unwrap();
+        assert_eq!(
+            registration.delta_registered(),
+            &[ReplicaId::from(&peer), ReplicaId::from(&weak)]
+        );
+        assert_eq!(
+            registration.aggregation_registered(),
+            registration.delta_registered()
+        );
+        assert_eq!(delta_targets.target_count(), 2);
+        assert_eq!(aggregation_targets.target_count(), 2);
+
+        let transport = DeltaPropagationTransport::with_target_registry(
+            ReplicaId::from(&self_node),
+            GCounterCodec,
+            delta_targets,
+        );
+        let key = ReplicatorKey::new("counter");
+        let mut log = DeltaPropagationLog::new([ReplicaId::from(&peer)]);
+        log.record_delta(key, Some(delta_counter("self", 5)));
+        let report = transport.publish(log.collect_propagations());
+        assert!(report.is_success());
+
+        let remote = outbound_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(remote.target, ReplicaId::from(&peer));
+        assert_eq!(
+            remote.envelope.recipient.path(),
+            "kairo://ddata@peer.example.test:2552/system/ddata"
+        );
+
+        system.terminate(Duration::from_secs(1)).unwrap();
+    }
+
     fn eventually_snapshot(
         connector: &ActorRef<ReplicatorClusterConnectorMsg>,
         reply_to: &ActorRef<ReplicatorClusterConnectorSnapshot>,
@@ -662,6 +834,18 @@ mod tests {
         roles: impl IntoIterator<Item = &'static str>,
     ) -> Member {
         Member::new(node, roles.into_iter().map(str::to_string).collect()).with_status(status)
+    }
+
+    fn registry() -> Arc<Registry> {
+        let mut registry = Registry::new();
+        register_ddata_protocol_codecs(&mut registry).unwrap();
+        Arc::new(registry)
+    }
+
+    fn delta_counter(replica: &str, value: u128) -> GCounter {
+        GCounter::new()
+            .increment(ReplicaId::new(replica), value)
+            .unwrap()
     }
 
     struct ManualConnectorClock {
