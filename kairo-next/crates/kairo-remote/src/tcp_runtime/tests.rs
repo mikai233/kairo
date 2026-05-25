@@ -114,6 +114,19 @@ fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
         Some(receiver_remote.settings().canonical_port),
     )
     .unwrap();
+    let local_canonical_target = receiver_remote
+        .resolve_actor_ref::<Ping>(remote_path_for(
+            target.path().as_str(),
+            receiver_remote.settings(),
+        ))
+        .unwrap();
+    assert!(local_canonical_target.is_local());
+    local_canonical_target.tell(Ping { value: 76 }).unwrap();
+    assert_eq!(
+        received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        76
+    );
+
     let registration = sender_remote.dial(receiver_address).unwrap();
     let remote_target = sender_remote
         .resolve::<Ping>(remote_path_for(

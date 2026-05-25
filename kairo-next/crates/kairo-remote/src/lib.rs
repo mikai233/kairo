@@ -24,6 +24,7 @@ mod remote_watch_actor;
 mod remote_watch_effects;
 mod remote_watch_inbound;
 mod remote_watch_system_inbound;
+mod resolved_ref;
 mod settings;
 mod stream;
 mod stream_inbound;
@@ -71,6 +72,7 @@ pub use remote_watch_effects::{
 };
 pub use remote_watch_inbound::RemoteDeathWatchProtocolDelivery;
 pub use remote_watch_system_inbound::RemoteDeathWatchSystemInbound;
+pub use resolved_ref::ResolvedActorRef;
 pub use settings::RemoteSettings;
 pub use stream::{
     RemoteStreamDecoder, RemoteStreamEncoder, RemoteStreamFrame, RemoteStreamId,

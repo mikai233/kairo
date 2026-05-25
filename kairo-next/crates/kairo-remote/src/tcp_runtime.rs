@@ -10,8 +10,8 @@ use crate::{
     ActorSystemRemoteInbound, RemoteActorRef, RemoteActorRefProvider, RemoteAssociationAddress,
     RemoteAssociationCache, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
     RemoteAssociationRouteRegistration, RemoteDeathWatchCommand, RemoteDeathWatchEffectObserver,
-    RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound, RemoteSettings, Result,
-    TcpAssociationDialer, TcpAssociationListener, TcpAssociationListenerHandle,
+    RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound, RemoteSettings, ResolvedActorRef,
+    Result, TcpAssociationDialer, TcpAssociationListener, TcpAssociationListenerHandle,
     TcpAssociationListenerReport,
 };
 
@@ -106,8 +106,8 @@ where
                 local_system_uid,
             )
             .with_connect_timeout(Duration::from_secs(1));
-        let provider = RemoteActorRefProvider::new(
-            system.name().to_string(),
+        let provider = RemoteActorRefProvider::with_actor_system(
+            system.clone(),
             effective_settings.clone(),
             registry.clone(),
             outbound,
@@ -171,6 +171,13 @@ where
         N: RemoteMessage,
     {
         self.provider.resolve(path)
+    }
+
+    pub fn resolve_actor_ref<N>(&self, path: impl Into<String>) -> Result<ResolvedActorRef<N>>
+    where
+        N: RemoteMessage,
+    {
+        self.provider.resolve_actor_ref(path)
     }
 
     pub fn shutdown(self) -> Result<TcpAssociationListenerReport> {

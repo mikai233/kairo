@@ -1296,3 +1296,37 @@ Consequences:
   build on.
 - The registry does not turn TCP connections into cluster membership truth;
   cluster membership remains gossip plus local failure detector observations.
+
+## ADR-0048: Provider Resolution Uses A Typed Local-Or-Remote Ref
+
+Status: Accepted
+
+Context:
+Pekko's `RemoteActorRefProvider` resolves actor paths owned by the local
+provider through the local actor registry and creates a `RemoteActorRef` only
+for foreign addresses. Missing owned paths become empty/dead-letter refs that
+preserve the requested path. Kairo needs the same observable provider behavior,
+but it should keep the Rust typed-ref boundary rather than introduce an erased
+message API.
+
+Decision:
+Kairo adds `ResolvedActorRef<M>` as a focused `kairo-remote` module. It wraps
+either a local `ActorRef<M>` or a `RemoteActorRef<M>` and implements the typed
+`Recipient<M>` send boundary. `RemoteActorRefProvider::resolve_actor_ref`
+returns this enum when the provider is configured with an `ActorSystem`.
+Local-only actor paths and canonical remote paths owned by the local system are
+resolved through the local actor registry. Unknown owned paths return missing
+local refs that keep the normalized local path and publish dead letters on
+send. Foreign paths still resolve to `RemoteActorRef<M>`.
+
+The existing remote-only `resolve` API remains available for call sites that
+specifically require a `RemoteActorRef<M>`, such as explicit outbound TCP
+association tests.
+
+Consequences:
+- Provider-level location transparency no longer requires callers to know
+  whether an owned canonical address should be local.
+- The local-or-remote boundary stays typed by `M`; no global message enum or
+  erased user protocol is introduced.
+- Remote deployment remains out of scope. Resolving a foreign path creates a
+  remote ref to an existing remote actor path.

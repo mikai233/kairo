@@ -297,6 +297,11 @@ Implemented:
 - Local remote delivery now normalizes recipient paths addressed to the
   system's own canonical remote host/port back to local actor paths before
   registry resolution, while leaving foreign remote addresses as missing refs.
+- `kairo-remote` now has a typed `ResolvedActorRef<M>` provider result for
+  local-or-remote location transparency. A provider configured with an
+  `ActorSystem` resolves local-only paths and owned canonical remote paths
+  through the local actor registry, returns missing local refs for unknown
+  owned paths, and preserves remote refs for foreign addresses.
 - `kairo-remote` now has a focused remote death-watch state module that tracks
   watched remote actor pairs and watched addresses, plans heartbeat
   start/stop/send effects, re-watches after remote UID changes, emits

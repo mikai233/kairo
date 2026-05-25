@@ -742,6 +742,7 @@ src/
   inbound.rs
   inbound_router.rs
   local_delivery.rs
+  resolved_ref.rs
   system_inbound.rs
   protocol.rs
   watch.rs
@@ -759,6 +760,9 @@ Resolution:
 - local address -> local ref,
 - unknown local path -> empty/dead-letter ref that keeps the path,
 - remote address -> `RemoteActorRef<M>`.
+- `ResolvedActorRef<M>` is the typed local-or-remote provider result. It wraps
+  either a local `ActorRef<M>` or a `RemoteActorRef<M>` and implements the same
+  typed send boundary without introducing an erased user-message API.
 
 `RemoteActorRef<M>`:
 
