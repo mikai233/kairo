@@ -18,6 +18,8 @@ mod membership_actor;
 mod protocol;
 mod reachability;
 mod remote;
+mod remote_tcp;
+mod system_inbound;
 mod vector_clock;
 mod wire;
 
@@ -62,6 +64,12 @@ pub use reachability::{Reachability, ReachabilityRecord, ReachabilityStatus};
 pub use remote::{
     ClusterMembershipRemoteEnvelopeError, ClusterMembershipRemoteEnvelopeOutbound,
     DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH,
+};
+pub use remote_tcp::{
+    ClusterTcpAssociationRuntime, cluster_association_identity_for, cluster_lane_classifier,
+};
+pub use system_inbound::{
+    ClusterSystemInbound, ClusterSystemInboundError, is_cluster_system_manifest,
 };
 pub use vector_clock::{VectorClock, VectorClockNode, VectorClockOrdering};
 pub use wire::{

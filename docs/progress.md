@@ -900,6 +900,13 @@ Implemented:
   target node, can use the shared `kairo-remote::RemoteAssociationCache`,
   rejects local-only targets, and keeps cluster membership state owned by the
   gossip actor rather than remoting.
+- `kairo-cluster` now has a focused system inbound router and configured-peer
+  TCP association runtime for cluster control traffic. The runtime binds a
+  handshaken listener, owns a shared `RemoteAssociationCache`, association
+  registry, route installer, dialer, and dialing-side lane readers, routes
+  join/welcome/gossip and heartbeat request/response envelopes through live
+  socket associations, and keeps cluster membership truth in gossip plus local
+  failure-detector observations rather than remoting.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member
@@ -1056,8 +1063,9 @@ Not yet implemented:
 - Cluster-tools socket integration still needs broader cluster-driven peer
   discovery, reconnect policy, and multi-peer runtime ownership beyond the
   focused configured-peer TCP association slice.
-- Multi-node cluster membership socket transport, socket-backed heartbeat
-  association wiring, actor-backed downing provider timing,
+- Multi-node cluster membership socket lifecycle orchestration,
+  cluster-derived peer discovery, reconnect policy, actor-backed downing
+  provider timing,
   indirectly-connected split-brain handling, and lease-majority support.
 
 ## Last Validation

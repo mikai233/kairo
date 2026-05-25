@@ -1203,6 +1203,20 @@ Membership transport:
 - `ClusterMembershipRemoteEnvelopeOutbound` wraps those serialized payloads in
   `RemoteEnvelope` metadata addressed to `/system/cluster/core/daemon` on the
   target node.
+- `ClusterSystemInbound` is the cluster system-frame router for decoded remote
+  envelopes. It dispatches membership manifests to
+  `ClusterMembershipWireInbound`, heartbeat requests to
+  `HeartbeatRemoteReceiverInbound`, and heartbeat responses to
+  `HeartbeatRemoteResponseInbound` after validating the stable system actor
+  recipient path for the local node.
+- `ClusterTcpAssociationRuntime` is the configured-peer socket runtime for
+  cluster control traffic. It binds a handshaken TCP listener, owns a shared
+  `RemoteAssociationCache`, association registry, route installer, dialer, and
+  dialing-side lane readers, and routes live socket frames into
+  `ClusterSystemInbound`.
+- Cluster TCP runtime traffic uses a cluster lane classifier so `Join`,
+  `Welcome`, `GossipEnvelope`, `Heartbeat`, and `HeartbeatRsp` all travel on
+  the control/system lane.
 - The outbound may use `RemoteAssociationCache` for association routing, but
   the cache is not a membership source of truth. Cluster membership remains
   gossip plus local failure-detector observations.
