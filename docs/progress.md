@@ -159,11 +159,14 @@ Implemented:
   `expect_terminated` helpers for deterministic local lifecycle assertions.
 - `kairo-testkit::await_assert` retries result-returning test assertions until
   success or timeout and reports the final error with attempt metadata.
+- `TestProbe::fish_for_message` classifies probe messages as complete, fail,
+  continue-and-collect, or continue-and-ignore under one shared deadline, with
+  the fishing outcome API kept in a focused testkit module.
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.
-- Testkit code is split into focused `probe`, `manual_time`, and `system`
-  modules instead of living in one crate root.
+- Testkit code is split into focused `probe`, `fishing`, `assertions`,
+  `manual_time`, and `system` modules instead of living in one crate root.
 - `ActorSystemBuilder::manual_scheduler` can build actor systems backed by a
   manual scheduler, and `ActorSystemTestKit::with_manual_time` wires that
   scheduler into `ManualTime`.

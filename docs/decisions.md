@@ -2017,3 +2017,30 @@ Consequences:
   `Result` contract.
 - Callers that want panic-style assertions can wrap them in their own
   `catch_unwind` boundary, but the testkit default remains explicit and typed.
+
+## ADR-0072: Probe Message Fishing Uses Borrowed Classification
+
+Status: Accepted
+
+Context:
+Pekko's typed `fishForMessage` consumes probe messages under one deadline and
+classifies each message as complete, fail, continue-and-collect, or
+continue-and-ignore. Kairo needs the same deterministic testing behavior while
+preserving Rust ownership of typed messages and avoiding a dynamic probe event
+queue.
+
+Decision:
+Kairo adds a focused `fishing` module with `FishingOutcome`.
+`TestProbe::fish_for_message` receives typed messages from the probe queue,
+passes each message by shared reference to the caller's classifier, and then
+either returns collected messages, reports an explicit failure reason, keeps
+collecting, or drops ignored messages. The loop uses one overall timeout
+deadline rather than restarting the timeout for each received message.
+
+Consequences:
+- Tests can inspect typed message streams without cloning or requiring `Debug`
+  for successful fishing.
+- Ignored messages are intentionally consumed, matching the probe-draining
+  behavior of Pekko's fishing API.
+- Timeout diagnostics report the number of collected messages instead of
+  stringifying arbitrary typed messages.

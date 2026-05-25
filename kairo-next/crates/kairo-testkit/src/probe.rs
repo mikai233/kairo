@@ -6,6 +6,8 @@ use kairo_actor::{
     Actor, ActorError, ActorRef, ActorResult, ActorSystem, AnyActorRef, Context, Props,
 };
 
+use crate::fishing::{FishingOutcome, remaining_until};
+
 pub struct TestProbe<M> {
     system: ActorSystem,
     actor_ref: ActorRef<M>,
@@ -70,6 +72,42 @@ impl<M: Send + 'static> TestProbe<M> {
             Err(RecvTimeoutError::Disconnected) => Err(ProbeError::Closed),
         }
     }
+
+    pub fn fish_for_message<F>(
+        &self,
+        timeout: Duration,
+        mut fisher: F,
+    ) -> Result<Vec<M>, ProbeError>
+    where
+        F: FnMut(&M) -> FishingOutcome,
+    {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut seen = Vec::new();
+
+        loop {
+            let remaining = remaining_until(deadline).unwrap_or(Duration::ZERO);
+            let message = match self.receiver.recv_timeout(remaining) {
+                Ok(message) => message,
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(ProbeError::FishTimeout {
+                        timeout,
+                        seen: seen.len(),
+                    });
+                }
+                Err(RecvTimeoutError::Disconnected) => return Err(ProbeError::Closed),
+            };
+
+            match fisher(&message) {
+                FishingOutcome::Complete => {
+                    seen.push(message);
+                    return Ok(seen);
+                }
+                FishingOutcome::Fail(reason) => return Err(ProbeError::FishingFailed(reason)),
+                FishingOutcome::Continue => seen.push(message),
+                FishingOutcome::ContinueAndIgnore => {}
+            }
+        }
+    }
 }
 
 impl TestProbe<AnyActorRef> {
@@ -117,8 +155,10 @@ impl<M: Send + 'static> Actor for ProbeActor<M> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeError {
     Timeout(Duration),
+    FishTimeout { timeout: Duration, seen: usize },
     Closed,
     WatchFailed(String),
+    FishingFailed(String),
     UnexpectedMessage { expected: String, actual: String },
 }
 
@@ -126,8 +166,15 @@ impl Display for ProbeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Timeout(timeout) => write!(f, "timed out after {timeout:?} waiting for message"),
+            Self::FishTimeout { timeout, seen } => {
+                write!(
+                    f,
+                    "timed out after {timeout:?} while fishing for message after seeing {seen} collected messages"
+                )
+            }
             Self::Closed => f.write_str("test probe channel is closed"),
             Self::WatchFailed(error) => write!(f, "failed to watch actor termination: {error}"),
+            Self::FishingFailed(reason) => write!(f, "message fishing failed: {reason}"),
             Self::UnexpectedMessage { expected, actual } => {
                 write!(f, "expected {expected}, received {actual}")
             }
