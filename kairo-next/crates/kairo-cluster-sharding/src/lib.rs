@@ -9,6 +9,7 @@ mod coordinator_handoff;
 mod coordinator_runtime;
 mod coordinator_store;
 mod entity_ref;
+mod entity_router;
 mod entity_type;
 mod envelope;
 mod errors;
@@ -51,6 +52,7 @@ pub use coordinator_runtime::{
     RebalancePlan, RebalanceSkipReason, ShardRebalancePlan,
 };
 pub use entity_ref::EntityRef;
+pub use entity_router::ShardingEnvelopeRouter;
 pub use entity_type::EntityTypeKey;
 pub use envelope::ShardingEnvelope;
 pub use errors::ShardingError;

@@ -1470,6 +1470,10 @@ Types:
 - `Entity<M, E>`,
 - `EntityContext<M> { type_key, entity_id, shard_ref }`,
 - `EntityRef<M>`,
+- `ShardingEnvelopeRouter<M>` as the typed adapter that accepts
+  `ShardingEnvelope<M>`, computes the documented stable shard id, and forwards
+  into a registered `ShardRegionActor<M>` without requiring business messages
+  to contain entity ids,
 - `ShardingEnvelope<M> { entity_id, message }`,
 - `ShardingMessageExtractor<E, M>`.
 

@@ -7,27 +7,28 @@ use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
 
 use crate::{
     BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState,
-    CoordinatorStateSnapshot, EntityDelivery, EntityRef, GetShardHome, GetShardHomeIgnoreReason,
-    GetShardHomePlan, HandOff, HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget,
-    HandoffRegionTarget, HandoffTransport, HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg,
-    HostShard, HostShardPlan, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
-    RebalanceSkipReason, RegionBufferedReplayPlan, RegionDropReason,
-    RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan,
-    RegionRegistrationConfig, RegionRegistrationStatus, RegionRoutePlan, RegionRouteTarget,
-    RegionRouteTransport, RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
-    RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
-    RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
-    RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
-    RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
-    RememberShardStoreState, RememberShardUpdate, RememberUpdateDonePlan, RememberedEntities,
-    RememberedEntitiesPlan, ShardActor, ShardAllocationStrategy, ShardAllocations,
-    ShardCoordinatorActor, ShardCoordinatorBootstrap, ShardCoordinatorMsg, ShardDeliverPlan,
-    ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
-    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot,
-    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
-    ShardingError, default_shard_id_for, remember_coordinator_shards_key,
-    remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
-    remember_entity_shard_replicator_key, shard_id_for, stable_hash_entity_id,
+    CoordinatorStateSnapshot, DEFAULT_SHARD_COUNT, EntityDelivery, EntityRef, GetShardHome,
+    GetShardHomeIgnoreReason, GetShardHomePlan, HandOff, HandOffPlan, HandoffDeliveryFailure,
+    HandoffDeliveryTarget, HandoffRegionTarget, HandoffTransport, HandoffWorkerActor,
+    HandoffWorkerDone, HandoffWorkerMsg, HostShard, HostShardPlan, LeastShardAllocationStrategy,
+    RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan,
+    RegionDropReason, RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan,
+    RegionLocalRoutePlan, RegionRegistrationConfig, RegionRegistrationStatus, RegionRoutePlan,
+    RegionRouteTarget, RegionRouteTransport, RememberCoordinatorDDataStoreActor,
+    RememberCoordinatorDDataStoreMsg, RememberCoordinatorDDataStoreSnapshot,
+    RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
+    RememberCoordinatorStoreState, RememberShardDDataStoreActor, RememberShardDDataStoreMsg,
+    RememberShardDDataStoreSnapshot, RememberShardStoreActor, RememberShardStoreMsg,
+    RememberShardStoreSnapshot, RememberShardStoreState, RememberShardUpdate,
+    RememberUpdateDonePlan, RememberedEntities, RememberedEntitiesPlan, ShardActor,
+    ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorBootstrap,
+    ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
+    ShardHomePlan, ShardMsg, ShardRebalancePlan, ShardRegionActor, ShardRegionMsg,
+    ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime, ShardSnapshot, ShardStarted,
+    ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingEnvelopeRouter, ShardingError,
+    default_shard_id_for, remember_coordinator_shards_key, remember_entity_key_index,
+    remember_entity_key_index_for, remember_entity_shard_key, remember_entity_shard_replicator_key,
+    shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -57,6 +58,71 @@ fn entity_ref_wraps_business_message_in_sharding_envelope() {
         rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         ("counter-1".to_string(), "increment")
     );
+}
+
+#[test]
+fn entity_ref_routes_through_sharding_envelope_router_to_local_shard() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("sharding-entity-ref-router").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                coordinator,
+                Duration::from_millis(20),
+            ),
+        )
+        .unwrap();
+    let router = kit
+        .system()
+        .spawn(
+            "entity-router",
+            ShardingEnvelopeRouter::props(region.clone(), DEFAULT_SHARD_COUNT),
+        )
+        .unwrap();
+    let entity_ref = EntityRef::new("entity-1", router);
+    let shard = default_shard_id_for("entity-1");
+
+    entity_ref.tell("first".to_string()).unwrap();
+
+    let shard_ref = wait_for_local_shard(&kit, &region, &shard);
+    let snapshot = kit.create_probe::<ShardSnapshot>("shard-snapshot").unwrap();
+    let mut active = false;
+    for _ in 0..20 {
+        shard_ref
+            .tell(ShardMsg::GetState {
+                reply_to: snapshot.actor_ref(),
+            })
+            .unwrap();
+        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
+        active = state.active_entities == vec!["entity-1".to_string()];
+        if active {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert!(
+        active,
+        "router should deliver the entity envelope to a local shard"
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]
@@ -5217,6 +5283,29 @@ impl Actor for DelayedRegistrationCoordinator {
 
 struct RegionProbe {
     observed: mpsc::Sender<(String, &'static str)>,
+}
+
+fn wait_for_local_shard(
+    kit: &kairo_testkit::ActorSystemTestKit,
+    region: &ActorRef<ShardRegionMsg<String>>,
+    shard: &str,
+) -> ActorRef<ShardMsg<String>> {
+    let reply = kit
+        .create_probe::<Option<ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    for _ in 0..20 {
+        region
+            .tell(ShardRegionMsg::GetLocalShard {
+                shard: shard.to_string(),
+                reply_to: reply.actor_ref(),
+            })
+            .unwrap();
+        if let Some(shard_ref) = reply.expect_msg(Duration::from_millis(500)).unwrap() {
+            return shard_ref;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("timed out waiting for local shard `{shard}`");
 }
 
 impl Actor for RegionProbe {

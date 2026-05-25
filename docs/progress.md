@@ -652,6 +652,10 @@ Implemented:
 - `ShardingEnvelope<M>` carries entity ids outside business messages, and
   `EntityRef<M>` wraps plain business messages in that envelope before sending
   to the region.
+- `kairo-cluster-sharding` now has `ShardingEnvelopeRouter<M>`, a focused
+  actor adapter that exposes the `ActorRef<ShardingEnvelope<M>>` boundary
+  expected by `EntityRef<M>`, computes shard ids with the documented stable
+  hash, and forwards envelopes into the registered shard-region actor.
 - Shard IDs use documented 64-bit FNV-1a over entity id bytes with
   `hash % shard_count`; `DEFAULT_SHARD_COUNT` is 100.
 - `kairo-cluster-sharding` now has a focused allocation module with
