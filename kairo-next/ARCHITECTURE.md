@@ -1227,6 +1227,11 @@ Membership transport:
   `ClusterTcpAssociationRuntime`, owns per-peer route registrations, closes and
   removes cached routes when peers are removed, and deliberately keeps
   membership state out of the socket route owner.
+- `ClusterTcpPeerRuntime` composes the socket runtime, peer planner, and
+  peer-route owner for the first cluster-derived TCP lifecycle boundary. It
+  accepts membership snapshots and events, applies the resulting dial/remove
+  effects to live routes, and clears those peer routes before listener
+  shutdown.
 - The outbound may use `RemoteAssociationCache` for association routing, but
   the cache is not a membership source of truth. Cluster membership remains
   gossip plus local failure-detector observations.

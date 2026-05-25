@@ -22,6 +22,7 @@ mod remote;
 mod remote_tcp;
 mod system_inbound;
 mod tcp_peer_routes;
+mod tcp_peer_runtime;
 mod vector_clock;
 mod wire;
 
@@ -80,6 +81,10 @@ pub use system_inbound::{
 pub use tcp_peer_routes::{
     ClusterTcpPeerRouteError, ClusterTcpPeerRouteReport, ClusterTcpPeerRouteResult,
     ClusterTcpPeerRoutes,
+};
+pub use tcp_peer_runtime::{
+    ClusterTcpPeerRuntime, ClusterTcpPeerRuntimeError, ClusterTcpPeerRuntimeResult,
+    ClusterTcpPeerRuntimeShutdownReport,
 };
 pub use vector_clock::{VectorClock, VectorClockNode, VectorClockOrdering};
 pub use wire::{

@@ -1547,3 +1547,32 @@ Consequences:
 - Membership state, peer planning, and socket route ownership remain separate
   modules.
 - Reconnect/backoff policy and long-lived actor ownership remain future work.
+
+## ADR-0055: Cluster TCP Peer Runtime Owns The Route Lifecycle
+
+Status: Accepted
+
+Context:
+The cluster crate had the three pieces needed for membership-derived TCP
+routes: `ClusterTcpAssociationRuntime` owned live sockets,
+`ClusterAssociationPeerState` planned dial/remove effects from gossip
+membership and local reachability, and `ClusterTcpPeerRoutes` applied those
+effects to route registrations. The next vertical slice needed a lifecycle
+owner that could accept cluster snapshots/events without collapsing those
+responsibilities into one file or letting the route table become membership
+truth.
+
+Decision:
+Kairo adds `ClusterTcpPeerRuntime` in a focused `tcp_peer_runtime` module. It
+owns a `ClusterTcpAssociationRuntime`, a `ClusterAssociationPeerState`, and a
+`ClusterTcpPeerRoutes` value. Snapshot and event methods feed the planner,
+then apply the resulting changes to live TCP routes. Shutdown clears active
+peer routes before stopping the underlying TCP listener.
+
+Consequences:
+- Cluster membership snapshots and events can now drive live TCP association
+  routes through one explicit lifecycle boundary.
+- Membership state, peer planning, socket routing, and socket transport remain
+  structured modules rather than being concentrated in the crate root.
+- Reconnect/backoff policy, long-lived actor ownership, and actor-system
+  lifecycle integration remain future work.

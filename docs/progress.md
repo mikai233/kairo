@@ -917,6 +917,10 @@ Implemented:
   cluster-derived dial/remove plans to `ClusterTcpAssociationRuntime`, keeps
   per-peer route registrations separate from membership state, and closes and
   removes cached routes when peers become locally unreachable or leave.
+- `kairo-cluster` now has a focused TCP peer runtime lifecycle owner that
+  composes the cluster TCP socket runtime, membership-derived peer planner, and
+  peer-route table, applies cluster snapshots/events to live routes, and clears
+  peer routes before listener shutdown.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member
