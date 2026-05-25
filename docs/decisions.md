@@ -1601,7 +1601,7 @@ Consequences:
   available without treating the remote association cache as membership truth.
 - Retry timing is deterministic and testable; no sleeping retry thread or
   broad dependency is introduced.
-- Periodic timer cadence for these retry ticks remains future work.
+- Periodic timer cadence is layered separately on the actor-backed connector.
 
 ## ADR-0057: Cluster TCP Peer Connector Bridges Events To Runtime
 
@@ -1630,7 +1630,35 @@ cache to infer membership and does not mutate gossip state.
 Consequences:
 - Cluster membership events can now drive multi-peer TCP route ownership from
   an actor mailbox turn.
-- Retry attempts are actor-addressable and deterministic, while automatic
-  timer cadence remains separate work.
+- Retry attempts are actor-addressable and deterministic; the connector can
+  also drive them from actor timers without adding a sleeping retry thread.
 - Membership state, peer planning, socket route ownership, reconnect state,
   and actor lifecycle wiring remain separate modules.
+
+## ADR-0058: Cluster TCP Peer Retries Use Actor Timers
+
+Status: Accepted
+
+Context:
+`ClusterTcpPeerConnector` could drive reconnect attempts through explicit
+`RetryDuePeerRoutes` messages, which kept tests deterministic but still left
+periodic retry cadence to callers. Pekko keeps distributed cluster work moving
+through scheduled actor ticks. Kairo should do the same without introducing a
+background retry thread or making transport state authoritative for
+membership.
+
+Decision:
+Kairo adds `ClusterTcpPeerConnectorSettings` with an explicit non-zero retry
+interval, initial retry delay, and an automatic-ticks switch. When automatic
+ticks are enabled, `ClusterTcpPeerConnector` starts a fixed-delay actor timer
+and feeds due retry timestamps back into `ClusterTcpPeerRuntime`. Tests can
+still disable automatic ticks and send explicit retry messages, or use
+manual-time actor systems to advance the timer deterministically.
+
+Consequences:
+- Cluster TCP peer reconnects can run from actor timers in normal runtimes and
+  from manual time in tests.
+- Retry scheduling remains actor-owned and deterministic, with no broad async
+  runtime or sleeping retry worker.
+- The retry timer only drives desired peers retained by membership-derived
+  state; it does not infer membership from association cache routes.

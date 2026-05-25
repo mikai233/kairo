@@ -81,7 +81,8 @@ pub use system_inbound::{
     ClusterSystemInbound, ClusterSystemInboundError, is_cluster_system_manifest,
 };
 pub use tcp_peer_connector::{
-    ClusterTcpPeerConnector, ClusterTcpPeerConnectorMsg, ClusterTcpPeerConnectorSnapshot,
+    ClusterTcpPeerConnector, ClusterTcpPeerConnectorMsg, ClusterTcpPeerConnectorSettings,
+    ClusterTcpPeerConnectorSettingsError, ClusterTcpPeerConnectorSnapshot,
 };
 pub use tcp_peer_reconnect::{
     ClusterTcpPeerReconnectError, ClusterTcpPeerReconnectPending, ClusterTcpPeerReconnectReport,

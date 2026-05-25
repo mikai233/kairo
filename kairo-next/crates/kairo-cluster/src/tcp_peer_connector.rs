@@ -8,22 +8,100 @@ use crate::{
     UniqueAddress,
 };
 
+const TCP_PEER_RETRY_TIMER_KEY: &str = "cluster-tcp-peer-retry";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClusterTcpPeerConnectorSettingsError {
+    ZeroRetryInterval,
+}
+
+impl std::fmt::Display for ClusterTcpPeerConnectorSettingsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ZeroRetryInterval => {
+                write!(
+                    f,
+                    "cluster tcp peer connector retry interval must be non-zero"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ClusterTcpPeerConnectorSettingsError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClusterTcpPeerConnectorSettings {
+    retry_interval: Duration,
+    initial_retry_delay: Duration,
+    automatic_retry_ticks: bool,
+}
+
+impl ClusterTcpPeerConnectorSettings {
+    pub fn new(retry_interval: Duration) -> Result<Self, ClusterTcpPeerConnectorSettingsError> {
+        if retry_interval.is_zero() {
+            return Err(ClusterTcpPeerConnectorSettingsError::ZeroRetryInterval);
+        }
+        Ok(Self {
+            retry_interval,
+            initial_retry_delay: retry_interval,
+            automatic_retry_ticks: true,
+        })
+    }
+
+    pub fn with_initial_retry_delay(mut self, delay: Duration) -> Self {
+        self.initial_retry_delay = delay;
+        self
+    }
+
+    pub fn with_automatic_retry_ticks(mut self, automatic: bool) -> Self {
+        self.automatic_retry_ticks = automatic;
+        self
+    }
+
+    pub fn retry_interval(&self) -> Duration {
+        self.retry_interval
+    }
+}
+
+impl Default for ClusterTcpPeerConnectorSettings {
+    fn default() -> Self {
+        Self {
+            retry_interval: Duration::from_secs(1),
+            initial_retry_delay: Duration::from_secs(1),
+            automatic_retry_ticks: true,
+        }
+    }
+}
+
 pub struct ClusterTcpPeerConnector {
     cluster: Cluster,
     runtime: Option<ClusterTcpPeerRuntime>,
+    settings: ClusterTcpPeerConnectorSettings,
     subscription: Option<ActorRef<ClusterSubscriptionEvent>>,
     last_report: Option<ClusterTcpPeerRouteReport>,
     last_error: Option<String>,
+    retry_clock: Duration,
 }
 
 impl ClusterTcpPeerConnector {
     pub fn new(cluster: Cluster, runtime: ClusterTcpPeerRuntime) -> Self {
+        Self::with_settings(cluster, runtime, ClusterTcpPeerConnectorSettings::default())
+    }
+
+    pub fn with_settings(
+        cluster: Cluster,
+        runtime: ClusterTcpPeerRuntime,
+        settings: ClusterTcpPeerConnectorSettings,
+    ) -> Self {
         Self {
             cluster,
             runtime: Some(runtime),
+            settings,
             subscription: None,
             last_report: None,
             last_error: None,
+            retry_clock: Duration::ZERO,
         }
     }
 
@@ -50,6 +128,7 @@ pub enum ClusterTcpPeerConnectorMsg {
     RetryDuePeerRoutes {
         now: Duration,
     },
+    RetryTimerTick,
     ClearRoutes,
     Snapshot {
         reply_to: ActorRef<ClusterTcpPeerConnectorSnapshot>,
@@ -78,6 +157,14 @@ impl Actor for ClusterTcpPeerConnector {
             )
             .map_err(|error| ActorError::Message(error.to_string()))?;
         self.subscription = Some(subscription);
+        if self.settings.automatic_retry_ticks {
+            ctx.start_timer_with_fixed_delay(
+                TCP_PEER_RETRY_TIMER_KEY,
+                self.settings.initial_retry_delay,
+                self.settings.retry_interval,
+                ClusterTcpPeerConnectorMsg::RetryTimerTick,
+            );
+        }
         Ok(())
     }
 
@@ -95,6 +182,12 @@ impl Actor for ClusterTcpPeerConnector {
         match msg {
             ClusterTcpPeerConnectorMsg::Cluster(event) => self.apply_cluster_event(event),
             ClusterTcpPeerConnectorMsg::RetryDuePeerRoutes { now } => self.retry_due(now),
+            ClusterTcpPeerConnectorMsg::RetryTimerTick => {
+                self.retry_clock = self
+                    .retry_clock
+                    .saturating_add(self.settings.retry_interval);
+                self.retry_due(self.retry_clock)
+            }
             ClusterTcpPeerConnectorMsg::ClearRoutes => self.clear_routes(),
             ClusterTcpPeerConnectorMsg::Snapshot { reply_to } => reply_to
                 .tell(self.snapshot())
@@ -351,7 +444,15 @@ mod tests {
             .system()
             .spawn(
                 "tcp-peer-connector",
-                Props::new(move || ClusterTcpPeerConnector::new(cluster, sender_runtime)),
+                Props::new(move || {
+                    ClusterTcpPeerConnector::with_settings(
+                        cluster,
+                        sender_runtime,
+                        ClusterTcpPeerConnectorSettings::new(retry_interval)
+                            .unwrap()
+                            .with_automatic_retry_ticks(false),
+                    )
+                }),
             )
             .unwrap();
 
@@ -391,6 +492,82 @@ mod tests {
         let snapshot =
             eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 0);
         assert!(snapshot.active_targets.is_empty());
+        assert!(snapshot.last_error.is_none());
+
+        sender_kit.system().stop(&connector);
+        assert!(connector.wait_for_stop(Duration::from_secs(1)));
+        receiver_runtime.shutdown().unwrap();
+        sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+        receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn connector_automatic_retry_timer_drives_due_peer_routes() {
+        assert_eq!(
+            ClusterTcpPeerConnectorSettings::new(Duration::ZERO).unwrap_err(),
+            ClusterTcpPeerConnectorSettingsError::ZeroRetryInterval
+        );
+
+        let (sender_kit, time) =
+            ActorSystemTestKit::with_manual_time("cluster-tcp-peer-connector-timer").unwrap();
+        let receiver_kit =
+            ActorSystemTestKit::new("cluster-tcp-peer-connector-timer-receiver").unwrap();
+        let registry = registry();
+        let retry_interval = Duration::from_millis(25);
+        let sender_runtime = bind_peer_runtime(
+            "sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            retry_interval,
+            &sender_kit,
+            registry.clone(),
+        );
+        let receiver_port = unused_port();
+        let sender_node = sender_runtime.self_node().clone();
+        let receiver_node = node("receiver", receiver_port, 2);
+        let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+        let cluster = Cluster::new(publisher.clone());
+        let snapshots = sender_kit
+            .create_probe::<ClusterTcpPeerConnectorSnapshot>("timer-snapshots")
+            .unwrap();
+
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(
+                Gossip::from_members([member(sender_node), member(receiver_node.clone())]),
+            ))
+            .unwrap();
+        let connector = sender_kit
+            .system()
+            .spawn(
+                "tcp-peer-connector",
+                Props::new(move || {
+                    ClusterTcpPeerConnector::with_settings(
+                        cluster,
+                        sender_runtime,
+                        ClusterTcpPeerConnectorSettings::new(retry_interval).unwrap(),
+                    )
+                }),
+            )
+            .unwrap();
+        eventually_snapshot(&connector, &snapshots, |snapshot| {
+            snapshot.pending_reconnects.len() == 1
+        });
+
+        let receiver_runtime = bind_association_runtime_on_port(
+            "receiver",
+            2,
+            22,
+            receiver_port,
+            &receiver_kit,
+            registry,
+        );
+        time.advance(retry_interval);
+
+        let snapshot =
+            eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 1);
+        assert_eq!(snapshot.active_targets[0].node(), &receiver_node);
+        assert!(snapshot.pending_reconnects.is_empty());
         assert!(snapshot.last_error.is_none());
 
         sender_kit.system().stop(&connector);

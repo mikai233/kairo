@@ -1235,12 +1235,12 @@ Membership transport:
 - `ClusterTcpPeerReconnectState` records failed cluster peer dials as
   deterministic pending retries with an explicit retry interval. The lifecycle
   owner retries only peers still desired by membership, clears retry state when
-  a peer is dialed or removed, and leaves periodic timer cadence as a higher
-  layer.
+  a peer is dialed or removed.
 - `ClusterTcpPeerConnector` is the actor-backed bridge from cluster
   subscriptions to the peer runtime. It subscribes for an initial snapshot,
   applies later membership events to `ClusterTcpPeerRuntime`, accepts explicit
-  deterministic retry ticks, and shuts the runtime down when the actor stops.
+  deterministic retry ticks, can schedule fixed-delay retry ticks through
+  actor timers, and shuts the runtime down when the actor stops.
 - The outbound may use `RemoteAssociationCache` for association routing, but
   the cache is not a membership source of truth. Cluster membership remains
   gossip plus local failure-detector observations.
