@@ -880,3 +880,35 @@ Consequences:
   erased dynamic envelopes.
 - Additional system protocols can later be added to the router with stable
   manifests and explicit lane rules.
+
+## ADR-0035: Cluster Heartbeat Remote Routing Uses Stable System Paths
+
+Status: Accepted
+
+Context:
+Pekko sends cluster heartbeats to `/system/cluster/heartbeatReceiver` and the
+receiver replies to the sender, which updates the failure detector. Kairo's
+first heartbeat slice used explicit typed receiver routes so the state machine
+could be tested before remote actor selection existed. The next step needs
+remote-envelope routing while keeping heartbeat observations as local
+failure-detector input, not membership truth.
+
+Decision:
+Kairo heartbeat remote routing uses focused adapters around the existing typed
+heartbeat actor protocols. `HeartbeatRemoteReceiverOutbound` can be registered
+as a `HeartbeatSender` receiver route and wraps stable `Heartbeat` payloads in
+`RemoteEnvelope` metadata addressed to `/system/cluster/heartbeatReceiver`.
+`HeartbeatRemoteReceiverInbound` validates the receiver path, deserializes the
+heartbeat, and replies to the envelope sender metadata with a stable
+`HeartbeatRsp`. `HeartbeatRemoteResponseInbound` validates response recipient
+metadata and feeds `HeartbeatSenderMsg::HeartbeatResponse` into the local
+heartbeat sender.
+
+Consequences:
+- The heartbeat sender state machine and failure-detector semantics stay
+  unchanged while remote associations begin carrying heartbeat traffic.
+- Remote actor deployment and general actor selection are not required for
+  cluster heartbeat routing.
+- Socket-backed association population remains a later integration step; the
+  heartbeat adapters accept any `RemoteOutbound`, including the shared
+  `RemoteAssociationCache`.

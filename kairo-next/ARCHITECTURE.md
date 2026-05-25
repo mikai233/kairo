@@ -882,6 +882,7 @@ src/
   downing.rs
   events.rs
   subscriptions.rs
+  heartbeat_remote.rs
   serialization.rs
 ```
 
@@ -1061,6 +1062,19 @@ Cluster heartbeat actors:
 - `HeartbeatSender`: selects monitored peers, sends heartbeat, records replies.
 - `FailureDetectorReaper`: periodically converts detector verdicts into
   reachability records.
+
+Remote heartbeat transport:
+
+- remote heartbeat requests are addressed to `/system/cluster/heartbeatReceiver`
+  on the target node,
+- heartbeat responses are addressed to `/system/cluster/heartbeatSender` or a
+  configured sender actor-ref path supplied in the outbound envelope metadata,
+- `HeartbeatRemoteReceiverOutbound` can be registered as the typed receiver
+  route used by `HeartbeatSender`,
+- `HeartbeatRemoteReceiverInbound` replies to request sender metadata with a
+  stable `HeartbeatRsp` payload,
+- `HeartbeatRemoteResponseInbound` deserializes response envelopes and feeds
+  `HeartbeatSenderMsg::HeartbeatResponse` back into the local heartbeat sender.
 
 Heartbeat must feed reachability only. It does not directly remove members.
 Removal is a leader action after gossip convergence.

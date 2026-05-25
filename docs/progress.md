@@ -784,6 +784,13 @@ Implemented:
   response messages with stable remote manifests, expected-first-heartbeat
   monitoring, cluster membership/reachability event updates, and
   failure-detector cleanup on stop.
+- `kairo-cluster` now has focused remote-envelope heartbeat routing:
+  `HeartbeatRemoteReceiverOutbound` can be registered as a typed heartbeat
+  receiver route and sends stable `Heartbeat` payloads to
+  `/system/cluster/heartbeatReceiver`, `HeartbeatRemoteReceiverInbound`
+  replies to request sender metadata with stable `HeartbeatRsp` payloads, and
+  `HeartbeatRemoteResponseInbound` feeds remote responses back into the local
+  heartbeat sender's failure detector path.
 - `kairo-cluster::ClusterEventPublisher` is an actor-backed cluster event
   publisher that stores the latest gossip, publishes `ClusterEvent` diffs to
   typed subscribers, supports initial state replay as events, handles explicit
@@ -933,9 +940,9 @@ Not yet implemented:
   explicitly supplied local coordinator refs.
 - Cluster singleton remote routing and distributed pubsub user-message socket
   or remote-association wiring beyond status/delta gossip envelopes.
-- Multi-node cluster membership socket transport, remote-backed heartbeat
-  receiver routing, actor-backed downing provider timing, indirectly-connected
-  split-brain handling, and lease-majority support.
+- Multi-node cluster membership socket transport, socket-backed heartbeat
+  association wiring, actor-backed downing provider timing,
+  indirectly-connected split-brain handling, and lease-majority support.
 
 ## Last Validation
 

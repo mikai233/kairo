@@ -10,6 +10,7 @@ mod failure_detector;
 mod gossip;
 mod heartbeat;
 mod heartbeat_actor;
+mod heartbeat_remote;
 mod leader;
 mod leader_actions;
 mod member;
@@ -46,6 +47,11 @@ pub use heartbeat::{HeartbeatError, HeartbeatNodeRing, HeartbeatSenderState};
 pub use heartbeat_actor::{
     HeartbeatClock, HeartbeatReceiver, HeartbeatReceiverMsg, HeartbeatSender, HeartbeatSenderMsg,
     HeartbeatSenderSettings, HeartbeatSenderSnapshot, SystemHeartbeatClock,
+};
+pub use heartbeat_remote::{
+    ClusterHeartbeatRemoteError, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
+    DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, HeartbeatRemoteReceiverInbound,
+    HeartbeatRemoteReceiverOutbound, HeartbeatRemoteResponseInbound,
 };
 pub use leader::LeaderSelection;
 pub use leader_actions::{LeaderActionError, LeaderActionOutcome, LeaderActions};
