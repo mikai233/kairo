@@ -72,9 +72,8 @@ mod tests {
     use super::*;
     use crate::WatchRemote;
     use crate::{
-        RemoteByteSink, RemoteDeathWatchActor, RemoteDeathWatchEffect, RemoteDeathWatchEffectSink,
-        RemoteError, RemoteLaneSink, RemoteStreamEncoder, StreamLaneSink,
-        encode_remote_envelope_frame, register_remote_protocol_codecs, stream_send_failure,
+        RemoteDeathWatchActor, RemoteDeathWatchEffect, RemoteDeathWatchEffectSink, RemoteError,
+        RemoteStreamEncoder, encode_remote_envelope_frame, register_remote_protocol_codecs,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -324,16 +323,5 @@ mod tests {
 
         assert!(matches!(error, RemoteError::Inbound(_)));
         assert!(error.to_string().contains("arrived on Ordinary lane"));
-    }
-
-    #[test]
-    fn stream_send_failure_helper_remains_available_for_lane_errors() {
-        let error = stream_send_failure(RemoteStreamId::Ordinary, "closed".to_string());
-        assert!(matches!(error, RemoteError::Outbound(_)));
-
-        let bytes = Arc::new(|_bytes: Bytes| Ok(())) as Arc<dyn RemoteByteSink>;
-        let sink = StreamLaneSink::new(bytes.clone(), bytes.clone(), bytes);
-        sink.send_lane_frame(RemoteStreamId::Ordinary, Bytes::new())
-            .unwrap();
     }
 }
