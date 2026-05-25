@@ -1,8 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
+use std::time::Instant;
 
+use bytes::Bytes;
 use kairo_actor::{Actor, ActorRef, ActorResult, Address, Context, Props};
 use kairo_cluster::{ClusterEvent, Member, MemberEvent, MemberStatus, UniqueAddress};
+use kairo_remote::{RemoteActorRef, RemoteOutbound};
+use kairo_serialization::{
+    ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationRegistry,
+};
 use kairo_testkit::ActorSystemTestKit;
 
 use crate::{
@@ -15,7 +22,9 @@ use crate::{
     PubSubSubscribeAck, PubSubTopicReport, SingletonManagerActor, SingletonManagerEffect,
     SingletonManagerMsg, SingletonManagerRuntime, SingletonManagerSnapshot, SingletonManagerState,
     SingletonOldestChange, SingletonOldestTracker, SingletonProxyActor, SingletonProxyMsg,
-    SingletonProxySettings, SingletonProxySnapshot, SingletonScope, TopicName, TopicPublishMode,
+    SingletonProxySettings, SingletonProxySnapshot,
+    SingletonProxyTarget as RemoteSingletonProxyTarget, SingletonScope, TopicName,
+    TopicPublishMode,
 };
 
 #[test]
@@ -837,6 +846,140 @@ fn singleton_proxy_identifies_registered_route_from_initial_observation() {
         Some(singleton.actor_ref().path())
     );
     assert_eq!(snapshot.buffered_messages, 0);
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemoteSingletonMsg {
+    value: u8,
+}
+
+impl RemoteMessage for RemoteSingletonMsg {
+    const MANIFEST: &'static str = "kairo.cluster-tools.test.RemoteSingletonMsg";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RemoteSingletonMsgCodec;
+
+impl MessageCodec<RemoteSingletonMsg> for RemoteSingletonMsgCodec {
+    fn serializer_id(&self) -> u32 {
+        73_001
+    }
+
+    fn encode(&self, message: &RemoteSingletonMsg) -> kairo_serialization::Result<Bytes> {
+        Ok(Bytes::from(vec![message.value]))
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        _version: u16,
+    ) -> kairo_serialization::Result<RemoteSingletonMsg> {
+        Ok(RemoteSingletonMsg { value: payload[0] })
+    }
+}
+
+#[derive(Default)]
+struct CollectingRemoteOutbound {
+    sent: Mutex<Vec<RemoteEnvelope>>,
+    changed: Condvar,
+}
+
+impl CollectingRemoteOutbound {
+    fn wait_for_len(&self, len: usize, timeout: Duration) -> Vec<RemoteEnvelope> {
+        let deadline = Instant::now() + timeout;
+        let mut sent = self.sent.lock().expect("remote outbound poisoned");
+        while sent.len() < len {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let (next_sent, wait) = self
+                .changed
+                .wait_timeout(sent, remaining)
+                .expect("remote outbound poisoned");
+            sent = next_sent;
+            if wait.timed_out() {
+                break;
+            }
+        }
+        sent.clone()
+    }
+}
+
+impl RemoteOutbound for CollectingRemoteOutbound {
+    fn send(&self, envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+        self.sent
+            .lock()
+            .expect("remote outbound poisoned")
+            .push(envelope);
+        self.changed.notify_all();
+        Ok(())
+    }
+}
+
+fn remote_singleton_registry() -> Arc<Registry> {
+    let mut registry = Registry::new();
+    registry
+        .register::<RemoteSingletonMsg, _>(RemoteSingletonMsgCodec)
+        .unwrap();
+    Arc::new(registry)
+}
+
+#[test]
+fn singleton_proxy_flushes_buffered_messages_to_remote_target() {
+    let self_node = node("singleton-proxy-remote-local", 1);
+    let remote_node = remote_node("singleton-proxy-remote", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        self_node,
+        SingletonScope::all(),
+        [member(remote_node.clone(), MemberStatus::Up, 1)],
+    );
+    let kit = ActorSystemTestKit::new("singleton-proxy-remote").unwrap();
+    let proxy = kit
+        .system()
+        .spawn(
+            "singleton-proxy",
+            SingletonProxyActor::<RemoteSingletonMsg>::props(
+                SingletonProxySettings::new(4).unwrap(),
+            ),
+        )
+        .unwrap();
+    let outbound = Arc::new(CollectingRemoteOutbound::default());
+    let remote_ref = RemoteActorRef::new(
+        ActorRefWireData::new(format!("{}/user/singleton", remote_node.address)).unwrap(),
+        remote_singleton_registry(),
+        outbound.clone() as Arc<dyn RemoteOutbound>,
+    );
+
+    proxy
+        .tell(SingletonProxyMsg::Route(RemoteSingletonMsg { value: 1 }))
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::RegisterTarget {
+            node: remote_node.clone(),
+            singleton: RemoteSingletonProxyTarget::remote(remote_ref),
+        })
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::ApplyInitialObservation { observation })
+        .unwrap();
+    proxy
+        .tell(SingletonProxyMsg::Route(RemoteSingletonMsg { value: 2 }))
+        .unwrap();
+
+    let sent = outbound.wait_for_len(2, Duration::from_secs(1));
+    assert_eq!(sent.len(), 2);
+    assert_eq!(
+        sent[0].recipient.path(),
+        "kairo://singleton-proxy-remote@singleton-proxy-remote.example.test:2552/user/singleton"
+    );
+    assert_eq!(
+        sent[0].message.manifest.as_str(),
+        RemoteSingletonMsg::MANIFEST
+    );
+    assert_eq!(sent[0].message.payload, Bytes::from_static(&[1]));
+    assert_eq!(sent[1].message.payload, Bytes::from_static(&[2]));
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
@@ -2364,4 +2507,16 @@ fn member_with_roles(
 
 fn node(system: &str, uid: u64) -> UniqueAddress {
     UniqueAddress::new(Address::local(system), uid)
+}
+
+fn remote_node(system: &str, uid: u64) -> UniqueAddress {
+    UniqueAddress::new(
+        Address::new(
+            "kairo",
+            system,
+            Some(format!("{system}.example.test")),
+            Some(2552),
+        ),
+        uid,
+    )
 }

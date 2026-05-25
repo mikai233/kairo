@@ -1,16 +1,15 @@
 use std::collections::HashMap;
 
-use kairo_actor::ActorRef;
 use kairo_cluster::UniqueAddress;
 
-use crate::singleton::{SingletonOldestChange, SingletonOldestObservation};
+use crate::singleton::{SingletonOldestChange, SingletonOldestObservation, SingletonProxyTarget};
 
 pub struct SingletonProxyRoutes<M>
 where
     M: Send + 'static,
 {
     current_oldest: Option<UniqueAddress>,
-    routes: HashMap<UniqueAddress, ActorRef<M>>,
+    routes: HashMap<UniqueAddress, SingletonProxyTarget<M>>,
 }
 
 impl<M> SingletonProxyRoutes<M>
@@ -32,7 +31,11 @@ where
         self.routes.len()
     }
 
-    pub fn register_route(&mut self, node: UniqueAddress, singleton: ActorRef<M>) -> bool {
+    pub fn register_route(
+        &mut self,
+        node: UniqueAddress,
+        singleton: SingletonProxyTarget<M>,
+    ) -> bool {
         let is_current_oldest = self.current_oldest.as_ref() == Some(&node);
         self.routes.insert(node, singleton);
         is_current_oldest
@@ -53,7 +56,7 @@ where
         }
     }
 
-    pub fn current_target(&self) -> Option<ActorRef<M>> {
+    pub fn current_target(&self) -> Option<SingletonProxyTarget<M>> {
         self.current_oldest
             .as_ref()
             .and_then(|node| self.routes.get(node))

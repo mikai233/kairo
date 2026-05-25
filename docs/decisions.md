@@ -912,3 +912,34 @@ Consequences:
 - Socket-backed association population remains a later integration step; the
   heartbeat adapters accept any `RemoteOutbound`, including the shared
   `RemoteAssociationCache`.
+
+## ADR-0036: Singleton Proxy Routes Use Local Or Remote Targets
+
+Status: Accepted
+
+Context:
+Pekko's singleton proxy identifies the singleton actor at the oldest member's
+actor path, watches the identified actor, forwards messages when available,
+and buffers messages while the singleton is unknown. Kairo's first proxy slice
+implemented the same buffering and oldest-member routing for local
+`ActorRef<M>` values. Remote singleton delivery now needs to use existing
+`RemoteActorRef<M>` support without making local messages require
+serialization.
+
+Decision:
+Kairo singleton proxy routes store `SingletonProxyTarget<M>`. A local target
+wraps a watchable `ActorRef<M>`. A remote target wraps `RemoteActorRef<M>` and
+is available only for `M: RemoteMessage`, so remote business messages still use
+stable manifests and registered codecs while local-only messages remain
+serialization-free. The proxy's buffer, oldest-member selection, and
+reidentification behavior are shared for local and remote targets; local
+targets keep death-watch cleanup, while remote death-watch integration remains
+a later provider-level step.
+
+Consequences:
+- Singleton proxy remote delivery reuses the typed remote actor boundary
+  instead of adding an erased dynamic message path.
+- Existing local singleton proxy behavior and tests continue to use
+  `RegisterRoute { singleton: ActorRef<M> }`.
+- Socket-backed route discovery and remote singleton manager handover messages
+  remain separate integration steps.

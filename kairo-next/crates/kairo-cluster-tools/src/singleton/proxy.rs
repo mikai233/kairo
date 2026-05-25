@@ -4,7 +4,7 @@ use std::fmt::{self, Display, Formatter};
 use kairo_actor::{Actor, ActorPath, ActorRef, ActorResult, Context, Props};
 use kairo_cluster::UniqueAddress;
 
-use super::proxy_routes::SingletonProxyRoutes;
+use super::{proxy_routes::SingletonProxyRoutes, proxy_target::SingletonProxyTarget};
 use crate::singleton::{SingletonOldestChange, SingletonOldestObservation};
 
 const MAX_BUFFER_SIZE: usize = 10_000;
@@ -66,7 +66,7 @@ where
 {
     settings: SingletonProxySettings,
     routes: SingletonProxyRoutes<M>,
-    singleton: Option<ActorRef<M>>,
+    singleton: Option<SingletonProxyTarget<M>>,
     buffer: VecDeque<M>,
     dropped_messages: u64,
 }
@@ -92,30 +92,36 @@ where
     fn set_singleton(
         &mut self,
         ctx: &mut Context<SingletonProxyMsg<M>>,
-        singleton: ActorRef<M>,
+        singleton: SingletonProxyTarget<M>,
     ) -> ActorResult {
         if let Some(current) = &self.singleton {
             if current.path() == singleton.path() {
                 return Ok(());
             }
-            ctx.unwatch(current);
+            if let Some(current) = current.watchable() {
+                ctx.unwatch(current);
+            }
         }
 
-        let singleton_path = singleton.path().clone();
-        ctx.watch_with(
-            &singleton,
-            SingletonProxyMsg::SingletonTerminated {
-                path: singleton_path,
-            },
-        )?;
+        if let Some(watchable) = singleton.watchable() {
+            let singleton_path = watchable.path().clone();
+            ctx.watch_with(
+                watchable,
+                SingletonProxyMsg::SingletonTerminated {
+                    path: singleton_path,
+                },
+            )?;
+        }
         self.singleton = Some(singleton);
         self.flush_buffer();
         Ok(())
     }
 
     fn clear_identified_singleton(&mut self, ctx: &mut Context<SingletonProxyMsg<M>>) {
-        if let Some(current) = self.singleton.take() {
-            ctx.unwatch(&current);
+        if let Some(current) = self.singleton.take()
+            && let Some(current) = current.watchable()
+        {
+            ctx.unwatch(current);
         }
     }
 
@@ -185,6 +191,10 @@ pub enum SingletonProxyMsg<M: Send + 'static> {
         node: UniqueAddress,
         singleton: ActorRef<M>,
     },
+    RegisterTarget {
+        node: UniqueAddress,
+        singleton: SingletonProxyTarget<M>,
+    },
     RemoveRoute {
         node: UniqueAddress,
     },
@@ -196,6 +206,9 @@ pub enum SingletonProxyMsg<M: Send + 'static> {
     },
     IdentifySingleton {
         singleton: ActorRef<M>,
+    },
+    IdentifyTarget {
+        singleton: SingletonProxyTarget<M>,
     },
     SingletonTerminated {
         path: ActorPath,
@@ -224,6 +237,14 @@ where
         match msg {
             SingletonProxyMsg::Route(message) => self.route(message),
             SingletonProxyMsg::RegisterRoute { node, singleton } => {
+                if self
+                    .routes
+                    .register_route(node, SingletonProxyTarget::local(singleton))
+                {
+                    self.identify_current_oldest(ctx)?;
+                }
+            }
+            SingletonProxyMsg::RegisterTarget { node, singleton } => {
                 if self.routes.register_route(node, singleton) {
                     self.identify_current_oldest(ctx)?;
                 }
@@ -242,6 +263,9 @@ where
                 self.apply_oldest_change(ctx, changed)?;
             }
             SingletonProxyMsg::IdentifySingleton { singleton } => {
+                self.set_singleton(ctx, SingletonProxyTarget::local(singleton))?;
+            }
+            SingletonProxyMsg::IdentifyTarget { singleton } => {
                 self.set_singleton(ctx, singleton)?;
             }
             SingletonProxyMsg::SingletonTerminated { path } => {

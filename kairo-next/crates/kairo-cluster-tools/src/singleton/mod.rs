@@ -4,6 +4,7 @@ mod manager;
 mod oldest;
 mod proxy;
 mod proxy_routes;
+mod proxy_target;
 
 pub use actor::{SingletonManagerActor, SingletonManagerMsg, SingletonManagerSnapshot};
 pub use local_manager::{
@@ -17,3 +18,4 @@ pub use proxy::{
     SingletonProxyActor, SingletonProxyMsg, SingletonProxySettings, SingletonProxySettingsError,
     SingletonProxySnapshot,
 };
+pub use proxy_target::SingletonProxyTarget;

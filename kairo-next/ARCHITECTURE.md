@@ -1561,6 +1561,9 @@ Design:
 - manager actor runs on all eligible members,
 - oldest reachable eligible member hosts singleton child,
 - proxy forwards to known singleton,
+- proxy route targets can be local watchable actor refs or remote actor refs
+  for `RemoteMessage` protocols; buffering and oldest-member selection are the
+  same for both,
 - on membership change, manager coordinates handover,
 - on leaving/exiting/down, singleton stops or moves.
 

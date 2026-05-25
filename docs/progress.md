@@ -853,6 +853,11 @@ Implemented:
   observations and oldest-change events, discard the previously identified
   singleton when the oldest member changes, and flush buffered messages once a
   route for the current oldest member is available.
+- `kairo-cluster-tools` singleton proxy routes now use a focused
+  `SingletonProxyTarget` abstraction: local targets remain watchable
+  `ActorRef<M>` values, while remote targets can wrap `RemoteActorRef<M>` for
+  `RemoteMessage` protocols and receive buffered proxy messages through stable
+  remote envelopes when they become the current oldest route.
 - `kairo-cluster-tools` topic support is split into focused name and local
   topic modules, with typed local subscriptions, duplicate suppression,
   unsubscribe/removal handling, broadcast delivery, and deterministic
@@ -938,8 +943,9 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton remote routing and distributed pubsub user-message socket
-  or remote-association wiring beyond status/delta gossip envelopes.
+- Cluster singleton manager handover socket wiring and distributed pubsub
+  user-message socket or remote-association wiring beyond status/delta gossip
+  envelopes.
 - Multi-node cluster membership socket transport, socket-backed heartbeat
   association wiring, actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.
