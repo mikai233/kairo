@@ -1415,3 +1415,35 @@ Consequences:
   provider interception.
 - Future per-watchee remote termination delivery can extend the inbound watch
   map without changing the outbound heartbeat state machine.
+
+## ADR-0051: Cluster Tools Use A Configured-Peer TCP Runtime
+
+Status: Accepted
+
+Context:
+Distributed pubsub and cluster singleton already have transport-neutral remote
+envelope adapters and a shared `ClusterToolsSystemInbound<M>` router. After
+the TCP association layer became bidirectional, cluster-tools traffic needed a
+concrete socket runtime that wires those existing boundaries to live lanes
+without making remoting responsible for cluster membership or peer selection.
+
+Decision:
+Kairo adds `ClusterToolsTcpAssociationRuntime<M>` in a focused
+`kairo-cluster-tools` module. The runtime binds a handshaken TCP listener,
+owns a shared `RemoteAssociationCache`, association registry, route installer,
+dialer, and dialing-side lane readers, and routes accepted frames into
+`ClusterToolsSystemInbound<M>`.
+
+The runtime installs a cluster-tools lane classifier so pubsub gossip,
+pubsub publish envelopes, and singleton handover messages all travel on the
+control/system lane. A configured peer can be dialed explicitly, and the same
+bidirectional TCP association can carry pubsub status/delta, pubsub publish,
+and singleton handover traffic in both directions.
+
+Consequences:
+- Cluster tools now have a runnable socket-backed vertical slice for one
+  configured peer.
+- Peer discovery and multi-peer ownership remain cluster-driven future work;
+  the runtime does not read or mutate cluster membership.
+- The TCP integration reuses `kairo-remote` association primitives instead of
+  adding tool-specific socket code.
