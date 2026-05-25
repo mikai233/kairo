@@ -99,6 +99,11 @@ impl ReplicatorTcpAssociationRuntime {
         &self.local_replica
     }
 
+    pub(crate) fn with_local_replica(mut self, local_replica: ReplicaId) -> Self {
+        self.local_replica = local_replica;
+        self
+    }
+
     pub fn remote_replica(&self) -> &ReplicaId {
         &self.remote_replica
     }

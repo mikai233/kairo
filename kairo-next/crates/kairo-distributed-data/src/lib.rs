@@ -45,6 +45,7 @@ mod response;
 mod state;
 mod tcp_peer_reconnect;
 mod tcp_peer_routes;
+mod tcp_peer_runtime;
 mod wire;
 
 #[cfg(test)]
@@ -192,6 +193,10 @@ pub use tcp_peer_reconnect::{
 pub use tcp_peer_routes::{
     ReplicatorTcpPeerRouteError, ReplicatorTcpPeerRouteReport, ReplicatorTcpPeerRouteResult,
     ReplicatorTcpPeerRoutes,
+};
+pub use tcp_peer_runtime::{
+    ReplicatorTcpPeerRuntime, ReplicatorTcpPeerRuntimeError, ReplicatorTcpPeerRuntimeResult,
+    ReplicatorTcpPeerRuntimeSettings, ReplicatorTcpPeerRuntimeShutdownReport,
 };
 pub use wire::{
     ReplicatorSerializedMessage, ReplicatorWireCodecs, ReplicatorWireError, ReplicatorWireInbound,

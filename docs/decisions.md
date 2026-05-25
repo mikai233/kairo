@@ -1828,3 +1828,29 @@ Consequences:
   state without making retry state another source of cluster membership truth.
 - Actor-backed connector wiring and coordinated-shutdown ownership remain
   future work.
+
+## ADR-0065: Distributed-Data TCP Peer Runtime Owns Route Lifecycle
+
+Status: Accepted
+
+Context:
+Distributed-data had separate pieces for socket associations, cluster-derived
+route changes, and retry state. The next runtime boundary needs to compose
+those pieces without moving cluster membership truth into the socket layer.
+
+Decision:
+Kairo adds `ReplicatorTcpPeerRuntime` as a focused owner for distributed-data
+TCP peer lifecycle. It binds the configured `/system/ddata` TCP association
+runtime, derives its local `UniqueAddress`, applies cluster snapshots and
+events through `ClusterAssociationPeerState`, applies route changes through
+`ReplicatorTcpPeerRoutes`, records failed dials through
+`ReplicatorTcpPeerReconnectState`, retries due targets when driven by explicit
+time, and clears routes/retries before listener shutdown.
+
+Consequences:
+- Distributed-data has the same local route/reconnect ownership shape as
+  cluster-tools while staying in a separate module and crate surface.
+- Tests can cover success, failed dial retry, peer removal, and shutdown
+  cleanup without actor connector wiring.
+- Actor-backed cluster subscription and coordinated-shutdown bootstrap remain
+  future work.

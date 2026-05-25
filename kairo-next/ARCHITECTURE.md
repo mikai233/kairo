@@ -1400,6 +1400,11 @@ Remote association integration:
   dials with explicit retry settings, attempt counts, due-time calculation, and
   clear-on-success/remove behavior. It is pure state so actor/runtime ownership
   can drive it deterministically with manual time in tests.
+- `ReplicatorTcpPeerRuntime` composes the cluster peer planner, peer-route
+  owner, reconnect state, and `ReplicatorTcpAssociationRuntime` into one
+  multi-peer ownership boundary for distributed-data sockets. It applies
+  cluster snapshots/events, retries due failed dials, clears routes and pending
+  retries on shutdown, and still treats sockets only as delivery state.
 
 Sharding uses this later for coordinator state and remember entities. MVP
 sharding may start with an in-memory coordinator store to prove the routing
