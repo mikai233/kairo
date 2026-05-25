@@ -72,6 +72,7 @@ pub use cluster_routes::{
 };
 pub use cluster_subscription::{
     ReplicatorClusterConnector, ReplicatorClusterConnectorMsg, ReplicatorClusterConnectorSnapshot,
+    ReplicatorClusterPruningSettings,
 };
 pub use codec::{
     REPLICATOR_CHANGED_SERIALIZER_ID, REPLICATOR_DELTA_ACK_SERIALIZER_ID,

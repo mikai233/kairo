@@ -5,9 +5,25 @@ use kairo_cluster::{
 };
 
 use crate::{
-    DeltaReplicatedData, ReplicaId, ReplicatorActorMsg, ReplicatorClusterRouteReport,
-    ReplicatorClusterRouteUpdate, ReplicatorClusterRoutes,
+    DeltaReplicatedData, RemovedNodePruningTick, RemovedNodePruningTickReport, ReplicaId,
+    ReplicatorActorMsg, ReplicatorClusterRouteReport, ReplicatorClusterRouteUpdate,
+    ReplicatorClusterRoutes,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplicatorClusterPruningSettings {
+    pub max_pruning_dissemination_nanos: u64,
+    pub pruning_marker_ttl_millis: u64,
+}
+
+impl ReplicatorClusterPruningSettings {
+    pub fn new(max_pruning_dissemination_nanos: u64, pruning_marker_ttl_millis: u64) -> Self {
+        Self {
+            max_pruning_dissemination_nanos,
+            pruning_marker_ttl_millis,
+        }
+    }
+}
 
 pub struct ReplicatorClusterConnector<D>
 where
@@ -20,8 +36,12 @@ where
     replicator: ActorRef<ReplicatorActorMsg<D>>,
     cluster_subscription: Option<ActorRef<ClusterSubscriptionEvent>>,
     route_report_adapter: Option<ActorRef<ReplicatorClusterRouteReport>>,
+    pruning_report_adapter: Option<ActorRef<RemovedNodePruningTickReport>>,
     last_report: Option<ReplicatorClusterRouteReport>,
+    last_pruning_report: Option<RemovedNodePruningTickReport>,
     all_reachable_time_nanos: u64,
+    previous_clock_time_nanos: Option<u64>,
+    pruning_settings: ReplicatorClusterPruningSettings,
 }
 
 impl<D> ReplicatorClusterConnector<D>
@@ -41,8 +61,12 @@ where
             replicator,
             cluster_subscription: None,
             route_report_adapter: None,
+            pruning_report_adapter: None,
             last_report: None,
+            last_pruning_report: None,
             all_reachable_time_nanos: 0,
+            previous_clock_time_nanos: None,
+            pruning_settings: ReplicatorClusterPruningSettings::new(0, 0),
         }
     }
 
@@ -60,13 +84,22 @@ where
             replicator,
             cluster_subscription: None,
             route_report_adapter: None,
+            pruning_report_adapter: None,
             last_report: None,
+            last_pruning_report: None,
             all_reachable_time_nanos: 0,
+            previous_clock_time_nanos: None,
+            pruning_settings: ReplicatorClusterPruningSettings::new(0, 0),
         }
     }
 
     pub fn with_all_reachable_time_nanos(mut self, all_reachable_time_nanos: u64) -> Self {
         self.all_reachable_time_nanos = all_reachable_time_nanos;
+        self
+    }
+
+    pub fn with_pruning_settings(mut self, settings: ReplicatorClusterPruningSettings) -> Self {
+        self.pruning_settings = settings;
         self
     }
 }
@@ -75,7 +108,15 @@ where
 pub enum ReplicatorClusterConnectorMsg {
     Cluster(ClusterSubscriptionEvent),
     RouteApplied(ReplicatorClusterRouteReport),
+    PruningTickApplied(RemovedNodePruningTickReport),
+    ClockTick {
+        now_nanos: u64,
+    },
     SetAllReachableTimeNanos(u64),
+    SetPruningSettings(ReplicatorClusterPruningSettings),
+    RunRemovedNodePruning {
+        now_millis: u64,
+    },
     Snapshot {
         reply_to: ActorRef<ReplicatorClusterConnectorSnapshot>,
     },
@@ -86,7 +127,9 @@ pub struct ReplicatorClusterConnectorSnapshot {
     pub remote_replicas: Vec<ReplicaId>,
     pub unreachable_replicas: std::collections::BTreeSet<ReplicaId>,
     pub is_leader: bool,
+    pub all_reachable_time_nanos: u64,
     pub last_report: Option<ReplicatorClusterRouteReport>,
+    pub last_pruning_report: Option<RemovedNodePruningTickReport>,
 }
 
 impl<D> Actor for ReplicatorClusterConnector<D>
@@ -99,8 +142,11 @@ where
     fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
         let subscription = ctx.message_adapter(ReplicatorClusterConnectorMsg::Cluster)?;
         let route_report = ctx.message_adapter(ReplicatorClusterConnectorMsg::RouteApplied)?;
+        let pruning_report =
+            ctx.message_adapter(ReplicatorClusterConnectorMsg::PruningTickApplied)?;
         self.cluster_subscription = Some(subscription.clone());
         self.route_report_adapter = Some(route_report);
+        self.pruning_report_adapter = Some(pruning_report);
         self.cluster
             .subscribe_with_initial_state(
                 subscription.clone(),
@@ -129,8 +175,20 @@ where
             ReplicatorClusterConnectorMsg::RouteApplied(report) => {
                 self.last_report = Some(report);
             }
+            ReplicatorClusterConnectorMsg::PruningTickApplied(report) => {
+                self.last_pruning_report = Some(report);
+            }
+            ReplicatorClusterConnectorMsg::ClockTick { now_nanos } => {
+                self.advance_all_reachable_clock(now_nanos);
+            }
             ReplicatorClusterConnectorMsg::SetAllReachableTimeNanos(nanos) => {
                 self.all_reachable_time_nanos = nanos;
+            }
+            ReplicatorClusterConnectorMsg::SetPruningSettings(settings) => {
+                self.pruning_settings = settings;
+            }
+            ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis } => {
+                self.run_removed_node_pruning(now_millis)?;
             }
             ReplicatorClusterConnectorMsg::Snapshot { reply_to } => {
                 tell_or_actor_error(&reply_to, self.snapshot())?;
@@ -170,12 +228,53 @@ where
             .map_err(|error| ActorError::Message(error.reason().to_string()))
     }
 
+    fn advance_all_reachable_clock(&mut self, now_nanos: u64) {
+        if let Some(previous) = self.previous_clock_time_nanos
+            && self.routes.unreachable_replicas().is_empty()
+        {
+            self.all_reachable_time_nanos = self
+                .all_reachable_time_nanos
+                .saturating_add(now_nanos.saturating_sub(previous));
+        }
+        self.previous_clock_time_nanos = Some(now_nanos);
+    }
+
+    fn run_removed_node_pruning(&self, now_millis: u64) -> ActorResult {
+        let Some(reply_to) = self.pruning_report_adapter.clone() else {
+            return Err(ActorError::Message(
+                "replicator cluster connector pruning adapter is not initialized".to_string(),
+            ));
+        };
+
+        self.replicator
+            .tell(ReplicatorActorMsg::RunRemovedNodePruning {
+                tick: self.removed_node_pruning_tick(now_millis),
+                reply_to,
+            })
+            .map_err(|error| ActorError::Message(error.reason().to_string()))
+    }
+
+    fn removed_node_pruning_tick(&self, now_millis: u64) -> RemovedNodePruningTick {
+        RemovedNodePruningTick {
+            self_replica: ReplicaId::from(self.routes.self_node()),
+            live_replicas: self.routes.remote_replicas().into_iter().collect(),
+            unreachable_replicas: self.routes.unreachable_replicas(),
+            all_reachable_time_nanos: self.all_reachable_time_nanos,
+            max_pruning_dissemination_nanos: self.pruning_settings.max_pruning_dissemination_nanos,
+            now_millis,
+            pruning_marker_ttl_millis: self.pruning_settings.pruning_marker_ttl_millis,
+            is_leader: self.routes.is_leader(),
+        }
+    }
+
     fn snapshot(&self) -> ReplicatorClusterConnectorSnapshot {
         ReplicatorClusterConnectorSnapshot {
             remote_replicas: self.routes.remote_replicas(),
             unreachable_replicas: self.routes.unreachable_replicas(),
             is_leader: self.routes.is_leader(),
+            all_reachable_time_nanos: self.all_reachable_time_nanos,
             last_report: self.last_report.clone(),
+            last_pruning_report: self.last_pruning_report.clone(),
         }
     }
 }
@@ -198,7 +297,7 @@ mod tests {
     use kairo_actor::{ActorSystem, Address, Props};
     use kairo_cluster::{
         ClusterEvent, ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberEvent,
-        MemberStatus, Reachability,
+        MemberStatus, Reachability, ReachabilityEvent,
     };
 
     use super::*;
@@ -252,6 +351,7 @@ mod tests {
                             replicator,
                             ["ddata"],
                         )
+                        .with_pruning_settings(ReplicatorClusterPruningSettings::new(10, 100))
                     }
                 }),
             )
@@ -260,7 +360,11 @@ mod tests {
             forward_ref::<ReplicatorClusterConnectorSnapshot>(&system, "snapshots");
 
         let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
-            snapshot.last_report.is_some() && snapshot.remote_replicas.len() == 2
+            snapshot.remote_replicas.len() == 2
+                && snapshot
+                    .last_report
+                    .as_ref()
+                    .is_some_and(|report| report.remote_replicas.len() == 2)
         });
         assert_eq!(
             snapshot.remote_replicas,
@@ -274,6 +378,56 @@ mod tests {
             snapshot.last_report.unwrap().remote_replicas,
             vec![ReplicaId::from(&peer), ReplicaId::from(&weak)]
         );
+
+        connector
+            .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 100 })
+            .unwrap();
+        connector
+            .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 130 })
+            .unwrap();
+        connector
+            .tell(ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis: 1_000 })
+            .unwrap();
+
+        let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+            snapshot
+                .last_pruning_report
+                .as_ref()
+                .is_some_and(|report| report.skipped_unreachable)
+        });
+        assert_eq!(snapshot.all_reachable_time_nanos, 0);
+
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishEvent(
+                ClusterEvent::Reachability(ReachabilityEvent::Reachable(member(
+                    weak.clone(),
+                    MemberStatus::WeaklyUp,
+                    ["ddata"],
+                ))),
+            ))
+            .unwrap();
+        let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+            snapshot.unreachable_replicas.is_empty()
+        });
+        assert_eq!(
+            snapshot.remote_replicas,
+            vec![ReplicaId::from(&peer), ReplicaId::from(&weak)]
+        );
+
+        connector
+            .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 200 })
+            .unwrap();
+        connector
+            .tell(ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis: 1_100 })
+            .unwrap();
+        let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+            snapshot.all_reachable_time_nanos == 70
+                && snapshot
+                    .last_pruning_report
+                    .as_ref()
+                    .is_some_and(|report| !report.skipped_unreachable)
+        });
+        assert_eq!(snapshot.all_reachable_time_nanos, 70);
 
         publisher
             .tell(ClusterEventPublisherMsg::PublishEvent(
