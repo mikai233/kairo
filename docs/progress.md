@@ -1060,6 +1060,10 @@ Implemented:
   planner, peer-route table, and dedicated reconnect state module. It applies
   snapshots/events to live pubsub/singleton routes, retries failed dials on
   explicit ticks, and clears routes plus pending retries before shutdown.
+- `kairo-cluster-tools` now has an actor-backed TCP peer connector that
+  subscribes to cluster snapshots/events, feeds the cluster-tools TCP peer
+  runtime, exposes route/reconnect snapshots, supports explicit deterministic
+  retry ticks, and can schedule fixed-delay retry ticks with actor timers.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -1093,8 +1097,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster-tools socket integration still needs actor-backed automatic retry
-  ticks and cluster subscription wiring beyond the focused peer runtime.
+- Cluster-tools socket integration still needs a top-level bootstrap/facade
+  that binds the connector from runtime configuration and coordinated shutdown.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.

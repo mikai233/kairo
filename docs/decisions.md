@@ -1720,3 +1720,30 @@ Consequences:
   thread or central membership store is introduced.
 - Actor-backed automatic retry ticks and cluster subscription ownership for
   cluster-tools remain separate follow-up work.
+
+## ADR-0061: Cluster-Tools TCP Connector Owns Actor-Backed Subscription Ticks
+
+Status: Accepted
+
+Context:
+After `ClusterToolsTcpPeerRuntime<M>` owned route and reconnect state, callers
+still needed to manually subscribe to cluster events and schedule retry ticks.
+Pekko cluster-tools components are actor-owned and react to cluster snapshots,
+member/reachability events, and scheduled ticks within actor turns.
+
+Decision:
+Kairo adds `ClusterToolsTcpPeerConnector<M>` in its own module. The connector
+subscribes to cluster snapshots/events through a message adapter, feeds those
+events into the cluster-tools TCP peer runtime, exposes a typed snapshot for
+diagnostics/tests, supports explicit retry ticks, and can schedule fixed-delay
+retry ticks with actor timers. Stopping the connector unsubscribes from the
+cluster event stream and shuts down the owned peer runtime.
+
+Consequences:
+- Cluster-tools pubsub/singleton TCP routes now have actor-backed membership
+  subscription and timer ownership without turning TCP associations into
+  membership truth.
+- Retry behavior remains deterministic in tests through explicit messages or
+  manual-time driven actor timers.
+- A top-level bootstrap/facade that creates the connector from runtime
+  configuration and coordinated shutdown remains future work.

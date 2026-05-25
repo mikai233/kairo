@@ -1759,6 +1759,11 @@ Cluster-tools TCP runtime:
   membership-derived peer planner, route owner, and focused reconnect state
   module so snapshots/events and retry ticks can drive live pubsub/singleton
   association routes through one lifecycle boundary,
+- `ClusterToolsTcpPeerConnector<M>` is the actor-backed bridge from cluster
+  subscriptions to the cluster-tools peer runtime. It subscribes for an
+  initial snapshot, applies later member/reachability events, exposes runtime
+  snapshots for diagnostics, and can schedule fixed-delay retry ticks through
+  actor timers,
 - peer selection still comes from cluster membership/tool state; the TCP
   runtime and route table do not become cluster membership sources.
 
