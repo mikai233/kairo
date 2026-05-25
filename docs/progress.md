@@ -477,6 +477,12 @@ Implemented:
   delivery into those routes with explicit missing-route and send failures.
   Tests cover routing through a real `AssociationOutboundPipeline` into remote
   stream bytes.
+- `kairo-distributed-data` now has a focused inbound remote-association
+  bridge. `ReplicatorRemoteAssociationInbound` implements the `kairo-remote`
+  frame-handler boundary, decodes association frames into `RemoteEnvelope`
+  values, dispatches delta/write/read manifests to the request inbound path,
+  dispatches ACK/NACK/read-result manifests to the reply inbound path, and
+  tags both with the configured source `ReplicaId` for the association.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -879,9 +885,8 @@ Not yet implemented:
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
-- Distributed-data socket wiring or association-cache integration, inbound
-  association delivery, and gossip-backed replication for delta
-  propagation/direct read/write.
+- Distributed-data socket wiring or association-cache integration and
+  gossip-backed replication for delta propagation/direct read/write.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

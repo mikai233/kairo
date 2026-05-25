@@ -29,6 +29,7 @@ mod protocol;
 mod pruning;
 mod read_write_receive;
 mod remote_association;
+mod remote_association_inbound;
 mod remote_envelope;
 mod remote_reply;
 mod remote_request;
@@ -134,6 +135,11 @@ pub use read_write_receive::{DirectReadResult, DirectWriteResult, apply_write, s
 pub use remote_association::{
     ReplicatorRemoteAssociationError, ReplicatorRemoteAssociationOutbound,
     ReplicatorRemoteAssociationRoutes,
+};
+pub use remote_association_inbound::{
+    ReplicatorRemoteAssociationInbound, ReplicatorRemoteAssociationInboundError,
+    ReplicatorRemoteReplyReceiver, ReplicatorRemoteRequestReceiver, is_replicator_reply_manifest,
+    is_replicator_request_manifest,
 };
 pub use remote_envelope::{
     ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeError, ReplicatorRemoteEnvelopeInbound,

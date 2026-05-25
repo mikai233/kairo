@@ -707,8 +707,11 @@ delivery, but only after cluster route state has selected target replicas.
 `ReplicatorRemoteAssociationRoutes` maps `ReplicaId` values to
 `RemoteOutbound` association routes, and
 `ReplicatorRemoteAssociationOutbound` adapts `ReplicatorRemoteEnvelope` values
-into those routes. Missing association routes and remote send failures are
-explicit delivery errors.
+into those routes. The inbound side uses one configured source `ReplicaId` per
+association and dispatches stable ddata manifests to request or reply inbound
+handlers after decoding the remote envelope frame. Missing association routes,
+remote send failures, and unsupported inbound manifests are explicit delivery
+errors.
 
 Consequences:
 - Distributed data remains a CRDT replication subsystem, not a membership
@@ -716,5 +719,5 @@ Consequences:
 - The same `/system/ddata` remote-envelope target path can be carried by
   transport-neutral tests, remote association pipelines, and later socket
   wiring.
-- Inbound association delivery and automatic association-cache population
-  remain separate integration steps and do not change stable ddata manifests.
+- Automatic association-cache population remains a separate integration step
+  and does not change stable ddata manifests.
