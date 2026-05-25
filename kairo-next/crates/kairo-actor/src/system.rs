@@ -12,6 +12,7 @@ use crate::error::{ActorError, ActorResult};
 use crate::event_stream::EventStream;
 use crate::mailbox::{Dequeued, Mailbox, SystemMessage, UserEnvelope};
 use crate::path::{ActorPath, Address};
+use crate::receive_timeout::{ReceiveTimeoutEnvelope, ReceiveTimeoutState};
 use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
 use crate::registry::ActorRegistry;
@@ -111,6 +112,20 @@ impl ActorSystem {
         self.inner
             .scheduler
             .schedule_timer(delay, target, key, generation, message)
+    }
+
+    pub(crate) fn schedule_receive_timeout<M>(
+        &self,
+        delay: Duration,
+        target: ActorRef<M>,
+        timeout: ReceiveTimeoutEnvelope<M>,
+    ) -> Cancellable
+    where
+        M: Send + 'static,
+    {
+        self.inner
+            .scheduler
+            .schedule_receive_timeout(delay, target, timeout)
     }
 
     pub(crate) fn schedule_timer_with_fixed_delay<M>(
@@ -480,6 +495,7 @@ fn run_actor<A>(
         system: thread_system,
         stop_requested: false,
         timers: TimerState::default(),
+        receive_timeout: ReceiveTimeoutState::default(),
         stash: StashState::new(props.stash_capacity()),
     };
     let mut supervision_state = SupervisionState::default();
@@ -528,6 +544,7 @@ fn run_actor<A>(
     }
 
     context.cancel_all_timers();
+    context.cancel_receive_timeout();
     for _ in 0..mailbox.close_and_drain_user() {
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
     }
@@ -588,6 +605,7 @@ where
             false
         }
         Dequeued::User(UserEnvelope::Message(message)) => {
+            context.before_influencing_message();
             if apply_receive_result(
                 actor.receive(context, message),
                 actor_ref,
@@ -600,9 +618,11 @@ where
             {
                 actor_ref.target.stopped.store(true, Ordering::Release);
             }
+            context.after_influencing_message();
             true
         }
         Dequeued::User(UserEnvelope::Adapted(adapt)) => {
+            context.before_influencing_message();
             if apply_receive_result(
                 actor.receive(context, adapt()),
                 actor_ref,
@@ -615,10 +635,12 @@ where
             {
                 actor_ref.target.stopped.store(true, Ordering::Release);
             }
+            context.after_influencing_message();
             true
         }
         Dequeued::User(UserEnvelope::Timer(timer)) => {
             if context.accept_timer(&timer) {
+                context.before_influencing_message();
                 if apply_receive_result(
                     actor.receive(context, timer.into_message()),
                     actor_ref,
@@ -631,6 +653,28 @@ where
                 {
                     actor_ref.target.stopped.store(true, Ordering::Release);
                 }
+                context.after_influencing_message();
+                true
+            } else {
+                false
+            }
+        }
+        Dequeued::User(UserEnvelope::ReceiveTimeout(timeout)) => {
+            if context.accept_receive_timeout(&timeout) {
+                context.before_influencing_message();
+                if apply_receive_result(
+                    actor.receive(context, timeout.into_message()),
+                    actor_ref,
+                    actor,
+                    context,
+                    props,
+                    system_inner,
+                    supervision_state,
+                ) || context.stop_requested
+                {
+                    actor_ref.target.stopped.store(true, Ordering::Release);
+                }
+                context.after_influencing_message();
                 true
             } else {
                 false
@@ -748,6 +792,7 @@ where
     };
 
     context.cancel_all_timers();
+    context.cancel_receive_timeout();
     if stop_children_on_restart {
         stop_children(system_inner, actor_ref.path.as_str());
     }

@@ -8,6 +8,7 @@ use crate::dead_letters::DeadLetters;
 use crate::error::SendError;
 use crate::mailbox::{Mailbox, SystemMessage};
 use crate::path::ActorPath;
+use crate::receive_timeout::ReceiveTimeoutEnvelope;
 use crate::signal::Signal;
 use crate::supervision::SupervisionFailure;
 use crate::timers::TimerEnvelope;
@@ -260,6 +261,26 @@ impl<M: Send + 'static> ActorRef<M> {
         };
 
         if mailbox.enqueue_timer(timer).is_err() {
+            self.target.stopped.store(true, Ordering::Release);
+            self.dead_letters
+                .publish::<M>(self.path.clone(), "actor mailbox is closed");
+        }
+    }
+
+    pub(crate) fn send_receive_timeout(&self, timeout: ReceiveTimeoutEnvelope<M>) {
+        if self.target.stopped.load(Ordering::Acquire) {
+            self.dead_letters
+                .publish::<M>(self.path.clone(), self.target.stopped_reason);
+            return;
+        }
+
+        let Some(mailbox) = &self.target.mailbox else {
+            self.dead_letters
+                .publish::<M>(self.path.clone(), "actor does not exist");
+            return;
+        };
+
+        if mailbox.enqueue_receive_timeout(timeout).is_err() {
             self.target.stopped.store(true, Ordering::Release);
             self.dead_letters
                 .publish::<M>(self.path.clone(), "actor mailbox is closed");

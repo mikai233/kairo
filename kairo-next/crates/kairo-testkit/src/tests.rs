@@ -1,4 +1,5 @@
 use std::sync::mpsc;
+use std::thread;
 use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
@@ -218,6 +219,46 @@ fn manual_time_can_drive_fixed_rate_actor_timers() {
         .expect("system should terminate");
 }
 
+#[test]
+fn manual_time_can_drive_actor_receive_timeout() {
+    let (kit, time) = ActorSystemTestKit::with_manual_time("manual-time-receive-timeout")
+        .expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let actor = kit
+        .system()
+        .spawn("receive-timeout", Props::new(|| ManualReceiveTimeoutProbe))
+        .expect("receive-timeout actor should spawn");
+    let (ack_tx, ack_rx) = mpsc::channel();
+
+    actor
+        .tell(ManualReceiveTimeoutMsg::Arm {
+            reply_to: probe.actor_ref(),
+            ack: ack_tx,
+        })
+        .expect("receive timeout should arm");
+    ack_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("receive timeout should be scheduled");
+    wait_for_manual_time_pending(&time, 1);
+
+    time.advance(Duration::from_secs(1));
+    assert_eq!(probe.expect_msg(Duration::from_millis(50)).unwrap(), "idle");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+fn wait_for_manual_time_pending(time: &ManualTime, expected: usize) {
+    for _ in 0..100 {
+        if time.pending_count() == expected {
+            return;
+        }
+        thread::yield_now();
+    }
+    assert_eq!(time.pending_count(), expected);
+}
+
 #[derive(Clone)]
 enum ManualTimerMsg {
     Start {
@@ -282,6 +323,40 @@ impl Actor for ManualTimerProbe {
             ManualTimerMsg::Fired(reply_to) => {
                 reply_to
                     .tell("tick")
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+enum ManualReceiveTimeoutMsg {
+    Arm {
+        reply_to: ActorRef<&'static str>,
+        ack: mpsc::Sender<()>,
+    },
+    Idle(ActorRef<&'static str>),
+}
+
+struct ManualReceiveTimeoutProbe;
+
+impl Actor for ManualReceiveTimeoutProbe {
+    type Msg = ManualReceiveTimeoutMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            ManualReceiveTimeoutMsg::Arm { reply_to, ack } => {
+                ctx.set_receive_timeout(
+                    Duration::from_secs(1),
+                    ManualReceiveTimeoutMsg::Idle(reply_to),
+                );
+                ack.send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ManualReceiveTimeoutMsg::Idle(reply_to) => {
+                reply_to
+                    .tell("idle")
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
         }

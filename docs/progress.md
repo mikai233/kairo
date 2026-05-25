@@ -85,6 +85,14 @@ Implemented:
   filtering as single and fixed-delay timers.
 - Timer state and envelopes live in a focused `timers` module and active timers
   are cancelled when the owning actor stops.
+- `Context::set_receive_timeout`, `cancel_receive_timeout`, and
+  `receive_timeout` provide typed local idle notifications that cancel before
+  influencing messages and reschedule afterward, using generation-filtered
+  receive-timeout envelopes so stale timeout messages are discarded before
+  actor `receive`.
+- Receive-timeout state and envelopes live in a focused `receive_timeout`
+  module, and active receive-timeout tasks are cancelled when the owning actor
+  stops or restarts.
 - `ActorSystem::event_stream` and `Context::event_stream` expose a local typed
   event stream for exact Rust event types.
 - Event-stream subscription state lives in a focused `event_stream` module.
@@ -151,7 +159,8 @@ Implemented:
   manual scheduler, and `ActorSystemTestKit::with_manual_time` wires that
   scheduler into `ManualTime`.
 - Manual time now drives `ActorSystem::schedule_once`, single actor timers, and
-  repeated fixed-delay/fixed-rate timer backends without real sleeps.
+  repeated fixed-delay/fixed-rate timer backends, and actor receive timeouts
+  without real sleeps.
 - `kairo-serialization` is split into focused `message`, `manifest`, `codec`,
   `registry`, `envelope`, and `errors` modules.
 - `RemoteMessage`, `MessageCodec<M>`, `DynCodec`, `SerializedMessage`, and

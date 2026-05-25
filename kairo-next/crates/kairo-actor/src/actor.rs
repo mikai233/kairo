@@ -3,6 +3,7 @@ use crate::asks::{self, AskError};
 use crate::error::{ActorError, ActorResult};
 use crate::event_stream::EventStream;
 use crate::path::ActorPath;
+use crate::receive_timeout::{ReceiveTimeoutEnvelope, ReceiveTimeoutState};
 use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef};
 use crate::scheduler::Cancellable;
@@ -107,6 +108,7 @@ pub struct Context<M> {
     pub(crate) system: ActorSystem,
     pub(crate) stop_requested: bool,
     pub(crate) timers: TimerState,
+    pub(crate) receive_timeout: ReceiveTimeoutState<M>,
     pub(crate) stash: StashState<M>,
 }
 
@@ -336,6 +338,35 @@ impl<M: Send + 'static> Context<M> {
 
     pub(crate) fn accept_timer(&mut self, timer: &TimerEnvelope<M>) -> bool {
         self.timers.accept(timer.key(), timer.generation())
+    }
+
+    pub fn set_receive_timeout(&mut self, timeout: Duration, message: M)
+    where
+        M: Clone,
+    {
+        self.receive_timeout
+            .set(timeout, message, &self.system, self.myself.clone());
+    }
+
+    pub fn cancel_receive_timeout(&mut self) {
+        self.receive_timeout.cancel();
+    }
+
+    pub fn receive_timeout(&self) -> Option<Duration> {
+        self.receive_timeout.timeout()
+    }
+
+    pub(crate) fn before_influencing_message(&mut self) {
+        self.receive_timeout.cancel_task();
+    }
+
+    pub(crate) fn after_influencing_message(&mut self) {
+        self.receive_timeout
+            .reschedule(&self.system, self.myself.clone());
+    }
+
+    pub(crate) fn accept_receive_timeout(&mut self, timeout: &ReceiveTimeoutEnvelope<M>) -> bool {
+        self.receive_timeout.accept(timeout)
     }
 
     pub fn spawn<A>(

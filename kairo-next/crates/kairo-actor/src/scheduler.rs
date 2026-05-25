@@ -6,6 +6,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::ActorRef;
+use crate::receive_timeout::ReceiveTimeoutEnvelope;
 use crate::timers::TimerEnvelope;
 
 const SCHEDULED: u8 = 0;
@@ -102,6 +103,23 @@ impl Scheduler {
             delay,
             Box::new(move || {
                 target.send_timer(TimerEnvelope::new(key, generation, message));
+            }),
+        )
+    }
+
+    pub(crate) fn schedule_receive_timeout<M>(
+        &self,
+        delay: Duration,
+        target: ActorRef<M>,
+        timeout: ReceiveTimeoutEnvelope<M>,
+    ) -> Cancellable
+    where
+        M: Send + 'static,
+    {
+        self.backend.schedule_once(
+            delay,
+            Box::new(move || {
+                target.send_receive_timeout(timeout);
             }),
         )
     }

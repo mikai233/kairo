@@ -12,6 +12,7 @@ mod error;
 mod event_stream;
 mod mailbox;
 mod path;
+mod receive_timeout;
 mod receptionist;
 mod refs;
 mod registry;

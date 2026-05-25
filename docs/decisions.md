@@ -1908,3 +1908,33 @@ Consequences:
 - Coordinated shutdown uses the same connector stop path as explicit actor
   stop, so route cleanup and runtime shutdown remain centralized.
 - End-to-end examples and multi-node validation remain future work.
+
+## ADR-0068: Receive Timeout Uses Cloneable Typed Timeout Messages
+
+Status: Accepted
+
+Context:
+Pekko typed `setReceiveTimeout` schedules a protocol message after actor
+inactivity, cancels the pending timeout before an influencing message is
+processed, and reschedules it afterward. Kairo must preserve that mailbox
+reentry behavior without untyped marker messages or borrowing actor state
+outside a synchronous receive turn.
+
+Decision:
+Kairo adds focused receive-timeout state to `kairo-actor`. `Context` stores a
+timeout duration, a cloneable typed timeout message factory, generation
+metadata, and a cancellable scheduler task. Timeout tasks enqueue typed
+receive-timeout envelopes, and the actor turn accepts only the current
+generation so cancelled or reset timeout messages already in the mailbox are
+discarded before user `receive`. `Context::set_receive_timeout` requires the
+timeout message to be `Clone`, which is the Rust ownership replacement for
+Pekko's immutable object reference reuse.
+
+Consequences:
+- Receive timeouts remain local typed messages and require no serialization.
+- Actor state still changes only during a later mailbox turn.
+- Reset and cancellation semantics do not rely on racing scheduler task
+  cancellation alone.
+- Message types that cannot be cloned can still model idle behavior with an
+  explicit timer or a small cloneable timeout command that carries a reply
+  handle or key.

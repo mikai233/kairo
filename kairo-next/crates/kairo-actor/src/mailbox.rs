@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Condvar, Mutex};
 
+use crate::receive_timeout::ReceiveTimeoutEnvelope;
 use crate::signal::Signal;
 use crate::supervision::SupervisionFailure;
 use crate::timers::TimerEnvelope;
@@ -23,6 +24,7 @@ pub(crate) enum Dequeued<M> {
 pub(crate) enum UserEnvelope<M> {
     Message(M),
     Timer(TimerEnvelope<M>),
+    ReceiveTimeout(ReceiveTimeoutEnvelope<M>),
     Adapted(Box<dyn FnOnce() -> M + Send>),
 }
 
@@ -31,6 +33,9 @@ impl<M: fmt::Debug> fmt::Debug for UserEnvelope<M> {
         match self {
             Self::Message(message) => f.debug_tuple("Message").field(message).finish(),
             Self::Timer(timer) => f.debug_tuple("Timer").field(timer).finish(),
+            Self::ReceiveTimeout(timeout) => {
+                f.debug_tuple("ReceiveTimeout").field(timeout).finish()
+            }
             Self::Adapted(_) => f.debug_tuple("Adapted").finish_non_exhaustive(),
         }
     }
@@ -91,6 +96,19 @@ impl<M> Mailbox<M> {
             return Err(timer);
         }
         state.user.push_back(UserEnvelope::Timer(timer));
+        self.ready.notify_one();
+        Ok(())
+    }
+
+    pub(crate) fn enqueue_receive_timeout(
+        &self,
+        timeout: ReceiveTimeoutEnvelope<M>,
+    ) -> Result<(), ReceiveTimeoutEnvelope<M>> {
+        let mut state = self.state.lock().expect("mailbox poisoned");
+        if state.closed {
+            return Err(timeout);
+        }
+        state.user.push_back(UserEnvelope::ReceiveTimeout(timeout));
         self.ready.notify_one();
         Ok(())
     }
