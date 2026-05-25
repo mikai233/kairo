@@ -1803,3 +1803,28 @@ Consequences:
   actor connector, and bootstrap modules.
 - Reconnect policy and actor-backed multi-peer runtime ownership remain future
   work.
+
+## ADR-0064: Distributed-Data TCP Reconnect Policy Is Pure State
+
+Status: Accepted
+
+Context:
+Distributed-data TCP peer routes need retry behavior when a cluster-derived
+peer is reachable according to membership but the socket dial is not yet
+available. Pekko keeps membership and reachability as cluster facts while
+transport availability is a local delivery concern.
+
+Decision:
+Kairo models distributed-data TCP peer retries with
+`ReplicatorTcpPeerReconnectState`, a focused pure state machine. It validates a
+non-zero retry interval, records failed peer targets with attempt counts and
+deterministic next-retry times, exposes due targets for later runtime/actor
+drivers, and clears pending retries when a route succeeds or the peer is
+removed.
+
+Consequences:
+- Retry policy can be tested without sockets, actors, or sleeping.
+- Future runtime and connector layers can compose route ownership and retry
+  state without making retry state another source of cluster membership truth.
+- Actor-backed connector wiring and coordinated-shutdown ownership remain
+  future work.

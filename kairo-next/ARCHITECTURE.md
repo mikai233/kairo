@@ -1396,6 +1396,10 @@ Remote association integration:
   closes/removes cached routes when peers become locally unreachable or leave.
   It deliberately keeps cluster membership state out of distributed-data socket
   route ownership.
+- `ReplicatorTcpPeerReconnectState` tracks failed cluster-derived ddata peer
+  dials with explicit retry settings, attempt counts, due-time calculation, and
+  clear-on-success/remove behavior. It is pure state so actor/runtime ownership
+  can drive it deterministically with manual time in tests.
 
 Sharding uses this later for coordinator state and remember entities. MVP
 sharding may start with an in-memory coordinator store to prove the routing
