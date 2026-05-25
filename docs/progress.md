@@ -1015,6 +1015,11 @@ Implemented:
   envelopes route to mediator local delivery, and singleton handover envelopes
   route to the singleton manager inbound, with recipient validation kept at the
   system boundary or focused adapter boundary.
+- `kairo-cluster-tools` now has a focused TCP association runtime that binds a
+  handshaken listener, owns a shared `RemoteAssociationCache`, association
+  registry, route installer, dialer, and dialing-side lane readers, and routes
+  pubsub gossip, pubsub publish envelopes, and singleton handover messages
+  through live socket associations to the existing system inbound handlers.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -1048,8 +1053,9 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Socket association listener/dialer wiring still needs to connect
-  cluster-tools system inbound routing to live singleton and pubsub actors.
+- Cluster-tools socket integration still needs broader cluster-driven peer
+  discovery, reconnect policy, and multi-peer runtime ownership beyond the
+  focused configured-peer TCP association slice.
 - Multi-node cluster membership socket transport, socket-backed heartbeat
   association wiring, actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.

@@ -1699,6 +1699,23 @@ Cluster-tools inbound routing:
   readers can dispatch decoded cluster-tools frames without each subsystem
   owning its own stream reader.
 
+Cluster-tools TCP runtime:
+
+- `ClusterToolsTcpAssociationRuntime<M>` is the configured-peer socket runtime
+  for cluster-tools system traffic,
+- it binds a handshaken TCP listener, owns a shared
+  `RemoteAssociationCache`, association registry, route installer, dialer, and
+  dialing-side lane readers,
+- it uses a cluster-tools lane classifier so pubsub gossip, pubsub publish
+  envelopes, and singleton handover messages are treated as control/system
+  traffic,
+- it routes live socket frames into the existing `ClusterToolsSystemInbound<M>`
+  boundary and can send return traffic over the same bidirectional
+  association,
+- peer selection still comes from cluster membership/tool state; the TCP
+  runtime is configured with a concrete peer and does not become a cluster
+  membership source.
+
 ## `kairo-testkit`
 
 Test support:

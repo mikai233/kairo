@@ -3,6 +3,7 @@
 mod codec;
 mod protocol;
 mod pubsub;
+mod remote_tcp;
 mod singleton;
 mod system_inbound;
 mod topic;
@@ -27,6 +28,10 @@ pub use pubsub::{
     PubSubRegistryKey, PubSubRegistryState, PubSubRemoteDeliveryError, PubSubRemoteDeliveryInbound,
     PubSubRemoteDeliveryOutbound, PubSubRemoteEnvelopeError, PubSubRemoteEnvelopeOutbound,
     PubSubRemoteTarget, PubSubSerializedGossip, PubSubSubscribeAck, PubSubTopicReport,
+};
+pub use remote_tcp::{
+    ClusterToolsTcpAssociationRuntime, cluster_tools_association_identity_for,
+    cluster_tools_lane_classifier,
 };
 pub use singleton::{
     DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, LocalSingletonManagerActor, LocalSingletonManagerMsg,
