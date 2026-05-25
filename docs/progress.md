@@ -1144,6 +1144,10 @@ Implemented:
   `EntityRef<String>` through reusable helper code and demonstrates stable
   shard-id routing into an entity-backed local shard whose typed counter
   entity receives business messages.
+- The repository README and `kairo-next` README now describe the active
+  Rust-first rewrite workspace, the old `crates/` implementation as
+  reference-only, the gossip-not-etcd cluster constraint, typed actor and
+  sharding APIs, and the current runnable examples.
 
 Not yet implemented:
 

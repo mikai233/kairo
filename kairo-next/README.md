@@ -39,6 +39,9 @@ Runnable examples live in the `kairo-examples` crate:
 ```bash
 cargo run -p kairo-examples --example local_counter
 cargo run -p kairo-examples --example configured_counter
+cargo run -p kairo-examples --example cluster_sharding_local
+cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
+cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
 ```
 
 The `local_counter` example demonstrates the first Rust-first actor workflow:
@@ -49,3 +52,11 @@ The `configured_counter` example loads
 `kairo-next/crates/kairo-examples/examples/kairo.local.toml`, maps the
 format-neutral actor settings into an `ActorSystemBuilder`, and runs the same
 typed counter protocol with the configured dispatcher throughput.
+
+The `cluster_sharding_local` example wires a local shard coordinator, typed
+shard region, stable `ShardingEnvelopeRouter`, `EntityRef<String>`, and
+entity-backed shard actor. Business messages reach a typed entity child without
+embedding the entity id in the business message.
+
+The TCP peer bootstrap examples demonstrate the current distributed-data and
+cluster-tools route setup around the shared remote association primitives.
