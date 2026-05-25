@@ -1,4 +1,7 @@
-use crate::{CrdtError, DeltaReplicatedData, GCounter, ReplicaId, ReplicatedData, ReplicatedDelta};
+use crate::{
+    CrdtError, DeltaReplicatedData, GCounter, RemovedNodePruning, ReplicaId, ReplicatedData,
+    ReplicatedDelta,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PNCounter {
@@ -144,5 +147,29 @@ impl ReplicatedDelta for PNCounter {
 
     fn zero(&self) -> Self::Full {
         Self::new()
+    }
+}
+
+impl RemovedNodePruning for PNCounter {
+    fn modified_by_replica_ids(&self) -> std::collections::BTreeSet<ReplicaId> {
+        let mut replicas = self.increments.modified_by_replica_ids();
+        replicas.extend(self.decrements.modified_by_replica_ids());
+        replicas
+    }
+
+    fn need_pruning_from(&self, removed_replica: &ReplicaId) -> bool {
+        PNCounter::need_pruning_from(self, removed_replica)
+    }
+
+    fn prune(
+        &self,
+        removed_replica: &ReplicaId,
+        collapse_into: ReplicaId,
+    ) -> Result<Self, CrdtError> {
+        PNCounter::prune(self, removed_replica, collapse_into)
+    }
+
+    fn pruning_cleanup(&self, removed_replica: &ReplicaId) -> Self {
+        PNCounter::pruning_cleanup(self, removed_replica)
     }
 }

@@ -416,6 +416,14 @@ Implemented:
   marker merge rules, all-reachable-clock dissemination delays, seen markers,
   obsolete performed-marker cleanup, and unknown-modified-replica collection
   without folding the logic into the crate root.
+- `DataEnvelope<D>` now carries a structured `PruningTable`, preserves
+  pruning metadata across full-state and delta merges, and exposes focused
+  envelope operations for initializing removed-node pruning, recording seen
+  markers, performing owner-collapse pruning, cleaning performed removed-node
+  data during merges, and removing obsolete performed markers.
+- `kairo-distributed-data::RemovedNodePruning` defines the CRDT pruning
+  contract used by envelopes, and `GCounter`/`PNCounter` implement it through
+  their existing removed-replica collapse and cleanup helpers.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -820,8 +828,8 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
   propagation/direct read/write, automatic peer route installation from
-  cluster events, removed-node pruning application to CRDT envelopes and
-  actor-backed scheduling, and gossip-backed replication.
+  cluster events, actor-backed removed-node pruning scheduling, stable wire
+  encoding for pruning metadata, and gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

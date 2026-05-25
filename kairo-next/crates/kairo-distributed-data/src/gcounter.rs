@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use crate::{CrdtError, DeltaReplicatedData, ReplicaId, ReplicatedData, ReplicatedDelta};
+use crate::{
+    CrdtError, DeltaReplicatedData, RemovedNodePruning, ReplicaId, ReplicatedData, ReplicatedDelta,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GCounter {
@@ -151,5 +153,27 @@ impl ReplicatedDelta for GCounter {
 
     fn zero(&self) -> Self::Full {
         Self::new()
+    }
+}
+
+impl RemovedNodePruning for GCounter {
+    fn modified_by_replica_ids(&self) -> std::collections::BTreeSet<ReplicaId> {
+        self.state.keys().cloned().collect()
+    }
+
+    fn need_pruning_from(&self, removed_replica: &ReplicaId) -> bool {
+        GCounter::need_pruning_from(self, removed_replica)
+    }
+
+    fn prune(
+        &self,
+        removed_replica: &ReplicaId,
+        collapse_into: ReplicaId,
+    ) -> Result<Self, CrdtError> {
+        GCounter::prune(self, removed_replica, collapse_into)
+    }
+
+    fn pruning_cleanup(&self, removed_replica: &ReplicaId) -> Self {
+        GCounter::pruning_cleanup(self, removed_replica)
     }
 }

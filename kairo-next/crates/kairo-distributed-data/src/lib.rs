@@ -82,7 +82,7 @@ pub use crdt_codec::{
     CRDT_CODEC_VERSION, CrdtDataCodec, GCOUNTER_MANIFEST, GCounterCodec, GSET_STRING_MANIFEST,
     GSetStringCodec, PNCOUNTER_MANIFEST, PNCounterCodec, SerializedCrdt,
 };
-pub use data::{DeltaReplicatedData, ReplicatedData, ReplicatedDelta};
+pub use data::{DeltaReplicatedData, RemovedNodePruning, ReplicatedData, ReplicatedDelta};
 pub use delta::{DeltaPropagation, DeltaPropagationEntry, DeltaPropagationLog};
 pub use delta_loop::{DeltaPropagationLoop, DeltaPropagationSink, DeltaPropagationTickReport};
 pub use delta_receive::{
