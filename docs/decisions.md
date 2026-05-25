@@ -1882,3 +1882,29 @@ Consequences:
 - Membership and reachability remain cluster-derived; the connector does not
   invent a socket-backed membership source.
 - Runtime bootstrap and coordinated-shutdown registration remain future work.
+
+## ADR-0067: Distributed-Data TCP Bootstrap Owns Shutdown Registration
+
+Status: Accepted
+
+Context:
+Distributed-data TCP peer lifecycle can now run through an actor-backed
+connector, but users still need one facade that binds the runtime, spawns the
+connector, and wires coordinated shutdown. Cluster-tools already uses this
+layering so socket cleanup follows actor stop semantics.
+
+Decision:
+Kairo adds `ReplicatorTcpPeerBootstrap` with explicit identity and settings
+structs. The bootstrap binds `ReplicatorTcpPeerRuntime`, spawns
+`ReplicatorTcpPeerConnector` under a configured actor name, records the local
+node/address for callers, and registers an actor termination task in
+`PHASE_BEFORE_CLUSTER_SHUTDOWN` by default. Bootstrap settings own the remote
+runtime settings, connector settings, shutdown phase/task name, and timeout so
+the constructor stays explicit without long argument lists.
+
+Consequences:
+- Distributed-data gets a single entry point for socket peer runtime and
+  connector startup while keeping each responsibility in a focused module.
+- Coordinated shutdown uses the same connector stop path as explicit actor
+  stop, so route cleanup and runtime shutdown remain centralized.
+- End-to-end examples and multi-node validation remain future work.

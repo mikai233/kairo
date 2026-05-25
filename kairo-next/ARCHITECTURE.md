@@ -1410,6 +1410,10 @@ Remote association integration:
   an initial snapshot, applies later membership/reachability events, drives
   explicit or timer-based retry turns, exposes typed snapshots for tests, and
   shuts down the owned runtime when the actor stops.
+- `ReplicatorTcpPeerBootstrap` binds the distributed-data TCP peer runtime,
+  spawns the connector under an explicit actor name, and registers coordinated
+  shutdown to stop the connector before cluster shutdown so socket routes are
+  cleared through the same actor stop path.
 
 Sharding uses this later for coordinator state and remember entities. MVP
 sharding may start with an in-memory coordinator store to prove the routing

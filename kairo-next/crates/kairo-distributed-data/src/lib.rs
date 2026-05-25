@@ -43,6 +43,7 @@ mod replicator_aggregation;
 mod reply_wire;
 mod response;
 mod state;
+mod tcp_peer_bootstrap;
 mod tcp_peer_connector;
 mod tcp_peer_reconnect;
 mod tcp_peer_routes;
@@ -186,6 +187,11 @@ pub use reply_wire::{
 };
 pub use response::{GetResponse, ReplicatorChange, UpdateOutcome, UpdateResponse};
 pub use state::ReplicatorState;
+pub use tcp_peer_bootstrap::{
+    ReplicatorTcpPeerBootstrap, ReplicatorTcpPeerBootstrapError,
+    ReplicatorTcpPeerBootstrapIdentity, ReplicatorTcpPeerBootstrapResult,
+    ReplicatorTcpPeerBootstrapSettings,
+};
 pub use tcp_peer_connector::{
     ReplicatorTcpPeerConnector, ReplicatorTcpPeerConnectorMsg, ReplicatorTcpPeerConnectorSettings,
     ReplicatorTcpPeerConnectorSettingsError, ReplicatorTcpPeerConnectorSnapshot,
