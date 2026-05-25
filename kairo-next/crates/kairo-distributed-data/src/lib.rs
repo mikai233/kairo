@@ -23,6 +23,7 @@ mod key;
 mod orset;
 mod pncounter;
 mod protocol;
+mod pruning;
 mod read_write_receive;
 mod remote_envelope;
 mod remote_reply;
@@ -106,6 +107,9 @@ pub use protocol::{
     ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorRead,
     ReplicatorReadResult, ReplicatorSubscribe, ReplicatorUpdate, ReplicatorWrite,
     ReplicatorWriteAck, ReplicatorWriteNack,
+};
+pub use pruning::{
+    PruningInitialized, PruningPerformed, PruningState, PruningTable, RemovedNodePruningTracker,
 };
 pub use read_write_receive::{DirectReadResult, DirectWriteResult, apply_write, serve_read};
 pub use remote_envelope::{

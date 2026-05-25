@@ -410,6 +410,12 @@ Implemented:
   delta entries on a configurable Pekko-style tick divisor, and
   `ReplicatorActor` can run the loop either by explicit testable tick messages
   or scheduled one-shot self ticks driven by manual time.
+- `kairo-distributed-data` now has focused removed-node pruning state
+  bookkeeping. `PruningState`, `PruningTable`, and
+  `RemovedNodePruningTracker` model Pekko-style initialized/performed pruning
+  marker merge rules, all-reachable-clock dissemination delays, seen markers,
+  obsolete performed-marker cleanup, and unknown-modified-replica collection
+  without folding the logic into the crate root.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -814,8 +820,8 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
   propagation/direct read/write, automatic peer route installation from
-  cluster events, removed-node pruning scheduling/state, and gossip-backed
-  replication.
+  cluster events, removed-node pruning application to CRDT envelopes and
+  actor-backed scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
