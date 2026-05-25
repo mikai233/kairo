@@ -4,7 +4,7 @@ use kairo_actor::{Recipient, SendError};
 use kairo_cluster::UniqueAddress;
 use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
 
-use crate::{RoutedShardEnvelope, ShardRegionMsg, ShardingEnvelope};
+use crate::{RegionId, RegionRouteTarget, RoutedShardEnvelope, ShardRegionMsg, ShardingEnvelope};
 
 use super::{DEFAULT_SHARD_REGION_REMOTE_PATH, ShardRegionRemoteError, recipient_for_node};
 
@@ -54,6 +54,13 @@ impl<M> ShardRegionRemoteOutbound<M> {
 
     pub fn recipient_for_target(&self) -> Result<ActorRefWireData, ShardRegionRemoteError> {
         recipient_for_node(&self.target, &self.recipient_path)
+    }
+
+    pub fn into_region_route_target(self, region: impl Into<RegionId>) -> RegionRouteTarget<M>
+    where
+        M: RemoteMessage + Send + 'static,
+    {
+        RegionRouteTarget::new(region, self)
     }
 }
 

@@ -22,19 +22,19 @@ use crate::{
     HostShardPlan, LeastShardAllocationStrategy, PassivatePlan, RebalanceCompletionPlan,
     RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan, RegionDropReason,
     RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan,
-    RegionRegistrationConfig, RegionRegistrationStatus, RegionRoutePlan, RegionRouteTarget,
-    RegionRouteTransport, RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
-    RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
-    RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
-    RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
-    RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
-    RememberShardStoreState, RememberShardUpdate, RememberUpdateDonePlan, RememberedEntities,
-    RememberedEntitiesPlan, ShardActor, ShardAllocationStrategy, ShardAllocations,
-    ShardCoordinatorActor, ShardCoordinatorBootstrap, ShardCoordinatorMsg, ShardDeliverPlan,
-    ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
-    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRemoteInbound,
-    ShardRegionRemoteOutbound, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
-    ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
+    RegionRegistrationConfig, RegionRegistrationStatus, RegionRouteDelivery, RegionRoutePlan,
+    RegionRouteTarget, RegionRouteTransport, RememberCoordinatorDDataStoreActor,
+    RememberCoordinatorDDataStoreMsg, RememberCoordinatorDDataStoreSnapshot,
+    RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
+    RememberCoordinatorStoreState, RememberShardDDataStoreActor, RememberShardDDataStoreMsg,
+    RememberShardDDataStoreSnapshot, RememberShardStoreActor, RememberShardStoreMsg,
+    RememberShardStoreSnapshot, RememberShardStoreState, RememberShardUpdate,
+    RememberUpdateDonePlan, RememberedEntities, RememberedEntitiesPlan, ShardActor,
+    ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorBootstrap,
+    ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
+    ShardHomePlan, ShardMsg, ShardRebalancePlan, ShardRegionActor, ShardRegionMsg,
+    ShardRegionRemoteInbound, ShardRegionRemoteOutbound, ShardRegionRuntime, ShardRegionSnapshot,
+    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
     ShardingEnvelopeRouter, ShardingError, default_shard_id_for, register_sharding_protocol_codecs,
     remember_coordinator_shards_key, remember_entity_key_index, remember_entity_key_index_for,
     remember_entity_shard_key, remember_entity_shard_replicator_key, shard_id_for,
@@ -283,6 +283,68 @@ fn remote_region_route_envelope_reenters_local_region_delivery() {
             .recv_timeout(Duration::from_millis(500))
             .unwrap(),
         ("entity-1".to_string(), "first".to_string())
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_route_transport_can_target_remote_region_envelopes() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("sharding-remote-region-route-target").unwrap();
+    let mut registry = Registry::new();
+    register_sharding_protocol_codecs(&mut registry).unwrap();
+    registry
+        .register::<RemoteRouteMessage, _>(RemoteRouteMessageCodec)
+        .unwrap();
+    let registry = std::sync::Arc::new(registry);
+    let remote_envelopes = kit
+        .create_probe::<RemoteEnvelope>("remote-envelopes")
+        .unwrap();
+    let route_replies = kit
+        .create_probe::<RegionLocalRoutePlan<RemoteRouteMessage>>("route-replies")
+        .unwrap();
+    let delivery_replies = kit
+        .create_probe::<ShardDeliverPlan<RemoteRouteMessage>>("delivery-replies")
+        .unwrap();
+    let remote_target = ShardRegionRemoteOutbound::<RemoteRouteMessage>::new(
+        remote_node("sharding", "127.0.0.1", 25521),
+        registry.clone(),
+        remote_envelopes.actor_ref(),
+    )
+    .into_region_route_target("region-b");
+    let mut transport = RegionRouteTransport::new();
+    transport.insert_target(remote_target);
+
+    assert_eq!(
+        transport.send_route_to(
+            &"region-b".to_string(),
+            "shard-1".to_string(),
+            ShardingEnvelope::new("entity-1", RemoteRouteMessage("first".to_string())),
+            route_replies.actor_ref(),
+            delivery_replies.actor_ref(),
+        ),
+        RegionRouteDelivery::Sent {
+            shard: "shard-1".to_string(),
+            region: "region-b".to_string(),
+        }
+    );
+    let envelope = remote_envelopes
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert_eq!(
+        envelope.recipient.path(),
+        "kairo://sharding@127.0.0.1:25521/system/sharding/region"
+    );
+    let routed = registry
+        .deserialize::<crate::RoutedShardEnvelope>(envelope.message)
+        .unwrap();
+    assert_eq!(routed.shard_id, "shard-1");
+    assert_eq!(routed.entity_id, "entity-1");
+    assert_eq!(
+        registry
+            .deserialize::<RemoteRouteMessage>(routed.message)
+            .unwrap(),
+        RemoteRouteMessage("first".to_string())
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }

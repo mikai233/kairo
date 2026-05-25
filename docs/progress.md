@@ -853,6 +853,10 @@ Implemented:
   `ShardRegionRemoteInbound<M>` validates that recipient, decodes the nested
   business message through registered codecs, and re-enters typed local region
   delivery.
+- Remote region outbound adapters can now be installed directly as
+  `RegionRouteTransport` targets, so known remote shard homes use the same
+  structured route table as local region refs while producing stable remote
+  envelopes for the transport layer.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
