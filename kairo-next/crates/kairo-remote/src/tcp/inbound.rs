@@ -10,13 +10,13 @@ use std::time::Duration;
 use bytes::Bytes;
 
 use crate::{
-    RemoteAssociationAddress, RemoteAssociationRegistry, RemoteError, RemoteFrameHandler, Result,
-    StreamFrameInbound,
+    RemoteAssociationAddress, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
+    RemoteByteSink, RemoteError, RemoteFrameHandler, RemoteStreamId, Result, StreamFrameInbound,
 };
 
 use super::{
-    TcpAssociationHandshake, TcpAssociationIdentity, read_tcp_association_handshake,
-    validate_tcp_association_handshakes,
+    TcpAssociationHandshake, TcpAssociationIdentity, TcpRemoteByteSink,
+    read_tcp_association_handshake, validate_tcp_association_handshakes,
 };
 
 const DEFAULT_EXPECTED_LANE_STREAMS: usize = 3;
@@ -74,6 +74,7 @@ pub struct TcpAssociationListener {
     accept_poll_interval: Duration,
     local_address: Option<RemoteAssociationAddress>,
     association_registry: Option<RemoteAssociationRegistry>,
+    route_installer: Option<RemoteAssociationRouteInstaller>,
 }
 
 impl TcpAssociationListener {
@@ -91,6 +92,7 @@ impl TcpAssociationListener {
             accept_poll_interval: DEFAULT_ACCEPT_POLL_INTERVAL,
             local_address: None,
             association_registry: None,
+            route_installer: None,
         }
     }
 
@@ -106,6 +108,11 @@ impl TcpAssociationListener {
 
     pub fn with_association_registry(mut self, registry: RemoteAssociationRegistry) -> Self {
         self.association_registry = Some(registry);
+        self
+    }
+
+    pub fn with_route_installer(mut self, installer: RemoteAssociationRouteInstaller) -> Self {
+        self.route_installer = Some(installer);
         self
     }
 
@@ -140,11 +147,16 @@ impl TcpAssociationListener {
             stream
                 .set_nodelay(true)
                 .map_err(|error| tcp_inbound_failure(&peer.to_string(), error))?;
-            self.read_handshake(&mut stream, &mut handshakes)?;
-            streams.push(TcpAcceptedStream { peer, stream });
+            let stream_id = self.read_handshake(&mut stream, &mut handshakes)?;
+            streams.push(TcpAcceptedStream {
+                peer,
+                stream_id,
+                stream,
+            });
         }
         let remote_identity = self.validate_handshakes(&handshakes)?;
         self.register_remote_identity(&remote_identity)?;
+        self.install_reverse_route(&remote_identity, &streams)?;
         Ok(TcpAcceptedAssociation {
             reader: self.reader.clone(),
             remote_identity,
@@ -225,8 +237,12 @@ impl TcpAssociationListener {
                         .set_nodelay(true)
                         .map_err(|error| tcp_inbound_failure(&peer.to_string(), error))?;
                     let mut stream = stream;
-                    self.read_handshake(&mut stream, &mut handshakes)?;
-                    streams.push(TcpAcceptedStream { peer, stream });
+                    let stream_id = self.read_handshake(&mut stream, &mut handshakes)?;
+                    streams.push(TcpAcceptedStream {
+                        peer,
+                        stream_id,
+                        stream,
+                    });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                     if streams.is_empty() {
@@ -247,6 +263,7 @@ impl TcpAssociationListener {
         }
         let remote_identity = self.validate_handshakes(&handshakes)?;
         self.register_remote_identity(&remote_identity)?;
+        self.install_reverse_route(&remote_identity, &streams)?;
         Ok(Some(TcpAcceptedAssociation {
             reader: self.reader.clone(),
             remote_identity,
@@ -258,11 +275,14 @@ impl TcpAssociationListener {
         &self,
         stream: &mut TcpStream,
         handshakes: &mut Vec<TcpAssociationHandshake>,
-    ) -> Result<()> {
+    ) -> Result<Option<RemoteStreamId>> {
         if self.local_address.is_some() {
-            handshakes.push(read_tcp_association_handshake(stream)?);
+            let handshake = read_tcp_association_handshake(stream)?;
+            let stream_id = handshake.stream_id();
+            handshakes.push(handshake);
+            return Ok(Some(stream_id));
         }
-        Ok(())
+        Ok(None)
     }
 
     fn validate_handshakes(
@@ -288,6 +308,46 @@ impl TcpAssociationListener {
         }
         Ok(())
     }
+
+    fn install_reverse_route(
+        &self,
+        identity: &Option<TcpAssociationIdentity>,
+        streams: &[TcpAcceptedStream],
+    ) -> Result<()> {
+        let (Some(identity), Some(installer)) = (identity, &self.route_installer) else {
+            return Ok(());
+        };
+
+        let control = clone_lane_sink(streams, RemoteStreamId::Control, identity.address())?;
+        let ordinary = clone_lane_sink(streams, RemoteStreamId::Ordinary, identity.address())?;
+        let large = clone_lane_sink(streams, RemoteStreamId::Large, identity.address())?;
+        installer.insert_stream_pipeline(identity.address().clone(), control, ordinary, large);
+        Ok(())
+    }
+}
+
+fn clone_lane_sink(
+    streams: &[TcpAcceptedStream],
+    stream_id: RemoteStreamId,
+    address: &RemoteAssociationAddress,
+) -> Result<Arc<dyn RemoteByteSink>> {
+    let stream = streams
+        .iter()
+        .find(|stream| stream.stream_id == Some(stream_id))
+        .ok_or_else(|| {
+            RemoteError::InvalidFrame(format!(
+                "tcp association missing {:?} lane for reverse route",
+                stream_id
+            ))
+        })?;
+    let stream = stream
+        .stream
+        .try_clone()
+        .map_err(|error| tcp_inbound_failure(&stream.peer.to_string(), error))?;
+    Ok(Arc::new(TcpRemoteByteSink::from_stream(
+        address.to_string(),
+        stream,
+    )))
 }
 
 pub struct TcpAssociationListenerHandle {
@@ -366,6 +426,7 @@ impl TcpAcceptedAssociation {
 
 struct TcpAcceptedStream {
     peer: SocketAddr,
+    stream_id: Option<RemoteStreamId>,
     stream: TcpStream,
 }
 
@@ -374,6 +435,20 @@ pub struct TcpAssociationReaderHandle {
 }
 
 impl TcpAssociationReaderHandle {
+    pub(crate) fn spawn_streams(
+        reader: TcpAssociationStreamReader,
+        streams: Vec<(String, TcpStream)>,
+    ) -> Self {
+        let joins = streams
+            .into_iter()
+            .map(|(peer, stream)| {
+                let reader = reader.clone();
+                thread::spawn(move || reader.read_stream(peer, stream))
+            })
+            .collect();
+        Self { joins }
+    }
+
     pub fn join(self) -> Result<TcpAssociationReadReport> {
         let mut report = TcpAssociationReadReport {
             streams: 0,

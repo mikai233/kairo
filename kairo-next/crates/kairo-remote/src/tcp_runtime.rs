@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use std::net::TcpListener;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kairo_actor::{ActorRef, ActorSystem};
@@ -12,7 +12,7 @@ use crate::{
     RemoteAssociationRouteRegistration, RemoteDeathWatchCommand, RemoteDeathWatchEffectObserver,
     RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound, RemoteSettings, ResolvedActorRef,
     Result, TcpAssociationDialer, TcpAssociationListener, TcpAssociationListenerHandle,
-    TcpAssociationListenerReport,
+    TcpAssociationListenerReport, TcpAssociationReaderHandle, TcpAssociationStreamReader,
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -25,6 +25,8 @@ pub struct TcpRemoteActorSystem<M> {
     association_registry: RemoteAssociationRegistry,
     provider: RemoteActorRefProvider,
     dialer: TcpAssociationDialer,
+    outbound_reader: TcpAssociationStreamReader,
+    outbound_readers: Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
     death_watch: ActorRef<RemoteDeathWatchCommand>,
     listener: TcpAssociationListenerHandle,
     _message: PhantomData<fn(M)>,
@@ -90,18 +92,20 @@ where
             )
             .map_err(|error| RemoteError::Inbound(error.to_string()))?;
 
-        let inbound = ActorSystemRemoteInbound::<M>::with_remote_settings(
+        let inbound = Arc::new(ActorSystemRemoteInbound::<M>::with_remote_settings(
             system.clone(),
             registry.clone(),
             death_watch.clone(),
             local_system_uid,
             effective_settings.clone(),
-        );
-        let listener = TcpAssociationListener::from_listener(listener, Arc::new(inbound))
+        ));
+        let installer = RemoteAssociationRouteInstaller::new(association_cache.clone());
+        let outbound_reader = TcpAssociationStreamReader::new(inbound.clone());
+        let listener = TcpAssociationListener::from_listener(listener, inbound)
             .with_local_address(local_association_address(&system, &effective_settings)?)
             .with_association_registry(association_registry.clone())
+            .with_route_installer(installer.clone())
             .spawn_accept_loop()?;
-        let installer = RemoteAssociationRouteInstaller::new(association_cache.clone());
         let dialer = TcpAssociationDialer::new(installer)
             .with_local_identity(
                 local_association_address(&system, &effective_settings)?,
@@ -123,6 +127,8 @@ where
             association_registry,
             provider,
             dialer,
+            outbound_reader,
+            outbound_readers: Arc::new(Mutex::new(Vec::new())),
             death_watch,
             listener,
             _message: PhantomData,
@@ -165,7 +171,14 @@ where
         &self,
         address: RemoteAssociationAddress,
     ) -> Result<RemoteAssociationRouteRegistration> {
-        self.dialer.dial(address)
+        let (registration, reader_handle) = self
+            .dialer
+            .dial_with_reader(address, self.outbound_reader.clone())?;
+        self.outbound_readers
+            .lock()
+            .expect("tcp remote actor system outbound readers lock poisoned")
+            .push(reader_handle);
+        Ok(registration)
     }
 
     pub fn resolve<N>(&self, path: impl Into<String>) -> Result<RemoteActorRef<N>>
@@ -191,6 +204,15 @@ where
         let death_watch_stopped = self.death_watch.wait_for_stop(timeout);
         self.association_cache.clear_routes();
         self.listener.stop();
+        let outbound_readers = self
+            .outbound_readers
+            .lock()
+            .expect("tcp remote actor system outbound readers lock poisoned")
+            .drain(..)
+            .collect::<Vec<_>>();
+        for reader in outbound_readers {
+            reader.join()?;
+        }
         let listener_report = self.listener.join();
 
         if !death_watch_stopped {

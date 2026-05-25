@@ -365,6 +365,8 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
     let (frame_tx, frame_rx) = mpsc::channel();
     let handler = Arc::new(ChannelFrameHandler::new(frame_tx)) as Arc<dyn RemoteFrameHandler>;
     let registry = RemoteAssociationRegistry::new();
+    let receiver_cache = RemoteAssociationCache::new();
+    let receiver_installer = crate::RemoteAssociationRouteInstaller::new(receiver_cache.clone());
     let remote_address = association_address("sender", 25521);
     let listener = TcpAssociationListener::bind(("127.0.0.1", 0), handler)
         .unwrap()
@@ -372,7 +374,8 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
     let port = listener.local_addr().unwrap().port();
     let listener = listener
         .with_local_address(association_address("receiver", port))
-        .with_association_registry(registry.clone());
+        .with_association_registry(registry.clone())
+        .with_route_installer(receiver_installer);
     let listener_handle = listener.spawn_accept_loop().unwrap();
 
     let cache = RemoteAssociationCache::new();
@@ -399,10 +402,15 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
         }
     );
     assert_eq!(registry.association_count(), 1);
+    assert_eq!(receiver_cache.route_count(), 1);
+    receiver_cache
+        .send(envelope_to("sender", 25521, 58))
+        .unwrap();
 
     listener_handle.stop();
     drop(registration);
     drop(cache);
+    drop(receiver_cache);
     drop(dialer);
 
     let report = listener_handle.join().unwrap();

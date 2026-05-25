@@ -3,10 +3,13 @@ use std::time::Duration;
 
 use crate::{
     RemoteAssociationAddress, RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration,
-    RemoteStreamId,
+    RemoteByteSink, RemoteStreamId,
 };
 
-use super::{TcpAssociationIdentity, TcpRemoteByteSink};
+use super::{
+    TcpAssociationIdentity, TcpAssociationReaderHandle, TcpAssociationStreamReader,
+    TcpRemoteByteSink,
+};
 
 #[derive(Clone)]
 pub struct TcpAssociationDialer {
@@ -63,6 +66,36 @@ impl TcpAssociationDialer {
         ))
     }
 
+    pub fn dial_with_reader(
+        &self,
+        address: RemoteAssociationAddress,
+        reader: TcpAssociationStreamReader,
+    ) -> crate::Result<(
+        RemoteAssociationRouteRegistration,
+        TcpAssociationReaderHandle,
+    )> {
+        let control = self.connect_lane_stream(&address, RemoteStreamId::Control)?;
+        let ordinary = self.connect_lane_stream(&address, RemoteStreamId::Ordinary)?;
+        let large = self.connect_lane_stream(&address, RemoteStreamId::Large)?;
+
+        let control_sink = clone_sink(&address, &control)?;
+        let ordinary_sink = clone_sink(&address, &ordinary)?;
+        let large_sink = clone_sink(&address, &large)?;
+        let handle = TcpAssociationReaderHandle::spawn_streams(
+            reader,
+            vec![
+                (address.to_string(), control),
+                (address.to_string(), ordinary),
+                (address.to_string(), large),
+            ],
+        );
+        let registration =
+            self.installer
+                .insert_stream_pipeline(address, control_sink, ordinary_sink, large_sink);
+
+        Ok((registration, handle))
+    }
+
     fn connect_lane(
         &self,
         address: &RemoteAssociationAddress,
@@ -78,4 +111,33 @@ impl TcpAssociationDialer {
             None => TcpRemoteByteSink::connect(address, self.connect_timeout),
         }
     }
+
+    fn connect_lane_stream(
+        &self,
+        address: &RemoteAssociationAddress,
+        stream_id: RemoteStreamId,
+    ) -> crate::Result<std::net::TcpStream> {
+        match &self.local_identity {
+            Some(local_identity) => TcpRemoteByteSink::connect_handshaken_stream(
+                address,
+                local_identity,
+                stream_id,
+                self.connect_timeout,
+            ),
+            None => TcpRemoteByteSink::connect_stream(address, self.connect_timeout),
+        }
+    }
+}
+
+fn clone_sink(
+    address: &RemoteAssociationAddress,
+    stream: &std::net::TcpStream,
+) -> crate::Result<Arc<dyn RemoteByteSink>> {
+    let stream = stream.try_clone().map_err(|error| {
+        crate::RemoteError::Outbound(format!("tcp stream clone failed: {error}"))
+    })?;
+    Ok(Arc::new(TcpRemoteByteSink::from_stream(
+        address.to_string(),
+        stream,
+    )))
 }

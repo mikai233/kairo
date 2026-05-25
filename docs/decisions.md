@@ -1289,9 +1289,19 @@ the listener completes the association in the registry before handing streams
 to lane readers. `TcpRemoteActorSystem` owns one registry alongside its
 association cache and exposes it for diagnostics and later quarantine work.
 
+The same listener may be configured with a `RemoteAssociationRouteInstaller`.
+For a validated handshaken association, the listener clones the accepted
+control, ordinary, and large lane streams into reverse `TcpRemoteByteSink`
+values and installs an outbound route for the remote association address. This
+keeps inbound TCP lane ownership and reverse outbound route installation in
+one transport module while preserving the transport-neutral association cache
+boundary.
+
 Consequences:
 - Association identity state is not hidden inside TCP socket code or the route
   cache.
+- Accepted TCP sockets can become bidirectional association routes for replies
+  and remote system traffic without requiring a second outbound dial first.
 - Future quarantine/reconnect logic has a stable address and UID index to
   build on.
 - The registry does not turn TCP connections into cluster membership truth;
@@ -1330,3 +1340,37 @@ Consequences:
   erased user protocol is introduced.
 - Remote deployment remains out of scope. Resolving a foreign path creates a
   remote ref to an existing remote actor path.
+
+## ADR-0049: TCP Associations Own Bidirectional Lane Readers
+
+Status: Accepted
+
+Context:
+Pekko remoting treats an association as the bidirectional communication
+boundary between two actor systems. Kairo's first TCP slices installed outbound
+routes on the dialing side and read lanes on the accepting side, which was
+enough for one-way message tests but could not carry remote death-watch
+heartbeat acknowledgements or replies back over the same association.
+
+Decision:
+Kairo keeps the existing explicit control, ordinary, and large lane streams,
+but both sides now own read and write handles for a completed handshaken TCP
+association. The listener validates the handshakes, completes the association
+registry entry, clones each accepted lane stream into a `TcpRemoteByteSink`,
+and installs a reverse route to the remote identity before moving the original
+streams into lane reader threads. The dialer adds `dial_with_reader`, which
+connects the three lanes, clones them into outbound byte sinks, and spawns
+dialing-side reader handles for frames written by the accepting peer.
+
+`TcpRemoteActorSystem` uses this bidirectional dialing path and stores the
+dialing-side reader handles. Runtime shutdown clears the route cache, causing
+the byte sinks to shut down their sockets, then joins those reader handles
+before joining the listener.
+
+Consequences:
+- A single handshaken TCP association can now carry typed remote messages in
+  both directions.
+- Reverse routes are still explicit cache entries and are not cluster
+  membership evidence.
+- Reader supervision and reconnect/backoff policy remain future work; this
+  decision only establishes bidirectional lane ownership for live associations.

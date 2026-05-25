@@ -825,6 +825,12 @@ TCP association dialing:
 - `TcpAssociationListener` accepts the expected lane streams for one
   association and `TcpAssociationStreamReader` drains each TCP stream through
   the existing remote stream decoder and `RemoteFrameHandler` boundary,
+- a handshaken listener can install reverse association routes by cloning the
+  accepted control, ordinary, and large lane streams into `TcpRemoteByteSink`
+  values before moving the original streams into lane readers,
+- `TcpAssociationDialer::dial_with_reader` installs outbound byte sinks while
+  also keeping reader handles for the dialing side's lane streams, so the same
+  handshaken TCP association can carry frames in both directions,
 - `TcpAcceptedAssociation::spawn_lane_readers` can move accepted lane streams
   onto background reader threads and join them through an explicit
   `TcpAssociationReaderHandle`, allowing one lane to deliver frames while the
@@ -844,14 +850,20 @@ TCP association dialing:
 - `TcpAssociationListener` may be configured with a
   `RemoteAssociationRegistry`; validated handshakes complete the registry entry
   before accepted streams are handed to lane readers,
+- `TcpAssociationListener` may also be configured with a
+  `RemoteAssociationRouteInstaller`; accepted handshaken lane streams are
+  cloned into reverse `TcpRemoteByteSink` values and installed as an outbound
+  route for the remote association address, giving the local runtime a
+  bidirectional route without making the association cache a membership store,
 - `TcpRemoteActorSystem<M>` composes the concrete TCP listener, association
   cache, route installer, dialer, remote actor-ref provider, actor-system
   inbound router, and remote death-watch actor into one lifecycle owner for a
   message protocol `M`,
 - `TcpRemoteActorSystem::shutdown_with_timeout` stops the runtime-owned
   remote death-watch actor before clearing outbound association routes and
-  stopping the TCP listener, preserving the shutdown ordering shape Pekko uses
-  for remoting internals before transport shutdown,
+  stopping the TCP listener, joins dialing-side lane readers after route
+  shutdown, and preserves the shutdown ordering shape Pekko uses for remoting
+  internals before transport shutdown,
 - these TCP pieces remain transport primitives; reconnect policy, reader
   supervision/restart policy, and richer provider lifecycle ownership remain
   separate integration work.

@@ -59,10 +59,14 @@ fn registry() -> Arc<Registry> {
 }
 
 fn remote_path_for(local_path: &str, settings: &RemoteSettings) -> String {
+    remote_path_for_system(local_path, "receiver", settings)
+}
+
+fn remote_path_for_system(local_path: &str, system: &str, settings: &RemoteSettings) -> String {
     local_path.replacen(
-        "kairo://receiver",
+        &format!("kairo://{system}"),
         &format!(
-            "kairo://receiver@{}:{}",
+            "kairo://{system}@{}:{}",
             settings.canonical_hostname, settings.canonical_port
         ),
         1,
@@ -75,11 +79,20 @@ fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
     let sender = ActorSystem::builder("sender").build().unwrap();
     let registry = registry();
     let (received_tx, received_rx) = mpsc::channel();
+    let (sender_received_tx, sender_received_rx) = mpsc::channel();
     let target = receiver
         .spawn(
             "target",
             Props::new(move || Target {
                 received: received_tx,
+            }),
+        )
+        .unwrap();
+    let sender_target = sender
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: sender_received_tx,
             }),
         )
         .unwrap();
@@ -154,6 +167,29 @@ fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
         &AssociationState::Active {
             remote_uid: Some(22)
         }
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while receiver_remote.association_cache().route_count() == 0
+        && std::time::Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+    let reverse_target = receiver_remote
+        .resolve::<Ping>(remote_path_for_system(
+            sender_target.path().as_str(),
+            "sender",
+            sender_remote.settings(),
+        ))
+        .unwrap();
+
+    reverse_target.tell(Ping { value: 78 }).unwrap();
+
+    assert_eq!(
+        sender_received_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        78
     );
 
     drop(registration);

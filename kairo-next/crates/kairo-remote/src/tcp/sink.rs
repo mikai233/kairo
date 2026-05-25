@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
+use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -27,16 +27,26 @@ impl TcpRemoteByteSink {
         stream_id: RemoteStreamId,
         timeout: Option<Duration>,
     ) -> Result<Self> {
+        let stream = Self::connect_handshaken_stream(address, local_identity, stream_id, timeout)?;
+        Ok(Self::from_stream(address.to_string(), stream))
+    }
+
+    pub(crate) fn connect_handshaken_stream(
+        address: &RemoteAssociationAddress,
+        local_identity: &TcpAssociationIdentity,
+        stream_id: RemoteStreamId,
+        timeout: Option<Duration>,
+    ) -> Result<TcpStream> {
         let mut stream = Self::connect_stream(address, timeout)?;
         let handshake =
             TcpAssociationHandshake::new(stream_id, local_identity.clone(), address.clone());
         stream
             .write_all(&encode_tcp_association_handshake(&handshake)?)
             .map_err(|error| tcp_outbound_failure(address, error))?;
-        Ok(Self::from_stream(address.to_string(), stream))
+        Ok(stream)
     }
 
-    fn connect_stream(
+    pub(crate) fn connect_stream(
         address: &RemoteAssociationAddress,
         timeout: Option<Duration>,
     ) -> Result<TcpStream> {
@@ -61,6 +71,14 @@ impl TcpRemoteByteSink {
 
     pub fn peer(&self) -> &str {
         &self.peer
+    }
+}
+
+impl Drop for TcpRemoteByteSink {
+    fn drop(&mut self) {
+        if let Ok(stream) = self.stream.lock() {
+            let _ = stream.shutdown(Shutdown::Both);
+        }
     }
 }
 

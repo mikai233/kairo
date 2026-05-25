@@ -276,11 +276,20 @@ Implemented:
   identities, including address and UID, so later association-registry,
   quarantine, and diagnostics work can build on explicit peer incarnation
   evidence instead of re-parsing socket paths.
+- Handshaken TCP associations are now bidirectional at the actor-system
+  runtime boundary: listeners install reverse association routes from accepted
+  lane stream clones, dialers can spawn dialing-side lane readers, and the TCP
+  runtime keeps those reader handles so a single dial can carry typed messages
+  in both directions before shutdown joins the readers.
 - `kairo-remote` now has a focused `RemoteAssociationRegistry` with
   address-indexed associations and a stable UID index. Validated TCP handshakes
   can complete associations into the registry, repeated handshakes for the
   same address/UID are idempotent, and UID collisions across addresses are
   rejected explicitly.
+- TCP listeners can now install reverse outbound routes for accepted
+  handshaken associations, so a concrete TCP actor-system runtime shares one
+  route installer for dialed outbound lanes and inbound peer lanes instead of
+  treating accepted streams as receive-only sockets.
 - `kairo-remote` now has a focused TCP actor-system runtime boundary that
   binds a listener, owns the local association cache, provider, dialer, remote
   death-watch actor, and inbound router composition, and clears outbound
