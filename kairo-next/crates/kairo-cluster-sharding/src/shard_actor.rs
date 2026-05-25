@@ -161,6 +161,9 @@ pub enum ShardMsg<M> {
         entity_id: EntityId,
         reply_to: ActorRef<EntityTerminatedPlan<M>>,
     },
+    ObservedEntityTerminated {
+        entity_id: EntityId,
+    },
     HandOff {
         stop_message: M,
         reply_to: ActorRef<ShardHandOffPlan<M>>,
@@ -298,6 +301,10 @@ where
                 let plan = self.runtime.entity_terminated(entity_id);
                 self.send_entity_terminated_store_effect(ctx, &plan)?;
                 let _ = reply_to.tell(plan);
+            }
+            ShardMsg::ObservedEntityTerminated { entity_id } => {
+                let plan = self.runtime.entity_terminated(entity_id);
+                self.send_entity_terminated_store_effect(ctx, &plan)?;
             }
             ShardMsg::HandOff {
                 stop_message,

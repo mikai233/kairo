@@ -714,6 +714,11 @@ Implemented:
   completion, and shutdown-preparation commands, and replies with
   deterministic entity delivery, passivation, restart, handoff, and state
   snapshot plans.
+- `kairo-cluster-sharding` now has `EntityActorFactory<M>` and
+  `EntityShardActor<M>`, a focused entity-backed shard boundary that spawns
+  typed local entity children from shard delivery plans, forwards business
+  messages to those children, sends passivation stop messages, watches child
+  termination, and feeds observed termination back into the shard runtime.
 - `kairo-cluster-sharding` now has focused remember-entity store state for the
   coordinator's add-only remembered shard set and each shard's started/stopped
   entity set, including Pekko-compatible five-key partitioning based on stable

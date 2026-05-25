@@ -8,8 +8,10 @@ mod coordinator_actor;
 mod coordinator_handoff;
 mod coordinator_runtime;
 mod coordinator_store;
+mod entity_factory;
 mod entity_ref;
 mod entity_router;
+mod entity_shard_actor;
 mod entity_type;
 mod envelope;
 mod errors;
@@ -51,8 +53,10 @@ pub use coordinator_runtime::{
     CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan, RebalanceCompletionPlan,
     RebalancePlan, RebalanceSkipReason, ShardRebalancePlan,
 };
+pub use entity_factory::EntityActorFactory;
 pub use entity_ref::EntityRef;
 pub use entity_router::ShardingEnvelopeRouter;
+pub use entity_shard_actor::EntityShardActor;
 pub use entity_type::EntityTypeKey;
 pub use envelope::ShardingEnvelope;
 pub use errors::ShardingError;

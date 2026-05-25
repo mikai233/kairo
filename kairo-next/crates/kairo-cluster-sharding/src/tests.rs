@@ -7,28 +7,28 @@ use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
 
 use crate::{
     BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState,
-    CoordinatorStateSnapshot, DEFAULT_SHARD_COUNT, EntityDelivery, EntityRef, GetShardHome,
-    GetShardHomeIgnoreReason, GetShardHomePlan, HandOff, HandOffPlan, HandoffDeliveryFailure,
-    HandoffDeliveryTarget, HandoffRegionTarget, HandoffTransport, HandoffWorkerActor,
-    HandoffWorkerDone, HandoffWorkerMsg, HostShard, HostShardPlan, LeastShardAllocationStrategy,
-    RebalanceCompletionPlan, RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan,
-    RegionDropReason, RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan,
-    RegionLocalRoutePlan, RegionRegistrationConfig, RegionRegistrationStatus, RegionRoutePlan,
-    RegionRouteTarget, RegionRouteTransport, RememberCoordinatorDDataStoreActor,
-    RememberCoordinatorDDataStoreMsg, RememberCoordinatorDDataStoreSnapshot,
-    RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
-    RememberCoordinatorStoreState, RememberShardDDataStoreActor, RememberShardDDataStoreMsg,
-    RememberShardDDataStoreSnapshot, RememberShardStoreActor, RememberShardStoreMsg,
-    RememberShardStoreSnapshot, RememberShardStoreState, RememberShardUpdate,
-    RememberUpdateDonePlan, RememberedEntities, RememberedEntitiesPlan, ShardActor,
-    ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorBootstrap,
-    ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
-    ShardHomePlan, ShardMsg, ShardRebalancePlan, ShardRegionActor, ShardRegionMsg,
-    ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime, ShardSnapshot, ShardStarted,
-    ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingEnvelopeRouter, ShardingError,
-    default_shard_id_for, remember_coordinator_shards_key, remember_entity_key_index,
-    remember_entity_key_index_for, remember_entity_shard_key, remember_entity_shard_replicator_key,
-    shard_id_for, stable_hash_entity_id,
+    CoordinatorStateSnapshot, DEFAULT_SHARD_COUNT, EntityActorFactory, EntityDelivery, EntityRef,
+    EntityShardActor, GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan, HandOff,
+    HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget,
+    HandoffTransport, HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg, HostShard,
+    HostShardPlan, LeastShardAllocationStrategy, PassivatePlan, RebalanceCompletionPlan,
+    RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan, RegionDropReason,
+    RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan,
+    RegionRegistrationConfig, RegionRegistrationStatus, RegionRoutePlan, RegionRouteTarget,
+    RegionRouteTransport, RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
+    RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
+    RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
+    RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
+    RememberShardStoreActor, RememberShardStoreMsg, RememberShardStoreSnapshot,
+    RememberShardStoreState, RememberShardUpdate, RememberUpdateDonePlan, RememberedEntities,
+    RememberedEntitiesPlan, ShardActor, ShardAllocationStrategy, ShardAllocations,
+    ShardCoordinatorActor, ShardCoordinatorBootstrap, ShardCoordinatorMsg, ShardDeliverPlan,
+    ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
+    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot,
+    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
+    ShardingEnvelopeRouter, ShardingError, default_shard_id_for, remember_coordinator_shards_key,
+    remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
+    remember_entity_shard_replicator_key, shard_id_for, stable_hash_entity_id,
 };
 
 #[test]
@@ -4057,6 +4057,86 @@ fn shard_actor_starts_entity_then_delivers_directly() {
 }
 
 #[test]
+fn entity_shard_actor_spawns_child_and_delivers_business_messages() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-deliver").unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let factory = EntityActorFactory::new(move |entity_id| RecordingEntity {
+        entity_id,
+        observed: observed_tx.clone(),
+    });
+    let shard = kit
+        .system()
+        .spawn("shard", EntityShardActor::props("shard-1", 10, factory))
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let passivation = kit
+        .create_probe::<PassivatePlan<String>>("passivation")
+        .unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", "first".to_string()),
+        }
+    );
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "first".to_string())
+    );
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "second".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "second".to_string()),
+        }
+    );
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "second".to_string())
+    );
+
+    shard
+        .tell(ShardMsg::Passivate {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+            reply_to: passivation.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        passivation.expect_msg(Duration::from_millis(500)).unwrap(),
+        PassivatePlan::SendStop {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+        }
+    );
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "stop".to_string())
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_runtime_recovers_remembered_entities_as_active() {
     let mut runtime = ShardRuntime::<String>::new("shard-1", 10);
     runtime.deliver(ShardingEnvelope::new("entity-b", "first".to_string()));
@@ -5283,6 +5363,25 @@ impl Actor for DelayedRegistrationCoordinator {
 
 struct RegionProbe {
     observed: mpsc::Sender<(String, &'static str)>,
+}
+
+struct RecordingEntity {
+    entity_id: String,
+    observed: mpsc::Sender<(String, String)>,
+}
+
+impl Actor for RecordingEntity {
+    type Msg = String;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        self.observed
+            .send((self.entity_id.clone(), msg.clone()))
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        if msg == "stop" {
+            ctx.stop(ctx.myself())?;
+        }
+        Ok(())
+    }
 }
 
 fn wait_for_local_shard(

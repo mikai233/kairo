@@ -1528,7 +1528,7 @@ Ordering:
 State:
 
 - `shard_id`,
-- `entity_factory`,
+- `entity_factory: EntityActorFactory<M>` for typed local entity child construction,
 - `entities: HashMap<EntityId, EntityState>`,
 - `by_ref: HashMap<AnyActorRef, EntityId>`,
 - `message_buffers: MessageBufferMap<EntityId, Envelope<M>>`,
@@ -1566,6 +1566,18 @@ Shard flow:
 5. On entity termination after passivation, remove entity.
 6. If buffered messages exist, restart entity and flush buffer.
 7. On handoff, stop all active entities and reply when all terminate.
+
+Implementation shape:
+
+- `ShardRuntime<M>` remains the focused deterministic state machine that plans
+  starts, deliveries, passivation buffering, termination, handoff, and
+  remember-entity updates.
+- `ShardActor<M>` exposes that planner as an actor protocol for deterministic
+  orchestration tests.
+- `EntityShardActor<M>` composes `ShardRuntime<M>` with
+  `EntityActorFactory<M>` to spawn typed local entity actors, deliver business
+  messages to those children, watch child termination, and feed termination
+  back through the same shard state transitions.
 
 ### Coordinator
 
