@@ -300,6 +300,32 @@ fn singleton_manager_hands_over_when_oldest_changes_away() {
 }
 
 #[test]
+fn singleton_manager_responds_to_takeover_only_when_becoming_or_oldest() {
+    let node_a = node("takeover-a", 1);
+    let node_b = node("takeover-b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_b.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let mut manager = SingletonManagerRuntime::new(node_b.clone());
+    assert!(manager.apply_initial_observation(observation).is_empty());
+    assert!(manager.take_over_from_me(node_a.clone()).is_empty());
+
+    assert_eq!(
+        manager.apply_oldest_change(SingletonOldestChange::OldestChanged(Some(node_b))),
+        vec![SingletonManagerEffect::SendHandOverToMe { to: node_a.clone() }]
+    );
+    assert_eq!(
+        manager.take_over_from_me(node_a.clone()),
+        vec![SingletonManagerEffect::SendHandOverToMe { to: node_a }]
+    );
+}
+
+#[test]
 fn singleton_manager_actor_applies_initial_observation_in_mailbox_turn() {
     let node_a = node("singleton-actor-a", 1);
     let (_tracker, observation) = SingletonOldestTracker::from_members(

@@ -28,6 +28,46 @@ impl RemoteMessage for PubSubDelta {
     const VERSION: u16 = 1;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingletonHandOverToMe {
+    pub from: UniqueAddress,
+}
+
+impl RemoteMessage for SingletonHandOverToMe {
+    const MANIFEST: &'static str = "kairo.cluster-tools.singleton.hand-over-to-me";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingletonHandOverInProgress {
+    pub from: UniqueAddress,
+}
+
+impl RemoteMessage for SingletonHandOverInProgress {
+    const MANIFEST: &'static str = "kairo.cluster-tools.singleton.hand-over-in-progress";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingletonHandOverDone {
+    pub from: UniqueAddress,
+}
+
+impl RemoteMessage for SingletonHandOverDone {
+    const MANIFEST: &'static str = "kairo.cluster-tools.singleton.hand-over-done";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingletonTakeOverFromMe {
+    pub from: UniqueAddress,
+}
+
+impl RemoteMessage for SingletonTakeOverFromMe {
+    const MANIFEST: &'static str = "kairo.cluster-tools.singleton.take-over-from-me";
+    const VERSION: u16 = 1;
+}
+
 #[cfg(test)]
 mod tests {
     use kairo_serialization::RemoteMessage;
@@ -38,8 +78,29 @@ mod tests {
     fn cluster_tools_system_manifests_are_stable() {
         assert_eq!(PubSubStatus::MANIFEST, "kairo.cluster-tools.pubsub.status");
         assert_eq!(PubSubDelta::MANIFEST, "kairo.cluster-tools.pubsub.delta");
+        assert_eq!(
+            SingletonHandOverToMe::MANIFEST,
+            "kairo.cluster-tools.singleton.hand-over-to-me"
+        );
+        assert_eq!(
+            SingletonHandOverInProgress::MANIFEST,
+            "kairo.cluster-tools.singleton.hand-over-in-progress"
+        );
+        assert_eq!(
+            SingletonHandOverDone::MANIFEST,
+            "kairo.cluster-tools.singleton.hand-over-done"
+        );
+        assert_eq!(
+            SingletonTakeOverFromMe::MANIFEST,
+            "kairo.cluster-tools.singleton.take-over-from-me"
+        );
         assert_eq!(PubSubStatus::VERSION, 1);
+        assert_eq!(SingletonHandOverToMe::VERSION, 1);
         assert!(!PubSubStatus::MANIFEST.contains(std::any::type_name::<PubSubStatus>()));
         assert!(!PubSubDelta::MANIFEST.contains(std::any::type_name::<PubSubDelta>()));
+        assert!(
+            !SingletonHandOverToMe::MANIFEST
+                .contains(std::any::type_name::<SingletonHandOverToMe>())
+        );
     }
 }

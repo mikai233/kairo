@@ -138,6 +138,10 @@ pub enum LocalSingletonManagerMsg<M: Send + 'static> {
         from: UniqueAddress,
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    TakeOverFromMe {
+        from: UniqueAddress,
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
     SingletonTerminated,
     StopManager {
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
@@ -197,6 +201,11 @@ where
             }
             LocalSingletonManagerMsg::HandOverDone { from, reply_to } => {
                 let effects = self.runtime.hand_over_done(&from);
+                self.apply_effects(ctx, &effects)?;
+                reply_effects(reply_to, effects);
+            }
+            LocalSingletonManagerMsg::TakeOverFromMe { from, reply_to } => {
+                let effects = self.runtime.take_over_from_me(from);
                 self.apply_effects(ctx, &effects)?;
                 reply_effects(reply_to, effects);
             }

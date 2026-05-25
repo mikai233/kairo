@@ -858,6 +858,18 @@ Implemented:
   `ActorRef<M>` values, while remote targets can wrap `RemoteActorRef<M>` for
   `RemoteMessage` protocols and receive buffered proxy messages through stable
   remote envelopes when they become the current oldest route.
+- `kairo-cluster-tools` now declares stable singleton manager handover
+  protocol metadata and explicit codecs for `HandOverToMe`,
+  `HandOverInProgress`, `HandOverDone`, and `TakeOverFromMe` messages using
+  explicit `UniqueAddress` fields and serializer IDs instead of Rust type
+  names, enum discriminants, or memory layout.
+- `kairo-cluster-tools` now has focused singleton manager remote-envelope
+  wiring: `SingletonManagerRemoteOutbound` maps handover runtime effects to
+  stable serialized envelopes addressed to `/system/singleton/manager`,
+  `SingletonManagerRemoteInbound` validates the target manager path and
+  dispatches decoded handover messages into the actor-backed manager protocol,
+  and outbound sends can use the shared `kairo-remote::RemoteAssociationCache`
+  boundary.
 - `kairo-cluster-tools` topic support is split into focused name and local
   topic modules, with typed local subscriptions, duplicate suppression,
   unsubscribe/removal handling, broadcast delivery, and deterministic
@@ -943,9 +955,9 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton manager handover socket wiring and distributed pubsub
-  user-message socket or remote-association wiring beyond status/delta gossip
-  envelopes.
+- Cluster singleton manager handover socket association population and
+  distributed pubsub user-message socket or remote-association wiring beyond
+  status/delta gossip envelopes.
 - Multi-node cluster membership socket transport, socket-backed heartbeat
   association wiring, actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.

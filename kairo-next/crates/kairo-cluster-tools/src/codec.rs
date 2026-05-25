@@ -8,17 +8,26 @@ use kairo_serialization::{
 
 use crate::{
     PubSubBucket, PubSubDelta, PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey,
-    PubSubStatus, TopicName,
+    PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
+    SingletonTakeOverFromMe, TopicName,
 };
 
 pub const PUBSUB_STATUS_SERIALIZER_ID: u32 = 5_000;
 pub const PUBSUB_DELTA_SERIALIZER_ID: u32 = 5_001;
+pub const SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID: u32 = 5_010;
+pub const SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID: u32 = 5_011;
+pub const SINGLETON_HAND_OVER_DONE_SERIALIZER_ID: u32 = 5_012;
+pub const SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID: u32 = 5_013;
 
 pub fn register_cluster_tools_protocol_codecs(
     registry: &mut Registry,
 ) -> kairo_serialization::Result<()> {
     registry.register::<PubSubStatus, _>(PubSubStatusCodec)?;
     registry.register::<PubSubDelta, _>(PubSubDeltaCodec)?;
+    registry.register::<SingletonHandOverToMe, _>(SingletonHandOverToMeCodec)?;
+    registry.register::<SingletonHandOverInProgress, _>(SingletonHandOverInProgressCodec)?;
+    registry.register::<SingletonHandOverDone, _>(SingletonHandOverDoneCodec)?;
+    registry.register::<SingletonTakeOverFromMe, _>(SingletonTakeOverFromMeCodec)?;
     Ok(())
 }
 
@@ -72,6 +81,113 @@ impl MessageCodec<PubSubDelta> for PubSubDeltaCodec {
             delta: read_delta(&mut reader)?,
         })
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SingletonHandOverToMeCodec;
+
+impl MessageCodec<SingletonHandOverToMe> for SingletonHandOverToMeCodec {
+    fn serializer_id(&self) -> u32 {
+        SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &SingletonHandOverToMe) -> kairo_serialization::Result<Bytes> {
+        encode_singleton_handover(&message.from)
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<SingletonHandOverToMe> {
+        ensure_version::<SingletonHandOverToMe>(version)?;
+        Ok(SingletonHandOverToMe {
+            from: decode_singleton_handover(payload)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SingletonHandOverInProgressCodec;
+
+impl MessageCodec<SingletonHandOverInProgress> for SingletonHandOverInProgressCodec {
+    fn serializer_id(&self) -> u32 {
+        SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &SingletonHandOverInProgress) -> kairo_serialization::Result<Bytes> {
+        encode_singleton_handover(&message.from)
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<SingletonHandOverInProgress> {
+        ensure_version::<SingletonHandOverInProgress>(version)?;
+        Ok(SingletonHandOverInProgress {
+            from: decode_singleton_handover(payload)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SingletonHandOverDoneCodec;
+
+impl MessageCodec<SingletonHandOverDone> for SingletonHandOverDoneCodec {
+    fn serializer_id(&self) -> u32 {
+        SINGLETON_HAND_OVER_DONE_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &SingletonHandOverDone) -> kairo_serialization::Result<Bytes> {
+        encode_singleton_handover(&message.from)
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<SingletonHandOverDone> {
+        ensure_version::<SingletonHandOverDone>(version)?;
+        Ok(SingletonHandOverDone {
+            from: decode_singleton_handover(payload)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SingletonTakeOverFromMeCodec;
+
+impl MessageCodec<SingletonTakeOverFromMe> for SingletonTakeOverFromMeCodec {
+    fn serializer_id(&self) -> u32 {
+        SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &SingletonTakeOverFromMe) -> kairo_serialization::Result<Bytes> {
+        encode_singleton_handover(&message.from)
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<SingletonTakeOverFromMe> {
+        ensure_version::<SingletonTakeOverFromMe>(version)?;
+        Ok(SingletonTakeOverFromMe {
+            from: decode_singleton_handover(payload)?,
+        })
+    }
+}
+
+fn encode_singleton_handover(from: &UniqueAddress) -> kairo_serialization::Result<Bytes> {
+    let mut writer = WireWriter::new();
+    write_unique_address(&mut writer, from)?;
+    Ok(writer.finish())
+}
+
+fn decode_singleton_handover(payload: Bytes) -> kairo_serialization::Result<UniqueAddress> {
+    let mut reader = WireReader::new(&payload);
+    read_unique_address(&mut reader)
 }
 
 fn write_delta(
@@ -308,6 +424,68 @@ mod tests {
         assert_eq!(
             registry.deserialize::<PubSubDelta>(serialized).unwrap(),
             delta
+        );
+    }
+
+    #[test]
+    fn cluster_tools_codecs_round_trip_singleton_handover_messages() {
+        let registry = registry();
+        let node = unique("singleton", 9);
+
+        let hand_over_to_me = SingletonHandOverToMe { from: node.clone() };
+        let serialized = registry.serialize(&hand_over_to_me).unwrap();
+        assert_eq!(
+            serialized.serializer_id,
+            SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID
+        );
+        assert_eq!(
+            serialized.manifest.as_str(),
+            SingletonHandOverToMe::MANIFEST
+        );
+        assert_eq!(
+            registry
+                .deserialize::<SingletonHandOverToMe>(serialized)
+                .unwrap(),
+            hand_over_to_me
+        );
+
+        let in_progress = SingletonHandOverInProgress { from: node.clone() };
+        let serialized = registry.serialize(&in_progress).unwrap();
+        assert_eq!(
+            serialized.serializer_id,
+            SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID
+        );
+        assert_eq!(
+            registry
+                .deserialize::<SingletonHandOverInProgress>(serialized)
+                .unwrap(),
+            in_progress
+        );
+
+        let done = SingletonHandOverDone { from: node.clone() };
+        let serialized = registry.serialize(&done).unwrap();
+        assert_eq!(
+            serialized.serializer_id,
+            SINGLETON_HAND_OVER_DONE_SERIALIZER_ID
+        );
+        assert_eq!(
+            registry
+                .deserialize::<SingletonHandOverDone>(serialized)
+                .unwrap(),
+            done
+        );
+
+        let take_over = SingletonTakeOverFromMe { from: node };
+        let serialized = registry.serialize(&take_over).unwrap();
+        assert_eq!(
+            serialized.serializer_id,
+            SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID
+        );
+        assert_eq!(
+            registry
+                .deserialize::<SingletonTakeOverFromMe>(serialized)
+                .unwrap(),
+            take_over
         );
     }
 

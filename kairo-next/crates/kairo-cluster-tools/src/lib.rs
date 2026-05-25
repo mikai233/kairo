@@ -7,9 +7,15 @@ mod singleton;
 mod topic;
 
 pub use codec::{
-    PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_STATUS_SERIALIZER_ID, register_cluster_tools_protocol_codecs,
+    PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_STATUS_SERIALIZER_ID,
+    SINGLETON_HAND_OVER_DONE_SERIALIZER_ID, SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID,
+    SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID, SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID,
+    register_cluster_tools_protocol_codecs,
 };
-pub use protocol::{PubSubDelta, PubSubStatus};
+pub use protocol::{
+    PubSubDelta, PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress,
+    SingletonHandOverToMe, SingletonTakeOverFromMe,
+};
 pub use pubsub::{
     CurrentTopics, DEFAULT_PUBSUB_REMOTE_PATH, DistributedPubSubMediatorActor,
     DistributedPubSubMediatorMsg, DistributedPubSubPublishReport, DistributedPubSubSnapshot,
@@ -22,12 +28,13 @@ pub use pubsub::{
     PubSubTopicReport,
 };
 pub use singleton::{
-    LocalSingletonManagerActor, LocalSingletonManagerMsg, LocalSingletonManagerSnapshot,
-    SingletonManagerActor, SingletonManagerEffect, SingletonManagerMsg, SingletonManagerRuntime,
-    SingletonManagerSnapshot, SingletonManagerState, SingletonOldestChange,
-    SingletonOldestObservation, SingletonOldestTracker, SingletonProxyActor, SingletonProxyMsg,
-    SingletonProxySettings, SingletonProxySettingsError, SingletonProxySnapshot,
-    SingletonProxyTarget, SingletonScope,
+    DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, LocalSingletonManagerActor, LocalSingletonManagerMsg,
+    LocalSingletonManagerSnapshot, SingletonManagerActor, SingletonManagerEffect,
+    SingletonManagerMsg, SingletonManagerRemoteError, SingletonManagerRemoteInbound,
+    SingletonManagerRemoteOutbound, SingletonManagerRuntime, SingletonManagerSnapshot,
+    SingletonManagerState, SingletonOldestChange, SingletonOldestObservation,
+    SingletonOldestTracker, SingletonProxyActor, SingletonProxyMsg, SingletonProxySettings,
+    SingletonProxySettingsError, SingletonProxySnapshot, SingletonProxyTarget, SingletonScope,
 };
 pub use topic::{
     LocalTopic, TopicName, TopicPublishMode, TopicPublishReport, TopicSubscriptionChange,

@@ -943,3 +943,36 @@ Consequences:
   `RegisterRoute { singleton: ActorRef<M> }`.
 - Socket-backed route discovery and remote singleton manager handover messages
   remain separate integration steps.
+
+## ADR-0037: Singleton Handover Uses Stable Remote Envelopes
+
+Status: Accepted
+
+Context:
+Pekko singleton managers coordinate ownership changes with internal
+`HandOverToMe`, `HandOverInProgress`, `HandOverDone`, and `TakeOverFromMe`
+messages. Kairo already models those effects in the singleton manager runtime,
+but remote manager wiring needs stable wire contracts and a transport-neutral
+envelope adapter before socket transport can carry them.
+
+Decision:
+Kairo declares singleton handover messages as cluster-tools `RemoteMessage`
+protocol types with explicit manifests, version `1`, fixed serializer IDs, and
+wire payloads containing the sending `UniqueAddress`. The codecs reuse the
+same explicit address encoding used by pubsub gossip messages and do not rely
+on Rust type names, enum discriminants, or memory layout.
+
+`SingletonManagerRemoteOutbound` maps runtime handover effects into serialized
+remote envelopes addressed to `/system/singleton/manager` on the target node.
+`SingletonManagerRemoteInbound` validates that recipient path and dispatches
+decoded handover messages back into the actor-backed singleton manager protocol.
+The sending node is explicit in the payload rather than inferred from an
+implicit actor sender.
+
+Consequences:
+- Singleton manager remote handover traffic now has a stable metadata and codec
+  contract plus focused remote-envelope outbound/inbound adapters.
+- The runtime effect planner remains transport-neutral; the remote adapter is
+  only an edge interpreter for already planned handover effects.
+- Socket-backed association population and route discovery remain separate
+  integration steps.

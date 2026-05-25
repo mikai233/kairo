@@ -51,6 +51,10 @@ pub enum SingletonManagerMsg {
         from: UniqueAddress,
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    TakeOverFromMe {
+        from: UniqueAddress,
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
     SingletonTerminated {
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
@@ -99,6 +103,10 @@ impl Actor for SingletonManagerActor {
             }
             SingletonManagerMsg::HandOverDone { from, reply_to } => {
                 let effects = self.runtime.hand_over_done(&from);
+                reply_effects(reply_to, effects);
+            }
+            SingletonManagerMsg::TakeOverFromMe { from, reply_to } => {
+                let effects = self.runtime.take_over_from_me(from);
                 reply_effects(reply_to, effects);
             }
             SingletonManagerMsg::SingletonTerminated { reply_to } => {

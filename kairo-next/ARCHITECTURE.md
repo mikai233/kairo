@@ -1565,6 +1565,13 @@ Design:
   for `RemoteMessage` protocols; buffering and oldest-member selection are the
   same for both,
 - on membership change, manager coordinates handover,
+- singleton handover system messages use stable manifests and explicit codecs:
+  `HandOverToMe`, `HandOverInProgress`, `HandOverDone`, and
+  `TakeOverFromMe` carry the sender `UniqueAddress`,
+- remote manager handover envelopes are addressed to
+  `/system/singleton/manager`; outbound adapters interpret manager effects and
+  inbound adapters validate the recipient path before dispatching into the
+  actor-backed manager protocol,
 - on leaving/exiting/down, singleton stops or moves.
 
 Singleton must consume cluster events only. It must not have a separate
