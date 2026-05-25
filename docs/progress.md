@@ -262,6 +262,10 @@ Implemented:
   stream and join them through `TcpAssociationReaderHandle`, so ordinary,
   control, and large lanes can be drained independently while sibling lane
   streams remain open.
+- TCP listeners can now be moved into a stoppable background accept loop via
+  `TcpAssociationListener::spawn_accept_loop`, which accepts complete lane
+  associations, starts their independent lane readers, and joins them through
+  an explicit `TcpAssociationListenerHandle` report.
 - `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
   actor path, removes refs before termination is observable, and exposes local
   resolution helpers so remoting can resolve inbound recipients without making
@@ -978,9 +982,9 @@ Not yet implemented:
 - Full actor tree lifecycle semantics beyond recursive local stop and
   restart-time child handling.
 - Full actor-system local/remote provider integration, optional codec helper
-  crates, long-running socket listener loops, reader supervision/restart
-  policy, and actor-system lifecycle wiring around the existing TCP association
-  primitives, and broader cross-crate compatibility fixtures.
+  crates, reader supervision/restart policy, handshakes, and actor-system
+  lifecycle wiring around the existing TCP association primitives, and broader
+  cross-crate compatibility fixtures.
 - Distributed-data socket listener/dialer wiring around the shared remote
   association cache and route installer.
 - Sharding remember-entity stores still need broader automatic region/shard

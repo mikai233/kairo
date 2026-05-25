@@ -1150,5 +1150,32 @@ Consequences:
   without waiting for sibling lane streams to close first.
 - The reader handle is explicit lifecycle state that a future actor-system
   remote provider can own, stop, and supervise.
-- Reader restart policy, handshake validation, listener loops, and coordinated
-  shutdown ownership remain separate integration work.
+- Reader restart policy, handshake validation, provider ownership, and
+  coordinated shutdown ownership remain separate integration work.
+
+## ADR-0044: TCP Listener Loops Are Explicit Lifecycle Handles
+
+Status: Accepted
+
+Context:
+Pekko's TCP transport owns a bound listener and attaches each incoming
+connection to inbound stream processing while keeping transport lifecycle below
+actor protocols. Kairo now has per-association lane readers, but provider
+integration needs an explicit owner for a bound listener and the reader handles
+it creates.
+
+Decision:
+`TcpAssociationListener::spawn_accept_loop` moves a bound listener into a
+background accept loop. The loop accepts complete control, ordinary, and large
+lane associations, starts independent lane readers for each accepted
+association, and exits when its `TcpAssociationListenerHandle` is stopped.
+Joining the handle waits for the listener and all reader handles, then returns
+a report with accepted-association and stream/frame counts.
+
+Consequences:
+- The TCP listener lifecycle is explicit state that actor-system remote
+  provider wiring can own later.
+- The TCP layer still does not deserialize messages, resolve actors, or make
+  membership decisions; it only feeds frame handlers.
+- Reader restart/backoff policy, handshakes, and coordinated shutdown
+  integration remain separate work.

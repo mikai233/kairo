@@ -816,9 +816,13 @@ TCP association dialing:
   onto background reader threads and join them through an explicit
   `TcpAssociationReaderHandle`, allowing one lane to deliver frames while the
   other lane streams remain open,
+- `TcpAssociationListener::spawn_accept_loop` owns a bound listener in a
+  stoppable background accept loop, creates lane readers for each complete
+  accepted association, and reports accepted-association plus stream/frame
+  counts through `TcpAssociationListenerHandle`,
 - these TCP pieces remain transport primitives; handshakes, reconnect policy,
-  long-running listener loops, reader supervision/restart policy, and
-  actor-system lifecycle ownership remain separate integration work.
+  reader supervision/restart policy, and actor-system lifecycle ownership
+  remain separate integration work.
 
 Outbound lanes:
 
