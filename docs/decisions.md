@@ -1177,8 +1177,8 @@ Consequences:
   provider wiring can own later.
 - The TCP layer still does not deserialize messages, resolve actors, or make
   membership decisions; it only feeds frame handlers.
-- Reader restart/backoff policy, handshakes, and coordinated shutdown
-  integration remain separate work.
+- Reader restart/backoff policy and coordinated shutdown integration remain
+  separate work.
 
 ## ADR-0045: TCP Actor-System Runtime Localizes Canonical Recipients
 
@@ -1212,5 +1212,42 @@ Consequences:
 - Address ownership remains explicit and does not turn discovery or TCP
   connection state into cluster membership truth.
 - TCP shutdown has deterministic ownership of cached outbound socket lanes,
-  but reconnect/backoff policy, association handshakes, and richer provider
-  supervision remain future work.
+  but reconnect/backoff policy and richer provider supervision remain future
+  work.
+
+## ADR-0046: TCP Lane Streams Start With Association Handshakes
+
+Status: Accepted
+
+Context:
+Pekko Artery sends handshake requests before ordinary user traffic is accepted.
+Inbound handshakes validate that the request is addressed to the local node,
+complete the association with the remote unique address, and reject or drop
+traffic from unknown origins. Kairo does not yet implement the full Artery
+UID/quarantine state machine in the TCP transport, but its concrete TCP lanes
+still need a stable association identity before framed messages are delivered.
+
+Decision:
+Kairo adds a focused TCP handshake module under `kairo-remote/src/tcp`. A
+handshake is written before the regular stream header on each concrete TCP
+lane when a `TcpAssociationDialer` has a configured local association address.
+The handshake carries:
+
+- explicit local and remote `RemoteAssociationAddress` values,
+- the lane id for the stream,
+- a fixed magic/version prefix plus length-prefixed stable wire payloads.
+
+`TcpAssociationListener` can be configured with its local association address.
+In that mode it reads one handshake from each accepted lane before handing the
+stream to frame readers, rejects handshakes addressed to another local node,
+rejects mixed remote addresses, and rejects duplicate lane ids. Raw listener
+tests may still omit the local address to exercise stream framing without the
+association handshake layer.
+
+Consequences:
+- `TcpRemoteActorSystem` now validates the peer and target address before
+  delivering normal remote envelope frames.
+- The handshake format does not rely on Rust type names, enum discriminants,
+  or memory layout.
+- Full remote UID tracking, quarantine after UID changes, retry/backoff, and
+  reliable system-message delivery remain separate remote milestones.

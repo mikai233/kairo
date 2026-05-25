@@ -823,13 +823,18 @@ TCP association dialing:
   stoppable background accept loop, creates lane readers for each complete
   accepted association, and reports accepted-association plus stream/frame
   counts through `TcpAssociationListenerHandle`,
+- concrete TCP actor-system runtimes send and require an explicit association
+  handshake before stream frames. The handshake carries stable local/remote
+  `RemoteAssociationAddress` values and the lane id, and listeners reject
+  lanes addressed to another local address, lanes from mixed remote
+  associations, or duplicate lane ids,
 - `TcpRemoteActorSystem<M>` composes the concrete TCP listener, association
   cache, route installer, dialer, remote actor-ref provider, actor-system
   inbound router, and remote death-watch actor into one lifecycle owner for a
   message protocol `M`,
-- these TCP pieces remain transport primitives; handshakes, reconnect policy,
-  reader supervision/restart policy, and actor-system lifecycle ownership
-  remain separate integration work.
+- these TCP pieces remain transport primitives; reconnect policy, reader
+  supervision/restart policy, and richer provider lifecycle ownership remain
+  separate integration work.
 
 Outbound lanes:
 

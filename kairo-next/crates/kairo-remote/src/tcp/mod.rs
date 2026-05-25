@@ -1,8 +1,13 @@
 mod dialer;
+mod handshake;
 mod inbound;
 mod sink;
 
 pub use self::dialer::TcpAssociationDialer;
+pub use self::handshake::{
+    TcpAssociationHandshake, encode_tcp_association_handshake, read_tcp_association_handshake,
+    validate_tcp_association_handshakes,
+};
 pub use self::inbound::{
     TcpAcceptedAssociation, TcpAssociationListener, TcpAssociationListenerHandle,
     TcpAssociationListenerReport, TcpAssociationReadReport, TcpAssociationReaderHandle,

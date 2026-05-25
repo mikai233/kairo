@@ -93,10 +93,12 @@ where
             effective_settings.clone(),
         );
         let listener = TcpAssociationListener::from_listener(listener, Arc::new(inbound))
+            .with_local_address(local_association_address(&system, &effective_settings)?)
             .spawn_accept_loop()?;
         let installer = RemoteAssociationRouteInstaller::new(association_cache.clone());
-        let dialer =
-            TcpAssociationDialer::new(installer).with_connect_timeout(Duration::from_secs(1));
+        let dialer = TcpAssociationDialer::new(installer)
+            .with_local_address(local_association_address(&system, &effective_settings)?)
+            .with_connect_timeout(Duration::from_secs(1));
         let provider = RemoteActorRefProvider::new(
             system.name().to_string(),
             effective_settings.clone(),
@@ -175,6 +177,18 @@ fn local_watcher_for(system: &ActorSystem, settings: &RemoteSettings) -> Result<
         settings.canonical_port
     ))
     .map_err(RemoteError::from)
+}
+
+fn local_association_address(
+    system: &ActorSystem,
+    settings: &RemoteSettings,
+) -> Result<RemoteAssociationAddress> {
+    RemoteAssociationAddress::new(
+        system.address().protocol(),
+        system.name(),
+        settings.canonical_hostname.clone(),
+        Some(settings.canonical_port),
+    )
 }
 
 #[cfg(test)]

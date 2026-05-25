@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -59,9 +59,17 @@ fn address(port: u16) -> RemoteAssociationAddress {
     RemoteAssociationAddress::new("kairo", "remote", "127.0.0.1", Some(port)).unwrap()
 }
 
+fn association_address(system: &str, port: u16) -> RemoteAssociationAddress {
+    RemoteAssociationAddress::new("kairo", system, "127.0.0.1", Some(port)).unwrap()
+}
+
 fn envelope(port: u16, value: u8) -> RemoteEnvelope {
+    envelope_to("remote", port, value)
+}
+
+fn envelope_to(system: &str, port: u16, value: u8) -> RemoteEnvelope {
     RemoteEnvelope::new(
-        ActorRefWireData::new(format!("kairo://remote@127.0.0.1:{port}/user/target")).unwrap(),
+        ActorRefWireData::new(format!("kairo://{system}@127.0.0.1:{port}/user/target")).unwrap(),
         None,
         SerializedMessage::new(
             777,
@@ -264,6 +272,84 @@ fn tcp_listener_accept_loop_spawns_and_joins_lane_readers() {
     assert_eq!(report.accepted_associations, 1);
     assert_eq!(report.read.streams, 3);
     assert_eq!(report.read.frames, 1);
+}
+
+#[test]
+fn tcp_listener_validates_handshaken_lanes_before_reading_frames() {
+    let handler = Arc::new(CollectingFrameHandler::default());
+    let remote_address = association_address("sender", 25521);
+    let listener = TcpAssociationListener::bind(
+        ("127.0.0.1", 0),
+        handler.clone() as Arc<dyn RemoteFrameHandler>,
+    )
+    .unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let listener = listener.with_local_address(association_address("receiver", port));
+    let (accepted_tx, accepted_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let accepted = listener.accept_association().unwrap();
+        accepted_tx
+            .send(accepted.remote_address().cloned())
+            .unwrap();
+        accepted.drain().unwrap()
+    });
+
+    let cache = RemoteAssociationCache::new();
+    let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone());
+    let dialer = TcpAssociationDialer::new(installer)
+        .with_local_address(remote_address.clone())
+        .with_connect_timeout(Duration::from_secs(1));
+    let registration = dialer.dial(association_address("receiver", port)).unwrap();
+
+    assert_eq!(
+        accepted_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Some(remote_address)
+    );
+
+    cache.send(envelope_to("receiver", port, 55)).unwrap();
+    drop(registration);
+    drop(cache);
+    drop(dialer);
+
+    let report = handle.join().unwrap();
+    assert_eq!(report.streams, 3);
+    assert_eq!(report.frames, 1);
+    let frames = handler.frames();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].0, RemoteStreamId::Ordinary);
+}
+
+#[test]
+fn tcp_listener_rejects_handshake_for_different_local_address() {
+    let handler = Arc::new(CollectingFrameHandler::default());
+    let listener = TcpAssociationListener::bind(
+        ("127.0.0.1", 0),
+        handler.clone() as Arc<dyn RemoteFrameHandler>,
+    )
+    .unwrap()
+    .with_expected_streams(1)
+    .with_local_address(association_address("receiver", 25520));
+    let port = listener.local_addr().unwrap().port();
+    let handle = thread::spawn(move || listener.accept_association());
+
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let handshake = TcpAssociationHandshake::new(
+        RemoteStreamId::Control,
+        association_address("sender", 25521),
+        association_address("other", 25520),
+    );
+    stream
+        .write_all(&encode_tcp_association_handshake(&handshake).unwrap())
+        .unwrap();
+    drop(stream);
+
+    let error = match handle.join().unwrap() {
+        Ok(_) => panic!("wrong handshake target should be rejected"),
+        Err(error) => error,
+    };
+    assert!(matches!(error, RemoteError::InvalidFrame(_)));
+    assert!(error.to_string().contains("addressed to"));
+    assert!(handler.frames().is_empty());
 }
 
 #[test]

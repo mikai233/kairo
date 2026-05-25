@@ -9,7 +9,13 @@ use std::time::Duration;
 
 use bytes::Bytes;
 
-use crate::{RemoteError, RemoteFrameHandler, Result, StreamFrameInbound};
+use crate::{
+    RemoteAssociationAddress, RemoteError, RemoteFrameHandler, Result, StreamFrameInbound,
+};
+
+use super::{
+    TcpAssociationHandshake, read_tcp_association_handshake, validate_tcp_association_handshakes,
+};
 
 const DEFAULT_EXPECTED_LANE_STREAMS: usize = 3;
 const DEFAULT_READ_CHUNK_LEN: usize = 8 * 1024;
@@ -64,6 +70,7 @@ pub struct TcpAssociationListener {
     reader: TcpAssociationStreamReader,
     expected_streams: usize,
     accept_poll_interval: Duration,
+    local_address: Option<RemoteAssociationAddress>,
 }
 
 impl TcpAssociationListener {
@@ -79,11 +86,17 @@ impl TcpAssociationListener {
             reader: TcpAssociationStreamReader::new(handler),
             expected_streams: DEFAULT_EXPECTED_LANE_STREAMS,
             accept_poll_interval: DEFAULT_ACCEPT_POLL_INTERVAL,
+            local_address: None,
         }
     }
 
     pub fn with_expected_streams(mut self, expected_streams: usize) -> Self {
         self.expected_streams = expected_streams.max(1);
+        self
+    }
+
+    pub fn with_local_address(mut self, local_address: RemoteAssociationAddress) -> Self {
+        self.local_address = Some(local_address);
         self
     }
 
@@ -109,18 +122,22 @@ impl TcpAssociationListener {
 
     pub fn accept_association(&self) -> Result<TcpAcceptedAssociation> {
         let mut streams = Vec::with_capacity(self.expected_streams);
+        let mut handshakes = Vec::with_capacity(self.expected_streams);
         for _ in 0..self.expected_streams {
-            let (stream, peer) = self
+            let (mut stream, peer) = self
                 .listener
                 .accept()
                 .map_err(|error| RemoteError::Inbound(format!("tcp accept failed: {error}")))?;
             stream
                 .set_nodelay(true)
                 .map_err(|error| tcp_inbound_failure(&peer.to_string(), error))?;
+            self.read_handshake(&mut stream, &mut handshakes)?;
             streams.push(TcpAcceptedStream { peer, stream });
         }
+        let remote_address = self.validate_handshakes(&handshakes)?;
         Ok(TcpAcceptedAssociation {
             reader: self.reader.clone(),
+            remote_address,
             streams,
         })
     }
@@ -182,6 +199,7 @@ impl TcpAssociationListener {
 
     fn try_accept_association(&self, stop: &AtomicBool) -> Result<Option<TcpAcceptedAssociation>> {
         let mut streams = Vec::with_capacity(self.expected_streams);
+        let mut handshakes = Vec::with_capacity(self.expected_streams);
         while streams.len() < self.expected_streams {
             match self.listener.accept() {
                 Ok((stream, peer)) => {
@@ -191,6 +209,8 @@ impl TcpAssociationListener {
                     stream
                         .set_nodelay(true)
                         .map_err(|error| tcp_inbound_failure(&peer.to_string(), error))?;
+                    let mut stream = stream;
+                    self.read_handshake(&mut stream, &mut handshakes)?;
                     streams.push(TcpAcceptedStream { peer, stream });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -210,10 +230,37 @@ impl TcpAssociationListener {
                 }
             }
         }
+        let remote_address = self.validate_handshakes(&handshakes)?;
         Ok(Some(TcpAcceptedAssociation {
             reader: self.reader.clone(),
+            remote_address,
             streams,
         }))
+    }
+
+    fn read_handshake(
+        &self,
+        stream: &mut TcpStream,
+        handshakes: &mut Vec<TcpAssociationHandshake>,
+    ) -> Result<()> {
+        if self.local_address.is_some() {
+            handshakes.push(read_tcp_association_handshake(stream)?);
+        }
+        Ok(())
+    }
+
+    fn validate_handshakes(
+        &self,
+        handshakes: &[TcpAssociationHandshake],
+    ) -> Result<Option<RemoteAssociationAddress>> {
+        match &self.local_address {
+            Some(local_address) => validate_tcp_association_handshakes(
+                local_address,
+                self.expected_streams,
+                handshakes,
+            ),
+            None => Ok(None),
+        }
     }
 }
 
@@ -236,10 +283,15 @@ impl TcpAssociationListenerHandle {
 
 pub struct TcpAcceptedAssociation {
     reader: TcpAssociationStreamReader,
+    remote_address: Option<RemoteAssociationAddress>,
     streams: Vec<TcpAcceptedStream>,
 }
 
 impl TcpAcceptedAssociation {
+    pub fn remote_address(&self) -> Option<&RemoteAssociationAddress> {
+        self.remote_address.as_ref()
+    }
+
     pub fn stream_count(&self) -> usize {
         self.streams.len()
     }
