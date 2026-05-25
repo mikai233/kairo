@@ -104,9 +104,9 @@ pub use orset::{ORSet, ORSetDelta, ORSetRemoveDelta};
 pub use pncounter::PNCounter;
 pub use protocol::{
     ReplicatorChanged, ReplicatorDataEnvelope, ReplicatorDelta, ReplicatorDeltaAck,
-    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorRead,
-    ReplicatorReadResult, ReplicatorSubscribe, ReplicatorUpdate, ReplicatorWrite,
-    ReplicatorWriteAck, ReplicatorWriteNack,
+    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorPruningEntry,
+    ReplicatorPruningState, ReplicatorRead, ReplicatorReadResult, ReplicatorSubscribe,
+    ReplicatorUpdate, ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
 };
 pub use pruning::{
     PruningInitialized, PruningPerformed, PruningState, PruningTable, RemovedNodePruningTracker,

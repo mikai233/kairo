@@ -55,7 +55,7 @@ pub struct ReplicatorWrite {
 
 impl RemoteMessage for ReplicatorWrite {
     const MANIFEST: &'static str = "kairo.ddata.write";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,7 +92,7 @@ pub struct ReplicatorReadResult {
 
 impl RemoteMessage for ReplicatorReadResult {
     const MANIFEST: &'static str = "kairo.ddata.read-result";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +100,7 @@ pub struct ReplicatorDataEnvelope {
     pub crdt_manifest: String,
     pub crdt_version: u16,
     pub payload: Bytes,
+    pub pruning: Vec<ReplicatorPruningEntry>,
 }
 
 impl ReplicatorDataEnvelope {
@@ -108,8 +109,31 @@ impl ReplicatorDataEnvelope {
             crdt_manifest: data.manifest().to_string(),
             crdt_version: data.version(),
             payload: data.into_payload(),
+            pruning: Vec::new(),
         }
     }
+
+    pub fn with_pruning(mut self, pruning: Vec<ReplicatorPruningEntry>) -> Self {
+        self.pruning = pruning;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorPruningEntry {
+    pub removed: ReplicaId,
+    pub state: ReplicatorPruningState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReplicatorPruningState {
+    Initialized {
+        owner: ReplicaId,
+        seen: Vec<ReplicaId>,
+    },
+    Performed {
+        obsolete_at_millis: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

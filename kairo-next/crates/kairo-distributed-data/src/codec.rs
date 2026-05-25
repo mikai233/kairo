@@ -6,9 +6,9 @@ use kairo_serialization::{
 
 use crate::{
     ReplicaId, ReplicatorChanged, ReplicatorDataEnvelope, ReplicatorDelta, ReplicatorDeltaAck,
-    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorRead,
-    ReplicatorReadResult, ReplicatorSubscribe, ReplicatorUpdate, ReplicatorWrite,
-    ReplicatorWriteAck, ReplicatorWriteNack,
+    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorPruningEntry,
+    ReplicatorPruningState, ReplicatorRead, ReplicatorReadResult, ReplicatorSubscribe,
+    ReplicatorUpdate, ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
 };
 
 pub const REPLICATOR_GET_SERIALIZER_ID: u32 = 3_000;
@@ -254,12 +254,17 @@ impl MessageCodec<ReplicatorWrite> for ReplicatorWriteCodec {
     }
 
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<ReplicatorWrite> {
-        ensure_version::<ReplicatorWrite>(version)?;
+        ensure_version_range(
+            ReplicatorWrite::MANIFEST,
+            version,
+            1,
+            ReplicatorWrite::VERSION,
+        )?;
         let mut reader = WireReader::new(&payload);
         Ok(ReplicatorWrite {
             key: reader.read_string()?,
             from: reader.read_optional_string()?.map(ReplicaId::new),
-            envelope: read_data_envelope(&mut reader)?,
+            envelope: read_data_envelope(&mut reader, version)?,
         })
     }
 }
@@ -360,10 +365,15 @@ impl MessageCodec<ReplicatorReadResult> for ReplicatorReadResultCodec {
         payload: Bytes,
         version: u16,
     ) -> kairo_serialization::Result<ReplicatorReadResult> {
-        ensure_version::<ReplicatorReadResult>(version)?;
+        ensure_version_range(
+            ReplicatorReadResult::MANIFEST,
+            version,
+            1,
+            ReplicatorReadResult::VERSION,
+        )?;
         let mut reader = WireReader::new(&payload);
         let envelope = if reader.read_bool()? {
-            Some(read_data_envelope(&mut reader)?)
+            Some(read_data_envelope(&mut reader, version)?)
         } else {
             None
         };
@@ -375,12 +385,20 @@ fn ensure_version<M>(version: u16) -> kairo_serialization::Result<()>
 where
     M: kairo_serialization::RemoteMessage,
 {
-    if version == M::VERSION {
+    ensure_version_range(M::MANIFEST, version, M::VERSION, M::VERSION)
+}
+
+fn ensure_version_range(
+    manifest: &str,
+    version: u16,
+    min_version: u16,
+    max_version: u16,
+) -> kairo_serialization::Result<()> {
+    if (min_version..=max_version).contains(&version) {
         Ok(())
     } else {
         Err(SerializationError::Message(format!(
-            "unsupported {} version {version}",
-            M::MANIFEST
+            "unsupported {manifest} version {version}"
         )))
     }
 }
@@ -414,17 +432,84 @@ fn write_data_envelope(
 ) -> kairo_serialization::Result<()> {
     writer.write_string(&envelope.crdt_manifest)?;
     writer.write_u16(envelope.crdt_version);
-    writer.write_bytes(&envelope.payload)
+    writer.write_bytes(&envelope.payload)?;
+    writer.write_u64(len_to_u64(envelope.pruning.len())?);
+    for entry in &envelope.pruning {
+        write_pruning_entry(writer, entry)?;
+    }
+    Ok(())
 }
 
 fn read_data_envelope(
     reader: &mut WireReader<'_>,
+    version: u16,
 ) -> kairo_serialization::Result<ReplicatorDataEnvelope> {
+    let crdt_manifest = reader.read_string()?;
+    let crdt_version = reader.read_u16()?;
+    let payload = reader.read_bytes()?;
+    let pruning = if version >= 2 {
+        let count = u64_to_len(reader.read_u64()?)?;
+        (0..count)
+            .map(|_| read_pruning_entry(reader))
+            .collect::<kairo_serialization::Result<Vec<_>>>()?
+    } else {
+        Vec::new()
+    };
+
     Ok(ReplicatorDataEnvelope {
-        crdt_manifest: reader.read_string()?,
-        crdt_version: reader.read_u16()?,
-        payload: reader.read_bytes()?,
+        crdt_manifest,
+        crdt_version,
+        payload,
+        pruning,
     })
+}
+
+fn write_pruning_entry(
+    writer: &mut WireWriter,
+    entry: &ReplicatorPruningEntry,
+) -> kairo_serialization::Result<()> {
+    writer.write_string(entry.removed.as_str())?;
+    match &entry.state {
+        ReplicatorPruningState::Initialized { owner, seen } => {
+            writer.write_u8(1);
+            writer.write_string(owner.as_str())?;
+            writer.write_u64(len_to_u64(seen.len())?);
+            for seen_by in seen {
+                writer.write_string(seen_by.as_str())?;
+            }
+        }
+        ReplicatorPruningState::Performed { obsolete_at_millis } => {
+            writer.write_u8(2);
+            writer.write_u64(*obsolete_at_millis);
+        }
+    }
+    Ok(())
+}
+
+fn read_pruning_entry(
+    reader: &mut WireReader<'_>,
+) -> kairo_serialization::Result<ReplicatorPruningEntry> {
+    let removed = ReplicaId::new(reader.read_string()?);
+    let state = match reader.read_u8()? {
+        1 => {
+            let owner = ReplicaId::new(reader.read_string()?);
+            let seen_count = u64_to_len(reader.read_u64()?)?;
+            let mut seen = Vec::with_capacity(seen_count);
+            for _ in 0..seen_count {
+                seen.push(ReplicaId::new(reader.read_string()?));
+            }
+            ReplicatorPruningState::Initialized { owner, seen }
+        }
+        2 => ReplicatorPruningState::Performed {
+            obsolete_at_millis: reader.read_u64()?,
+        },
+        other => {
+            return Err(SerializationError::Message(format!(
+                "unknown ddata pruning state tag {other}"
+            )));
+        }
+    };
+    Ok(ReplicatorPruningEntry { removed, state })
 }
 
 fn ensure_empty_payload(payload: &Bytes, manifest: &str) -> kairo_serialization::Result<()> {
@@ -601,6 +686,21 @@ mod tests {
             crdt_manifest: crate::GCOUNTER_MANIFEST.to_string(),
             crdt_version: crate::CRDT_CODEC_VERSION,
             payload: Bytes::from_static(&[9, 8, 7]),
+            pruning: vec![
+                ReplicatorPruningEntry {
+                    removed: ReplicaId::new("removed-a"),
+                    state: ReplicatorPruningState::Initialized {
+                        owner: ReplicaId::new("node-a"),
+                        seen: vec![ReplicaId::new("node-b")],
+                    },
+                },
+                ReplicatorPruningEntry {
+                    removed: ReplicaId::new("removed-b"),
+                    state: ReplicatorPruningState::Performed {
+                        obsolete_at_millis: 1234,
+                    },
+                },
+            ],
         };
         let write = ReplicatorWrite {
             key: "counter-a".to_string(),

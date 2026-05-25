@@ -654,6 +654,7 @@ mod tests {
                             crdt_manifest: crate::GSET_STRING_MANIFEST.to_string(),
                             crdt_version: crate::CRDT_CODEC_VERSION,
                             payload: bytes::Bytes::new(),
+                            pruning: Vec::new(),
                         }),
                     },
                 },

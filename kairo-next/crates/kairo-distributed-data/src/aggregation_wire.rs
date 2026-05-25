@@ -1,7 +1,8 @@
 use kairo_serialization::SerializationError;
 
 use crate::{
-    CrdtDataCodec, DataEnvelope, ReplicaId, ReplicatedData, ReplicatorDataEnvelope, ReplicatorKey,
+    CrdtDataCodec, DataEnvelope, PruningState, PruningTable, ReplicaId, ReplicatedData,
+    ReplicatorDataEnvelope, ReplicatorKey, ReplicatorPruningEntry, ReplicatorPruningState,
     ReplicatorRead, ReplicatorReadResult, ReplicatorWrite,
 };
 
@@ -13,9 +14,10 @@ where
     D: ReplicatedData,
     Codec: CrdtDataCodec<D> + ?Sized,
 {
-    Ok(ReplicatorDataEnvelope::new(
-        codec.serialize(envelope.data())?,
-    ))
+    Ok(
+        ReplicatorDataEnvelope::new(codec.serialize(envelope.data())?)
+            .with_pruning(encode_pruning_table(envelope.pruning())),
+    )
 }
 
 pub fn decode_data_envelope<D, Codec>(
@@ -34,10 +36,11 @@ where
         )));
     }
 
-    Ok(DataEnvelope::new(codec.decode_payload(
-        envelope.payload.clone(),
-        envelope.crdt_version,
-    )?))
+    let pruning = decode_pruning_table(&envelope.pruning)?;
+    Ok(DataEnvelope::with_pruning(
+        codec.decode_payload(envelope.payload.clone(), envelope.crdt_version)?,
+        pruning,
+    ))
 }
 
 pub fn encode_write<D, Codec>(
@@ -92,4 +95,50 @@ where
         .as_ref()
         .map(|envelope| decode_data_envelope(envelope, codec))
         .transpose()
+}
+
+fn encode_pruning_table(pruning: &PruningTable) -> Vec<ReplicatorPruningEntry> {
+    pruning
+        .states()
+        .iter()
+        .map(|(removed, state)| ReplicatorPruningEntry {
+            removed: removed.clone(),
+            state: match state {
+                PruningState::Initialized(initialized) => ReplicatorPruningState::Initialized {
+                    owner: initialized.owner().clone(),
+                    seen: initialized.seen().iter().cloned().collect(),
+                },
+                PruningState::Performed(performed) => ReplicatorPruningState::Performed {
+                    obsolete_at_millis: performed.obsolete_at_millis(),
+                },
+            },
+        })
+        .collect()
+}
+
+fn decode_pruning_table(
+    entries: &[ReplicatorPruningEntry],
+) -> kairo_serialization::Result<PruningTable> {
+    let mut pruning = PruningTable::new();
+    for entry in entries {
+        if pruning.get(&entry.removed).is_some() {
+            return Err(SerializationError::Message(format!(
+                "duplicate pruning entry for removed replica {}",
+                entry.removed.as_str()
+            )));
+        }
+
+        match &entry.state {
+            ReplicatorPruningState::Initialized { owner, seen } => {
+                pruning.initialize(entry.removed.clone(), owner.clone());
+                for seen_by in seen {
+                    pruning.mark_seen(&entry.removed, seen_by.clone());
+                }
+            }
+            ReplicatorPruningState::Performed { obsolete_at_millis } => {
+                pruning.mark_performed(entry.removed.clone(), *obsolete_at_millis);
+            }
+        }
+    }
+    Ok(pruning)
 }
