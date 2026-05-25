@@ -1965,3 +1965,30 @@ Consequences:
   termination behavior.
 - Failure reasons are explicit strings because Kairo actor failures are
   represented by `ActorError`, not JVM `Throwable` instances.
+
+## ADR-0070: Probe Death Watch Uses Typed System Watch Messages
+
+Status: Accepted
+
+Context:
+Pekko's typed test probe can watch an actor and assert that a matching
+termination signal is observed. Kairo's `TestProbe<M>` is intentionally a
+typed message receiver rather than a special untyped actor, so lifecycle
+assertions need to preserve the typed boundary without adding a broad dynamic
+probe protocol.
+
+Decision:
+Kairo exposes `ActorSystem::watch_with` as a typed public hook for harnesses
+and infrastructure code that own an `ActorRef<M>` but are not inside an actor
+`Context`. `TestProbe<M>::watch_with` registers a caller-provided typed
+message, and the specialized `TestProbe<AnyActorRef>` adds
+`watch_terminated` and `expect_terminated` helpers that encode termination as
+the watched actor's `AnyActorRef`.
+
+Consequences:
+- Probe lifecycle assertions reuse the same local death-watch registry as
+  actor-context `watch_with`.
+- Testkit remains structured around typed probe messages rather than a
+  catch-all dynamic event queue.
+- External code still cannot observe local actor state transitions without an
+  explicit watched actor ref and explicit typed notification message.

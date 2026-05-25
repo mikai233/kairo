@@ -279,7 +279,7 @@ impl ActorSystem {
         self.watch_registered(subject, registration)
     }
 
-    pub(crate) fn watch_with<M, N>(
+    pub fn watch_with<M, N>(
         &self,
         watcher: ActorRef<M>,
         subject: ActorRef<N>,

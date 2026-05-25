@@ -2,9 +2,12 @@ use std::fmt::{self, Display, Formatter};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
+use kairo_actor::{
+    Actor, ActorError, ActorRef, ActorResult, ActorSystem, AnyActorRef, Context, Props,
+};
 
 pub struct TestProbe<M> {
+    system: ActorSystem,
     actor_ref: ActorRef<M>,
     receiver: Receiver<M>,
 }
@@ -19,6 +22,7 @@ impl<M: Send + 'static> TestProbe<M> {
             }),
         )?;
         Ok(Self {
+            system: system.clone(),
             actor_ref,
             receiver,
         })
@@ -26,6 +30,11 @@ impl<M: Send + 'static> TestProbe<M> {
 
     pub fn actor_ref(&self) -> ActorRef<M> {
         self.actor_ref.clone()
+    }
+
+    pub fn watch_with<N: Send + 'static>(&self, subject: &ActorRef<N>, message: M) -> ActorResult {
+        self.system
+            .watch_with(self.actor_ref.clone(), subject.clone(), message)
     }
 
     pub fn expect_msg(&self, timeout: Duration) -> Result<M, ProbeError> {
@@ -63,6 +72,34 @@ impl<M: Send + 'static> TestProbe<M> {
     }
 }
 
+impl TestProbe<AnyActorRef> {
+    pub fn watch_terminated<N: Send + 'static>(
+        &self,
+        subject: &ActorRef<N>,
+    ) -> Result<(), ActorError> {
+        self.watch_with(subject, subject.as_any())
+    }
+
+    pub fn expect_terminated<N: Send + 'static>(
+        &self,
+        subject: &ActorRef<N>,
+        timeout: Duration,
+    ) -> Result<AnyActorRef, ProbeError> {
+        self.watch_terminated(subject)
+            .map_err(|error| ProbeError::WatchFailed(error.to_string()))?;
+        let expected = subject.as_any();
+        let actual = self.expect_msg(timeout)?;
+        if actual == expected {
+            Ok(actual)
+        } else {
+            Err(ProbeError::UnexpectedMessage {
+                expected: expected.path().to_string(),
+                actual: actual.path().to_string(),
+            })
+        }
+    }
+}
+
 struct ProbeActor<M> {
     sender: mpsc::Sender<M>,
 }
@@ -81,6 +118,7 @@ impl<M: Send + 'static> Actor for ProbeActor<M> {
 pub enum ProbeError {
     Timeout(Duration),
     Closed,
+    WatchFailed(String),
     UnexpectedMessage { expected: String, actual: String },
 }
 
@@ -89,6 +127,7 @@ impl Display for ProbeError {
         match self {
             Self::Timeout(timeout) => write!(f, "timed out after {timeout:?} waiting for message"),
             Self::Closed => f.write_str("test probe channel is closed"),
+            Self::WatchFailed(error) => write!(f, "failed to watch actor termination: {error}"),
             Self::UnexpectedMessage { expected, actual } => {
                 write!(f, "expected {expected}, received {actual}")
             }

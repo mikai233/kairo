@@ -154,6 +154,9 @@ Implemented:
 - `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
   queue, plus `ActorSystemTestKit` for creating probe-backed local actor
   systems in tests.
+- `TestProbe<M>` can register typed death-watch messages through
+  `watch_with`, and `TestProbe<AnyActorRef>` provides `watch_terminated` and
+  `expect_terminated` helpers for deterministic local lifecycle assertions.
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.

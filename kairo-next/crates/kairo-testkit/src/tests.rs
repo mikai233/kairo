@@ -2,7 +2,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
+use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, AnyActorRef, Context, Props};
 
 use crate::{ActorSystemTestKit, ManualTime, ProbeError, TestProbe};
 
@@ -46,6 +46,88 @@ fn test_probe_reports_expectation_mismatch() {
             expected,
             actual
         } if expected == "8" && actual == "7"
+    ));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_watch_with_receives_custom_termination_message() {
+    let kit = ActorSystemTestKit::new("test-probe-watch-with").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let subject = kit
+        .system()
+        .spawn("subject", Props::new(|| UnitActor))
+        .expect("subject should spawn");
+
+    probe
+        .watch_with(&subject, "terminated")
+        .expect("watch should register");
+    kit.system().stop(&subject);
+
+    assert_eq!(
+        probe.expect_msg(Duration::from_millis(50)).unwrap(),
+        "terminated"
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_expect_terminated_checks_expected_actor() {
+    let kit = ActorSystemTestKit::new("test-probe-expect-terminated").expect("system should build");
+    let probe = kit
+        .create_probe::<AnyActorRef>("probe")
+        .expect("probe should spawn");
+    let subject = kit
+        .system()
+        .spawn("subject", Props::new(|| UnitActor))
+        .expect("subject should spawn");
+
+    kit.system().stop(&subject);
+
+    assert_eq!(
+        probe
+            .expect_terminated(&subject, Duration::from_millis(50))
+            .unwrap(),
+        subject.as_any()
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_expect_terminated_reports_unexpected_actor() {
+    let kit =
+        ActorSystemTestKit::new("test-probe-unexpected-terminated").expect("system should build");
+    let probe = kit
+        .create_probe::<AnyActorRef>("probe")
+        .expect("probe should spawn");
+    let expected = kit
+        .system()
+        .spawn("expected", Props::new(|| UnitActor))
+        .expect("expected should spawn");
+    let other = kit
+        .system()
+        .spawn("other", Props::new(|| UnitActor))
+        .expect("other should spawn");
+
+    probe
+        .watch_terminated(&other)
+        .expect("other watch should register");
+    kit.system().stop(&other);
+
+    let error = probe
+        .expect_terminated(&expected, Duration::from_millis(50))
+        .expect_err("probe should report unexpected terminated actor");
+    assert!(matches!(
+        error,
+        ProbeError::UnexpectedMessage {
+            expected: expected_path,
+            actual
+        } if expected_path == expected.path().to_string() && actual == other.path().to_string()
     ));
     kit.shutdown(Duration::from_secs(1))
         .expect("system should terminate");
@@ -280,6 +362,16 @@ enum ManualTimerMsg {
 }
 
 struct ManualTimerProbe;
+
+struct UnitActor;
+
+impl Actor for UnitActor {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
 
 impl Actor for ManualTimerProbe {
     type Msg = ManualTimerMsg;
