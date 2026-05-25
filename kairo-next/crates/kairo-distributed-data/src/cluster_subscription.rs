@@ -6,9 +6,12 @@ use kairo_cluster::{
 
 use crate::{
     DeltaReplicatedData, RemovedNodePruningTick, RemovedNodePruningTickReport, ReplicaId,
-    ReplicatorActorMsg, ReplicatorClusterRouteReport, ReplicatorClusterRouteUpdate,
-    ReplicatorClusterRoutes,
+    ReplicatorActorMsg, ReplicatorClusterConnectorTimingSettings, ReplicatorClusterRouteReport,
+    ReplicatorClusterRouteUpdate, ReplicatorClusterRoutes, SharedReplicatorClusterConnectorClock,
+    SystemReplicatorClusterConnectorClock,
 };
+
+use crate::cluster_connector_timing::{CLOCK_TIMER_KEY, PRUNING_TIMER_KEY};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReplicatorClusterPruningSettings {
@@ -42,6 +45,8 @@ where
     all_reachable_time_nanos: u64,
     previous_clock_time_nanos: Option<u64>,
     pruning_settings: ReplicatorClusterPruningSettings,
+    timing_settings: ReplicatorClusterConnectorTimingSettings,
+    clock: SharedReplicatorClusterConnectorClock,
 }
 
 impl<D> ReplicatorClusterConnector<D>
@@ -67,6 +72,8 @@ where
             all_reachable_time_nanos: 0,
             previous_clock_time_nanos: None,
             pruning_settings: ReplicatorClusterPruningSettings::new(0, 0),
+            timing_settings: ReplicatorClusterConnectorTimingSettings::default(),
+            clock: std::sync::Arc::new(SystemReplicatorClusterConnectorClock::new()),
         }
     }
 
@@ -90,6 +97,8 @@ where
             all_reachable_time_nanos: 0,
             previous_clock_time_nanos: None,
             pruning_settings: ReplicatorClusterPruningSettings::new(0, 0),
+            timing_settings: ReplicatorClusterConnectorTimingSettings::default(),
+            clock: std::sync::Arc::new(SystemReplicatorClusterConnectorClock::new()),
         }
     }
 
@@ -100,6 +109,19 @@ where
 
     pub fn with_pruning_settings(mut self, settings: ReplicatorClusterPruningSettings) -> Self {
         self.pruning_settings = settings;
+        self
+    }
+
+    pub fn with_timing_settings(
+        mut self,
+        settings: ReplicatorClusterConnectorTimingSettings,
+    ) -> Self {
+        self.timing_settings = settings;
+        self
+    }
+
+    pub fn with_clock(mut self, clock: SharedReplicatorClusterConnectorClock) -> Self {
+        self.clock = clock;
         self
     }
 }
@@ -117,6 +139,8 @@ pub enum ReplicatorClusterConnectorMsg {
     RunRemovedNodePruning {
         now_millis: u64,
     },
+    ClockTimerTick,
+    PruningTimerTick,
     Snapshot {
         reply_to: ActorRef<ReplicatorClusterConnectorSnapshot>,
     },
@@ -153,6 +177,10 @@ where
                 ClusterSubscriptionInitialState::Events,
             )
             .map_err(|error| ActorError::Message(error.to_string()))?;
+        if self.timing_settings.clock_interval.is_some() {
+            self.previous_clock_time_nanos = Some(self.clock.monotonic_nanos());
+        }
+        self.schedule_timers(ctx);
         Ok(())
     }
 
@@ -190,6 +218,12 @@ where
             ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis } => {
                 self.run_removed_node_pruning(now_millis)?;
             }
+            ReplicatorClusterConnectorMsg::ClockTimerTick => {
+                self.advance_all_reachable_clock(self.clock.monotonic_nanos());
+            }
+            ReplicatorClusterConnectorMsg::PruningTimerTick => {
+                self.run_removed_node_pruning(self.clock.wall_millis())?;
+            }
             ReplicatorClusterConnectorMsg::Snapshot { reply_to } => {
                 tell_or_actor_error(&reply_to, self.snapshot())?;
             }
@@ -210,6 +244,26 @@ where
             self.required_roles.iter().cloned(),
         );
         self.routes.update()
+    }
+
+    fn schedule_timers(&self, ctx: &mut Context<ReplicatorClusterConnectorMsg>) {
+        if let Some(interval) = self.timing_settings.clock_interval {
+            ctx.start_timer_with_fixed_delay(
+                CLOCK_TIMER_KEY,
+                self.timing_settings.periodic_tasks_initial_delay,
+                interval,
+                ReplicatorClusterConnectorMsg::ClockTimerTick,
+            );
+        }
+
+        if let Some(interval) = self.timing_settings.pruning_interval {
+            ctx.start_timer_with_fixed_delay(
+                PRUNING_TIMER_KEY,
+                self.timing_settings.periodic_tasks_initial_delay,
+                interval,
+                ReplicatorClusterConnectorMsg::PruningTimerTick,
+            );
+        }
     }
 
     fn apply_route_update(&self, update: ReplicatorClusterRouteUpdate) -> ActorResult {
@@ -291,17 +345,18 @@ where
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::sync::Arc;
     use std::sync::mpsc;
     use std::time::Duration;
 
-    use kairo_actor::{ActorSystem, Address, Props};
+    use kairo_actor::{ActorSystem, Address, ManualScheduler, Props};
     use kairo_cluster::{
         ClusterEvent, ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberEvent,
         MemberStatus, Reachability, ReachabilityEvent,
     };
 
     use super::*;
-    use crate::{GCounter, ReplicatorActor};
+    use crate::{GCounter, ReplicatorActor, ReplicatorClusterConnectorClock};
 
     #[test]
     fn connector_subscribes_to_cluster_events_and_updates_replicator_routes() {
@@ -450,6 +505,96 @@ mod tests {
         system.terminate(Duration::from_secs(1)).unwrap();
     }
 
+    #[test]
+    fn connector_schedules_clock_and_pruning_ticks_with_manual_time() {
+        let manual = ManualScheduler::new();
+        let system = ActorSystem::builder("ddata-cluster-connector-timers")
+            .manual_scheduler(manual.clone())
+            .build()
+            .unwrap();
+        let self_node = node("self", 1);
+        let peer = node("peer", 2);
+        let publisher = system
+            .spawn(
+                "publisher",
+                Props::new({
+                    let self_node = self_node.clone();
+                    move || ClusterEventPublisher::new(self_node)
+                }),
+            )
+            .unwrap();
+        let cluster = Cluster::new(publisher.clone());
+        let replicator = system
+            .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+            .unwrap();
+
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(
+                Gossip::from_members([
+                    member(self_node.clone(), MemberStatus::Up, ["ddata"]),
+                    member(peer.clone(), MemberStatus::Up, ["ddata"]),
+                ]),
+            ))
+            .unwrap();
+
+        let clock = Arc::new(ManualConnectorClock {
+            scheduler: manual.clone(),
+            wall_offset_millis: 1_000,
+        });
+        let connector = system
+            .spawn(
+                "connector",
+                Props::new({
+                    let cluster = cluster.clone();
+                    let self_node = self_node.clone();
+                    let replicator = replicator.clone();
+                    let clock = clock.clone();
+                    move || {
+                        ReplicatorClusterConnector::with_required_roles(
+                            cluster,
+                            self_node,
+                            replicator,
+                            ["ddata"],
+                        )
+                        .with_pruning_settings(ReplicatorClusterPruningSettings::new(10, 100))
+                        .with_timing_settings(
+                            ReplicatorClusterConnectorTimingSettings::new(
+                                Duration::from_millis(50),
+                                Duration::from_millis(100),
+                            )
+                            .with_periodic_tasks_initial_delay(Duration::from_millis(10)),
+                        )
+                        .with_clock(clock)
+                    }
+                }),
+            )
+            .unwrap();
+        let (snapshot_ref, snapshot_rx) =
+            forward_ref::<ReplicatorClusterConnectorSnapshot>(&system, "timer-snapshots");
+
+        eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+            snapshot.remote_replicas == vec![ReplicaId::from(&peer)]
+        });
+
+        manual.advance(Duration::from_millis(10));
+        let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+            snapshot.all_reachable_time_nanos == 10_000_000
+                && snapshot
+                    .last_pruning_report
+                    .as_ref()
+                    .is_some_and(|report| !report.skipped_unreachable)
+        });
+        assert_eq!(snapshot.all_reachable_time_nanos, 10_000_000);
+
+        manual.advance(Duration::from_millis(50));
+        let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+            snapshot.all_reachable_time_nanos == 60_000_000
+        });
+        assert_eq!(snapshot.all_reachable_time_nanos, 60_000_000);
+
+        system.terminate(Duration::from_secs(1)).unwrap();
+    }
+
     fn eventually_snapshot(
         connector: &ActorRef<ReplicatorClusterConnectorMsg>,
         reply_to: &ActorRef<ReplicatorClusterConnectorSnapshot>,
@@ -517,5 +662,21 @@ mod tests {
         roles: impl IntoIterator<Item = &'static str>,
     ) -> Member {
         Member::new(node, roles.into_iter().map(str::to_string).collect()).with_status(status)
+    }
+
+    struct ManualConnectorClock {
+        scheduler: ManualScheduler,
+        wall_offset_millis: u64,
+    }
+
+    impl ReplicatorClusterConnectorClock for ManualConnectorClock {
+        fn monotonic_nanos(&self) -> u64 {
+            self.scheduler.now().as_nanos().min(u128::from(u64::MAX)) as u64
+        }
+
+        fn wall_millis(&self) -> u64 {
+            self.wall_offset_millis
+                .saturating_add(self.scheduler.now().as_millis().min(u128::from(u64::MAX)) as u64)
+        }
     }
 }

@@ -6,6 +6,7 @@ mod aggregation_operation;
 mod aggregation_session;
 mod aggregation_transport;
 mod aggregation_wire;
+mod cluster_connector_timing;
 mod cluster_routes;
 mod cluster_subscription;
 mod codec;
@@ -66,6 +67,10 @@ pub use aggregation_transport::{
 pub use aggregation_wire::{
     decode_data_envelope, decode_read_result, encode_data_envelope, encode_read,
     encode_read_result, encode_write,
+};
+pub use cluster_connector_timing::{
+    ReplicatorClusterConnectorClock, ReplicatorClusterConnectorTimingSettings,
+    SharedReplicatorClusterConnectorClock, SystemReplicatorClusterConnectorClock,
 };
 pub use cluster_routes::{
     ReplicatorClusterRouteReport, ReplicatorClusterRouteUpdate, ReplicatorClusterRoutes,

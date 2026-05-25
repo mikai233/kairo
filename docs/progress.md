@@ -454,6 +454,11 @@ Implemented:
   that pauses while matching replicas are unreachable, builds
   `RemovedNodePruningTick` values from current route/leader state and explicit
   pruning settings, and records typed pruning reports from the replicator.
+- The distributed-data cluster connector now has focused timing settings and
+  an injectable clock, schedules Pekko-style fixed-delay clock/pruning timer
+  messages on actor startup, uses monotonic time for all-reachable elapsed
+  accounting, and uses wall-clock millis for pruning marker TTL checks while
+  remaining deterministic under manual scheduler tests.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -858,8 +863,7 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
   propagation/direct read/write, peer transport target registration from
-  cluster routes, scheduled cluster-connector clock/pruning ticks, and
-  gossip-backed replication.
+  cluster routes, and gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
