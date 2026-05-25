@@ -240,6 +240,11 @@ Implemented:
   and byte sinks into a reusable boundary for future TCP wiring, with tests
   driving serialized envelopes through stream bytes into typed inbound
   delivery.
+- `kairo-remote` now has a focused association cache that derives structured
+  remote association addresses from explicit actor-ref wire metadata, routes
+  remote envelopes to shared outbound association routes, rejects local-only
+  recipients before transport send, reports missing routes explicitly, and
+  preserves guarded association close/quarantine checks.
 - `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
   actor path, removes refs before termination is observable, and exposes local
   resolution helpers so remoting can resolve inbound recipients without making
@@ -895,8 +900,8 @@ Not yet implemented:
 - Full actor tree lifecycle semantics beyond recursive local stop and
   restart-time child handling.
 - Full actor-system local/remote provider integration, optional codec helper
-  crates, transport-backed associations, actor-system-backed inbound target
-  resolution, and broader cross-crate compatibility fixtures.
+  crates, socket-backed association creation, actor-system-backed inbound
+  target resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket wiring and automatic association-cache integration
   for full-state gossip, delta propagation, and direct read/write traffic.
 - Sharding remember-entity stores still need broader automatic region/shard

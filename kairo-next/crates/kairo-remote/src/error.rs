@@ -20,4 +20,6 @@ pub enum RemoteError {
     AssociationClosed { remote: String, reason: String },
     #[error("remote association with `{remote}` is quarantined: {reason}")]
     AssociationQuarantined { remote: String, reason: String },
+    #[error("no remote association route for `{remote}`")]
+    AssociationUnavailable { remote: String },
 }

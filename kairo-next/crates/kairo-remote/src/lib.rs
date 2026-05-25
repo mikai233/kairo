@@ -1,6 +1,7 @@
 //! Remote actor references, associations, transports, and remote death watch.
 
 mod association;
+mod association_cache;
 mod association_inbound;
 mod association_outbound;
 mod association_pipeline;
@@ -27,6 +28,7 @@ mod stream_sink;
 mod transport;
 
 pub use association::{AssociationState, RemoteAssociation};
+pub use association_cache::{RemoteAssociationAddress, RemoteAssociationCache};
 pub use association_inbound::AssociationRemoteInbound;
 pub use association_outbound::AssociationRemoteOutbound;
 pub use association_pipeline::AssociationOutboundPipeline;

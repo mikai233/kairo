@@ -773,3 +773,30 @@ Consequences:
 - Anti-entropy still progresses across reachable replicas and chunks.
 - A later randomized or pluggable selection policy can be added as an explicit
   setting if production load distribution requires it.
+
+## ADR-0031: Remote Association Cache Keys Use Structured Wire Addresses
+
+Status: Accepted
+
+Context:
+Remote actor refs already carry explicit `ActorRefWireData` metadata for
+protocol, actor system, host, port, and full path. As remoting starts to share
+association routes with distributed data, sharding, and cluster tools, routing
+by the full actor path or reparsing display strings would mix actor identity
+with transport association identity.
+
+Decision:
+`RemoteAssociationCache` keys routes by a structured
+`RemoteAssociationAddress` containing protocol, system, host, and optional
+port. The cache derives this key from `ActorRefWireData` recipient metadata,
+rejects local-only refs that have no host, and routes the original
+`RemoteEnvelope` unchanged to the selected outbound association. Quarantine and
+closed-state checks remain in `AssociationRemoteOutbound`, not in the cache.
+
+Consequences:
+- Actor path changes under the same remote system do not create independent
+  association routes.
+- Local-only refs cannot accidentally cross the remote transport boundary.
+- Higher-level subsystems can share one transport-neutral association cache
+  without making it a membership authority or embedding subsystem-specific
+  routing rules in the remote crate.

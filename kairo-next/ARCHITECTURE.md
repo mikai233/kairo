@@ -733,6 +733,10 @@ src/
   resolver.rs
   transport.rs
   association.rs
+  association_cache.rs
+  association_outbound.rs
+  association_inbound.rs
+  association_pipeline.rs
   outbound.rs
   inbound.rs
   protocol.rs
@@ -758,6 +762,18 @@ Resolution:
 - serializes messages through `kairo-serialization`,
 - enqueues outbound payloads into an association,
 - intercepts `Watch`/`Unwatch` system messages into remote watch protocol.
+
+Association routing:
+
+- `RemoteAssociationAddress` is derived from the explicit
+  `ActorRefWireData` protocol, system, host, and optional port fields,
+- local-only actor refs without host metadata are rejected before outbound
+  routing,
+- `RemoteAssociationCache` maps remote association addresses to outbound
+  association routes and does not hold cache locks while transport sends run,
+- association state checks remain in the guarded association outbound wrapper
+  so a cache route still rejects quarantined or closed associations before
+  touching the transport.
 
 ### Transport
 
