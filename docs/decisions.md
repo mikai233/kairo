@@ -1481,9 +1481,8 @@ Consequences:
   one configured peer.
 - Membership state is still owned by the gossip membership actor; remote
   association routes are delivery paths, not cluster membership evidence.
-- Applying cluster-derived peer plans to live TCP runtimes, reconnect/backoff
-  policy, multi-peer runtime ownership, and actor-system lifecycle wiring
-  remain future work.
+- Reconnect/backoff policy, multi-peer actor ownership, and actor-system
+  lifecycle wiring remain future work.
 
 ## ADR-0053: Cluster Association Peers Are Planned From Membership Events
 
@@ -1514,7 +1513,37 @@ observer reports unreachability.
 Consequences:
 - Cluster-derived peer discovery is now deterministic and testable without
   owning sockets or mutating cluster membership.
-- Future multi-peer TCP runtime ownership can consume the planner effects
-  instead of inferring peers from ad hoc route-table state.
+- TCP peer-route ownership consumes the planner effects instead of inferring
+  peers from ad hoc route-table state.
 - Reconnect/backoff policy and actor-system lifecycle ownership remain
   separate work.
+
+## ADR-0054: Cluster TCP Peer Routes Apply Membership Plans Explicitly
+
+Status: Accepted
+
+Context:
+`ClusterAssociationPeerState` produces deterministic dial/remove plans from
+cluster membership and local reachability, while `ClusterTcpAssociationRuntime`
+owns concrete TCP listeners, dialers, and association cache routes. Kairo needs
+an integration layer between those two pieces that owns route registrations
+without treating the route table as membership state.
+
+Decision:
+Kairo adds `ClusterTcpPeerRoutes` in `kairo-cluster`. It consumes
+`ClusterAssociationPeerChange` values, dials peers through
+`ClusterTcpAssociationRuntime`, records one route registration per peer
+identity, and removes plus closes cached association routes when a peer is
+removed by the planner.
+
+The route owner does not subscribe to cluster events itself and does not keep
+membership snapshots. It applies already-derived plans so future actor-system
+or cluster-daemon wiring can decide when snapshots/events are fed into the
+planner and when reconnect/backoff policies retry failed dials.
+
+Consequences:
+- Cluster-derived peer plans can now affect live TCP association routes in a
+  tested vertical slice.
+- Membership state, peer planning, and socket route ownership remain separate
+  modules.
+- Reconnect/backoff policy and long-lived actor ownership remain future work.

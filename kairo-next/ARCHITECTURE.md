@@ -1223,6 +1223,10 @@ Membership transport:
   peers only from membership state, and emits explicit dial/remove effects for
   TCP runtime owners. Observations from other nodes do not by themselves remove
   a peer, matching Pekko's `validNodeForGossip` rule.
+- `ClusterTcpPeerRoutes` applies those dial/remove effects to a
+  `ClusterTcpAssociationRuntime`, owns per-peer route registrations, closes and
+  removes cached routes when peers are removed, and deliberately keeps
+  membership state out of the socket route owner.
 - The outbound may use `RemoteAssociationCache` for association routing, but
   the cache is not a membership source of truth. Cluster membership remains
   gossip plus local failure-detector observations.

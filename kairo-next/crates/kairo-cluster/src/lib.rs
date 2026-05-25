@@ -21,6 +21,7 @@ mod reachability;
 mod remote;
 mod remote_tcp;
 mod system_inbound;
+mod tcp_peer_routes;
 mod vector_clock;
 mod wire;
 
@@ -75,6 +76,10 @@ pub use remote_tcp::{
 };
 pub use system_inbound::{
     ClusterSystemInbound, ClusterSystemInboundError, is_cluster_system_manifest,
+};
+pub use tcp_peer_routes::{
+    ClusterTcpPeerRouteError, ClusterTcpPeerRouteReport, ClusterTcpPeerRouteResult,
+    ClusterTcpPeerRoutes,
 };
 pub use vector_clock::{VectorClock, VectorClockNode, VectorClockOrdering};
 pub use wire::{

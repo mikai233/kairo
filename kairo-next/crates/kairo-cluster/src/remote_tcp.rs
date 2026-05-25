@@ -132,6 +132,10 @@ impl ClusterTcpAssociationRuntime {
         Ok(registration)
     }
 
+    pub fn remove_route(&self, address: &RemoteAssociationAddress) -> bool {
+        self.association_cache.remove_route(address).is_some()
+    }
+
     pub fn shutdown(self) -> RemoteResult<TcpAssociationListenerReport> {
         self.shutdown_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
     }
@@ -339,6 +343,10 @@ mod tests {
             }
             _ => panic!("expected heartbeat response"),
         }
+
+        assert!(sender.remove_route(receiver.local_address()));
+        assert!(!sender.remove_route(receiver.local_address()));
+        assert_eq!(sender.association_cache().route_count(), 0);
 
         drop(registration);
         let expected_sender_identity =

@@ -913,6 +913,10 @@ Implemented:
   validity, rejects non-self local-only peers, and emits explicit dial/remove
   targets for future multi-peer TCP runtime ownership without making remoting a
   membership authority.
+- `kairo-cluster` now has a focused TCP peer-route owner that applies
+  cluster-derived dial/remove plans to `ClusterTcpAssociationRuntime`, keeps
+  per-peer route registrations separate from membership state, and closes and
+  removes cached routes when peers become locally unreachable or leave.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member
@@ -1069,8 +1073,8 @@ Not yet implemented:
 - Cluster-tools socket integration still needs broader cluster-driven peer
   discovery, reconnect policy, and multi-peer runtime ownership beyond the
   focused configured-peer TCP association slice.
-- Multi-node cluster membership socket lifecycle orchestration,
-  reconnect policy, actor-backed downing provider timing,
+- Multi-node cluster membership socket lifecycle orchestration, reconnect
+  policy, actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.
 
 ## Last Validation

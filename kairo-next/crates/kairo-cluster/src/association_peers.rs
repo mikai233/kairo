@@ -179,15 +179,15 @@ impl ClusterAssociationPeerState {
         let desired = self.desired_targets()?;
         let mut changes = Vec::new();
 
-        for (key, target) in &desired {
-            if self.active.get(key) != Some(target) {
-                changes.push(ClusterAssociationPeerChange::Dial(target.clone()));
-            }
-        }
-
         for (key, target) in &self.active {
             if !desired.contains_key(key) {
                 changes.push(ClusterAssociationPeerChange::Remove(target.clone()));
+            }
+        }
+
+        for (key, target) in &desired {
+            if self.active.get(key) != Some(target) {
+                changes.push(ClusterAssociationPeerChange::Dial(target.clone()));
             }
         }
 
@@ -369,6 +369,33 @@ mod tests {
             ))))
             .unwrap();
         assert_eq!(dialed_nodes(&dialed), vec![peer_v2]);
+    }
+
+    #[test]
+    fn snapshot_replaces_old_uid_before_dialing_new_uid_for_same_address() {
+        let self_node = node("self", 2551, 1);
+        let peer_v1 = node("peer", 2552, 2);
+        let peer_v2 = node("peer", 2552, 22);
+        let mut peers = ClusterAssociationPeerState::new(self_node);
+        peers
+            .apply_snapshot(state(vec![member(peer_v1.clone())], vec![]))
+            .unwrap();
+
+        let changes = peers
+            .apply_snapshot(state(vec![member(peer_v2.clone())], vec![]))
+            .unwrap();
+
+        assert_eq!(
+            changes,
+            vec![
+                ClusterAssociationPeerChange::Remove(
+                    ClusterAssociationPeerTarget::new(peer_v1).unwrap()
+                ),
+                ClusterAssociationPeerChange::Dial(
+                    ClusterAssociationPeerTarget::new(peer_v2).unwrap()
+                )
+            ]
+        );
     }
 
     #[test]

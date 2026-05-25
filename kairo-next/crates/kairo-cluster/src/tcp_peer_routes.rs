@@ -1,0 +1,347 @@
+use std::collections::BTreeMap;
+use std::fmt::{self, Display, Formatter};
+
+use kairo_remote::{RemoteAssociationRouteRegistration, RemoteError};
+
+use crate::{
+    ClusterAssociationPeerChange, ClusterAssociationPeerTarget, ClusterTcpAssociationRuntime,
+};
+
+#[derive(Debug)]
+pub enum ClusterTcpPeerRouteError {
+    Dial { node: String, source: RemoteError },
+}
+
+impl Display for ClusterTcpPeerRouteError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Dial { node, source } => {
+                write!(f, "cluster tcp peer dial to {node} failed: {source}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ClusterTcpPeerRouteError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Dial { source, .. } => Some(source),
+        }
+    }
+}
+
+pub type ClusterTcpPeerRouteResult<T> = Result<T, ClusterTcpPeerRouteError>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ClusterTcpPeerRouteReport {
+    pub dialed: Vec<ClusterAssociationPeerTarget>,
+    pub removed: Vec<ClusterAssociationPeerTarget>,
+    pub skipped: Vec<ClusterAssociationPeerTarget>,
+}
+
+impl ClusterTcpPeerRouteReport {
+    pub fn is_empty(&self) -> bool {
+        self.dialed.is_empty() && self.removed.is_empty() && self.skipped.is_empty()
+    }
+}
+
+#[derive(Default)]
+pub struct ClusterTcpPeerRoutes {
+    registrations: BTreeMap<String, ClusterTcpPeerRouteEntry>,
+}
+
+struct ClusterTcpPeerRouteEntry {
+    target: ClusterAssociationPeerTarget,
+    registration: RemoteAssociationRouteRegistration,
+}
+
+impl ClusterTcpPeerRoutes {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn route_count(&self) -> usize {
+        self.registrations.len()
+    }
+
+    pub fn contains_peer(&self, target: &ClusterAssociationPeerTarget) -> bool {
+        self.registrations.contains_key(&peer_key(target))
+    }
+
+    pub fn active_targets(&self) -> Vec<ClusterAssociationPeerTarget> {
+        self.registrations
+            .values()
+            .map(|entry| entry.target.clone())
+            .collect()
+    }
+
+    pub fn apply_changes(
+        &mut self,
+        runtime: &ClusterTcpAssociationRuntime,
+        changes: impl IntoIterator<Item = ClusterAssociationPeerChange>,
+    ) -> ClusterTcpPeerRouteResult<ClusterTcpPeerRouteReport> {
+        let mut report = ClusterTcpPeerRouteReport::default();
+        for change in changes {
+            match change {
+                ClusterAssociationPeerChange::Remove(target) => {
+                    self.remove(runtime, target, &mut report);
+                }
+                ClusterAssociationPeerChange::Dial(target) => {
+                    self.dial(runtime, target, &mut report)?;
+                }
+            }
+        }
+        Ok(report)
+    }
+
+    pub fn clear(&mut self, runtime: &ClusterTcpAssociationRuntime) -> ClusterTcpPeerRouteReport {
+        let targets = self.active_targets();
+        let mut report = ClusterTcpPeerRouteReport::default();
+        for target in targets {
+            self.remove(runtime, target, &mut report);
+        }
+        report
+    }
+
+    fn remove(
+        &mut self,
+        runtime: &ClusterTcpAssociationRuntime,
+        target: ClusterAssociationPeerTarget,
+        report: &mut ClusterTcpPeerRouteReport,
+    ) {
+        if let Some(entry) = self.registrations.remove(&peer_key(&target)) {
+            entry
+                .registration
+                .pipeline()
+                .association()
+                .lock()
+                .expect("cluster tcp peer association lock poisoned")
+                .close("cluster peer route removed");
+            runtime.remove_route(entry.registration.address());
+            report.removed.push(target);
+        } else if runtime.remove_route(target.association()) {
+            report.removed.push(target);
+        } else {
+            report.skipped.push(target);
+        }
+    }
+
+    fn dial(
+        &mut self,
+        runtime: &ClusterTcpAssociationRuntime,
+        target: ClusterAssociationPeerTarget,
+        report: &mut ClusterTcpPeerRouteReport,
+    ) -> ClusterTcpPeerRouteResult<()> {
+        if self.contains_peer(&target) {
+            report.skipped.push(target);
+            return Ok(());
+        }
+
+        let registration = runtime
+            .dial(target.association().clone())
+            .map_err(|source| ClusterTcpPeerRouteError::Dial {
+                node: target.node().ordering_key(),
+                source,
+            })?;
+        self.registrations.insert(
+            peer_key(&target),
+            ClusterTcpPeerRouteEntry {
+                target: target.clone(),
+                registration,
+            },
+        );
+        report.dialed.push(target);
+        Ok(())
+    }
+}
+
+fn peer_key(target: &ClusterAssociationPeerTarget) -> String {
+    target.node().ordering_key()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use kairo_actor::Address;
+    use kairo_remote::{RemoteOutbound, RemoteSettings};
+    use kairo_serialization::{ActorRefWireData, Registry};
+    use kairo_testkit::ActorSystemTestKit;
+
+    use super::*;
+    use crate::{
+        ClusterAssociationPeerState, ClusterMembershipMsg, ClusterMembershipWireInbound,
+        ClusterSystemInbound, CurrentClusterState, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
+        DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, Gossip, HeartbeatRemoteReceiverInbound,
+        HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Member, MemberStatus, UniqueAddress,
+        register_cluster_protocol_codecs,
+    };
+
+    fn registry() -> Arc<Registry> {
+        let mut registry = Registry::new();
+        register_cluster_protocol_codecs(&mut registry).unwrap();
+        Arc::new(registry)
+    }
+
+    fn node(system: &str, port: u16, uid: u64) -> UniqueAddress {
+        UniqueAddress::new(
+            Address::new("kairo", system, Some("127.0.0.1".to_string()), Some(port)),
+            uid,
+        )
+    }
+
+    fn member(node: UniqueAddress) -> Member {
+        Member::new(node, vec![]).with_status(MemberStatus::Up)
+    }
+
+    fn state(members: Vec<Member>, unreachable: Vec<Member>) -> CurrentClusterState {
+        CurrentClusterState {
+            members,
+            unreachable,
+            seen_by: std::collections::HashSet::new(),
+            leader: None,
+            role_leaders: std::collections::HashMap::new(),
+            member_tombstones: std::collections::HashSet::new(),
+        }
+    }
+
+    fn wire_for(node: &UniqueAddress, path: &str) -> ActorRefWireData {
+        ActorRefWireData::new(format!("{}{}", node.address, path)).unwrap()
+    }
+
+    fn wait_for_reverse_route(runtime: &ClusterTcpAssociationRuntime) {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while runtime.association_cache().route_count() == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(runtime.association_cache().route_count(), 1);
+    }
+
+    fn bind_runtime(
+        name: &str,
+        uid: u64,
+        system_uid: u64,
+        kit: &ActorSystemTestKit,
+        registry: Arc<Registry>,
+    ) -> ClusterTcpAssociationRuntime {
+        let membership = kit
+            .create_probe::<ClusterMembershipMsg>(format!("{name}-membership"))
+            .unwrap();
+        let heartbeat_sender = kit
+            .create_probe::<HeartbeatSenderMsg>(format!("{name}-heartbeat-sender"))
+            .unwrap();
+        let membership_ref = membership.actor_ref();
+        let heartbeat_sender_ref = heartbeat_sender.actor_ref();
+        ClusterTcpAssociationRuntime::bind(
+            name,
+            uid,
+            system_uid,
+            RemoteSettings::new("127.0.0.1", 0),
+            move |self_node, cache| {
+                ClusterSystemInbound::new(self_node.clone())
+                    .with_membership(ClusterMembershipWireInbound::new(
+                        self_node.clone(),
+                        registry.clone(),
+                        membership_ref,
+                    ))
+                    .with_heartbeat_receiver(
+                        HeartbeatRemoteReceiverInbound::from_arc(
+                            self_node.clone(),
+                            registry.clone(),
+                            Arc::new(cache.clone()) as Arc<dyn RemoteOutbound>,
+                        )
+                        .with_sender(Some(wire_for(
+                            &self_node,
+                            DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
+                        ))),
+                    )
+                    .with_heartbeat_response(HeartbeatRemoteResponseInbound::new(
+                        wire_for(&self_node, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH),
+                        registry,
+                        heartbeat_sender_ref,
+                    ))
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn peer_routes_apply_planner_dial_and_remove_to_tcp_runtime() {
+        let sender_kit = ActorSystemTestKit::new("cluster-peer-routes-sender").unwrap();
+        let receiver_kit = ActorSystemTestKit::new("cluster-peer-routes-receiver").unwrap();
+        let registry = registry();
+        let sender = bind_runtime("sender", 1, 11, &sender_kit, registry.clone());
+        let receiver = bind_runtime("receiver", 2, 22, &receiver_kit, registry);
+        let mut planner = ClusterAssociationPeerState::new(sender.self_node().clone());
+        let mut routes = ClusterTcpPeerRoutes::new();
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![
+                    member(sender.self_node().clone()),
+                    member(receiver.self_node().clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+        assert_eq!(report.dialed.len(), 1);
+        assert_eq!(routes.route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        wait_for_reverse_route(&receiver);
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![
+                    member(sender.self_node().clone()),
+                    member(receiver.self_node().clone()),
+                ],
+                vec![member(receiver.self_node().clone())],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(routes.route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.accepted_associations, 0);
+        let receiver_report = receiver.shutdown().unwrap();
+        assert_eq!(receiver_report.accepted_associations, 1);
+        sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+        receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn peer_routes_skip_duplicate_dial_changes() {
+        let target = ClusterAssociationPeerTarget::new(node("peer", 2552, 2)).unwrap();
+        let routes = ClusterTcpPeerRoutes::new();
+
+        assert!(!routes.contains_peer(&target));
+        assert!(ClusterTcpPeerRouteReport::default().is_empty());
+    }
+
+    #[test]
+    fn clear_without_routes_reports_no_work() {
+        let kit = ActorSystemTestKit::new("cluster-peer-routes-clear").unwrap();
+        let registry = registry();
+        let runtime = bind_runtime("clear", 1, 11, &kit, registry);
+        let mut routes = ClusterTcpPeerRoutes::new();
+
+        let report = routes.clear(&runtime);
+
+        assert!(report.is_empty());
+        runtime.shutdown().unwrap();
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn peer_routes_keep_membership_state_out_of_route_owner() {
+        let target = ClusterAssociationPeerTarget::new(node("peer", 2552, 2)).unwrap();
+        let routes = ClusterTcpPeerRoutes::new();
+
+        assert!(!routes.contains_peer(&target));
+        assert!(Gossip::new().members().is_empty());
+    }
+}
