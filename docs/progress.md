@@ -250,6 +250,10 @@ Implemented:
   pipelines, reports replaced routes, supports explicit removal, and keeps
   guarded association state shared with cache-routed sends so closed or
   quarantined associations reject before touching byte sinks.
+- `kairo-remote` now has a minimal TCP outbound association dialer: it adapts
+  connected `TcpStream` values to `RemoteByteSink`, opens separate control,
+  ordinary, and large lane streams for a remote association address, and
+  installs the resulting pipeline into the shared `RemoteAssociationCache`.
 - `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
   actor path, removes refs before termination is observable, and exposes local
   resolution helpers so remoting can resolve inbound recipients without making
@@ -966,8 +970,8 @@ Not yet implemented:
 - Full actor tree lifecycle semantics beyond recursive local stop and
   restart-time child handling.
 - Full actor-system local/remote provider integration, optional codec helper
-  crates, socket listener/dialer creation around the existing association
-  route installer, and broader cross-crate compatibility fixtures.
+  crates, socket listener creation and actor-system lifecycle wiring around the
+  existing outbound TCP dialer, and broader cross-crate compatibility fixtures.
 - Distributed-data socket listener/dialer wiring around the shared remote
   association cache and route installer.
 - Sharding remember-entity stores still need broader automatic region/shard

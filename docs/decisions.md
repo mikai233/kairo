@@ -1069,3 +1069,32 @@ Consequences:
   type names, and memory layout are not used for routing.
 - The router is still transport-neutral. Socket listener/dialer lifecycle and
   actor-system installation remain later integration work.
+
+## ADR-0041: TCP Outbound Dialing Installs Lane Pipelines
+
+Status: Accepted
+
+Context:
+Kairo has transport-neutral remote envelope frames, lane stream encoding,
+guarded association outbound state, and a shared association cache. The next
+socket-backed step is an outbound TCP primitive that can populate the cache
+with concrete byte sinks while keeping listener lifecycle and actor-system
+installation separate.
+
+Decision:
+Kairo introduces `TcpRemoteByteSink` and `TcpAssociationDialer` in
+`kairo-remote`. `TcpRemoteByteSink` wraps a connected `TcpStream` behind the
+existing `RemoteByteSink` trait. `TcpAssociationDialer` resolves a
+`RemoteAssociationAddress`, opens one TCP stream each for the control,
+ordinary, and large lanes, builds an `AssociationOutboundPipeline` through
+`RemoteAssociationRouteInstaller`, and installs that route into
+`RemoteAssociationCache`.
+
+Consequences:
+- TCP remains below the actor API; actors and higher-level cluster subsystems
+  still depend on typed refs, remote envelopes, and association caches.
+- The first TCP slice is outbound-only. Listener acceptance, inbound lane
+  readers, handshakes, reconnect/backoff policy, and coordinated shutdown
+  ownership remain later work.
+- Lane framing and association close/quarantine checks continue to live in the
+  existing transport-neutral pipeline instead of in TCP-specific code.

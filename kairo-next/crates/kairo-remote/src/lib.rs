@@ -27,6 +27,7 @@ mod stream;
 mod stream_inbound;
 mod stream_sink;
 mod system_inbound;
+mod tcp;
 mod transport;
 
 pub use association::{AssociationState, RemoteAssociation};
@@ -74,4 +75,5 @@ pub use stream::{
 pub use stream_inbound::{RemoteFrameHandler, StreamFrameInbound};
 pub use stream_sink::{RemoteByteSink, RemoteStreamWriter, StreamLaneSink, stream_send_failure};
 pub use system_inbound::ActorSystemRemoteInbound;
+pub use tcp::{TcpAssociationDialer, TcpRemoteByteSink};
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};

@@ -802,6 +802,17 @@ pub trait Association: Send + Sync {
 Initial transport should be TCP. QUIC can be added later if it provides a clear
 benefit. Transport is not part of the actor API.
 
+TCP association dialing:
+
+- `TcpRemoteByteSink` adapts a connected `TcpStream` to the shared
+  `RemoteByteSink` boundary and writes already-framed lane bytes,
+- `TcpAssociationDialer` opens one TCP stream for each control, ordinary, and
+  large lane and installs the resulting association pipeline into
+  `RemoteAssociationCache`,
+- the dialer is an outbound transport primitive only; listener acceptance,
+  inbound lane reader installation, handshakes, reconnect policy, and
+  actor-system lifecycle ownership remain separate integration work.
+
 Outbound lanes:
 
 - control/system lane,
