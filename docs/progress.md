@@ -1139,6 +1139,10 @@ Implemented:
   `counter` module and includes a `configured_counter` example that loads
   `kairo.local.toml`, maps format-neutral settings into an actor-system
   builder, and runs the typed counter with configured dispatcher throughput.
+- `kairo-examples` now includes an `ask_pipe_to_self` example with reusable
+  calculation-service and pattern-coordinator modules, demonstrating
+  `Context::ask` and `Context::pipe_to_self` without placing the actor logic
+  in one binary file.
 - `kairo-examples` now includes a runnable local cluster-sharding example that
   wires a shard coordinator, local shard region, `ShardingEnvelopeRouter`, and
   `EntityRef<String>` through reusable helper code and demonstrates stable

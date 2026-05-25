@@ -6,5 +6,6 @@
 pub mod cluster_tools_tcp;
 pub mod counter;
 pub mod ddata_tcp;
+pub mod patterns;
 pub mod reply;
 pub mod sharding_local;

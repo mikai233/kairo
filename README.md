@@ -48,10 +48,15 @@ From `kairo-next`:
 ```bash
 cargo run -p kairo-examples --example local_counter
 cargo run -p kairo-examples --example configured_counter
+cargo run -p kairo-examples --example ask_pipe_to_self
 cargo run -p kairo-examples --example cluster_sharding_local
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
 cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
 ```
+
+The `ask_pipe_to_self` example demonstrates local request/reply through
+`Context::ask` and external work returning to the actor through
+`Context::pipe_to_self`.
 
 The `cluster_sharding_local` example demonstrates:
 

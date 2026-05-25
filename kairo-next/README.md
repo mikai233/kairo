@@ -39,6 +39,7 @@ Runnable examples live in the `kairo-examples` crate:
 ```bash
 cargo run -p kairo-examples --example local_counter
 cargo run -p kairo-examples --example configured_counter
+cargo run -p kairo-examples --example ask_pipe_to_self
 cargo run -p kairo-examples --example cluster_sharding_local
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
 cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
@@ -52,6 +53,10 @@ The `configured_counter` example loads
 `kairo-next/crates/kairo-examples/examples/kairo.local.toml`, maps the
 format-neutral actor settings into an `ActorSystemBuilder`, and runs the same
 typed counter protocol with the configured dispatcher throughput.
+
+The `ask_pipe_to_self` example keeps a calculation service and a pattern
+coordinator in focused modules while demonstrating `Context::ask` and
+`Context::pipe_to_self` as mailbox-returning local actor patterns.
 
 The `cluster_sharding_local` example wires a local shard coordinator, typed
 shard region, stable `ShardingEnvelopeRouter`, `EntityRef<String>`, and
