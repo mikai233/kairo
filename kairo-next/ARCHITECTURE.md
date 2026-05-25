@@ -1596,6 +1596,21 @@ Remote gossip wiring:
 - pubsub still consumes cluster membership/events for peer selection; the
   association cache is only an outbound transport route table.
 
+Remote publish delivery:
+
+- remote pubsub user-message delivery uses a stable `PubSubPublishEnvelope`
+  that carries topic, optional selected group, and the already-serialized
+  business message,
+- local pubsub messages remain serialization-free; `M: RemoteMessage` is only
+  required when a remote delivery target is registered,
+- `PubSubRemoteDeliveryOutbound` wraps publish/group delivery for the peer
+  mediator at `/system/pubsub`, and `PubSubRemoteDeliveryInbound` validates the
+  recipient path before dispatching into the actor-backed mediator's local
+  delivery protocol,
+- one-message-per-group routing is planned before serialization; remote
+  envelopes carry the selected group rather than rerunning group selection on
+  the receiving node.
+
 ## `kairo-testkit`
 
 Test support:

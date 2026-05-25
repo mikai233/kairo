@@ -976,3 +976,38 @@ Consequences:
   only an edge interpreter for already planned handover effects.
 - Socket-backed association population and route discovery remain separate
   integration steps.
+
+## ADR-0038: PubSub Remote Publish Envelopes Carry Serialized Business Messages
+
+Status: Accepted
+
+Context:
+Pekko distributed pubsub sends `Publish` and one-message-per-group delivery
+through the peer mediator actor, and its serializer wraps the user payload
+inside pubsub protocol messages. Kairo's local pubsub protocol is generic and
+must stay serialization-free for local-only use, while remote pubsub publish
+delivery needs a stable wire boundary.
+
+Decision:
+Kairo uses a stable `PubSubPublishEnvelope` remote protocol message for remote
+pubsub user delivery. The envelope contains the topic, an optional selected
+group, and a nested `SerializedMessage` for the business payload. The business
+message is serialized with its own registered `RemoteMessage` codec before the
+pubsub envelope is serialized.
+
+`PubSubRemoteDeliveryOutbound<M>` implements the local pubsub delivery
+recipient boundary for `M: RemoteMessage`, maps broadcast publish and selected
+group delivery into `RemoteEnvelope` traffic addressed to `/system/pubsub`, and
+can use `RemoteAssociationCache` as its outbound route table.
+`PubSubRemoteDeliveryInbound<M>` validates the recipient path, decodes the
+pubsub envelope, decodes the typed business message, and dispatches it through
+the actor-backed mediator's local delivery path.
+
+Consequences:
+- Local pubsub subscribers and publishes still do not require serialization.
+- Remote pubsub delivery has stable manifests, versions, serializer IDs, and
+  nested business-message metadata without relying on Rust type names or enum
+  layout.
+- One-message-per-group selection remains a sender-side planning decision; the
+  remote envelope carries the selected group to the target mediator.
+- Socket-backed association population remains a later integration step.

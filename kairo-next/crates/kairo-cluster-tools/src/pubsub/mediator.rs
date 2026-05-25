@@ -47,6 +47,9 @@ where
         node: UniqueAddress,
         mediator: ActorRef<DistributedPubSubMediatorMsg<M>>,
     },
+    AddRemoteTarget {
+        target: PubSubRemoteTarget<M>,
+    },
     RemoveRemoteMediator {
         node: UniqueAddress,
     },
@@ -169,6 +172,9 @@ where
                     node,
                     MediatorLocalRecipient::new(mediator),
                 ));
+            }
+            DistributedPubSubMediatorMsg::AddRemoteTarget { target } => {
+                self.delivery.insert_remote_target(target);
             }
             DistributedPubSubMediatorMsg::RemoveRemoteMediator { node } => {
                 self.remove_remote_node(&node);

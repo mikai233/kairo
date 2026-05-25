@@ -924,6 +924,14 @@ Implemented:
   `kairo-remote::RemoteAssociationCache`, rejects local-only targets, and
   keeps peer selection in cluster/pubsub state rather than treating remoting as
   membership truth.
+- `kairo-cluster-tools` distributed pubsub user-message delivery can now use
+  stable remote envelopes: `PubSubPublishEnvelope` carries topic, optional
+  selected group, and the already-serialized business message;
+  `PubSubRemoteDeliveryOutbound` can be registered as a remote mediator target
+  and can use `kairo-remote::RemoteAssociationCache`; and
+  `PubSubRemoteDeliveryInbound` validates `/system/pubsub` envelopes before
+  dispatching decoded publishes into the actor-backed mediator's local
+  delivery path.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -956,8 +964,8 @@ Not yet implemented:
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
 - Cluster singleton manager handover socket association population and
-  distributed pubsub user-message socket or remote-association wiring beyond
-  status/delta gossip envelopes.
+  distributed pubsub socket association population beyond explicit
+  remote-envelope adapters.
 - Multi-node cluster membership socket transport, socket-backed heartbeat
   association wiring, actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.

@@ -2,18 +2,19 @@ use bytes::Bytes;
 use kairo_actor::Address;
 use kairo_cluster::UniqueAddress;
 use kairo_serialization::{
-    MessageCodec, Registry, RemoteMessage, SerializationError, SerializationRegistry, WireReader,
-    WireWriter,
+    Manifest, MessageCodec, Registry, RemoteMessage, SerializationError, SerializationRegistry,
+    SerializedMessage, WireReader, WireWriter,
 };
 
 use crate::{
-    PubSubBucket, PubSubDelta, PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey,
-    PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
-    SingletonTakeOverFromMe, TopicName,
+    PubSubBucket, PubSubDelta, PubSubPublishEnvelope, PubSubRegistryDelta, PubSubRegistryEntry,
+    PubSubRegistryKey, PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress,
+    SingletonHandOverToMe, SingletonTakeOverFromMe, TopicName,
 };
 
 pub const PUBSUB_STATUS_SERIALIZER_ID: u32 = 5_000;
 pub const PUBSUB_DELTA_SERIALIZER_ID: u32 = 5_001;
+pub const PUBSUB_PUBLISH_SERIALIZER_ID: u32 = 5_002;
 pub const SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID: u32 = 5_010;
 pub const SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID: u32 = 5_011;
 pub const SINGLETON_HAND_OVER_DONE_SERIALIZER_ID: u32 = 5_012;
@@ -24,6 +25,7 @@ pub fn register_cluster_tools_protocol_codecs(
 ) -> kairo_serialization::Result<()> {
     registry.register::<PubSubStatus, _>(PubSubStatusCodec)?;
     registry.register::<PubSubDelta, _>(PubSubDeltaCodec)?;
+    registry.register::<PubSubPublishEnvelope, _>(PubSubPublishEnvelopeCodec)?;
     registry.register::<SingletonHandOverToMe, _>(SingletonHandOverToMeCodec)?;
     registry.register::<SingletonHandOverInProgress, _>(SingletonHandOverInProgressCodec)?;
     registry.register::<SingletonHandOverDone, _>(SingletonHandOverDoneCodec)?;
@@ -79,6 +81,37 @@ impl MessageCodec<PubSubDelta> for PubSubDeltaCodec {
         Ok(PubSubDelta {
             from: read_unique_address(&mut reader)?,
             delta: read_delta(&mut reader)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PubSubPublishEnvelopeCodec;
+
+impl MessageCodec<PubSubPublishEnvelope> for PubSubPublishEnvelopeCodec {
+    fn serializer_id(&self) -> u32 {
+        PUBSUB_PUBLISH_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &PubSubPublishEnvelope) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        write_topic(&mut writer, &message.topic)?;
+        writer.write_optional_string(message.group.as_deref())?;
+        write_serialized_message(&mut writer, &message.message)?;
+        Ok(writer.finish())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<PubSubPublishEnvelope> {
+        ensure_version::<PubSubPublishEnvelope>(version)?;
+        let mut reader = WireReader::new(&payload);
+        Ok(PubSubPublishEnvelope {
+            topic: read_topic(&mut reader)?,
+            group: reader.read_optional_string()?,
+            message: read_serialized_message(&mut reader)?,
         })
     }
 }
@@ -208,6 +241,35 @@ fn read_delta(reader: &mut WireReader<'_>) -> kairo_serialization::Result<PubSub
         buckets.push(read_bucket(reader)?);
     }
     Ok(PubSubRegistryDelta { buckets })
+}
+
+fn write_serialized_message(
+    writer: &mut WireWriter,
+    message: &SerializedMessage,
+) -> kairo_serialization::Result<()> {
+    writer.write_u32(message.serializer_id);
+    writer.write_string(message.manifest.as_str())?;
+    writer.write_u16(message.version);
+    writer.write_bytes(&message.payload)
+}
+
+fn read_serialized_message(
+    reader: &mut WireReader<'_>,
+) -> kairo_serialization::Result<SerializedMessage> {
+    Ok(SerializedMessage::new(
+        reader.read_u32()?,
+        Manifest::try_new(reader.read_string()?)?,
+        reader.read_u16()?,
+        reader.read_bytes()?,
+    ))
+}
+
+fn write_topic(writer: &mut WireWriter, topic: &TopicName) -> kairo_serialization::Result<()> {
+    writer.write_string(topic.as_str())
+}
+
+fn read_topic(reader: &mut WireReader<'_>) -> kairo_serialization::Result<TopicName> {
+    Ok(TopicName::new(reader.read_string()?))
 }
 
 fn write_bucket(writer: &mut WireWriter, bucket: &PubSubBucket) -> kairo_serialization::Result<()> {
@@ -424,6 +486,36 @@ mod tests {
         assert_eq!(
             registry.deserialize::<PubSubDelta>(serialized).unwrap(),
             delta
+        );
+    }
+
+    #[test]
+    fn cluster_tools_codecs_round_trip_pubsub_publish_envelope() {
+        let registry = registry();
+        let inner = SerializedMessage::new(
+            77,
+            Manifest::new("example.business.message"),
+            3,
+            Bytes::from_static(&[1, 2, 3]),
+        );
+        let envelope = PubSubPublishEnvelope {
+            topic: TopicName::new("orders"),
+            group: Some("workers".to_string()),
+            message: inner,
+        };
+
+        let serialized = registry.serialize(&envelope).unwrap();
+
+        assert_eq!(serialized.serializer_id, PUBSUB_PUBLISH_SERIALIZER_ID);
+        assert_eq!(
+            serialized.manifest.as_str(),
+            PubSubPublishEnvelope::MANIFEST
+        );
+        assert_eq!(
+            registry
+                .deserialize::<PubSubPublishEnvelope>(serialized)
+                .unwrap(),
+            envelope
         );
     }
 

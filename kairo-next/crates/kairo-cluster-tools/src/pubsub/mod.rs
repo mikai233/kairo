@@ -5,6 +5,7 @@ mod local;
 mod mediator;
 mod registry;
 mod remote;
+mod remote_delivery;
 mod wire;
 
 pub use actor::{CurrentTopics, LocalPubSubActor, LocalPubSubMsg, PubSubSubscribeAck};
@@ -23,6 +24,9 @@ pub use registry::{
 };
 pub use remote::{
     DEFAULT_PUBSUB_REMOTE_PATH, PubSubRemoteEnvelopeError, PubSubRemoteEnvelopeOutbound,
+};
+pub use remote_delivery::{
+    PubSubRemoteDeliveryError, PubSubRemoteDeliveryInbound, PubSubRemoteDeliveryOutbound,
 };
 pub use wire::{
     PubSubGossipWireError, PubSubGossipWireInbound, PubSubGossipWireOutbound,

@@ -7,14 +7,14 @@ mod singleton;
 mod topic;
 
 pub use codec::{
-    PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_STATUS_SERIALIZER_ID,
+    PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_PUBLISH_SERIALIZER_ID, PUBSUB_STATUS_SERIALIZER_ID,
     SINGLETON_HAND_OVER_DONE_SERIALIZER_ID, SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID,
     SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID, SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID,
     register_cluster_tools_protocol_codecs,
 };
 pub use protocol::{
-    PubSubDelta, PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress,
-    SingletonHandOverToMe, SingletonTakeOverFromMe,
+    PubSubDelta, PubSubPublishEnvelope, PubSubStatus, SingletonHandOverDone,
+    SingletonHandOverInProgress, SingletonHandOverToMe, SingletonTakeOverFromMe,
 };
 pub use pubsub::{
     CurrentTopics, DEFAULT_PUBSUB_REMOTE_PATH, DistributedPubSubMediatorActor,
@@ -23,9 +23,9 @@ pub use pubsub::{
     PubSubDeliveryPlan, PubSubDeliveryReport, PubSubDeliveryTarget, PubSubDeliveryTransport,
     PubSubGossipActor, PubSubGossipMsg, PubSubGossipPeer, PubSubGossipWireError,
     PubSubGossipWireInbound, PubSubGossipWireOutbound, PubSubRegistryDelta, PubSubRegistryEntry,
-    PubSubRegistryKey, PubSubRegistryState, PubSubRemoteEnvelopeError,
-    PubSubRemoteEnvelopeOutbound, PubSubRemoteTarget, PubSubSerializedGossip, PubSubSubscribeAck,
-    PubSubTopicReport,
+    PubSubRegistryKey, PubSubRegistryState, PubSubRemoteDeliveryError, PubSubRemoteDeliveryInbound,
+    PubSubRemoteDeliveryOutbound, PubSubRemoteEnvelopeError, PubSubRemoteEnvelopeOutbound,
+    PubSubRemoteTarget, PubSubSerializedGossip, PubSubSubscribeAck, PubSubTopicReport,
 };
 pub use singleton::{
     DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, LocalSingletonManagerActor, LocalSingletonManagerMsg,
