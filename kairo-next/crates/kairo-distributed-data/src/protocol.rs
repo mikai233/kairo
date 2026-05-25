@@ -96,6 +96,47 @@ impl RemoteMessage for ReplicatorReadResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorGossipDigest {
+    pub key: String,
+    pub digest: u64,
+    pub used_timestamp_millis: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorGossipStatus {
+    pub entries: Vec<ReplicatorGossipDigest>,
+    pub chunk: u32,
+    pub total_chunks: u32,
+    pub to_system_uid: Option<u64>,
+    pub from_system_uid: Option<u64>,
+}
+
+impl RemoteMessage for ReplicatorGossipStatus {
+    const MANIFEST: &'static str = "kairo.ddata.gossip-status";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorGossipEntry {
+    pub key: String,
+    pub envelope: ReplicatorDataEnvelope,
+    pub used_timestamp_millis: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplicatorGossip {
+    pub entries: Vec<ReplicatorGossipEntry>,
+    pub send_back: bool,
+    pub to_system_uid: Option<u64>,
+    pub from_system_uid: Option<u64>,
+}
+
+impl RemoteMessage for ReplicatorGossip {
+    const MANIFEST: &'static str = "kairo.ddata.gossip";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplicatorDataEnvelope {
     pub crdt_manifest: String,
     pub crdt_version: u16,
@@ -215,6 +256,11 @@ mod tests {
         assert_eq!(ReplicatorWriteNack::MANIFEST, "kairo.ddata.write-nack");
         assert_eq!(ReplicatorRead::MANIFEST, "kairo.ddata.read");
         assert_eq!(ReplicatorReadResult::MANIFEST, "kairo.ddata.read-result");
+        assert_eq!(
+            ReplicatorGossipStatus::MANIFEST,
+            "kairo.ddata.gossip-status"
+        );
+        assert_eq!(ReplicatorGossip::MANIFEST, "kairo.ddata.gossip");
         assert_eq!(ReplicatorDeltaAck::MANIFEST, "kairo.ddata.delta-ack");
         assert_eq!(ReplicatorDeltaNack::MANIFEST, "kairo.ddata.delta-nack");
         assert!(!ReplicatorUpdate::MANIFEST.contains(std::any::type_name::<ReplicatorUpdate>()));

@@ -721,3 +721,30 @@ Consequences:
   wiring.
 - Automatic association-cache population remains a separate integration step
   and does not change stable ddata manifests.
+
+## ADR-0029: Distributed-Data Gossip Digests Use Stable Envelope Bytes
+
+Status: Accepted
+
+Context:
+Pekko's distributed-data full-state gossip compares per-key digests before
+sending full CRDT envelopes, and uses a not-found digest to request data the
+receiver is missing. Kairo needs equivalent status/gossip behavior, but must
+not rely on Rust type names, enum discriminants, debug formatting, or memory
+layout when comparing or serializing replicated data.
+
+Decision:
+Kairo distributed-data gossip uses 64-bit FNV-1a over the same explicit
+`ReplicatorDataEnvelope` fields used by the stable wire protocol: CRDT
+manifest, CRDT version, payload bytes, removed-replica pruning ids, and tagged
+pruning-state fields. Variable-length fields are length-delimited before
+hashing. Digest value `0` is reserved as the not-found marker, so a computed
+zero digest is remapped to `1`.
+
+Consequences:
+- Gossip status comparison is deterministic across nodes without making Rust
+  implementation details part of the contract.
+- Full-state gossip can request missing keys independently from local CRDT
+  payload serialization.
+- Changing the digest algorithm later would require an intentional protocol
+  version decision because mixed nodes compare these digest values.

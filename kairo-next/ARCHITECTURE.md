@@ -1185,6 +1185,7 @@ src/
     lww_register.rs
   delta.rs
   pruning.rs
+  gossip.rs
   remote_association.rs
   remote_association_inbound.rs
   durable.rs

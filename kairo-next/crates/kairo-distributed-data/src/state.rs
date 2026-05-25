@@ -42,6 +42,10 @@ where
         self.entries.keys()
     }
 
+    pub fn entries(&self) -> impl Iterator<Item = (&ReplicatorKey, &DataEnvelope<D>)> {
+        self.entries.iter()
+    }
+
     pub fn get_local(&self, key: &ReplicatorKey) -> GetResponse<D> {
         match self.entries.get(key) {
             Some(envelope) => GetResponse::Success {

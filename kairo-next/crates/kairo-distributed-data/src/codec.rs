@@ -6,7 +6,8 @@ use kairo_serialization::{
 
 use crate::{
     ReplicaId, ReplicatorChanged, ReplicatorDataEnvelope, ReplicatorDelta, ReplicatorDeltaAck,
-    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorPruningEntry,
+    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorGossip,
+    ReplicatorGossipDigest, ReplicatorGossipEntry, ReplicatorGossipStatus, ReplicatorPruningEntry,
     ReplicatorPruningState, ReplicatorRead, ReplicatorReadResult, ReplicatorSubscribe,
     ReplicatorUpdate, ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
 };
@@ -23,6 +24,10 @@ pub const REPLICATOR_WRITE_ACK_SERIALIZER_ID: u32 = 3_008;
 pub const REPLICATOR_WRITE_NACK_SERIALIZER_ID: u32 = 3_009;
 pub const REPLICATOR_READ_SERIALIZER_ID: u32 = 3_010;
 pub const REPLICATOR_READ_RESULT_SERIALIZER_ID: u32 = 3_011;
+pub const REPLICATOR_GOSSIP_STATUS_SERIALIZER_ID: u32 = 3_012;
+pub const REPLICATOR_GOSSIP_SERIALIZER_ID: u32 = 3_013;
+
+const DATA_ENVELOPE_PRUNING_WIRE_VERSION: u16 = 2;
 
 pub fn register_ddata_protocol_codecs(registry: &mut Registry) -> kairo_serialization::Result<()> {
     registry.register::<ReplicatorGet, _>(ReplicatorGetCodec)?;
@@ -37,6 +42,8 @@ pub fn register_ddata_protocol_codecs(registry: &mut Registry) -> kairo_serializ
     registry.register::<ReplicatorWriteNack, _>(ReplicatorWriteNackCodec)?;
     registry.register::<ReplicatorRead, _>(ReplicatorReadCodec)?;
     registry.register::<ReplicatorReadResult, _>(ReplicatorReadResultCodec)?;
+    registry.register::<ReplicatorGossipStatus, _>(ReplicatorGossipStatusCodec)?;
+    registry.register::<ReplicatorGossip, _>(ReplicatorGossipCodec)?;
     Ok(())
 }
 
@@ -378,6 +385,109 @@ impl MessageCodec<ReplicatorReadResult> for ReplicatorReadResultCodec {
             None
         };
         Ok(ReplicatorReadResult { envelope })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplicatorGossipStatusCodec;
+
+impl MessageCodec<ReplicatorGossipStatus> for ReplicatorGossipStatusCodec {
+    fn serializer_id(&self) -> u32 {
+        REPLICATOR_GOSSIP_STATUS_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &ReplicatorGossipStatus) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_u32(message.chunk);
+        writer.write_u32(message.total_chunks);
+        writer.write_optional_u64(message.to_system_uid);
+        writer.write_optional_u64(message.from_system_uid);
+        writer.write_u64(len_to_u64(message.entries.len())?);
+        for entry in &message.entries {
+            writer.write_string(&entry.key)?;
+            writer.write_u64(entry.digest);
+            writer.write_u64(entry.used_timestamp_millis);
+        }
+        Ok(writer.finish())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<ReplicatorGossipStatus> {
+        ensure_version::<ReplicatorGossipStatus>(version)?;
+        let mut reader = WireReader::new(&payload);
+        let chunk = reader.read_u32()?;
+        let total_chunks = reader.read_u32()?;
+        let to_system_uid = reader.read_optional_u64()?;
+        let from_system_uid = reader.read_optional_u64()?;
+        let entry_count = u64_to_len(reader.read_u64()?)?;
+        let mut entries = Vec::with_capacity(entry_count);
+        for _ in 0..entry_count {
+            entries.push(ReplicatorGossipDigest {
+                key: reader.read_string()?,
+                digest: reader.read_u64()?,
+                used_timestamp_millis: reader.read_u64()?,
+            });
+        }
+        Ok(ReplicatorGossipStatus {
+            entries,
+            chunk,
+            total_chunks,
+            to_system_uid,
+            from_system_uid,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplicatorGossipCodec;
+
+impl MessageCodec<ReplicatorGossip> for ReplicatorGossipCodec {
+    fn serializer_id(&self) -> u32 {
+        REPLICATOR_GOSSIP_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &ReplicatorGossip) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_bool(message.send_back);
+        writer.write_optional_u64(message.to_system_uid);
+        writer.write_optional_u64(message.from_system_uid);
+        writer.write_u64(len_to_u64(message.entries.len())?);
+        for entry in &message.entries {
+            writer.write_string(&entry.key)?;
+            writer.write_u64(entry.used_timestamp_millis);
+            write_data_envelope(&mut writer, &entry.envelope)?;
+        }
+        Ok(writer.finish())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<ReplicatorGossip> {
+        ensure_version::<ReplicatorGossip>(version)?;
+        let mut reader = WireReader::new(&payload);
+        let send_back = reader.read_bool()?;
+        let to_system_uid = reader.read_optional_u64()?;
+        let from_system_uid = reader.read_optional_u64()?;
+        let entry_count = u64_to_len(reader.read_u64()?)?;
+        let mut entries = Vec::with_capacity(entry_count);
+        for _ in 0..entry_count {
+            entries.push(ReplicatorGossipEntry {
+                key: reader.read_string()?,
+                used_timestamp_millis: reader.read_u64()?,
+                envelope: read_data_envelope(&mut reader, DATA_ENVELOPE_PRUNING_WIRE_VERSION)?,
+            });
+        }
+        Ok(ReplicatorGossip {
+            entries,
+            send_back,
+            to_system_uid,
+            from_system_uid,
+        })
     }
 }
 
@@ -753,6 +863,68 @@ mod tests {
                 .deserialize::<ReplicatorReadResult>(serialized_not_found)
                 .unwrap(),
             not_found
+        );
+    }
+
+    #[test]
+    fn ddata_protocol_codecs_round_trip_gossip_status_and_full_state() {
+        let registry = registry();
+        let envelope = ReplicatorDataEnvelope {
+            crdt_manifest: crate::GCOUNTER_MANIFEST.to_string(),
+            crdt_version: crate::CRDT_CODEC_VERSION,
+            payload: Bytes::from_static(&[1, 2, 3]),
+            pruning: vec![ReplicatorPruningEntry {
+                removed: ReplicaId::new("removed-a"),
+                state: ReplicatorPruningState::Initialized {
+                    owner: ReplicaId::new("node-a"),
+                    seen: vec![ReplicaId::new("node-b")],
+                },
+            }],
+        };
+        let status = ReplicatorGossipStatus {
+            entries: vec![ReplicatorGossipDigest {
+                key: "counter-a".to_string(),
+                digest: 42,
+                used_timestamp_millis: 123,
+            }],
+            chunk: 1,
+            total_chunks: 3,
+            to_system_uid: Some(11),
+            from_system_uid: Some(22),
+        };
+        let gossip = ReplicatorGossip {
+            entries: vec![ReplicatorGossipEntry {
+                key: "counter-a".to_string(),
+                envelope,
+                used_timestamp_millis: 456,
+            }],
+            send_back: true,
+            to_system_uid: Some(22),
+            from_system_uid: Some(11),
+        };
+
+        let serialized_status = registry.serialize(&status).unwrap();
+        let serialized_gossip = registry.serialize(&gossip).unwrap();
+
+        assert_eq!(
+            serialized_status.serializer_id,
+            REPLICATOR_GOSSIP_STATUS_SERIALIZER_ID
+        );
+        assert_eq!(
+            serialized_gossip.serializer_id,
+            REPLICATOR_GOSSIP_SERIALIZER_ID
+        );
+        assert_eq!(
+            registry
+                .deserialize::<ReplicatorGossipStatus>(serialized_status)
+                .unwrap(),
+            status
+        );
+        assert_eq!(
+            registry
+                .deserialize::<ReplicatorGossip>(serialized_gossip)
+                .unwrap(),
+            gossip
         );
     }
 

@@ -21,6 +21,7 @@ mod delta_wire;
 mod envelope;
 mod errors;
 mod gcounter;
+mod gossip;
 mod gset;
 mod key;
 mod orset;
@@ -86,13 +87,15 @@ pub use cluster_subscription::{
 pub use codec::{
     REPLICATOR_CHANGED_SERIALIZER_ID, REPLICATOR_DELTA_ACK_SERIALIZER_ID,
     REPLICATOR_DELTA_NACK_SERIALIZER_ID, REPLICATOR_DELTA_PROPAGATION_SERIALIZER_ID,
-    REPLICATOR_GET_SERIALIZER_ID, REPLICATOR_READ_RESULT_SERIALIZER_ID,
+    REPLICATOR_GET_SERIALIZER_ID, REPLICATOR_GOSSIP_SERIALIZER_ID,
+    REPLICATOR_GOSSIP_STATUS_SERIALIZER_ID, REPLICATOR_READ_RESULT_SERIALIZER_ID,
     REPLICATOR_READ_SERIALIZER_ID, REPLICATOR_SUBSCRIBE_SERIALIZER_ID,
     REPLICATOR_UPDATE_SERIALIZER_ID, REPLICATOR_WRITE_ACK_SERIALIZER_ID,
     REPLICATOR_WRITE_NACK_SERIALIZER_ID, REPLICATOR_WRITE_SERIALIZER_ID, ReplicatorChangedCodec,
     ReplicatorDeltaAckCodec, ReplicatorDeltaNackCodec, ReplicatorDeltaPropagationCodec,
-    ReplicatorGetCodec, ReplicatorReadCodec, ReplicatorReadResultCodec, ReplicatorSubscribeCodec,
-    ReplicatorUpdateCodec, ReplicatorWriteAckCodec, ReplicatorWriteCodec, ReplicatorWriteNackCodec,
+    ReplicatorGetCodec, ReplicatorGossipCodec, ReplicatorGossipStatusCodec, ReplicatorReadCodec,
+    ReplicatorReadResultCodec, ReplicatorSubscribeCodec, ReplicatorUpdateCodec,
+    ReplicatorWriteAckCodec, ReplicatorWriteCodec, ReplicatorWriteNackCodec,
     register_ddata_protocol_codecs,
 };
 pub use consistency::{ReadConsistency, WriteConsistency};
@@ -117,13 +120,19 @@ pub use delta_wire::{
 pub use envelope::DataEnvelope;
 pub use errors::{ConsistencyError, CrdtError};
 pub use gcounter::GCounter;
+pub use gossip::{
+    REPLICATOR_GOSSIP_NOT_FOUND_DIGEST, ReplicatorGossipApplyReport, ReplicatorGossipError,
+    ReplicatorGossipStatusPlan, apply_gossip, build_gossip_status, create_gossip, digest_envelope,
+    respond_to_gossip_status,
+};
 pub use gset::GSet;
 pub use key::ReplicatorKey;
 pub use orset::{ORSet, ORSetDelta, ORSetRemoveDelta};
 pub use pncounter::PNCounter;
 pub use protocol::{
     ReplicatorChanged, ReplicatorDataEnvelope, ReplicatorDelta, ReplicatorDeltaAck,
-    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorPruningEntry,
+    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGet, ReplicatorGossip,
+    ReplicatorGossipDigest, ReplicatorGossipEntry, ReplicatorGossipStatus, ReplicatorPruningEntry,
     ReplicatorPruningState, ReplicatorRead, ReplicatorReadResult, ReplicatorSubscribe,
     ReplicatorUpdate, ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
 };
