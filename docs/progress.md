@@ -254,6 +254,10 @@ Implemented:
   connected `TcpStream` values to `RemoteByteSink`, opens separate control,
   ordinary, and large lane streams for a remote association address, and
   installs the resulting pipeline into the shared `RemoteAssociationCache`.
+- `kairo-remote` TCP support is now split into focused `dialer`, `sink`, and
+  inbound modules. `TcpAssociationListener` accepts the lane streams for one
+  association, and `TcpAssociationStreamReader` drains accepted TCP streams
+  through the existing remote stream decoder and `RemoteFrameHandler` boundary.
 - `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
   actor path, removes refs before termination is observable, and exposes local
   resolution helpers so remoting can resolve inbound recipients without making
@@ -970,8 +974,9 @@ Not yet implemented:
 - Full actor tree lifecycle semantics beyond recursive local stop and
   restart-time child handling.
 - Full actor-system local/remote provider integration, optional codec helper
-  crates, socket listener creation and actor-system lifecycle wiring around the
-  existing outbound TCP dialer, and broader cross-crate compatibility fixtures.
+  crates, long-running socket listener loops and actor-system lifecycle wiring
+  around the existing TCP association primitives, and broader cross-crate
+  compatibility fixtures.
 - Distributed-data socket listener/dialer wiring around the shared remote
   association cache and route installer.
 - Sharding remember-entity stores still need broader automatic region/shard

@@ -1098,3 +1098,31 @@ Consequences:
   ownership remain later work.
 - Lane framing and association close/quarantine checks continue to live in the
   existing transport-neutral pipeline instead of in TCP-specific code.
+
+## ADR-0042: TCP Inbound Streams Feed The Frame Handler Boundary
+
+Status: Accepted
+
+Context:
+Outbound TCP dialing can populate the shared association cache with lane
+pipelines, but the receiving side also needs a focused socket primitive that
+accepts lane streams and feeds decoded frame payloads into the existing remote
+inbound boundaries. Pekko Artery keeps lane transport, stream decoding, and
+message dispatch as separate stages; Kairo should preserve that separation
+with Rust modules instead of embedding TCP reads into actor or cluster code.
+
+Decision:
+Kairo splits TCP support into `dialer`, `sink`, and inbound modules.
+`TcpAssociationListener` accepts the expected lane streams for one association,
+and `TcpAssociationStreamReader` drains each accepted `TcpStream` through
+`StreamFrameInbound` into a supplied `RemoteFrameHandler`. The TCP layer does
+not deserialize messages or resolve actors; it only turns socket bytes into
+remote stream frames for the existing transport-neutral inbound router.
+
+Consequences:
+- TCP inbound socket handling stays below actor, cluster, distributed-data,
+  and cluster-tools protocols.
+- The same frame-handler boundary can be used for actor-system remote inbound,
+  distributed-data association inbound, or cluster-tools system inbound.
+- Long-running listener loops, handshakes, reconnect/backoff behavior, and
+  coordinated shutdown ownership remain later integration work.

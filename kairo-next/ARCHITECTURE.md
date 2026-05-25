@@ -809,9 +809,12 @@ TCP association dialing:
 - `TcpAssociationDialer` opens one TCP stream for each control, ordinary, and
   large lane and installs the resulting association pipeline into
   `RemoteAssociationCache`,
-- the dialer is an outbound transport primitive only; listener acceptance,
-  inbound lane reader installation, handshakes, reconnect policy, and
-  actor-system lifecycle ownership remain separate integration work.
+- `TcpAssociationListener` accepts the expected lane streams for one
+  association and `TcpAssociationStreamReader` drains each TCP stream through
+  the existing remote stream decoder and `RemoteFrameHandler` boundary,
+- these TCP pieces remain transport primitives; handshakes, reconnect policy,
+  long-running listener loops, and actor-system lifecycle ownership remain
+  separate integration work.
 
 Outbound lanes:
 
