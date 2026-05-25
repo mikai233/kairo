@@ -377,6 +377,18 @@ Implemented:
   `ReplicaId`, resolves the `RemoteEnvelope` recipient `ActorRefWireData` to a
   local temporary write or read aggregation child, and routes missing or
   mistyped targets through normal actor dead-letter diagnostics.
+- `kairo-distributed-data` now has a transport-neutral remote request/reply
+  bridge for direct replicator traffic. `ReplicatorRemoteRequestInbound`
+  validates the addressed local replicator `RemoteEnvelope`, decodes stable
+  delta/write/read manifests, applies them through the actor-backed
+  `ReplicatorActor`, and spawns short-lived reply adapters that send
+  ACK/NACK/read-result `RemoteEnvelope` replies back to the original sender
+  actor ref.
+- `ReplicatorRemoteReplyOutbound` can now serialize direct delta/write/read
+  replica replies into `RemoteEnvelope` messages addressed to the original
+  request sender actor ref, so direct remote requests and temporary
+  aggregation sessions share the same Pekko-style sender-based correlation
+  mechanism.
 - `kairo-distributed-data` now has a focused remote-envelope bridge that wraps
   stable replicator payloads in `RemoteEnvelope` recipient/sender metadata,
   preserving the sender actor-ref wire data needed to correlate remote
@@ -795,9 +807,8 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, end-to-end request sender to reply-recipient
-  association wiring across nodes, pruning scheduling, and gossip-backed
-  replication.
+  propagation/direct read/write, automatic peer route installation from
+  cluster events, pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

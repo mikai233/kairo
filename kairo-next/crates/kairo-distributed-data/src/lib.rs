@@ -25,6 +25,7 @@ mod protocol;
 mod read_write_receive;
 mod remote_envelope;
 mod remote_reply;
+mod remote_request;
 mod replica;
 mod replicator_actor;
 mod replicator_aggregation;
@@ -109,7 +110,10 @@ pub use remote_envelope::{
     ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeError, ReplicatorRemoteEnvelopeInbound,
     ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteInboundMessage, ReplicatorRemoteTarget,
 };
-pub use remote_reply::{ReplicatorRemoteReplyError, ReplicatorRemoteReplyInbound};
+pub use remote_reply::{
+    ReplicatorRemoteReplyError, ReplicatorRemoteReplyInbound, ReplicatorRemoteReplyOutbound,
+};
+pub use remote_request::{ReplicatorRemoteRequestError, ReplicatorRemoteRequestInbound};
 pub use replica::ReplicaId;
 pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};
 pub use replicator_aggregation::ReplicatorAggregation;

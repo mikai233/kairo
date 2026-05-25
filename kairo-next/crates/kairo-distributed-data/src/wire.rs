@@ -159,6 +159,14 @@ where
             data_codec,
         }
     }
+
+    pub fn delta_codec(&self) -> Arc<dyn CrdtDataCodec<D::Delta> + Send + Sync> {
+        Arc::clone(&self.delta_codec)
+    }
+
+    pub fn data_codec(&self) -> Arc<dyn CrdtDataCodec<D> + Send + Sync> {
+        Arc::clone(&self.data_codec)
+    }
 }
 
 #[derive(Clone)]
