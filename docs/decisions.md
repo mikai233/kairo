@@ -1179,3 +1179,38 @@ Consequences:
   membership decisions; it only feeds frame handlers.
 - Reader restart/backoff policy, handshakes, and coordinated shutdown
   integration remain separate work.
+
+## ADR-0045: TCP Actor-System Runtime Localizes Canonical Recipients
+
+Status: Accepted
+
+Context:
+Pekko's remote actor ref provider resolves paths whose address belongs to the
+local provider through the local actor tree, while foreign addresses produce
+remote refs or missing refs. Kairo's TCP loopback runtime now sends messages
+to remote-addressed actor paths such as
+`kairo://receiver@127.0.0.1:port/user/target`, but local actor registries are
+keyed by local paths such as `kairo://receiver/user/target`.
+
+Decision:
+`LocalActorInboundDelivery` can be constructed with `RemoteSettings`. When the
+recipient wire data matches the local actor system protocol/name plus the
+configured canonical host and port, the delivery adapter normalizes that
+recipient to the local actor path before resolving it in the actor registry.
+The canonical-address matching logic lives in a focused local-address module.
+Foreign hosts, ports, protocols, or systems are not localized.
+
+`TcpRemoteActorSystem<M>` is the first concrete lifecycle owner for a
+message-protocol-specific TCP remote runtime. It binds the listener, installs
+the inbound router and remote death-watch actor, exposes the provider/dialer,
+and clears all cached outbound association routes during shutdown so cloned
+typed remote refs cannot keep socket lanes open after the runtime stops.
+
+Consequences:
+- Loopback TCP `RemoteActorRef<M>` delivery can reach typed local actors
+  without requiring local actor registries to store remote-addressed aliases.
+- Address ownership remains explicit and does not turn discovery or TCP
+  connection state into cluster membership truth.
+- TCP shutdown has deterministic ownership of cached outbound socket lanes,
+  but reconnect/backoff policy, association handshakes, and richer provider
+  supervision remain future work.

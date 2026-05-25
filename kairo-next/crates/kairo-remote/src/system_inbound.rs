@@ -8,7 +8,7 @@ use kairo_serialization::{Registry, RemoteMessage};
 use crate::{
     AssociationRemoteInbound, LocalActorInboundDelivery, RemoteDeathWatchCommand,
     RemoteDeathWatchProtocolDelivery, RemoteDeathWatchSystemInbound, RemoteFrameHandler,
-    RemoteInbound, RemoteInboundFrameRouter, RemoteStreamId, Result,
+    RemoteInbound, RemoteInboundFrameRouter, RemoteSettings, RemoteStreamId, Result,
 };
 
 pub struct ActorSystemRemoteInbound<M> {
@@ -26,10 +26,39 @@ where
         death_watch: ActorRef<RemoteDeathWatchCommand>,
         local_system_uid: u64,
     ) -> Self {
-        let business = RemoteInbound::new(
-            registry.clone(),
-            Arc::new(LocalActorInboundDelivery::<M>::new(system)),
-        );
+        Self::with_delivery(
+            system,
+            registry,
+            death_watch,
+            local_system_uid,
+            LocalActorInboundDelivery::<M>::new,
+        )
+    }
+
+    pub fn with_remote_settings(
+        system: ActorSystem,
+        registry: Arc<Registry>,
+        death_watch: ActorRef<RemoteDeathWatchCommand>,
+        local_system_uid: u64,
+        settings: RemoteSettings,
+    ) -> Self {
+        Self::with_delivery(
+            system,
+            registry,
+            death_watch,
+            local_system_uid,
+            move |system| LocalActorInboundDelivery::<M>::with_remote_settings(system, settings),
+        )
+    }
+
+    fn with_delivery(
+        system: ActorSystem,
+        registry: Arc<Registry>,
+        death_watch: ActorRef<RemoteDeathWatchCommand>,
+        local_system_uid: u64,
+        delivery: impl FnOnce(ActorSystem) -> LocalActorInboundDelivery<M>,
+    ) -> Self {
+        let business = RemoteInbound::new(registry.clone(), Arc::new(delivery(system)));
         let death_watch = RemoteDeathWatchSystemInbound::new(
             registry,
             RemoteDeathWatchProtocolDelivery::new(death_watch, local_system_uid),

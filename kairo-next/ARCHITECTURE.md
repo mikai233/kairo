@@ -775,6 +775,9 @@ Association routing:
   routing,
 - `RemoteAssociationCache` maps remote association addresses to outbound
   association routes and does not hold cache locks while transport sends run,
+- route owners may clear all cached outbound routes during transport shutdown
+  to close concrete socket byte sinks even when typed remote refs still hold a
+  cloned cache handle,
 - association state checks remain in the guarded association outbound wrapper
   so a cache route still rejects quarantined or closed associations before
   touching the transport,
@@ -820,6 +823,10 @@ TCP association dialing:
   stoppable background accept loop, creates lane readers for each complete
   accepted association, and reports accepted-association plus stream/frame
   counts through `TcpAssociationListenerHandle`,
+- `TcpRemoteActorSystem<M>` composes the concrete TCP listener, association
+  cache, route installer, dialer, remote actor-ref provider, actor-system
+  inbound router, and remote death-watch actor into one lifecycle owner for a
+  message protocol `M`,
 - these TCP pieces remain transport primitives; handshakes, reconnect policy,
   reader supervision/restart policy, and actor-system lifecycle ownership
   remain separate integration work.
@@ -842,6 +849,11 @@ Inbound pipeline:
 readers with the inbound frame router. Control-lane death-watch manifests are
 delivered to the actor-backed remote watcher, while ordinary manifests are
 deserialized as `M` and resolved through the local `ActorSystem` registry.
+Recipients addressed to the local system's canonical remote host and port are
+normalized to local actor paths before registry lookup, matching Pekko's
+provider behavior for addresses owned by the local node. Recipients addressed
+to other hosts or systems remain foreign/missing rather than being silently
+localized.
 
 ### System Message Delivery
 

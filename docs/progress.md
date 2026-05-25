@@ -266,6 +266,11 @@ Implemented:
   `TcpAssociationListener::spawn_accept_loop`, which accepts complete lane
   associations, starts their independent lane readers, and joins them through
   an explicit `TcpAssociationListenerHandle` report.
+- `kairo-remote` now has a focused TCP actor-system runtime boundary that
+  binds a listener, owns the local association cache, provider, dialer, remote
+  death-watch actor, and inbound router composition, and clears outbound
+  association routes during shutdown so typed remote refs cannot keep socket
+  lanes open after the runtime stops.
 - `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
   actor path, removes refs before termination is observable, and exposes local
   resolution helpers so remoting can resolve inbound recipients without making
@@ -274,6 +279,9 @@ Implemented:
   resolves remote recipient wire data through an `ActorSystem`, tells the
   typed local actor, and routes unknown or type-mismatched targets through
   missing-ref dead-letter diagnostics.
+- Local remote delivery now normalizes recipient paths addressed to the
+  system's own canonical remote host/port back to local actor paths before
+  registry resolution, while leaving foreign remote addresses as missing refs.
 - `kairo-remote` now has a focused remote death-watch state module that tracks
   watched remote actor pairs and watched addresses, plans heartbeat
   start/stop/send effects, re-watches after remote UID changes, emits

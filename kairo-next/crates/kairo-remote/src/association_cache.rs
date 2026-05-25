@@ -112,6 +112,16 @@ impl RemoteAssociationCache {
             .remove(address)
     }
 
+    pub fn clear_routes(&self) -> usize {
+        let mut routes = self
+            .routes
+            .write()
+            .expect("remote association cache lock poisoned");
+        let len = routes.len();
+        routes.clear();
+        len
+    }
+
     pub fn route_count(&self) -> usize {
         self.routes
             .read()
@@ -263,6 +273,22 @@ mod tests {
             RemoteError::AssociationUnavailable { remote }
                 if remote == "kairo://missing@127.0.0.1:25521"
         ));
+    }
+
+    #[test]
+    fn clear_routes_removes_all_cached_associations() {
+        let cache = RemoteAssociationCache::new();
+        cache.insert_route(
+            RemoteAssociationAddress::new("kairo", "one", "127.0.0.1", Some(25521)).unwrap(),
+            Arc::new(CollectingOutbound::default()),
+        );
+        cache.insert_route(
+            RemoteAssociationAddress::new("kairo", "two", "127.0.0.1", Some(25522)).unwrap(),
+            Arc::new(CollectingOutbound::default()),
+        );
+
+        assert_eq!(cache.clear_routes(), 2);
+        assert_eq!(cache.route_count(), 0);
     }
 
     #[test]

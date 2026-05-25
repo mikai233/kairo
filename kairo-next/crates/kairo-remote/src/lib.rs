@@ -12,6 +12,7 @@ mod frame;
 mod inbound;
 mod inbound_router;
 mod lanes;
+mod local_address;
 mod local_delivery;
 mod outbound;
 mod protocol;
@@ -28,6 +29,7 @@ mod stream_inbound;
 mod stream_sink;
 mod system_inbound;
 mod tcp;
+mod tcp_runtime;
 mod transport;
 
 pub use association::{AssociationState, RemoteAssociation};
@@ -80,4 +82,5 @@ pub use tcp::{
     TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReadReport,
     TcpAssociationReaderHandle, TcpAssociationStreamReader, TcpRemoteByteSink,
 };
+pub use tcp_runtime::TcpRemoteActorSystem;
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};
