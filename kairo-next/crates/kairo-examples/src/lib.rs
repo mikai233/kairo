@@ -4,3 +4,5 @@
 //! `cargo run -p kairo-examples --example <name>`.
 
 pub mod counter;
+pub mod ddata_tcp;
+pub mod reply;

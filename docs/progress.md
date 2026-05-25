@@ -599,6 +599,9 @@ Implemented:
   distributed-data peer runtime, spawns the connector actor with explicit
   settings, and registers coordinated shutdown to stop the connector before
   cluster shutdown so socket cleanup goes through the actor stop path.
+- `kairo-examples` now includes a runnable distributed-data TCP peer bootstrap
+  example, with reusable setup and one-shot reply helpers kept in focused
+  example modules instead of placing route orchestration in one binary file.
 - `kairo-distributed-data` now has stable full-state gossip status and gossip
   payload manifests, explicit codecs, and a focused gossip planning module
   that builds chunked digest status messages, detects differing or missing
@@ -1117,9 +1120,9 @@ Not yet implemented:
   crates, reader supervision/restart policy, richer actor-system lifecycle
   wiring around the existing TCP association primitives, and broader
   cross-crate compatibility fixtures.
-- Distributed-data still needs end-to-end examples and multi-node validation
-  around the focused TCP association runtime, peer-route owner, reconnect
-  state, peer runtime, actor-backed connector, and bootstrap.
+- Distributed-data still needs broader multi-node validation around the
+  focused TCP association runtime, peer-route owner, reconnect state, peer
+  runtime, actor-backed connector, and bootstrap.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

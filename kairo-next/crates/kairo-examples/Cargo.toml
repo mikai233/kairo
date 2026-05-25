@@ -7,4 +7,4 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-kairo = { path = "../kairo" }
+kairo = { path = "../kairo", features = ["distributed-data"] }
