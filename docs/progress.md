@@ -404,6 +404,12 @@ Implemented:
 - `ReplicatorActor<D>` records local update deltas into the propagation log and
   exposes explicit target-node configuration, propagation collection, and
   cleanup messages for the future remote transport loop.
+- `kairo-distributed-data` now has a focused actor-backed delta propagation
+  tick loop. `DeltaPropagationLoop` publishes collected deltas through the
+  existing transport-neutral `DeltaPropagationTransport`, cleans retained
+  delta entries on a configurable Pekko-style tick divisor, and
+  `ReplicatorActor` can run the loop either by explicit testable tick messages
+  or scheduled one-shot self ticks driven by manual time.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -808,7 +814,8 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
   propagation/direct read/write, automatic peer route installation from
-  cluster events, pruning scheduling, and gossip-backed replication.
+  cluster events, removed-node pruning scheduling/state, and gossip-backed
+  replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

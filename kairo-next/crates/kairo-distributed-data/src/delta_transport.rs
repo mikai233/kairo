@@ -43,6 +43,14 @@ pub struct DeltaTransportReport {
 }
 
 impl DeltaTransportReport {
+    pub fn empty() -> Self {
+        Self {
+            sent_to: Vec::new(),
+            skipped_empty: Vec::new(),
+            failures: Vec::new(),
+        }
+    }
+
     pub fn sent_to(&self) -> &[ReplicaId] {
         &self.sent_to
     }

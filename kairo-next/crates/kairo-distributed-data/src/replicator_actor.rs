@@ -1,13 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 
 use crate::{
     AggregationError, CrdtDataCodec, DataEnvelope, DeltaPropagation, DeltaPropagationLog,
-    DeltaPropagationReceiveReport, DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData,
-    DirectReadResult, DirectWriteResult, GetResponse, ReadAggregationPlan, ReadAggregatorState,
-    ReadConsistency, ReplicaId, ReplicatedDelta, ReplicatorAggregation, ReplicatorChange,
+    DeltaPropagationLoop, DeltaPropagationReceiveReport, DeltaPropagationTickReport,
+    DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData, DirectReadResult,
+    DirectWriteResult, GetResponse, ReadAggregationPlan, ReadAggregatorState, ReadConsistency,
+    ReplicaId, ReplicatedDelta, ReplicatorAggregation, ReplicatorChange,
     ReplicatorDeltaPropagation, ReplicatorKey, ReplicatorRead, ReplicatorState, ReplicatorWrite,
     UpdateResponse, WriteAggregationPlan, WriteAggregatorState, WriteConsistency,
 };
@@ -25,6 +27,8 @@ where
     unreachable_nodes: BTreeSet<ReplicaId>,
     remote_replica_count: usize,
     aggregation: Option<ReplicatorAggregation<D>>,
+    delta_loop: Option<DeltaPropagationLoop<D::Delta>>,
+    delta_tick_interval: Option<Duration>,
 }
 
 impl<D> ReplicatorActor<D>
@@ -46,6 +50,8 @@ where
             unreachable_nodes: BTreeSet::new(),
             remote_replica_count,
             aggregation: None,
+            delta_loop: None,
+            delta_tick_interval: None,
         }
     }
 
@@ -55,6 +61,21 @@ where
     {
         let mut actor = Self::new();
         actor.aggregation = Some(aggregation);
+        actor
+    }
+
+    pub fn with_delta_propagation_loop(delta_loop: DeltaPropagationLoop<D::Delta>) -> Self {
+        let mut actor = Self::new();
+        actor.delta_loop = Some(delta_loop);
+        actor
+    }
+
+    pub fn with_delta_propagation_loop_interval(
+        delta_loop: DeltaPropagationLoop<D::Delta>,
+        interval: Duration,
+    ) -> Self {
+        let mut actor = Self::with_delta_propagation_loop(delta_loop);
+        actor.delta_tick_interval = Some(interval);
         actor
     }
 
@@ -154,6 +175,10 @@ where
         reply_to: ActorRef<BTreeMap<ReplicaId, DeltaPropagation<D::Delta>>>,
     },
     CleanupDeltaEntries,
+    RunDeltaPropagation {
+        reply_to: ActorRef<DeltaPropagationTickReport>,
+    },
+    DeltaPropagationTick,
     Subscribe {
         key: ReplicatorKey,
         subscriber: ActorRef<ReplicatorChange<D>>,
@@ -171,6 +196,11 @@ where
     D::Delta: Send + 'static,
 {
     type Msg = ReplicatorActorMsg<D>;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.schedule_delta_propagation_tick(ctx);
+        Ok(())
+    }
 
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
@@ -271,6 +301,14 @@ where
             }
             ReplicatorActorMsg::CleanupDeltaEntries => {
                 self.delta_log.cleanup_delta_entries();
+            }
+            ReplicatorActorMsg::RunDeltaPropagation { reply_to } => {
+                let report = self.run_delta_propagation_tick();
+                tell_or_actor_error(&reply_to, report)?;
+            }
+            ReplicatorActorMsg::DeltaPropagationTick => {
+                self.run_delta_propagation_tick();
+                self.schedule_delta_propagation_tick(ctx);
             }
             ReplicatorActorMsg::Subscribe { key, subscriber } => {
                 self.subscribe(key, subscriber);
@@ -465,6 +503,19 @@ where
             self.remote_replica_count
         } else {
             self.remote_nodes.len()
+        }
+    }
+
+    fn run_delta_propagation_tick(&mut self) -> DeltaPropagationTickReport {
+        match &self.delta_loop {
+            Some(delta_loop) => delta_loop.run_tick(&mut self.delta_log),
+            None => DeltaPropagationTickReport::skipped(self.delta_log.propagation_count()),
+        }
+    }
+
+    fn schedule_delta_propagation_tick(&self, ctx: &Context<ReplicatorActorMsg<D>>) {
+        if let Some(interval) = self.delta_tick_interval {
+            ctx.schedule_once_self(interval, ReplicatorActorMsg::DeltaPropagationTick);
         }
     }
 }

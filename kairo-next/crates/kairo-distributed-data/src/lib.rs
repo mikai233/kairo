@@ -11,6 +11,7 @@ mod consistency;
 mod crdt_codec;
 mod data;
 mod delta;
+mod delta_loop;
 mod delta_receive;
 mod delta_transport;
 mod delta_wire;
@@ -82,6 +83,7 @@ pub use crdt_codec::{
 };
 pub use data::{DeltaReplicatedData, ReplicatedData, ReplicatedDelta};
 pub use delta::{DeltaPropagation, DeltaPropagationEntry, DeltaPropagationLog};
+pub use delta_loop::{DeltaPropagationLoop, DeltaPropagationSink, DeltaPropagationTickReport};
 pub use delta_receive::{
     DeltaPropagationReceiveReport, DeltaReceiveFailure, DeltaReceiveReply, DeltaReceiveStatus,
     DeltaReceiveTracker,
