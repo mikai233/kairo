@@ -36,6 +36,7 @@ mod remote_envelope;
 mod remote_reply;
 mod remote_request;
 mod remote_targets;
+mod remote_tcp;
 mod replica;
 mod replicator_actor;
 mod replicator_aggregation;
@@ -168,6 +169,9 @@ pub use remote_targets::{
     DEFAULT_REPLICATOR_REMOTE_PATH, ReplicatorRemoteRouteRegistrationReport,
     ReplicatorRemoteRouteTargets, ReplicatorRemoteTargetError,
     ReplicatorRemoteTargetRegistrationReport,
+};
+pub use remote_tcp::{
+    ReplicatorTcpAssociationRuntime, replicator_actor_ref_for, tcp_association_identity_for,
 };
 pub use replica::ReplicaId;
 pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};

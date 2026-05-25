@@ -570,6 +570,12 @@ Implemented:
   values, dispatches delta/write/read manifests to the request inbound path,
   dispatches ACK/NACK/read-result manifests to the reply inbound path, and
   tags both with the configured source `ReplicaId` for the association.
+- `kairo-distributed-data` now has a focused TCP association runtime for a
+  configured remote replica. It binds a handshaken TCP listener, owns a shared
+  `RemoteAssociationCache`, association registry, route installer, dialer, and
+  dialing-side lane readers, and routes bidirectional `/system/ddata`
+  request/reply envelopes through the same socket association primitives used
+  by actor remoting.
 - `kairo-distributed-data` now has stable full-state gossip status and gossip
   payload manifests, explicit codecs, and a focused gossip planning module
   that builds chunked digest status messages, detects differing or missing
@@ -1035,8 +1041,9 @@ Not yet implemented:
   crates, reader supervision/restart policy, richer actor-system lifecycle
   wiring around the existing TCP association primitives, and broader
   cross-crate compatibility fixtures.
-- Distributed-data socket listener/dialer wiring around the shared remote
-  association cache and route installer.
+- Distributed-data still needs broader socket lifecycle integration around
+  cluster-derived replica discovery, reconnect policy, and multi-peer runtime
+  ownership beyond the focused configured-peer TCP association slice.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
