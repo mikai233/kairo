@@ -364,6 +364,10 @@ fn tcp_listener_accept_loop_reports_handshaken_remote_identity() {
 fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
     let (frame_tx, frame_rx) = mpsc::channel();
     let handler = Arc::new(ChannelFrameHandler::new(frame_tx)) as Arc<dyn RemoteFrameHandler>;
+    let (sender_frame_tx, sender_frame_rx) = mpsc::channel();
+    let sender_reader = TcpAssociationStreamReader::new(Arc::new(ChannelFrameHandler::new(
+        sender_frame_tx,
+    )) as Arc<dyn RemoteFrameHandler>);
     let registry = RemoteAssociationRegistry::new();
     let receiver_cache = RemoteAssociationCache::new();
     let receiver_installer = crate::RemoteAssociationRouteInstaller::new(receiver_cache.clone());
@@ -383,7 +387,9 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
     let dialer = TcpAssociationDialer::new(installer)
         .with_local_identity(remote_address.clone(), 42)
         .with_connect_timeout(Duration::from_secs(1));
-    let registration = dialer.dial(association_address("receiver", port)).unwrap();
+    let (registration, sender_reader_handle) = dialer
+        .dial_with_reader(association_address("receiver", port), sender_reader)
+        .unwrap();
 
     cache.send(envelope_to("receiver", port, 57)).unwrap();
     let (stream_id, frame) = frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -406,6 +412,12 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
     receiver_cache
         .send(envelope_to("sender", 25521, 58))
         .unwrap();
+    let (stream_id, frame) = sender_frame_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(stream_id, RemoteStreamId::Ordinary);
+    let decoded = decode_remote_envelope_frame(frame).unwrap();
+    assert_eq!(decoded.message.payload, Bytes::from_static(&[58]));
 
     listener_handle.stop();
     drop(registration);
@@ -414,10 +426,12 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
     drop(dialer);
 
     let report = listener_handle.join().unwrap();
+    let sender_report = sender_reader_handle.join().unwrap();
     assert_eq!(
         report.remote_identities,
         vec![TcpAssociationIdentity::new(remote_address, 42)]
     );
+    assert_eq!(sender_report.frames, 1);
 }
 
 #[test]
