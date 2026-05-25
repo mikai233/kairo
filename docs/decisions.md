@@ -1260,3 +1260,39 @@ Consequences:
   or memory layout.
 - Quarantine after UID changes, retry/backoff, and reliable system-message
   delivery remain separate remote milestones.
+
+## ADR-0047: Remote Associations Keep A Separate UID Registry
+
+Status: Accepted
+
+Context:
+Pekko Artery keeps associations indexed by both remote address and remote UID.
+Completing a handshake records the remote `UniqueAddress`; repeated completion
+for the same address and UID is idempotent, while attempting to associate the
+same UID with a different remote address is rejected as a UID collision. Kairo
+needs the same observable incarnation boundary before quarantine and reconnect
+policy are layered on top.
+
+Decision:
+Kairo adds `RemoteAssociationRegistry` as a focused `kairo-remote` module. The
+registry owns address-indexed `RemoteAssociation` handles plus a UID-to-address
+index. `association(address)` creates or reuses the address association and
+starts its handshake state. `complete_handshake(address, uid)` indexes the UID,
+activates the association with that UID, allows repeated handshakes for the
+same address/UID pair, allows a later UID for the same address as a new
+incarnation, and rejects a UID collision across different addresses with an
+explicit `RemoteError::AssociationUidCollision`.
+
+TCP listeners can be configured with this registry. After lane handshakes are
+validated for local target, remote identity consistency, and lane uniqueness,
+the listener completes the association in the registry before handing streams
+to lane readers. `TcpRemoteActorSystem` owns one registry alongside its
+association cache and exposes it for diagnostics and later quarantine work.
+
+Consequences:
+- Association identity state is not hidden inside TCP socket code or the route
+  cache.
+- Future quarantine/reconnect logic has a stable address and UID index to
+  build on.
+- The registry does not turn TCP connections into cluster membership truth;
+  cluster membership remains gossip plus local failure detector observations.

@@ -785,6 +785,12 @@ Association routing:
   stream-lane association pipelines, keeping socket byte sinks and association
   state in `kairo-remote` while higher-level cluster/ddata/tools adapters only
   depend on the cache as a route table.
+- `RemoteAssociationRegistry` is the transport-independent association
+  incarnation index. It owns address-indexed `RemoteAssociation` handles plus a
+  UID-to-address index, creates associations by address, completes handshakes
+  by activating the association with the observed UID, treats repeated
+  address/UID handshakes as idempotent, and rejects one UID being bound to
+  multiple remote addresses.
 
 ### Transport
 
@@ -831,6 +837,9 @@ TCP association dialing:
 - `TcpAcceptedAssociation` and `TcpAssociationListenerReport` retain the
   accepted remote identity when handshakes are enabled, preserving the address
   and UID that a later association registry and quarantine layer will need,
+- `TcpAssociationListener` may be configured with a
+  `RemoteAssociationRegistry`; validated handshakes complete the registry entry
+  before accepted streams are handed to lane readers,
 - `TcpRemoteActorSystem<M>` composes the concrete TCP listener, association
   cache, route installer, dialer, remote actor-ref provider, actor-system
   inbound router, and remote death-watch actor into one lifecycle owner for a

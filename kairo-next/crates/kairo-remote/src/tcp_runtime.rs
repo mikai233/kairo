@@ -8,10 +8,11 @@ use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
 
 use crate::{
     ActorSystemRemoteInbound, RemoteActorRef, RemoteActorRefProvider, RemoteAssociationAddress,
-    RemoteAssociationCache, RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration,
-    RemoteDeathWatchCommand, RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink,
-    RemoteError, RemoteOutbound, RemoteSettings, Result, TcpAssociationDialer,
-    TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
+    RemoteAssociationCache, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
+    RemoteAssociationRouteRegistration, RemoteDeathWatchCommand, RemoteDeathWatchEffectObserver,
+    RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound, RemoteSettings, Result,
+    TcpAssociationDialer, TcpAssociationListener, TcpAssociationListenerHandle,
+    TcpAssociationListenerReport,
 };
 
 pub struct TcpRemoteActorSystem<M> {
@@ -19,6 +20,7 @@ pub struct TcpRemoteActorSystem<M> {
     registry: Arc<Registry>,
     settings: RemoteSettings,
     association_cache: RemoteAssociationCache,
+    association_registry: RemoteAssociationRegistry,
     provider: RemoteActorRefProvider,
     dialer: TcpAssociationDialer,
     death_watch: ActorRef<RemoteDeathWatchCommand>,
@@ -70,6 +72,7 @@ where
         );
 
         let association_cache = RemoteAssociationCache::new();
+        let association_registry = RemoteAssociationRegistry::new();
         let outbound = Arc::new(association_cache.clone()) as Arc<dyn RemoteOutbound>;
         let local_watcher = local_watcher_for(&system, &effective_settings)?;
         let death_watch_sink = Arc::new(RemoteDeathWatchOutboundSink::with_local_watcher(
@@ -94,6 +97,7 @@ where
         );
         let listener = TcpAssociationListener::from_listener(listener, Arc::new(inbound))
             .with_local_address(local_association_address(&system, &effective_settings)?)
+            .with_association_registry(association_registry.clone())
             .spawn_accept_loop()?;
         let installer = RemoteAssociationRouteInstaller::new(association_cache.clone());
         let dialer = TcpAssociationDialer::new(installer)
@@ -114,6 +118,7 @@ where
             registry,
             settings: effective_settings,
             association_cache,
+            association_registry,
             provider,
             dialer,
             death_watch,
@@ -136,6 +141,10 @@ where
 
     pub fn association_cache(&self) -> &RemoteAssociationCache {
         &self.association_cache
+    }
+
+    pub fn association_registry(&self) -> &RemoteAssociationRegistry {
+        &self.association_registry
     }
 
     pub fn provider(&self) -> &RemoteActorRefProvider {

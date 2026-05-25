@@ -7,7 +7,7 @@ use kairo_serialization::{MessageCodec, Registry, RemoteMessage, SerializationRe
 
 use super::TcpRemoteActorSystem;
 use crate::{
-    RemoteAssociationAddress, RemoteSettings, TcpAssociationIdentity,
+    AssociationState, RemoteAssociationAddress, RemoteSettings, TcpAssociationIdentity,
     register_remote_protocol_codecs,
 };
 
@@ -127,6 +127,20 @@ fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
     assert_eq!(
         received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         77
+    );
+    let receiver_association = receiver_remote
+        .association_registry()
+        .association_by_uid(22);
+    assert!(receiver_association.is_some());
+    assert_eq!(
+        receiver_association
+            .unwrap()
+            .lock()
+            .expect("remote association lock poisoned")
+            .state(),
+        &AssociationState::Active {
+            remote_uid: Some(22)
+        }
     );
 
     drop(registration);

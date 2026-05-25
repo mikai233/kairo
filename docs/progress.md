@@ -276,6 +276,11 @@ Implemented:
   identities, including address and UID, so later association-registry,
   quarantine, and diagnostics work can build on explicit peer incarnation
   evidence instead of re-parsing socket paths.
+- `kairo-remote` now has a focused `RemoteAssociationRegistry` with
+  address-indexed associations and a stable UID index. Validated TCP handshakes
+  can complete associations into the registry, repeated handshakes for the
+  same address/UID are idempotent, and UID collisions across addresses are
+  rejected explicitly.
 - `kairo-remote` now has a focused TCP actor-system runtime boundary that
   binds a listener, owns the local association cache, provider, dialer, remote
   death-watch actor, and inbound router composition, and clears outbound

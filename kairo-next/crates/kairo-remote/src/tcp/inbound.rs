@@ -10,7 +10,8 @@ use std::time::Duration;
 use bytes::Bytes;
 
 use crate::{
-    RemoteAssociationAddress, RemoteError, RemoteFrameHandler, Result, StreamFrameInbound,
+    RemoteAssociationAddress, RemoteAssociationRegistry, RemoteError, RemoteFrameHandler, Result,
+    StreamFrameInbound,
 };
 
 use super::{
@@ -72,6 +73,7 @@ pub struct TcpAssociationListener {
     expected_streams: usize,
     accept_poll_interval: Duration,
     local_address: Option<RemoteAssociationAddress>,
+    association_registry: Option<RemoteAssociationRegistry>,
 }
 
 impl TcpAssociationListener {
@@ -88,6 +90,7 @@ impl TcpAssociationListener {
             expected_streams: DEFAULT_EXPECTED_LANE_STREAMS,
             accept_poll_interval: DEFAULT_ACCEPT_POLL_INTERVAL,
             local_address: None,
+            association_registry: None,
         }
     }
 
@@ -98,6 +101,11 @@ impl TcpAssociationListener {
 
     pub fn with_local_address(mut self, local_address: RemoteAssociationAddress) -> Self {
         self.local_address = Some(local_address);
+        self
+    }
+
+    pub fn with_association_registry(mut self, registry: RemoteAssociationRegistry) -> Self {
+        self.association_registry = Some(registry);
         self
     }
 
@@ -136,6 +144,7 @@ impl TcpAssociationListener {
             streams.push(TcpAcceptedStream { peer, stream });
         }
         let remote_identity = self.validate_handshakes(&handshakes)?;
+        self.register_remote_identity(&remote_identity)?;
         Ok(TcpAcceptedAssociation {
             reader: self.reader.clone(),
             remote_identity,
@@ -237,6 +246,7 @@ impl TcpAssociationListener {
             }
         }
         let remote_identity = self.validate_handshakes(&handshakes)?;
+        self.register_remote_identity(&remote_identity)?;
         Ok(Some(TcpAcceptedAssociation {
             reader: self.reader.clone(),
             remote_identity,
@@ -267,6 +277,16 @@ impl TcpAssociationListener {
             ),
             None => Ok(None),
         }
+    }
+
+    fn register_remote_identity(&self, identity: &Option<TcpAssociationIdentity>) -> Result<()> {
+        let Some(identity) = identity else {
+            return Ok(());
+        };
+        if let Some(registry) = &self.association_registry {
+            registry.complete_handshake(identity.address().clone(), identity.uid())?;
+        }
+        Ok(())
     }
 }
 

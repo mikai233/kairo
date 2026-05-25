@@ -5,6 +5,7 @@ mod association_cache;
 mod association_inbound;
 mod association_outbound;
 mod association_pipeline;
+mod association_registry;
 mod association_routes;
 mod codec;
 mod error;
@@ -37,6 +38,7 @@ pub use association_cache::{RemoteAssociationAddress, RemoteAssociationCache};
 pub use association_inbound::AssociationRemoteInbound;
 pub use association_outbound::AssociationRemoteOutbound;
 pub use association_pipeline::AssociationOutboundPipeline;
+pub use association_registry::{RemoteAssociationHandle, RemoteAssociationRegistry};
 pub use association_routes::{RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration};
 pub use codec::{
     ADDRESS_TERMINATED_SERIALIZER_ID, AddressTerminatedCodec, REMOTE_HEARTBEAT_ACK_SERIALIZER_ID,

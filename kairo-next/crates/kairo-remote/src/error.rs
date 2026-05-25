@@ -22,4 +22,12 @@ pub enum RemoteError {
     AssociationQuarantined { remote: String, reason: String },
     #[error("no remote association route for `{remote}`")]
     AssociationUnavailable { remote: String },
+    #[error(
+        "remote association UID collision for `{uid}`: existing `{existing}`, attempted `{attempted}`"
+    )]
+    AssociationUidCollision {
+        uid: u64,
+        existing: String,
+        attempted: String,
+    },
 }
