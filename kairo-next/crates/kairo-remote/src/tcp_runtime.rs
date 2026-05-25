@@ -15,6 +15,8 @@ use crate::{
     TcpAssociationListenerReport,
 };
 
+const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+
 pub struct TcpRemoteActorSystem<M> {
     system: ActorSystem,
     registry: Arc<Registry>,
@@ -181,9 +183,23 @@ where
     }
 
     pub fn shutdown(self) -> Result<TcpAssociationListenerReport> {
+        self.shutdown_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
+    }
+
+    pub fn shutdown_with_timeout(self, timeout: Duration) -> Result<TcpAssociationListenerReport> {
+        self.system.stop(&self.death_watch);
+        let death_watch_stopped = self.death_watch.wait_for_stop(timeout);
         self.association_cache.clear_routes();
         self.listener.stop();
-        self.listener.join()
+        let listener_report = self.listener.join();
+
+        if !death_watch_stopped {
+            return Err(RemoteError::Inbound(
+                "remote death-watch actor did not stop during tcp shutdown".to_string(),
+            ));
+        }
+
+        listener_report
     }
 }
 

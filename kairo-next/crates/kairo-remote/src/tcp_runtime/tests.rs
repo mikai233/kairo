@@ -157,9 +157,13 @@ fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
     );
 
     drop(registration);
+    let sender_watch = sender_remote.death_watch().clone();
+    let receiver_watch = receiver_remote.death_watch().clone();
     let sender_report = sender_remote.shutdown().unwrap();
+    assert!(sender_watch.wait_for_stop(Duration::from_secs(1)));
     assert_eq!(sender_report.accepted_associations, 0);
     let receiver_report = receiver_remote.shutdown().unwrap();
+    assert!(receiver_watch.wait_for_stop(Duration::from_secs(1)));
     assert_eq!(receiver_report.accepted_associations, 1);
     assert_eq!(receiver_report.remote_identities, vec![sender_identity]);
     assert_eq!(receiver_report.read.streams, 3);

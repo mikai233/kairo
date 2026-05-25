@@ -848,6 +848,10 @@ TCP association dialing:
   cache, route installer, dialer, remote actor-ref provider, actor-system
   inbound router, and remote death-watch actor into one lifecycle owner for a
   message protocol `M`,
+- `TcpRemoteActorSystem::shutdown_with_timeout` stops the runtime-owned
+  remote death-watch actor before clearing outbound association routes and
+  stopping the TCP listener, preserving the shutdown ordering shape Pekko uses
+  for remoting internals before transport shutdown,
 - these TCP pieces remain transport primitives; reconnect policy, reader
   supervision/restart policy, and richer provider lifecycle ownership remain
   separate integration work.

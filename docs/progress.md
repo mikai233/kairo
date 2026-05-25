@@ -286,6 +286,10 @@ Implemented:
   death-watch actor, and inbound router composition, and clears outbound
   association routes during shutdown so typed remote refs cannot keep socket
   lanes open after the runtime stops.
+- TCP actor-system runtime shutdown now stops the runtime-owned remote
+  death-watch actor with an explicit timeout before clearing association
+  routes and stopping the listener, so remoting lifecycle ownership includes
+  its local system actor instead of leaving it running after socket shutdown.
 - `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
   actor path, removes refs before termination is observable, and exposes local
   resolution helpers so remoting can resolve inbound recipients without making
