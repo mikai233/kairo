@@ -105,6 +105,7 @@ dependencies = [
  "bytes",
  "kairo-actor",
  "kairo-cluster",
+ "kairo-remote",
  "kairo-serialization",
 ]
 

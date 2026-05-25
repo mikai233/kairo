@@ -28,6 +28,7 @@ mod pncounter;
 mod protocol;
 mod pruning;
 mod read_write_receive;
+mod remote_association;
 mod remote_envelope;
 mod remote_reply;
 mod remote_request;
@@ -130,6 +131,10 @@ pub use pruning::{
     RemovedNodePruningTick, RemovedNodePruningTickReport, RemovedNodePruningTracker,
 };
 pub use read_write_receive::{DirectReadResult, DirectWriteResult, apply_write, serve_read};
+pub use remote_association::{
+    ReplicatorRemoteAssociationError, ReplicatorRemoteAssociationOutbound,
+    ReplicatorRemoteAssociationRoutes,
+};
 pub use remote_envelope::{
     ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeError, ReplicatorRemoteEnvelopeInbound,
     ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteInboundMessage, ReplicatorRemoteTarget,

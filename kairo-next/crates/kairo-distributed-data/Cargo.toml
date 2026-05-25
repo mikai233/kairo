@@ -9,4 +9,5 @@ repository.workspace = true
 bytes = { workspace = true }
 kairo-actor = { workspace = true }
 kairo-cluster = { workspace = true }
+kairo-remote = { workspace = true }
 kairo-serialization = { workspace = true }

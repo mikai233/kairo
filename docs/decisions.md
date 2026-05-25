@@ -689,3 +689,32 @@ Consequences:
 - Future durable-store or transport-level aggregation failures can use the
   same explicit failure variant without changing stable wire manifests.
 - Existing local update behavior remains unchanged.
+
+## ADR-0028: Distributed-Data Uses Remote Outbound Routes For Transport
+
+Status: Accepted
+
+Context:
+Pekko's distributed-data replicator sends delta propagation, gossip status,
+gossip payloads, and direct read/write messages to the same replicator path on
+the target node. Kairo already wraps registered ddata payloads in stable
+`RemoteEnvelope` recipient/sender metadata, and the remote crate owns the
+association, lane, stream, and future socket boundaries.
+
+Decision:
+Distributed data may depend on `kairo-remote` for outbound association
+delivery, but only after cluster route state has selected target replicas.
+`ReplicatorRemoteAssociationRoutes` maps `ReplicaId` values to
+`RemoteOutbound` association routes, and
+`ReplicatorRemoteAssociationOutbound` adapts `ReplicatorRemoteEnvelope` values
+into those routes. Missing association routes and remote send failures are
+explicit delivery errors.
+
+Consequences:
+- Distributed data remains a CRDT replication subsystem, not a membership
+  authority.
+- The same `/system/ddata` remote-envelope target path can be carried by
+  transport-neutral tests, remote association pipelines, and later socket
+  wiring.
+- Inbound association delivery and automatic association-cache population
+  remain separate integration steps and do not change stable ddata manifests.

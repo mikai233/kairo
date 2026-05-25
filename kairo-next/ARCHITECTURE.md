@@ -87,6 +87,7 @@ kairo
   -> kairo-distributed-data
        -> kairo-actor
        -> kairo-cluster
+       -> kairo-remote
        -> kairo-serialization
   -> kairo-cluster-sharding
        -> kairo-actor
@@ -110,6 +111,9 @@ Rules:
   cluster events.
 - `kairo-distributed-data` owns CRDT replication; sharding may use it as a
   store, but cluster membership must not depend on it.
+- `kairo-distributed-data` may use `kairo-remote` outbound association
+  boundaries to carry already-addressed replicator envelopes; it must not use
+  remoting as a source of cluster membership truth.
 - `kairo-cluster-sharding` consumes cluster events and actor refs; it must not
   mutate cluster membership directly.
 
@@ -1181,6 +1185,7 @@ src/
     lww_register.rs
   delta.rs
   pruning.rs
+  remote_association.rs
   durable.rs
   protocol.rs
 ```
