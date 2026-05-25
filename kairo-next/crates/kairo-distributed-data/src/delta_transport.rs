@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use kairo_actor::Recipient;
 
@@ -8,6 +8,51 @@ use crate::{
 };
 
 type DeltaRecipient = Arc<dyn Recipient<ReplicatorDeltaPropagation> + Send + Sync>;
+
+#[derive(Clone, Default)]
+pub struct DeltaPropagationTargetRegistry {
+    targets: Arc<RwLock<BTreeMap<ReplicaId, DeltaRecipient>>>,
+}
+
+impl DeltaPropagationTargetRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_targets(&self, targets: impl IntoIterator<Item = DeltaPropagationTarget>) {
+        let mut guard = self.targets.write().expect("delta targets poisoned");
+        *guard = targets
+            .into_iter()
+            .map(|target| (target.replica, target.recipient))
+            .collect();
+    }
+
+    pub fn insert_target(&self, target: DeltaPropagationTarget) {
+        self.targets
+            .write()
+            .expect("delta targets poisoned")
+            .insert(target.replica, target.recipient);
+    }
+
+    pub fn remove_target(&self, replica: &ReplicaId) {
+        self.targets
+            .write()
+            .expect("delta targets poisoned")
+            .remove(replica);
+    }
+
+    pub fn target_count(&self) -> usize {
+        self.targets.read().expect("delta targets poisoned").len()
+    }
+
+    fn get(&self, replica: &ReplicaId) -> Option<DeltaRecipient> {
+        self.targets
+            .read()
+            .expect("delta targets poisoned")
+            .get(replica)
+            .cloned()
+    }
+}
 
 #[derive(Clone)]
 pub struct DeltaPropagationTarget {
@@ -80,7 +125,7 @@ pub struct DeltaPropagationTransport<Codec> {
     from: ReplicaId,
     reply: bool,
     codec: Codec,
-    targets: BTreeMap<ReplicaId, DeltaRecipient>,
+    targets: DeltaPropagationTargetRegistry,
 }
 
 impl<Codec> DeltaPropagationTransport<Codec> {
@@ -89,7 +134,20 @@ impl<Codec> DeltaPropagationTransport<Codec> {
             from,
             reply: false,
             codec,
-            targets: BTreeMap::new(),
+            targets: DeltaPropagationTargetRegistry::new(),
+        }
+    }
+
+    pub fn with_target_registry(
+        from: ReplicaId,
+        codec: Codec,
+        targets: DeltaPropagationTargetRegistry,
+    ) -> Self {
+        Self {
+            from,
+            reply: false,
+            codec,
+            targets,
         }
     }
 
@@ -99,22 +157,23 @@ impl<Codec> DeltaPropagationTransport<Codec> {
     }
 
     pub fn set_targets(&mut self, targets: impl IntoIterator<Item = DeltaPropagationTarget>) {
-        self.targets = targets
-            .into_iter()
-            .map(|target| (target.replica, target.recipient))
-            .collect();
+        self.targets.set_targets(targets);
     }
 
     pub fn insert_target(&mut self, target: DeltaPropagationTarget) {
-        self.targets.insert(target.replica, target.recipient);
+        self.targets.insert_target(target);
     }
 
     pub fn remove_target(&mut self, replica: &ReplicaId) {
-        self.targets.remove(replica);
+        self.targets.remove_target(replica);
     }
 
     pub fn target_count(&self) -> usize {
-        self.targets.len()
+        self.targets.target_count()
+    }
+
+    pub fn target_registry(&self) -> DeltaPropagationTargetRegistry {
+        self.targets.clone()
     }
 }
 

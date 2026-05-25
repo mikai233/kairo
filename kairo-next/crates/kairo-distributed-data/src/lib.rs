@@ -31,6 +31,7 @@ mod read_write_receive;
 mod remote_envelope;
 mod remote_reply;
 mod remote_request;
+mod remote_targets;
 mod replica;
 mod replicator_actor;
 mod replicator_aggregation;
@@ -61,8 +62,9 @@ pub use aggregation_session::{
     WriteAggregationSessionMsg,
 };
 pub use aggregation_transport::{
-    AggregationTarget, AggregationTransport, AggregationTransportFailure,
-    AggregationTransportOperation, AggregationTransportReport, SenderAwareRecipient,
+    AggregationTarget, AggregationTargetRegistry, AggregationTransport,
+    AggregationTransportFailure, AggregationTransportOperation, AggregationTransportReport,
+    SenderAwareRecipient,
 };
 pub use aggregation_wire::{
     decode_data_envelope, decode_read_result, encode_data_envelope, encode_read,
@@ -104,7 +106,8 @@ pub use delta_receive::{
     DeltaReceiveTracker,
 };
 pub use delta_transport::{
-    DeltaPropagationTarget, DeltaPropagationTransport, DeltaTransportFailure, DeltaTransportReport,
+    DeltaPropagationTarget, DeltaPropagationTargetRegistry, DeltaPropagationTransport,
+    DeltaTransportFailure, DeltaTransportReport,
 };
 pub use delta_wire::{
     DecodedReplicatorDelta, decode_delta, decode_delta_propagation, encode_delta_propagation,
@@ -135,6 +138,10 @@ pub use remote_reply::{
     ReplicatorRemoteReplyError, ReplicatorRemoteReplyInbound, ReplicatorRemoteReplyOutbound,
 };
 pub use remote_request::{ReplicatorRemoteRequestError, ReplicatorRemoteRequestInbound};
+pub use remote_targets::{
+    DEFAULT_REPLICATOR_REMOTE_PATH, ReplicatorRemoteRouteTargets, ReplicatorRemoteTargetError,
+    ReplicatorRemoteTargetRegistrationReport,
+};
 pub use replica::ReplicaId;
 pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};
 pub use replicator_aggregation::ReplicatorAggregation;

@@ -459,6 +459,12 @@ Implemented:
   messages on actor startup, uses monotonic time for all-reachable elapsed
   accounting, and uses wall-clock millis for pruning marker TTL checks while
   remaining deterministic under manual scheduler tests.
+- Distributed-data delta and direct read/write transports now use shared
+  target registries so cloned loop/session transports observe later route
+  registrations, and `ReplicatorRemoteRouteTargets` maps cluster
+  `UniqueAddress` routes into stable remote-envelope targets at the documented
+  `/system/ddata` replicator path for delta propagation and aggregation
+  messages.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -862,8 +868,8 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, peer transport target registration from
-  cluster routes, and gossip-backed replication.
+  propagation/direct read/write, actor-wired application of route target
+  registration, and gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

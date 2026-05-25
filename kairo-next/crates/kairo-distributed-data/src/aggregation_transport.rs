@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use kairo_actor::{Recipient, SendError};
 use kairo_serialization::ActorRefWireData;
@@ -16,6 +16,54 @@ type SenderAwareReadRecipient = Arc<dyn SenderAwareRecipient<ReplicatorRead>>;
 
 pub trait SenderAwareRecipient<M: Send + 'static>: Send + Sync {
     fn tell_with_sender(&self, message: M, sender: &ActorRefWireData) -> Result<(), SendError<M>>;
+}
+
+#[derive(Clone, Default)]
+pub struct AggregationTargetRegistry {
+    targets: Arc<RwLock<BTreeMap<ReplicaId, AggregationTarget>>>,
+}
+
+impl AggregationTargetRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_targets(&self, targets: impl IntoIterator<Item = AggregationTarget>) {
+        let mut guard = self.targets.write().expect("aggregation targets poisoned");
+        *guard = targets
+            .into_iter()
+            .map(|target| (target.replica.clone(), target))
+            .collect();
+    }
+
+    pub fn insert_target(&self, target: AggregationTarget) {
+        self.targets
+            .write()
+            .expect("aggregation targets poisoned")
+            .insert(target.replica.clone(), target);
+    }
+
+    pub fn remove_target(&self, replica: &ReplicaId) {
+        self.targets
+            .write()
+            .expect("aggregation targets poisoned")
+            .remove(replica);
+    }
+
+    pub fn target_count(&self) -> usize {
+        self.targets
+            .read()
+            .expect("aggregation targets poisoned")
+            .len()
+    }
+
+    fn get(&self, replica: &ReplicaId) -> Option<AggregationTarget> {
+        self.targets
+            .read()
+            .expect("aggregation targets poisoned")
+            .get(replica)
+            .cloned()
+    }
 }
 
 #[derive(Clone)]
@@ -203,7 +251,7 @@ pub enum AggregationTransportFailure {
 pub struct AggregationTransport<Codec> {
     from: ReplicaId,
     codec: Codec,
-    targets: BTreeMap<ReplicaId, AggregationTarget>,
+    targets: AggregationTargetRegistry,
 }
 
 impl<Codec> AggregationTransport<Codec> {
@@ -211,27 +259,40 @@ impl<Codec> AggregationTransport<Codec> {
         Self {
             from,
             codec,
-            targets: BTreeMap::new(),
+            targets: AggregationTargetRegistry::new(),
+        }
+    }
+
+    pub fn with_target_registry(
+        from: ReplicaId,
+        codec: Codec,
+        targets: AggregationTargetRegistry,
+    ) -> Self {
+        Self {
+            from,
+            codec,
+            targets,
         }
     }
 
     pub fn set_targets(&mut self, targets: impl IntoIterator<Item = AggregationTarget>) {
-        self.targets = targets
-            .into_iter()
-            .map(|target| (target.replica.clone(), target))
-            .collect();
+        self.targets.set_targets(targets);
     }
 
     pub fn insert_target(&mut self, target: AggregationTarget) {
-        self.targets.insert(target.replica.clone(), target);
+        self.targets.insert_target(target);
     }
 
     pub fn remove_target(&mut self, replica: &ReplicaId) {
-        self.targets.remove(replica);
+        self.targets.remove_target(replica);
     }
 
     pub fn target_count(&self) -> usize {
-        self.targets.len()
+        self.targets.target_count()
+    }
+
+    pub fn target_registry(&self) -> AggregationTargetRegistry {
+        self.targets.clone()
     }
 }
 

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_cluster::{
     ClusterEvent, CurrentClusterState, Member, MemberEvent, MemberStatus, ReachabilityEvent,
@@ -16,6 +16,7 @@ pub struct ReplicatorClusterRoutes {
     up: BTreeSet<ReplicaId>,
     exiting: BTreeSet<ReplicaId>,
     unreachable: BTreeSet<ReplicaId>,
+    nodes_by_replica: BTreeMap<ReplicaId, UniqueAddress>,
     leader: Option<ReplicaId>,
 }
 
@@ -29,6 +30,7 @@ impl ReplicatorClusterRoutes {
             up: BTreeSet::new(),
             exiting: BTreeSet::new(),
             unreachable: BTreeSet::new(),
+            nodes_by_replica: BTreeMap::new(),
             leader: None,
         }
     }
@@ -128,6 +130,13 @@ impl ReplicatorClusterRoutes {
         self.up.union(&self.weakly_up).cloned().collect::<Vec<_>>()
     }
 
+    pub fn remote_nodes(&self) -> Vec<UniqueAddress> {
+        self.remote_replicas()
+            .into_iter()
+            .filter_map(|replica| self.nodes_by_replica.get(&replica).cloned())
+            .collect()
+    }
+
     pub fn unreachable_replicas(&self) -> BTreeSet<ReplicaId> {
         let live = self.remote_replicas().into_iter().collect::<BTreeSet<_>>();
         self.unreachable
@@ -144,6 +153,10 @@ impl ReplicatorClusterRoutes {
 
     fn add_member_from_status(&mut self, member: &Member) {
         let replica = ReplicaId::from(&member.unique_address);
+        if !matches!(member.status, MemberStatus::Removed) {
+            self.nodes_by_replica
+                .insert(replica.clone(), member.unique_address.clone());
+        }
         match member.status {
             MemberStatus::Joining => {
                 self.joining.insert(replica.clone());
@@ -180,6 +193,7 @@ impl ReplicatorClusterRoutes {
         self.weakly_up.remove(replica);
         self.up.remove(replica);
         self.exiting.remove(replica);
+        self.nodes_by_replica.remove(replica);
     }
 
     fn matches_remote(&self, member: &Member) -> bool {
