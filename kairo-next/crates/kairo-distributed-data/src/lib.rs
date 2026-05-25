@@ -26,6 +26,7 @@ mod read_write_receive;
 mod remote_envelope;
 mod replica;
 mod replicator_actor;
+mod replicator_aggregation;
 mod reply_wire;
 mod response;
 mod state;
@@ -109,6 +110,7 @@ pub use remote_envelope::{
 };
 pub use replica::ReplicaId;
 pub use replicator_actor::{ReplicatorActor, ReplicatorActorMsg};
+pub use replicator_aggregation::ReplicatorAggregation;
 pub use reply_wire::{
     ReplicatorReplyWireError, ReplicatorReplyWireInbound, ReplicatorReplyWireOutbound,
     ReplicatorSerializedReply, ReplicatorWireReply,

@@ -7,9 +7,9 @@ use crate::{
     AggregationError, CrdtDataCodec, DataEnvelope, DeltaPropagation, DeltaPropagationLog,
     DeltaPropagationReceiveReport, DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData,
     DirectReadResult, DirectWriteResult, GetResponse, ReadAggregationPlan, ReadAggregatorState,
-    ReadConsistency, ReplicaId, ReplicatorChange, ReplicatorDeltaPropagation, ReplicatorKey,
-    ReplicatorRead, ReplicatorState, ReplicatorWrite, UpdateResponse, WriteAggregationPlan,
-    WriteAggregatorState, WriteConsistency,
+    ReadConsistency, ReplicaId, ReplicatedDelta, ReplicatorAggregation, ReplicatorChange,
+    ReplicatorDeltaPropagation, ReplicatorKey, ReplicatorRead, ReplicatorState, ReplicatorWrite,
+    UpdateResponse, WriteAggregationPlan, WriteAggregatorState, WriteConsistency,
 };
 
 pub struct ReplicatorActor<D>
@@ -24,6 +24,7 @@ where
     remote_nodes: Vec<ReplicaId>,
     unreachable_nodes: BTreeSet<ReplicaId>,
     remote_replica_count: usize,
+    aggregation: Option<ReplicatorAggregation<D>>,
 }
 
 impl<D> ReplicatorActor<D>
@@ -44,7 +45,17 @@ where
             remote_nodes: Vec::new(),
             unreachable_nodes: BTreeSet::new(),
             remote_replica_count,
+            aggregation: None,
         }
+    }
+
+    pub fn with_aggregation(aggregation: ReplicatorAggregation<D>) -> Self
+    where
+        D::Delta: ReplicatedDelta + Send + 'static,
+    {
+        let mut actor = Self::new();
+        actor.aggregation = Some(aggregation);
+        actor
     }
 
     pub fn state(&self) -> &ReplicatorState<D> {
@@ -161,44 +172,20 @@ where
 {
     type Msg = ReplicatorActorMsg<D>;
 
-    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             ReplicatorActorMsg::Get {
                 key,
                 consistency,
                 reply_to,
-            } => {
-                let response = if consistency.is_local(self.effective_remote_replica_count()) {
-                    self.state.get_local(&key)
-                } else {
-                    GetResponse::Failure {
-                        key,
-                        reason: "non-local read aggregation is not wired yet".to_string(),
-                    }
-                };
-                tell_or_actor_error(&reply_to, response)?;
-            }
+            } => self.handle_get(ctx, key, consistency, reply_to)?,
             ReplicatorActorMsg::Update {
                 key,
                 initial,
                 consistency,
                 modify,
                 reply_to,
-            } => {
-                let response = match self.state.update_local(key.clone(), initial, modify) {
-                    Ok(outcome) => {
-                        self.delta_log
-                            .record_delta(key.clone(), outcome.delta().cloned());
-                        if consistency.is_local(self.effective_remote_replica_count()) {
-                            UpdateResponse::Success(outcome)
-                        } else {
-                            UpdateResponse::Timeout { key }
-                        }
-                    }
-                    Err(reason) => UpdateResponse::ModifyFailure { key, reason },
-                };
-                tell_or_actor_error(&reply_to, response)?;
-            }
+            } => self.handle_update(ctx, key, initial, consistency, modify, reply_to)?,
             ReplicatorActorMsg::WriteFull { key, envelope } => {
                 self.state.write_full(key, envelope);
             }
@@ -304,6 +291,113 @@ where
     D: DeltaReplicatedData + Send + 'static,
     D::Delta: Send + 'static,
 {
+    fn handle_get(
+        &mut self,
+        ctx: &Context<ReplicatorActorMsg<D>>,
+        key: ReplicatorKey,
+        consistency: ReadConsistency,
+        reply_to: ActorRef<GetResponse<D>>,
+    ) -> ActorResult {
+        if consistency.is_local(self.effective_remote_replica_count()) {
+            tell_or_actor_error(&reply_to, self.state.get_local(&key))?;
+            return Ok(());
+        }
+
+        let Some(aggregation) = &self.aggregation else {
+            tell_or_actor_error(
+                &reply_to,
+                GetResponse::Failure {
+                    key,
+                    reason: "non-local read aggregation is not configured".to_string(),
+                },
+            )?;
+            return Ok(());
+        };
+
+        let timeout = consistency
+            .timeout()
+            .expect("non-local read consistency always carries a timeout");
+        match self.plan_read(key.clone(), &consistency) {
+            Ok(plan) => {
+                aggregation.spawn_read(ctx, plan, timeout, reply_to)?;
+            }
+            Err(error) => {
+                tell_or_actor_error(
+                    &reply_to,
+                    GetResponse::Failure {
+                        key,
+                        reason: format!("failed to plan read aggregation: {error:?}"),
+                    },
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_update(
+        &mut self,
+        ctx: &Context<ReplicatorActorMsg<D>>,
+        key: ReplicatorKey,
+        initial: D,
+        consistency: WriteConsistency,
+        modify: Box<dyn FnOnce(D) -> Result<D, String> + Send>,
+        reply_to: ActorRef<UpdateResponse<D::Delta>>,
+    ) -> ActorResult {
+        let outcome = match self.state.update_local(key.clone(), initial, modify) {
+            Ok(outcome) => outcome,
+            Err(reason) => {
+                tell_or_actor_error(&reply_to, UpdateResponse::ModifyFailure { key, reason })?;
+                return Ok(());
+            }
+        };
+
+        self.delta_log
+            .record_delta(key.clone(), outcome.delta().cloned());
+
+        if consistency.is_local(self.effective_remote_replica_count()) {
+            tell_or_actor_error(&reply_to, UpdateResponse::Success(outcome))?;
+            return Ok(());
+        }
+
+        let Some(aggregation) = &self.aggregation else {
+            tell_or_actor_error(&reply_to, UpdateResponse::Timeout { key })?;
+            return Ok(());
+        };
+
+        let timeout = consistency
+            .timeout()
+            .expect("non-local write consistency always carries a timeout");
+        let envelope = match self.state.envelope(&key).cloned() {
+            Some(envelope) => envelope,
+            None => {
+                tell_or_actor_error(
+                    &reply_to,
+                    UpdateResponse::Failure {
+                        key,
+                        reason: "local update did not leave state to replicate".to_string(),
+                    },
+                )?;
+                return Ok(());
+            }
+        };
+
+        match self.plan_write(key.clone(), &consistency) {
+            Ok(plan) => {
+                aggregation.spawn_write(ctx, plan, envelope, outcome, timeout, reply_to)?;
+            }
+            Err(error) => {
+                tell_or_actor_error(
+                    &reply_to,
+                    UpdateResponse::Failure {
+                        key,
+                        reason: format!("failed to plan write aggregation: {error:?}"),
+                    },
+                )?;
+            }
+        }
+        Ok(())
+    }
+
     fn subscribe(&mut self, key: ReplicatorKey, subscriber: ActorRef<ReplicatorChange<D>>) {
         let current = self.state.get_local(&key).data().cloned();
         if let Some(data) = current {

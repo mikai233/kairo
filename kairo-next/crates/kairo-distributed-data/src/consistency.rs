@@ -63,6 +63,16 @@ impl ReadConsistency {
             || (remote_replica_count == 0
                 && matches!(self, Self::Majority { .. } | Self::All { .. }))
     }
+
+    pub fn timeout(&self) -> Option<Duration> {
+        match self {
+            Self::Local => None,
+            Self::From { timeout, .. }
+            | Self::Majority { timeout, .. }
+            | Self::MajorityPlus { timeout, .. }
+            | Self::All { timeout } => Some(*timeout),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +133,16 @@ impl WriteConsistency {
         matches!(self, Self::Local)
             || (remote_replica_count == 0
                 && matches!(self, Self::Majority { .. } | Self::All { .. }))
+    }
+
+    pub fn timeout(&self) -> Option<Duration> {
+        match self {
+            Self::Local => None,
+            Self::To { timeout, .. }
+            | Self::Majority { timeout, .. }
+            | Self::MajorityPlus { timeout, .. }
+            | Self::All { timeout } => Some(*timeout),
+        }
     }
 }
 

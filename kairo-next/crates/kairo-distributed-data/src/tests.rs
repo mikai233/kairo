@@ -13,11 +13,11 @@ use crate::{
     DeltaTransportFailure, DirectReadResult, DirectWriteResult, GCounter, GCounterCodec, GSet,
     GSetStringCodec, GetResponse, ORSet, PNCounter, PNCounterCodec, ReadAggregationOutcome,
     ReadAggregationPlan, ReadAggregatorState, ReadConsistency, ReplicaId, ReplicatedData,
-    ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorKey, ReplicatorState,
-    UpdateResponse, WriteAggregationOutcome, WriteAggregationPlan, WriteAggregatorState,
-    WriteConsistency, calculate_majority, decode_data_envelope, decode_delta_propagation,
-    decode_read_result, encode_data_envelope, encode_delta_propagation, encode_read,
-    encode_read_result, encode_write,
+    ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorAggregation, ReplicatorKey,
+    ReplicatorState, UpdateResponse, WriteAggregationOutcome, WriteAggregationPlan,
+    WriteAggregatorState, WriteConsistency, calculate_majority, decode_data_envelope,
+    decode_delta_propagation, decode_read_result, encode_data_envelope, encode_delta_propagation,
+    encode_read, encode_read_result, encode_write,
 };
 
 fn replica(id: &str) -> ReplicaId {
@@ -1386,6 +1386,107 @@ fn replicator_actor_handles_local_get_and_update() {
     };
     assert_eq!(data.value().unwrap(), 4);
 
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn replicator_actor_spawns_write_session_for_non_local_update() {
+    let system = ActorSystem::builder("ddata-replicator-aggregate-update")
+        .build()
+        .unwrap();
+    let (write_ref, write_rx) = forward_ref::<crate::ReplicatorWrite>(&system, "remote-writes");
+    let (read_ref, _read_rx) = forward_ref::<crate::ReplicatorRead>(&system, "remote-reads");
+    let (update_ref, update_rx) = forward_ref(&system, "update-replies");
+    let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    transport.insert_target(AggregationTarget::new(
+        replica("remote"),
+        write_ref,
+        read_ref,
+    ));
+    let aggregation = ReplicatorAggregation::new(transport, Arc::new(GCounterCodec));
+    let replicator = system
+        .spawn(
+            "replicator",
+            Props::new(move || ReplicatorActor::<GCounter>::with_aggregation(aggregation)),
+        )
+        .unwrap();
+    let key = ReplicatorKey::new("counter");
+
+    replicator
+        .tell(ReplicatorActorMsg::SetRemoteReplicas {
+            nodes: vec![replica("remote")],
+            unreachable: BTreeSet::new(),
+        })
+        .unwrap();
+    replicator
+        .tell(ReplicatorActorMsg::Update {
+            key: key.clone(),
+            initial: GCounter::new(),
+            consistency: WriteConsistency::to(2, Duration::from_millis(20)).unwrap(),
+            modify: Box::new(|counter| {
+                counter
+                    .increment(replica("local"), 5)
+                    .map_err(|error| error.to_string())
+            }),
+            reply_to: update_ref,
+        })
+        .unwrap();
+
+    let write = write_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(write.key, key.as_str());
+    assert_eq!(write.from, Some(replica("local")));
+    assert_eq!(
+        update_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        UpdateResponse::Timeout { key }
+    );
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn replicator_actor_spawns_read_session_for_non_local_get() {
+    let system = ActorSystem::builder("ddata-replicator-aggregate-get")
+        .build()
+        .unwrap();
+    let (write_ref, _write_rx) = forward_ref::<crate::ReplicatorWrite>(&system, "remote-writes");
+    let (read_ref, read_rx) = forward_ref::<crate::ReplicatorRead>(&system, "remote-reads");
+    let (get_ref, get_rx) = forward_ref(&system, "get-replies");
+    let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    transport.insert_target(AggregationTarget::new(
+        replica("remote"),
+        write_ref,
+        read_ref,
+    ));
+    let aggregation = ReplicatorAggregation::new(transport, Arc::new(GCounterCodec));
+    let replicator = system
+        .spawn(
+            "replicator",
+            Props::new(move || ReplicatorActor::<GCounter>::with_aggregation(aggregation)),
+        )
+        .unwrap();
+    let key = ReplicatorKey::new("counter");
+
+    replicator
+        .tell(ReplicatorActorMsg::SetRemoteReplicas {
+            nodes: vec![replica("remote")],
+            unreachable: BTreeSet::new(),
+        })
+        .unwrap();
+    replicator
+        .tell(ReplicatorActorMsg::Get {
+            key: key.clone(),
+            consistency: ReadConsistency::from(2, Duration::from_millis(20)).unwrap(),
+            reply_to: get_ref,
+        })
+        .unwrap();
+
+    let read = read_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(read.key, key.as_str());
+    assert_eq!(read.from, Some(replica("local")));
+    assert!(matches!(
+        get_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        GetResponse::Failure { key: failed_key, reason }
+            if failed_key == key && reason.contains("required 1")
+    ));
     system.terminate(Duration::from_secs(1)).unwrap();
 }
 

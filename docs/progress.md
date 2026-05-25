@@ -361,6 +361,11 @@ Implemented:
   aggregator children, publish initial primary read/write requests through the
   existing aggregation transport, retry full-state writes to a replica after
   delta NACKs, map terminal outcomes to public replies, and stop themselves.
+- `ReplicatorActor<D>` can now opt into a focused aggregation spawner boundary
+  so public non-local `Get` and `Update` commands create temporary aggregation
+  session children, send remote read/write requests through the configured
+  aggregation transport, and return timeout/failure responses through the
+  normal public reply refs when remote replies do not arrive.
 - `kairo-distributed-data` now has a focused remote-envelope bridge that wraps
   stable replicator payloads in `RemoteEnvelope` recipient/sender metadata,
   preserving the sender actor-ref wire data needed to correlate remote
@@ -779,9 +784,9 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, wiring the new temporary aggregation session
-  actors into `ReplicatorActor` public update/get paths, pruning scheduling,
-  and gossip-backed replication.
+  propagation/direct read/write, sender-aware remote reply routing for
+  temporary aggregation sessions in `ReplicatorActor` public update/get paths,
+  pruning scheduling, and gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
