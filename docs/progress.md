@@ -1094,6 +1094,9 @@ Implemented:
   tools TCP peer runtime from remote transport settings, spawns the connector,
   exposes its connector ref/self node/local association address, and registers
   a coordinated-shutdown actor-termination task before cluster shutdown.
+- `kairo-examples` now includes a runnable cluster-tools TCP peer bootstrap
+  example, with pubsub gossip, pubsub delivery, singleton inbound wiring, and
+  reusable route/snapshot setup kept in a focused example module.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -1127,8 +1130,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster-tools socket integration still needs runnable end-to-end examples and
-  multi-node tests around the bootstrap facade once the test harness exists.
+- Cluster-tools socket integration still needs broader multi-node tests around
+  the bootstrap facade once the test harness exists.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.
