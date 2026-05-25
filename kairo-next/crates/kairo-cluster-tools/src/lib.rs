@@ -4,6 +4,7 @@ mod codec;
 mod protocol;
 mod pubsub;
 mod singleton;
+mod system_inbound;
 mod topic;
 
 pub use codec::{
@@ -35,6 +36,9 @@ pub use singleton::{
     SingletonManagerState, SingletonOldestChange, SingletonOldestObservation,
     SingletonOldestTracker, SingletonProxyActor, SingletonProxyMsg, SingletonProxySettings,
     SingletonProxySettingsError, SingletonProxySnapshot, SingletonProxyTarget, SingletonScope,
+};
+pub use system_inbound::{
+    ClusterToolsSystemInbound, ClusterToolsSystemInboundError, is_cluster_tools_system_manifest,
 };
 pub use topic::{
     LocalTopic, TopicName, TopicPublishMode, TopicPublishReport, TopicSubscriptionChange,

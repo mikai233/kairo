@@ -937,6 +937,12 @@ Implemented:
   `PubSubRemoteDeliveryInbound` validates `/system/pubsub` envelopes before
   dispatching decoded publishes into the actor-backed mediator's local
   delivery path.
+- `kairo-cluster-tools` now has a focused system inbound router that dispatches
+  decoded cluster-tools remote envelopes by stable manifest: pubsub
+  status/delta traffic routes to the gossip wire inbound, pubsub publish
+  envelopes route to mediator local delivery, and singleton handover envelopes
+  route to the singleton manager inbound, with recipient validation kept at the
+  system boundary or focused adapter boundary.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -968,9 +974,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton manager handover socket association population and
-  distributed pubsub socket association population beyond explicit
-  remote-envelope adapters.
+- Socket association listener/dialer wiring still needs to connect
+  cluster-tools system inbound routing to live singleton and pubsub actors.
 - Multi-node cluster membership socket transport, socket-backed heartbeat
   association wiring, actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.

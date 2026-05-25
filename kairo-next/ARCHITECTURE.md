@@ -1615,6 +1615,19 @@ Remote publish delivery:
   envelopes carry the selected group rather than rerunning group selection on
   the receiving node.
 
+Cluster-tools inbound routing:
+
+- `ClusterToolsSystemInbound<M>` is the transport-neutral inbound dispatch
+  boundary for cluster-tools remote envelopes,
+- it routes pubsub status/delta manifests to the pubsub gossip wire inbound,
+  pubsub publish manifests to the pubsub delivery inbound, and singleton
+  handover manifests to the singleton manager inbound,
+- it validates `/system/pubsub` gossip recipients before delivery and delegates
+  publish/singleton recipient validation to the focused inbound adapters,
+- it implements the remote frame-handler boundary so future socket association
+  readers can dispatch decoded cluster-tools frames without each subsystem
+  owning its own stream reader.
+
 ## `kairo-testkit`
 
 Test support:

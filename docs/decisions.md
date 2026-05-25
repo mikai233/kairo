@@ -1040,3 +1040,32 @@ Consequences:
   and peer selection stay in cluster-owned state.
 - TCP bind/dial lifecycle remains a later integration step around this
   transport-neutral installer.
+
+## ADR-0040: Cluster Tools Remote Inbound Dispatches By Stable Manifest
+
+Status: Accepted
+
+Context:
+Singleton manager handover, pubsub gossip, and pubsub publish delivery now have
+separate stable manifests, codecs, and focused inbound adapters. Socket-backed
+associations still need one transport-neutral cluster-tools system boundary so
+frame readers can dispatch decoded `RemoteEnvelope` values without duplicating
+manifest checks in each integration point.
+
+Decision:
+Kairo introduces `ClusterToolsSystemInbound<M>` in `kairo-cluster-tools`. It
+routes stable pubsub status/delta manifests to `PubSubGossipWireInbound`,
+pubsub publish manifests to `PubSubRemoteDeliveryInbound<M>`, and singleton
+handover manifests to `SingletonManagerRemoteInbound`. Pubsub gossip recipient
+validation happens at the system boundary; publish and singleton validation
+remain in their focused inbound adapters. The router also implements
+`RemoteFrameHandler` so future association readers can dispatch cluster-tools
+frames through one boundary.
+
+Consequences:
+- Cluster-tools remote inbound logic is structured by responsibility instead
+  of concentrated in one pubsub or singleton module.
+- Stable manifests remain the dispatch contract; Rust enum discriminants,
+  type names, and memory layout are not used for routing.
+- The router is still transport-neutral. Socket listener/dialer lifecycle and
+  actor-system installation remain later integration work.
