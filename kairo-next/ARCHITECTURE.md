@@ -1491,6 +1491,7 @@ State:
 - `extractor`,
 - `coordinator_path`,
 - `coordinator_ref`,
+- `local_shard_spawner`,
 - `regions: HashMap<RegionRef, HashSet<ShardId>>`,
 - `region_by_shard: HashMap<ShardId, RegionRef>`,
 - `local_shards: HashMap<ShardId, ActorRef<ShardCommand>>`,
@@ -1512,6 +1513,15 @@ Region flow:
 8. On `BeginHandOff`, remove shard home cache and ack so all regions buffer.
 9. On `HandOff`, ask local shard to stop entities, then reply `ShardStopped`.
 10. On graceful shutdown, hand off all local shards before stopping region.
+
+Implementation shape:
+
+- `LocalShardSpawner<M>` owns local shard child construction for the region.
+- The default local-shard mode spawns `ShardActor<M>` for deterministic
+  plan-level orchestration and remember-entity store testing.
+- Entity-backed local-shard mode spawns `EntityShardActor<M>`, preserving the
+  same region routing, buffering, and coordinator allocation flow while letting
+  shard delivery plans reach typed entity children.
 
 Ordering:
 

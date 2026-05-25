@@ -719,6 +719,11 @@ Implemented:
   typed local entity children from shard delivery plans, forwards business
   messages to those children, sends passivation stop messages, watches child
   termination, and feeds observed termination back into the shard runtime.
+- `ShardRegionActor<M>` can now be configured with entity-backed local shard
+  children, so `EntityRef<M>` routes through the stable shard hash,
+  registered region, coordinator allocation, local shard child, and finally
+  into the typed entity actor without embedding entity ids in business
+  messages.
 - `kairo-cluster-sharding` now has focused remember-entity store state for the
   coordinator's add-only remembered shard set and each shard's started/stopped
   entity set, including Pekko-compatible five-key partitioning based on stable

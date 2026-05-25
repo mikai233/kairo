@@ -14,10 +14,10 @@ use crate::region_registration::{
 };
 use crate::region_shards::LocalShardSpawner;
 use crate::{
-    CoordinatorEvent, CoordinatorStateSnapshot, EntityId, GetShardHome, GetShardHomePlan,
-    HandoffRegionTarget, HostShardPlan, RegionId, RegionRouteDelivery, RegionRoutePlan,
-    RegionRouteTransport, ShardCoordinatorMsg, ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan,
-    ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope, ShardingError,
+    CoordinatorEvent, CoordinatorStateSnapshot, EntityActorFactory, EntityId, GetShardHome,
+    GetShardHomePlan, HandoffRegionTarget, HostShardPlan, RegionId, RegionRouteDelivery,
+    RegionRoutePlan, RegionRouteTransport, ShardCoordinatorMsg, ShardDeliverPlan, ShardHandOffPlan,
+    ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope, ShardingError,
 };
 
 pub struct ShardRegionActor<M>
@@ -25,7 +25,7 @@ where
     M: Send + 'static,
 {
     runtime: ShardRegionRuntime<M>,
-    local_shard_spawner: Option<LocalShardSpawner>,
+    local_shard_spawner: Option<LocalShardSpawner<M>>,
     local_shards: BTreeMap<ShardId, ActorRef<ShardMsg<M>>>,
     registration: Option<RegionRegistration<M>>,
     home_requests: RegionHomeRequests<M>,
@@ -75,6 +75,55 @@ where
         Self {
             runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
             local_shard_spawner: Some(LocalShardSpawner::plain(shard_buffer_capacity)),
+            local_shards: BTreeMap::new(),
+            registration: Some(RegionRegistration::new(RegionRegistrationConfig::new(
+                coordinator,
+                retry_interval,
+            ))),
+            home_requests: RegionHomeRequests::new(),
+            route_transport: None,
+        }
+    }
+
+    pub fn new_with_local_entity_shards(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        entity_factory: EntityActorFactory<M>,
+    ) -> Self
+    where
+        M: Clone,
+    {
+        Self {
+            runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
+            local_shard_spawner: Some(LocalShardSpawner::entity_backed(
+                shard_buffer_capacity,
+                entity_factory,
+            )),
+            local_shards: BTreeMap::new(),
+            registration: None,
+            home_requests: RegionHomeRequests::new(),
+            route_transport: None,
+        }
+    }
+
+    pub fn new_with_local_entity_shards_and_registration(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        entity_factory: EntityActorFactory<M>,
+        coordinator: ActorRef<ShardCoordinatorMsg<M>>,
+        retry_interval: Duration,
+    ) -> Self
+    where
+        M: Clone,
+    {
+        Self {
+            runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
+            local_shard_spawner: Some(LocalShardSpawner::entity_backed(
+                shard_buffer_capacity,
+                entity_factory,
+            )),
             local_shards: BTreeMap::new(),
             registration: Some(RegionRegistration::new(RegionRegistrationConfig::new(
                 coordinator,
@@ -178,6 +227,50 @@ where
                 self_region,
                 region_buffer_capacity,
                 shard_buffer_capacity,
+                coordinator.clone(),
+                retry_interval,
+            )
+        })
+    }
+
+    pub fn props_with_local_entity_shards(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        entity_factory: EntityActorFactory<M>,
+    ) -> Props<Self>
+    where
+        M: Clone + Send + 'static,
+    {
+        let self_region = self_region.into();
+        Props::new(move || {
+            Self::new_with_local_entity_shards(
+                self_region,
+                region_buffer_capacity,
+                shard_buffer_capacity,
+                entity_factory.clone(),
+            )
+        })
+    }
+
+    pub fn props_with_local_entity_shards_and_registration(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        entity_factory: EntityActorFactory<M>,
+        coordinator: ActorRef<ShardCoordinatorMsg<M>>,
+        retry_interval: Duration,
+    ) -> Props<Self>
+    where
+        M: Clone + Send + 'static,
+    {
+        let self_region = self_region.into();
+        Props::new(move || {
+            Self::new_with_local_entity_shards_and_registration(
+                self_region,
+                region_buffer_capacity,
+                shard_buffer_capacity,
+                entity_factory.clone(),
                 coordinator.clone(),
                 retry_interval,
             )

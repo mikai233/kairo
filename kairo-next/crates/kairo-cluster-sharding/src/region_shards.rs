@@ -1,20 +1,61 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use std::time::Duration;
 
 use kairo_actor::{ActorError, ActorRef, Context};
 
-use crate::{EntityId, RememberShardStoreState, ShardActor, ShardId, ShardMsg, ShardRegionMsg};
+use crate::{
+    EntityActorFactory, EntityId, EntityShardActor, RememberShardStoreState, ShardActor, ShardId,
+    ShardMsg, ShardRegionMsg,
+};
 
-pub(crate) struct LocalShardSpawner {
+type SpawnShard<M> = dyn Fn(&Context<ShardRegionMsg<M>>, &ShardId, usize) -> Result<ActorRef<ShardMsg<M>>, ActorError>
+    + Send
+    + Sync;
+
+pub(crate) struct LocalShardSpawner<M>
+where
+    M: Send + 'static,
+{
     shard_buffer_capacity: usize,
-    remember_store: Option<LocalShardRememberStores>,
+    spawn: Arc<SpawnShard<M>>,
 }
 
-impl LocalShardSpawner {
+impl<M> LocalShardSpawner<M>
+where
+    M: Send + 'static,
+{
     pub(crate) fn plain(shard_buffer_capacity: usize) -> Self {
         Self {
             shard_buffer_capacity,
-            remember_store: None,
+            spawn: Arc::new(|ctx, shard, shard_buffer_capacity| {
+                ctx.spawn(
+                    shard_actor_name(shard),
+                    ShardActor::props(shard.clone(), shard_buffer_capacity),
+                )
+            }),
+        }
+    }
+
+    pub(crate) fn entity_backed(
+        shard_buffer_capacity: usize,
+        entity_factory: EntityActorFactory<M>,
+    ) -> Self
+    where
+        M: Clone,
+    {
+        Self {
+            shard_buffer_capacity,
+            spawn: Arc::new(move |ctx, shard, shard_buffer_capacity| {
+                ctx.spawn(
+                    shard_actor_name(shard),
+                    EntityShardActor::props(
+                        shard.clone(),
+                        shard_buffer_capacity,
+                        entity_factory.clone(),
+                    ),
+                )
+            }),
         }
     }
 
@@ -24,36 +65,33 @@ impl LocalShardSpawner {
         remembered_entities_by_shard: BTreeMap<ShardId, BTreeSet<EntityId>>,
         timeout: Duration,
     ) -> Self {
+        let remember_store = LocalShardRememberStores {
+            type_name: type_name.into(),
+            remembered_entities_by_shard,
+            timeout,
+        };
         Self {
             shard_buffer_capacity,
-            remember_store: Some(LocalShardRememberStores {
-                type_name: type_name.into(),
-                remembered_entities_by_shard,
-                timeout,
+            spawn: Arc::new(move |ctx, shard, shard_buffer_capacity| {
+                let state = remember_store.store_state(shard);
+                ctx.spawn(
+                    shard_actor_name(shard),
+                    ShardActor::props_with_local_remember_store(
+                        shard_buffer_capacity,
+                        state,
+                        remember_store.timeout,
+                    ),
+                )
             }),
         }
     }
 
-    pub(crate) fn spawn<M>(
+    pub(crate) fn spawn(
         &self,
         ctx: &Context<ShardRegionMsg<M>>,
         shard: &ShardId,
-    ) -> Result<ActorRef<ShardMsg<M>>, ActorError>
-    where
-        M: Send + 'static,
-    {
-        let props = match &self.remember_store {
-            Some(remember_store) => {
-                let state = remember_store.store_state(shard);
-                ShardActor::props_with_local_remember_store(
-                    self.shard_buffer_capacity,
-                    state,
-                    remember_store.timeout,
-                )
-            }
-            None => ShardActor::props(shard.clone(), self.shard_buffer_capacity),
-        };
-        ctx.spawn(shard_actor_name(shard), props)
+    ) -> Result<ActorRef<ShardMsg<M>>, ActorError> {
+        (self.spawn)(ctx, shard, self.shard_buffer_capacity)
     }
 }
 

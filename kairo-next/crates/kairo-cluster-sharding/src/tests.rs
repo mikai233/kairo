@@ -126,6 +126,59 @@ fn entity_ref_routes_through_sharding_envelope_router_to_local_shard() {
 }
 
 #[test]
+fn entity_ref_routes_through_registered_region_to_entity_actor() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("sharding-entity-ref-entity-child").unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let entity_factory = EntityActorFactory::new(move |entity_id| RecordingEntity {
+        entity_id,
+        observed: observed_tx.clone(),
+    });
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_entity_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                entity_factory,
+                coordinator,
+                Duration::from_millis(20),
+            ),
+        )
+        .unwrap();
+    let router = kit
+        .system()
+        .spawn(
+            "entity-router",
+            ShardingEnvelopeRouter::props(region, DEFAULT_SHARD_COUNT),
+        )
+        .unwrap();
+    let entity_ref = EntityRef::new("entity-1", router);
+
+    entity_ref.tell("first".to_string()).unwrap();
+
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("entity-1".to_string(), "first".to_string())
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_ids_use_documented_stable_hash() {
     assert_eq!(stable_hash_entity_id("counter-1"), 0x31c4c004cce265c1);
     assert_eq!(shard_id_for("counter-1", 100).unwrap(), "65");
