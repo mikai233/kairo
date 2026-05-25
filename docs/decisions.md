@@ -1690,3 +1690,33 @@ Consequences:
   remain separate from the TCP runtime and association cache.
 - Reconnect policy and actor-backed multi-peer runtime ownership for
   cluster-tools remain future work.
+
+## ADR-0060: Cluster-Tools TCP Peer Runtime Owns Reconnectable Routes
+
+Status: Accepted
+
+Context:
+`ClusterToolsTcpPeerRoutes` can apply membership-derived dial/remove plans to
+the socket runtime, but callers still had to combine membership planning, route
+application, retry state, and shutdown cleanup themselves. Pekko's
+cluster-tools pubsub mediator and singleton components consume cluster events
+and scheduled ticks from actor turns, while keeping transport associations as
+delivery paths rather than membership evidence.
+
+Decision:
+Kairo adds `ClusterToolsTcpPeerRuntime<M>` in a focused module. It owns
+`ClusterToolsTcpAssociationRuntime<M>`, `ClusterAssociationPeerState`,
+`ClusterToolsTcpPeerRoutes`, and `ClusterToolsTcpPeerReconnectState` from a
+separate reconnect module. Snapshot and event methods feed the
+membership-derived planner and apply the resulting route effects; failed dials
+record pending retries; explicit retry ticks attempt due peers; successful or
+removed peers clear retry state. Shutdown clears pending retries and active
+peer routes before stopping the listener.
+
+Consequences:
+- Cluster-tools pubsub/singleton socket routes now have a reconnectable
+  lifecycle boundary that can be driven by future actor subscription wiring.
+- Reconnect timing remains deterministic and testable; no sleeping retry
+  thread or central membership store is introduced.
+- Actor-backed automatic retry ticks and cluster subscription ownership for
+  cluster-tools remain separate follow-up work.

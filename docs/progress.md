@@ -1055,6 +1055,11 @@ Implemented:
   `ClusterToolsTcpAssociationRuntime`, keeps route registrations separate from
   membership state, and closes/removes cached routes when peers are removed by
   local reachability or membership changes.
+- `kairo-cluster-tools` now has a focused TCP peer runtime lifecycle owner
+  that composes the cluster-tools TCP socket runtime, membership-derived peer
+  planner, peer-route table, and dedicated reconnect state module. It applies
+  snapshots/events to live pubsub/singleton routes, retries failed dials on
+  explicit ticks, and clears routes plus pending retries before shutdown.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -1088,8 +1093,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster-tools socket integration still needs reconnect policy and
-  multi-peer runtime ownership beyond the focused peer-route table.
+- Cluster-tools socket integration still needs actor-backed automatic retry
+  ticks and cluster subscription wiring beyond the focused peer runtime.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.

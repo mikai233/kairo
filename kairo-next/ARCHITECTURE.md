@@ -1755,6 +1755,10 @@ Cluster-tools TCP runtime:
   `ClusterToolsTcpAssociationRuntime<M>`, owns per-peer route registrations,
   and closes/removes cached routes when peers become locally unreachable or
   leave,
+- `ClusterToolsTcpPeerRuntime<M>` composes the cluster-tools TCP runtime,
+  membership-derived peer planner, route owner, and focused reconnect state
+  module so snapshots/events and retry ticks can drive live pubsub/singleton
+  association routes through one lifecycle boundary,
 - peer selection still comes from cluster membership/tool state; the TCP
   runtime and route table do not become cluster membership sources.
 
