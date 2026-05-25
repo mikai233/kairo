@@ -97,6 +97,7 @@ kairo
        -> kairo-actor
        -> kairo-cluster
        -> kairo-distributed-data
+       -> kairo-remote
   -> kairo-testkit
        -> kairo-actor
 ```
@@ -1539,6 +1540,17 @@ Later modules:
 - local topic actor first,
 - cluster topic over distributed-data registrations,
 - best-effort delivery only unless reliable delivery module is used.
+
+Remote gossip wiring:
+
+- `PubSubGossipWireOutbound` serializes actor-local status and delta gossip
+  messages into stable `PubSubSerializedGossip` payloads,
+- `PubSubRemoteEnvelopeOutbound` wraps those payloads in `RemoteEnvelope`
+  metadata addressed to the peer mediator at `/system/pubsub`,
+- the outbound may use `kairo-remote::RemoteAssociationCache` so concrete
+  associations can be shared with other cluster subsystems,
+- pubsub still consumes cluster membership/events for peer selection; the
+  association cache is only an outbound transport route table.
 
 ## `kairo-testkit`
 

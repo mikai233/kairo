@@ -883,6 +883,12 @@ Implemented:
   transport wiring, and deserializes inbound status/delta payloads back into
   the actor-backed gossip state machine with explicit target and manifest
   validation.
+- `kairo-cluster-tools` now has focused pubsub remote-envelope wiring:
+  `PubSubRemoteEnvelopeOutbound` addresses serialized status/delta gossip to
+  the peer mediator at `/system/pubsub`, can use the shared
+  `kairo-remote::RemoteAssociationCache`, rejects local-only targets, and
+  keeps peer selection in cluster/pubsub state rather than treating remoting as
+  membership truth.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -914,8 +920,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster singleton remote routing and distributed pubsub mediator socket or
-  remote-association wiring beyond the transport-neutral status/delta bridge.
+- Cluster singleton remote routing and distributed pubsub user-message socket
+  or remote-association wiring beyond status/delta gossip envelopes.
 - Multi-node cluster membership socket or remote-association transport,
   remote-backed heartbeat receiver routing, actor-backed downing provider
   timing, indirectly-connected split-brain handling, and lease-majority

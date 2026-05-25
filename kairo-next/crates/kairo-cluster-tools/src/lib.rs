@@ -11,13 +11,15 @@ pub use codec::{
 };
 pub use protocol::{PubSubDelta, PubSubStatus};
 pub use pubsub::{
-    CurrentTopics, DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg,
-    DistributedPubSubPublishReport, DistributedPubSubSnapshot, LocalPubSub, LocalPubSubActor,
-    LocalPubSubMsg, PubSubBucket, PubSubDeliveryFailure, PubSubDeliveryPlan, PubSubDeliveryReport,
-    PubSubDeliveryTarget, PubSubDeliveryTransport, PubSubGossipActor, PubSubGossipMsg,
-    PubSubGossipPeer, PubSubGossipWireError, PubSubGossipWireInbound, PubSubGossipWireOutbound,
-    PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey, PubSubRegistryState,
-    PubSubRemoteTarget, PubSubSerializedGossip, PubSubSubscribeAck, PubSubTopicReport,
+    CurrentTopics, DEFAULT_PUBSUB_REMOTE_PATH, DistributedPubSubMediatorActor,
+    DistributedPubSubMediatorMsg, DistributedPubSubPublishReport, DistributedPubSubSnapshot,
+    LocalPubSub, LocalPubSubActor, LocalPubSubMsg, PubSubBucket, PubSubDeliveryFailure,
+    PubSubDeliveryPlan, PubSubDeliveryReport, PubSubDeliveryTarget, PubSubDeliveryTransport,
+    PubSubGossipActor, PubSubGossipMsg, PubSubGossipPeer, PubSubGossipWireError,
+    PubSubGossipWireInbound, PubSubGossipWireOutbound, PubSubRegistryDelta, PubSubRegistryEntry,
+    PubSubRegistryKey, PubSubRegistryState, PubSubRemoteEnvelopeError,
+    PubSubRemoteEnvelopeOutbound, PubSubRemoteTarget, PubSubSerializedGossip, PubSubSubscribeAck,
+    PubSubTopicReport,
 };
 pub use singleton::{
     LocalSingletonManagerActor, LocalSingletonManagerMsg, LocalSingletonManagerSnapshot,

@@ -800,3 +800,29 @@ Consequences:
 - Higher-level subsystems can share one transport-neutral association cache
   without making it a membership authority or embedding subsystem-specific
   routing rules in the remote crate.
+
+## ADR-0032: PubSub Gossip Uses Remote Envelopes For Peer Mediators
+
+Status: Accepted
+
+Context:
+Pekko distributed pubsub gossips status and delta messages to the same mediator
+path on selected peer nodes using the local mediator's actor path with the peer
+address. Kairo already has stable pubsub status/delta manifests and a shared
+remote association cache, but pubsub must not make remoting a source of cluster
+membership truth.
+
+Decision:
+Kairo pubsub wraps serialized status/delta gossip payloads in `RemoteEnvelope`
+metadata addressed to `/system/pubsub` on the selected peer node.
+`PubSubRemoteEnvelopeOutbound` may use `RemoteAssociationCache` as its outbound
+route table, while peer selection remains owned by cluster/pubsub state.
+Local-only peer addresses are rejected before remote envelope delivery.
+
+Consequences:
+- Pubsub gossip status/delta messages can share remote associations with other
+  cluster subsystems without duplicating per-subsystem socket routing.
+- The mediator path is a documented Kairo system path and can be made
+  configurable later without changing the status/delta payload manifests.
+- User publish/send message delivery remains a separate remote-wire decision
+  because business messages need their own stable codec metadata.

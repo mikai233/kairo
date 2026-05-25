@@ -94,6 +94,7 @@ dependencies = [
  "kairo-actor",
  "kairo-cluster",
  "kairo-distributed-data",
+ "kairo-remote",
  "kairo-serialization",
  "kairo-testkit",
 ]
