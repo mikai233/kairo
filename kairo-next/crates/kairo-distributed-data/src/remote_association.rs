@@ -3,7 +3,7 @@ use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex};
 
 use kairo_actor::{Recipient, SendError};
-use kairo_remote::RemoteOutbound;
+use kairo_remote::{RemoteAssociationCache, RemoteOutbound};
 
 use crate::{ReplicaId, ReplicatorRemoteEnvelope};
 
@@ -153,14 +153,60 @@ impl Recipient<ReplicatorRemoteEnvelope> for ReplicatorRemoteAssociationOutbound
     }
 }
 
+#[derive(Clone)]
+pub struct ReplicatorRemoteAssociationCacheOutbound {
+    cache: RemoteAssociationCache,
+}
+
+impl ReplicatorRemoteAssociationCacheOutbound {
+    pub fn new(cache: RemoteAssociationCache) -> Self {
+        Self { cache }
+    }
+
+    pub fn cache(&self) -> &RemoteAssociationCache {
+        &self.cache
+    }
+
+    pub fn send(
+        &self,
+        envelope: ReplicatorRemoteEnvelope,
+    ) -> Result<(), ReplicatorRemoteAssociationError> {
+        let target = envelope.target.clone();
+        self.cache
+            .send(envelope.envelope)
+            .map_err(|error| ReplicatorRemoteAssociationError::Send {
+                target,
+                reason: error.to_string(),
+            })
+    }
+}
+
+impl From<RemoteAssociationCache> for ReplicatorRemoteAssociationCacheOutbound {
+    fn from(cache: RemoteAssociationCache) -> Self {
+        Self::new(cache)
+    }
+}
+
+impl Recipient<ReplicatorRemoteEnvelope> for ReplicatorRemoteAssociationCacheOutbound {
+    fn tell(
+        &self,
+        message: ReplicatorRemoteEnvelope,
+    ) -> Result<(), SendError<ReplicatorRemoteEnvelope>> {
+        let rejected = message.clone();
+        self.send(message)
+            .map_err(|error| SendError::new(rejected, error.to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
 
     use bytes::Bytes;
     use kairo_remote::{
-        AssociationOutboundPipeline, RemoteByteSink, RemoteError, RemoteLaneClassifier,
-        RemoteStreamDecoder, RemoteStreamId, Result, decode_remote_envelope_frame,
+        AssociationOutboundPipeline, RemoteAssociationAddress, RemoteByteSink, RemoteError,
+        RemoteLaneClassifier, RemoteStreamDecoder, RemoteStreamId, Result,
+        decode_remote_envelope_frame,
     };
     use kairo_serialization::{ActorRefWireData, Manifest, RemoteEnvelope, SerializedMessage};
 
@@ -353,6 +399,45 @@ mod tests {
             .expect_err("remote send failure should reject the envelope");
 
         assert!(error.reason().contains("association closed"));
+        assert_eq!(error.into_message().target, ReplicaId::new("peer"));
+    }
+
+    #[test]
+    fn association_cache_outbound_routes_by_remote_envelope_recipient() {
+        let cache = RemoteAssociationCache::new();
+        let collecting = Arc::new(CollectingOutbound::default());
+        cache.insert_route(
+            RemoteAssociationAddress::new("kairo", "ddata", "peer.example.test", Some(2552))
+                .unwrap(),
+            collecting.clone() as Arc<dyn RemoteOutbound>,
+        );
+        let outbound = ReplicatorRemoteAssociationCacheOutbound::new(cache);
+
+        outbound.tell(envelope("peer", 23)).unwrap();
+
+        let sent = collecting.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0].recipient.path(),
+            "kairo://ddata@peer.example.test:2552/system/ddata"
+        );
+        assert_eq!(sent[0].message.payload, Bytes::from_static(&[23]));
+    }
+
+    #[test]
+    fn association_cache_outbound_reports_missing_cache_route() {
+        let outbound = ReplicatorRemoteAssociationCacheOutbound::new(RemoteAssociationCache::new());
+        let message = envelope("peer", 31);
+
+        let error = outbound
+            .tell(message)
+            .expect_err("missing association cache route should reject the envelope");
+
+        assert!(
+            error
+                .reason()
+                .contains("no remote association route for `kairo://ddata@peer.example.test:2552`")
+        );
         assert_eq!(error.into_message().target, ReplicaId::new("peer"));
     }
 }

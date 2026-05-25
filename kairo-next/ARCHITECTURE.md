@@ -1203,6 +1203,7 @@ src/
   pruning.rs
   gossip.rs
   gossip_transport.rs
+  remote_targets.rs
   remote_association.rs
   remote_association_inbound.rs
   durable.rs
@@ -1225,6 +1226,17 @@ CRDT requirements:
 - delta support where practical,
 - pruning removed cluster nodes,
 - serializer manifests for all internal messages.
+
+Remote association integration:
+
+- cluster-route state selects remote replicas and builds `/system/ddata`
+  `RemoteEnvelope` recipients,
+- `ReplicatorRemoteAssociationCacheOutbound` may deliver those envelopes
+  through `kairo-remote::RemoteAssociationCache`,
+- the association cache is only an outbound transport route table; it is not a
+  source of cluster membership truth,
+- concrete socket associations are expected to populate the shared cache once
+  socket-backed transport exists.
 
 Sharding uses this later for coordinator state and remember entities. MVP
 sharding may start with an in-memory coordinator store to prove the routing

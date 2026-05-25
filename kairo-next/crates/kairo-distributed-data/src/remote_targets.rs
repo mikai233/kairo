@@ -285,15 +285,17 @@ mod tests {
 
     use kairo_actor::{Address, Recipient, SendError};
     use kairo_cluster::{CurrentClusterState, Member, MemberStatus};
+    use kairo_remote::{RemoteAssociationAddress, RemoteAssociationCache, RemoteOutbound};
+    use kairo_serialization::RemoteEnvelope;
     use kairo_serialization::{Registry, RemoteMessage};
 
     use super::*;
     use crate::{
         AggregationTransport, DataEnvelope, DeltaPropagationLog, DeltaPropagationTransport,
         DeltaReplicatedData, GCounter, GCounterCodec, ReadAggregationPlan, ReadAggregatorState,
-        ReadConsistency, ReplicatorGossipTransport, ReplicatorKey, WriteAggregationPlan,
-        WriteAggregatorState, WriteConsistency, decode_delta_propagation,
-        register_ddata_protocol_codecs,
+        ReadConsistency, ReplicatorGossipTransport, ReplicatorKey,
+        ReplicatorRemoteAssociationCacheOutbound, WriteAggregationPlan, WriteAggregatorState,
+        WriteConsistency, decode_delta_propagation, register_ddata_protocol_codecs,
     };
 
     #[test]
@@ -471,6 +473,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn route_targets_can_use_association_cache_outbound() {
+        let self_node = node("self", 1);
+        let peer = node("peer", 2);
+        let routes = ReplicatorClusterRoutes::from_current_state(
+            self_node.clone(),
+            &CurrentClusterState {
+                members: vec![
+                    member(self_node.clone(), MemberStatus::Up),
+                    member(peer.clone(), MemberStatus::Up),
+                ],
+                unreachable: Vec::new(),
+                seen_by: HashSet::new(),
+                leader: Some(self_node.clone()),
+                role_leaders: HashMap::new(),
+                member_tombstones: HashSet::new(),
+            },
+            ["ddata"],
+        );
+        let collecting = Arc::new(CollectingRemoteOutbound::default());
+        let cache = RemoteAssociationCache::new();
+        cache.insert_route(
+            RemoteAssociationAddress::new("kairo", "ddata", "peer.example.test", Some(2552))
+                .unwrap(),
+            collecting.clone() as Arc<dyn RemoteOutbound>,
+        );
+        let outbound = ReplicatorRemoteAssociationCacheOutbound::new(cache);
+        let route_targets = ReplicatorRemoteRouteTargets::new(registry(), outbound);
+        let mut delta_transport =
+            DeltaPropagationTransport::new(ReplicaId::from(&self_node), GCounterCodec);
+
+        let report = route_targets
+            .set_delta_targets(&routes, &mut delta_transport)
+            .unwrap();
+        assert_eq!(report.registered(), &[ReplicaId::from(&peer)]);
+
+        let key = ReplicatorKey::new("counter");
+        let mut log = DeltaPropagationLog::new([ReplicaId::from(&peer)]);
+        log.record_delta(key, Some(counter_delta("self", 41)));
+        let publish_report = delta_transport.publish(log.collect_propagations());
+
+        assert!(publish_report.is_success());
+        let sent = collecting.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(
+            sent[0].recipient.path(),
+            "kairo://ddata@peer.example.test:2552/system/ddata"
+        );
+        assert_eq!(
+            sent[0].message.manifest.as_str(),
+            crate::ReplicatorDeltaPropagation::MANIFEST
+        );
+    }
+
     #[derive(Clone)]
     struct ChannelOutbound {
         tx: mpsc::Sender<ReplicatorRemoteEnvelope>,
@@ -490,6 +546,30 @@ mod tests {
     fn channel_outbound() -> (ChannelOutbound, mpsc::Receiver<ReplicatorRemoteEnvelope>) {
         let (tx, rx) = mpsc::channel();
         (ChannelOutbound { tx }, rx)
+    }
+
+    #[derive(Default)]
+    struct CollectingRemoteOutbound {
+        sent: std::sync::Mutex<Vec<RemoteEnvelope>>,
+    }
+
+    impl CollectingRemoteOutbound {
+        fn sent(&self) -> Vec<RemoteEnvelope> {
+            self.sent
+                .lock()
+                .expect("collecting remote outbound poisoned")
+                .clone()
+        }
+    }
+
+    impl RemoteOutbound for CollectingRemoteOutbound {
+        fn send(&self, envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+            self.sent
+                .lock()
+                .expect("collecting remote outbound poisoned")
+                .push(envelope);
+            Ok(())
+        }
     }
 
     fn registry() -> Arc<Registry> {

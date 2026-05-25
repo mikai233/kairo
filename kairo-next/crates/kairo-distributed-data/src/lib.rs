@@ -148,8 +148,8 @@ pub use pruning::{
 };
 pub use read_write_receive::{DirectReadResult, DirectWriteResult, apply_write, serve_read};
 pub use remote_association::{
-    ReplicatorRemoteAssociationError, ReplicatorRemoteAssociationOutbound,
-    ReplicatorRemoteAssociationRoutes,
+    ReplicatorRemoteAssociationCacheOutbound, ReplicatorRemoteAssociationError,
+    ReplicatorRemoteAssociationOutbound, ReplicatorRemoteAssociationRoutes,
 };
 pub use remote_association_inbound::{
     ReplicatorRemoteAssociationInbound, ReplicatorRemoteAssociationInboundError,
