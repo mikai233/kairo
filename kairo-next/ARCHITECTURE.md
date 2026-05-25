@@ -1217,6 +1217,12 @@ Membership transport:
 - Cluster TCP runtime traffic uses a cluster lane classifier so `Join`,
   `Welcome`, `GossipEnvelope`, `Heartbeat`, and `HeartbeatRsp` all travel on
   the control/system lane.
+- `ClusterAssociationPeerState` is the pure cluster-derived association
+  planner. It consumes `CurrentClusterState` snapshots and cluster events,
+  excludes self, removes peers marked unreachable by the local node, preserves
+  peers only from membership state, and emits explicit dial/remove effects for
+  TCP runtime owners. Observations from other nodes do not by themselves remove
+  a peer, matching Pekko's `validNodeForGossip` rule.
 - The outbound may use `RemoteAssociationCache` for association routing, but
   the cache is not a membership source of truth. Cluster membership remains
   gossip plus local failure-detector observations.

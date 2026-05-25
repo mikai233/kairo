@@ -1447,3 +1447,74 @@ Consequences:
   the runtime does not read or mutate cluster membership.
 - The TCP integration reuses `kairo-remote` association primitives instead of
   adding tool-specific socket code.
+
+## ADR-0052: Cluster Control Traffic Uses A Configured-Peer TCP Runtime
+
+Status: Accepted
+
+Context:
+Pekko routes cluster daemon and heartbeat traffic through system actors while
+cluster membership itself remains gossip plus local failure-detector
+observations. Kairo already had transport-neutral membership and heartbeat
+wire adapters plus bidirectional TCP association primitives, but the cluster
+crate still needed a concrete socket-backed vertical slice that could carry
+join, welcome, gossip, heartbeat, and heartbeat response frames without making
+remoting the source of membership truth.
+
+Decision:
+Kairo adds a focused `ClusterSystemInbound` router and
+`ClusterTcpAssociationRuntime` in `kairo-cluster`. `ClusterSystemInbound`
+validates the stable system-recipient path for the local node, then dispatches
+membership manifests to `ClusterMembershipWireInbound`, heartbeat requests to
+`HeartbeatRemoteReceiverInbound`, and heartbeat responses to
+`HeartbeatRemoteResponseInbound`.
+
+`ClusterTcpAssociationRuntime` binds a handshaken TCP listener, owns a shared
+`RemoteAssociationCache`, association registry, route installer, dialer, and
+dialing-side lane readers, and routes decoded socket frames into
+`ClusterSystemInbound`. It installs a cluster lane classifier so `Join`,
+`Welcome`, `GossipEnvelope`, `Heartbeat`, and `HeartbeatRsp` travel on the
+control/system lane. Peers are dialed explicitly for this slice.
+
+Consequences:
+- Cluster control traffic now has a runnable socket-backed vertical slice for
+  one configured peer.
+- Membership state is still owned by the gossip membership actor; remote
+  association routes are delivery paths, not cluster membership evidence.
+- Applying cluster-derived peer plans to live TCP runtimes, reconnect/backoff
+  policy, multi-peer runtime ownership, and actor-system lifecycle wiring
+  remain future work.
+
+## ADR-0053: Cluster Association Peers Are Planned From Membership Events
+
+Status: Accepted
+
+Context:
+The configured-peer cluster TCP runtime can carry membership and heartbeat
+traffic once a peer is explicitly dialed. The next integration step needs
+cluster-derived peer discovery without making remoting or socket associations
+the source of cluster membership truth. Pekko's cluster daemon only gossips to
+valid peers: never self, and not nodes marked unreachable by the local node;
+unreachability observations from other nodes do not by themselves stop gossip
+attempts from this node.
+
+Decision:
+Kairo adds `ClusterAssociationPeerState` as a pure planner in
+`kairo-cluster`. It consumes `CurrentClusterState` snapshots and
+`ClusterEvent` updates, keeps membership-derived peer state separate from
+remote association state, rejects non-self local-only peer addresses, and emits
+explicit `Dial` and `Remove` effects with stable `RemoteAssociationAddress`
+targets.
+
+The planner follows Pekko's local-observer reachability rule. It removes a peer
+when the local node marks that peer unreachable or terminated, redials when the
+peer becomes reachable again, and preserves active peers when only another
+observer reports unreachability.
+
+Consequences:
+- Cluster-derived peer discovery is now deterministic and testable without
+  owning sockets or mutating cluster membership.
+- Future multi-peer TCP runtime ownership can consume the planner effects
+  instead of inferring peers from ad hoc route-table state.
+- Reconnect/backoff policy and actor-system lifecycle ownership remain
+  separate work.

@@ -907,6 +907,12 @@ Implemented:
   join/welcome/gossip and heartbeat request/response envelopes through live
   socket associations, and keeps cluster membership truth in gossip plus local
   failure-detector observations rather than remoting.
+- `kairo-cluster` now has a focused cluster-derived association peer planner
+  that consumes `CurrentClusterState` snapshots and cluster events, excludes
+  self, follows Pekko's local-observer reachability rule for gossip peer
+  validity, rejects non-self local-only peers, and emits explicit dial/remove
+  targets for future multi-peer TCP runtime ownership without making remoting a
+  membership authority.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member
@@ -1064,8 +1070,7 @@ Not yet implemented:
   discovery, reconnect policy, and multi-peer runtime ownership beyond the
   focused configured-peer TCP association slice.
 - Multi-node cluster membership socket lifecycle orchestration,
-  cluster-derived peer discovery, reconnect policy, actor-backed downing
-  provider timing,
+  reconnect policy, actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.
 
 ## Last Validation

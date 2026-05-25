@@ -1,5 +1,6 @@
 //! Gossip-based cluster membership and cluster events.
 
+mod association_peers;
 mod cluster;
 mod codec;
 mod convergence;
@@ -23,6 +24,10 @@ mod system_inbound;
 mod vector_clock;
 mod wire;
 
+pub use association_peers::{
+    ClusterAssociationPeerChange, ClusterAssociationPeerError, ClusterAssociationPeerResult,
+    ClusterAssociationPeerState, ClusterAssociationPeerTarget,
+};
 pub use cluster::{Cluster, ClusterError};
 pub use codec::{
     GOSSIP_ENVELOPE_SERIALIZER_ID, GossipEnvelopeCodec, HEARTBEAT_RSP_SERIALIZER_ID,
