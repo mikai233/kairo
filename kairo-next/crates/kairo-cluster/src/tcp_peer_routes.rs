@@ -9,14 +9,21 @@ use crate::{
 
 #[derive(Debug)]
 pub enum ClusterTcpPeerRouteError {
-    Dial { node: String, source: RemoteError },
+    Dial {
+        target: Box<ClusterAssociationPeerTarget>,
+        source: Box<RemoteError>,
+    },
 }
 
 impl Display for ClusterTcpPeerRouteError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Dial { node, source } => {
-                write!(f, "cluster tcp peer dial to {node} failed: {source}")
+            Self::Dial { target, source } => {
+                write!(
+                    f,
+                    "cluster tcp peer dial to {} failed: {source}",
+                    target.as_ref().node().ordering_key()
+                )
             }
         }
     }
@@ -25,7 +32,15 @@ impl Display for ClusterTcpPeerRouteError {
 impl std::error::Error for ClusterTcpPeerRouteError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Dial { source, .. } => Some(source),
+            Self::Dial { source, .. } => Some(source.as_ref()),
+        }
+    }
+}
+
+impl ClusterTcpPeerRouteError {
+    pub fn target(&self) -> &ClusterAssociationPeerTarget {
+        match self {
+            Self::Dial { target, .. } => target.as_ref(),
         }
     }
 }
@@ -140,8 +155,8 @@ impl ClusterTcpPeerRoutes {
         let registration = runtime
             .dial(target.association().clone())
             .map_err(|source| ClusterTcpPeerRouteError::Dial {
-                node: target.node().ordering_key(),
-                source,
+                target: Box::new(target.clone()),
+                source: Box::new(source),
             })?;
         self.registrations.insert(
             peer_key(&target),

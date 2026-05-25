@@ -7,9 +7,11 @@ use kairo_remote::{
 };
 
 use crate::{
-    ClusterAssociationPeerError, ClusterAssociationPeerState, ClusterEvent, ClusterSystemInbound,
-    ClusterTcpAssociationRuntime, ClusterTcpPeerRouteError, ClusterTcpPeerRouteReport,
-    ClusterTcpPeerRoutes, CurrentClusterState, UniqueAddress,
+    ClusterAssociationPeerChange, ClusterAssociationPeerError, ClusterAssociationPeerState,
+    ClusterEvent, ClusterSystemInbound, ClusterTcpAssociationRuntime,
+    ClusterTcpPeerReconnectReport, ClusterTcpPeerReconnectSettings, ClusterTcpPeerReconnectState,
+    ClusterTcpPeerRouteError, ClusterTcpPeerRouteReport, ClusterTcpPeerRoutes, CurrentClusterState,
+    UniqueAddress,
 };
 
 #[derive(Debug)]
@@ -53,6 +55,7 @@ pub type ClusterTcpPeerRuntimeResult<T> = Result<T, ClusterTcpPeerRuntimeError>;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterTcpPeerRuntimeShutdownReport {
     pub peer_routes: ClusterTcpPeerRouteReport,
+    pub pending_reconnects: ClusterTcpPeerReconnectReport,
     pub listener: TcpAssociationListenerReport,
 }
 
@@ -60,6 +63,7 @@ pub struct ClusterTcpPeerRuntime {
     runtime: ClusterTcpAssociationRuntime,
     peers: ClusterAssociationPeerState,
     routes: ClusterTcpPeerRoutes,
+    reconnect: ClusterTcpPeerReconnectState,
 }
 
 impl ClusterTcpPeerRuntime {
@@ -82,6 +86,31 @@ impl ClusterTcpPeerRuntime {
             runtime,
             peers,
             routes: ClusterTcpPeerRoutes::new(),
+            reconnect: ClusterTcpPeerReconnectState::default(),
+        })
+    }
+
+    pub fn bind_with_reconnect(
+        local_system: impl Into<String>,
+        node_uid: u64,
+        local_system_uid: u64,
+        settings: RemoteSettings,
+        reconnect_settings: ClusterTcpPeerReconnectSettings,
+        inbound: impl FnOnce(UniqueAddress, RemoteAssociationCache) -> ClusterSystemInbound,
+    ) -> RemoteResult<Self> {
+        let runtime = ClusterTcpAssociationRuntime::bind(
+            local_system,
+            node_uid,
+            local_system_uid,
+            settings,
+            inbound,
+        )?;
+        let peers = ClusterAssociationPeerState::new(runtime.self_node().clone());
+        Ok(Self {
+            runtime,
+            peers,
+            routes: ClusterTcpPeerRoutes::new(),
+            reconnect: ClusterTcpPeerReconnectState::new(reconnect_settings),
         })
     }
 
@@ -113,20 +142,62 @@ impl ClusterTcpPeerRuntime {
         self.routes.active_targets()
     }
 
+    pub fn pending_peer_reconnect_count(&self) -> usize {
+        self.reconnect.pending_count()
+    }
+
+    pub fn pending_peer_reconnects(&self) -> Vec<crate::ClusterTcpPeerReconnectPending> {
+        self.reconnect.pending_reconnects()
+    }
+
     pub fn apply_snapshot(
         &mut self,
         snapshot: CurrentClusterState,
     ) -> ClusterTcpPeerRuntimeResult<ClusterTcpPeerRouteReport> {
+        self.apply_snapshot_at(snapshot, Duration::ZERO)
+    }
+
+    pub fn apply_snapshot_at(
+        &mut self,
+        snapshot: CurrentClusterState,
+        now: Duration,
+    ) -> ClusterTcpPeerRuntimeResult<ClusterTcpPeerRouteReport> {
         let changes = self.peers.apply_snapshot(snapshot)?;
-        Ok(self.routes.apply_changes(&self.runtime, changes)?)
+        self.apply_route_changes(changes, now)
     }
 
     pub fn apply_event(
         &mut self,
         event: ClusterEvent,
     ) -> ClusterTcpPeerRuntimeResult<ClusterTcpPeerRouteReport> {
+        self.apply_event_at(event, Duration::ZERO)
+    }
+
+    pub fn apply_event_at(
+        &mut self,
+        event: ClusterEvent,
+        now: Duration,
+    ) -> ClusterTcpPeerRuntimeResult<ClusterTcpPeerRouteReport> {
         let changes = self.peers.apply_event(event)?;
-        Ok(self.routes.apply_changes(&self.runtime, changes)?)
+        self.apply_route_changes(changes, now)
+    }
+
+    pub fn retry_due_peer_routes(
+        &mut self,
+        now: Duration,
+    ) -> ClusterTcpPeerRuntimeResult<ClusterTcpPeerRouteReport> {
+        let targets = self.reconnect.due_targets(now);
+        self.apply_route_changes(
+            targets.into_iter().map(ClusterAssociationPeerChange::Dial),
+            now,
+        )
+    }
+
+    pub fn clear_pending_peer_reconnects(&mut self) -> ClusterTcpPeerReconnectReport {
+        ClusterTcpPeerReconnectReport {
+            scheduled: Vec::new(),
+            cleared: self.reconnect.clear_all(),
+        }
     }
 
     pub fn clear_peer_routes(&mut self) -> ClusterTcpPeerRouteReport {
@@ -141,17 +212,62 @@ impl ClusterTcpPeerRuntime {
         mut self,
         timeout: Duration,
     ) -> RemoteResult<ClusterTcpPeerRuntimeShutdownReport> {
+        let pending_reconnects = self.clear_pending_peer_reconnects();
         let peer_routes = self.clear_peer_routes();
         let listener = self.runtime.shutdown_with_timeout(timeout)?;
         Ok(ClusterTcpPeerRuntimeShutdownReport {
             peer_routes,
+            pending_reconnects,
             listener,
         })
     }
+
+    fn apply_route_changes(
+        &mut self,
+        changes: impl IntoIterator<Item = ClusterAssociationPeerChange>,
+        now: Duration,
+    ) -> ClusterTcpPeerRuntimeResult<ClusterTcpPeerRouteReport> {
+        let mut report = ClusterTcpPeerRouteReport::default();
+        for change in changes {
+            match &change {
+                ClusterAssociationPeerChange::Remove(target) => {
+                    self.reconnect.clear_peer(target);
+                }
+                ClusterAssociationPeerChange::Dial(_) => {}
+            }
+
+            match self
+                .routes
+                .apply_changes(&self.runtime, std::iter::once(change))
+            {
+                Ok(next) => {
+                    for target in next.dialed.iter().chain(next.skipped.iter()) {
+                        self.reconnect.clear_peer(target);
+                    }
+                    for target in &next.removed {
+                        self.reconnect.clear_peer(target);
+                    }
+                    merge_route_report(&mut report, next);
+                }
+                Err(error) => {
+                    self.reconnect.record_failure(error.target().clone(), now);
+                    return Err(error.into());
+                }
+            }
+        }
+        Ok(report)
+    }
+}
+
+fn merge_route_report(into: &mut ClusterTcpPeerRouteReport, next: ClusterTcpPeerRouteReport) {
+    into.dialed.extend(next.dialed);
+    into.removed.extend(next.removed);
+    into.skipped.extend(next.skipped);
 }
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpListener;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
 
@@ -218,6 +334,26 @@ mod tests {
         .unwrap()
     }
 
+    fn bind_peer_runtime_with_reconnect(
+        name: &str,
+        uid: u64,
+        system_uid: u64,
+        settings: RemoteSettings,
+        reconnect_settings: ClusterTcpPeerReconnectSettings,
+        kit: &ActorSystemTestKit,
+        registry: Arc<Registry>,
+    ) -> ClusterTcpPeerRuntime {
+        ClusterTcpPeerRuntime::bind_with_reconnect(
+            name,
+            uid,
+            system_uid,
+            settings,
+            reconnect_settings,
+            move |self_node, cache| inbound_for(name, kit, registry, self_node, cache),
+        )
+        .unwrap()
+    }
+
     fn bind_association_runtime(
         name: &str,
         uid: u64,
@@ -230,6 +366,24 @@ mod tests {
             uid,
             system_uid,
             RemoteSettings::new("127.0.0.1", 0),
+            move |self_node, cache| inbound_for(name, kit, registry, self_node, cache),
+        )
+        .unwrap()
+    }
+
+    fn bind_association_runtime_on_port(
+        name: &str,
+        uid: u64,
+        system_uid: u64,
+        port: u16,
+        kit: &ActorSystemTestKit,
+        registry: Arc<Registry>,
+    ) -> ClusterTcpAssociationRuntime {
+        ClusterTcpAssociationRuntime::bind(
+            name,
+            uid,
+            system_uid,
+            RemoteSettings::new("127.0.0.1", port),
             move |self_node, cache| inbound_for(name, kit, registry, self_node, cache),
         )
         .unwrap()
@@ -270,6 +424,18 @@ mod tests {
                 registry,
                 heartbeat_sender.actor_ref(),
             ))
+    }
+
+    fn node(system: &str, port: u16, uid: u64) -> UniqueAddress {
+        UniqueAddress::new(
+            Address::new("kairo", system, Some("127.0.0.1".to_string()), Some(port)),
+            uid,
+        )
+    }
+
+    fn unused_port() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().port()
     }
 
     #[test]
@@ -360,6 +526,117 @@ mod tests {
             )
         ));
         assert_eq!(runtime.peer_route_count(), 0);
+        runtime.shutdown().unwrap();
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
+        let sender_kit = ActorSystemTestKit::new("cluster-peer-runtime-retry-sender").unwrap();
+        let receiver_kit = ActorSystemTestKit::new("cluster-peer-runtime-retry-receiver").unwrap();
+        let registry = registry();
+        let receiver_port = unused_port();
+        let retry_interval = Duration::from_millis(25);
+        let mut sender = bind_peer_runtime_with_reconnect(
+            "sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ClusterTcpPeerReconnectSettings::new(retry_interval).unwrap(),
+            &sender_kit,
+            registry.clone(),
+        );
+        let receiver_node = node("receiver", receiver_port, 2);
+
+        let error = sender
+            .apply_snapshot_at(
+                state(
+                    vec![
+                        member(sender.self_node().clone()),
+                        member(receiver_node.clone()),
+                    ],
+                    vec![],
+                ),
+                Duration::ZERO,
+            )
+            .unwrap_err();
+
+        assert!(matches!(error, ClusterTcpPeerRuntimeError::Route(_)));
+        assert_eq!(sender.peer_route_count(), 0);
+        assert_eq!(sender.pending_peer_reconnect_count(), 1);
+        let pending = sender.pending_peer_reconnects();
+        assert_eq!(pending[0].target.node(), &receiver_node);
+        assert_eq!(pending[0].attempts, 1);
+        assert_eq!(pending[0].next_retry_at, retry_interval);
+
+        let report = sender
+            .retry_due_peer_routes(retry_interval - Duration::from_millis(1))
+            .unwrap();
+        assert!(report.is_empty());
+        assert_eq!(sender.pending_peer_reconnect_count(), 1);
+
+        let receiver = bind_association_runtime_on_port(
+            "receiver",
+            2,
+            22,
+            receiver_port,
+            &receiver_kit,
+            registry,
+        );
+        let report = sender.retry_due_peer_routes(retry_interval).unwrap();
+
+        assert_eq!(report.dialed.len(), 1);
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.pending_peer_reconnect_count(), 0);
+        wait_for_reverse_route(&receiver);
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.peer_routes.removed.len(), 1);
+        assert!(sender_report.pending_reconnects.is_empty());
+        let receiver_report = receiver.shutdown().unwrap();
+        assert_eq!(receiver_report.accepted_associations, 1);
+        sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+        receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn peer_runtime_clears_pending_reconnect_when_peer_is_removed() {
+        let kit = ActorSystemTestKit::new("cluster-peer-runtime-retry-removed").unwrap();
+        let registry = registry();
+        let receiver_port = unused_port();
+        let mut runtime = bind_peer_runtime_with_reconnect(
+            "sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ClusterTcpPeerReconnectSettings::new(Duration::from_millis(25)).unwrap(),
+            &kit,
+            registry,
+        );
+        let receiver_node = node("receiver", receiver_port, 2);
+
+        runtime
+            .apply_snapshot_at(
+                state(
+                    vec![
+                        member(runtime.self_node().clone()),
+                        member(receiver_node.clone()),
+                    ],
+                    vec![],
+                ),
+                Duration::ZERO,
+            )
+            .unwrap_err();
+        assert_eq!(runtime.pending_peer_reconnect_count(), 1);
+
+        let report = runtime
+            .apply_event(ClusterEvent::Reachability(ReachabilityEvent::Unreachable(
+                member(receiver_node),
+            )))
+            .unwrap();
+
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(runtime.pending_peer_reconnect_count(), 0);
         runtime.shutdown().unwrap();
         kit.shutdown(Duration::from_secs(1)).unwrap();
     }

@@ -921,6 +921,14 @@ Implemented:
   composes the cluster TCP socket runtime, membership-derived peer planner, and
   peer-route table, applies cluster snapshots/events to live routes, and clears
   peer routes before listener shutdown.
+- `kairo-cluster` now has focused TCP peer reconnect state. Failed
+  membership-derived dials are retained as deterministic pending retries with a
+  configured retry interval, successful retries clear pending state, and member
+  removal or local-unreachable events cancel obsolete retry attempts.
+- `kairo-cluster` now has an actor-backed TCP peer connector that subscribes
+  to cluster snapshots/events, feeds the cluster TCP peer runtime, exposes
+  explicit deterministic retry ticks, reports snapshots for tests, and shuts
+  the owned TCP runtime down when the connector actor stops.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member
@@ -1077,8 +1085,8 @@ Not yet implemented:
 - Cluster-tools socket integration still needs broader cluster-driven peer
   discovery, reconnect policy, and multi-peer runtime ownership beyond the
   focused configured-peer TCP association slice.
-- Multi-node cluster membership socket lifecycle orchestration, reconnect
-  policy, actor-backed downing provider timing,
+- Multi-node cluster membership socket lifecycle orchestration still needs
+  automatic retry timer cadence, actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.
 
 ## Last Validation

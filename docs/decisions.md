@@ -1576,3 +1576,61 @@ Consequences:
   structured modules rather than being concentrated in the crate root.
 - Reconnect/backoff policy, long-lived actor ownership, and actor-system
   lifecycle integration remain future work.
+
+## ADR-0056: Cluster TCP Peer Reconnects Are Deterministic Retry State
+
+Status: Accepted
+
+Context:
+Pekko keeps cluster gossip moving through periodic ticks, while remoting and
+Artery use explicit handshake/restart retry intervals for failed outbound
+links. Kairo's `ClusterTcpPeerRuntime` could apply membership-derived peer
+routes, but a failed dial left the peer desired by membership without a
+structured way to retry later.
+
+Decision:
+Kairo adds `ClusterTcpPeerReconnectState` in a focused module. Dial failures
+record a pending retry for the peer identity, the next retry time is computed
+from an explicit retry interval, and `ClusterTcpPeerRuntime` exposes a
+tick-style `retry_due_peer_routes` method. Successful dials and skipped
+already-active routes clear retry state, and membership removal or local
+unreachability cancels obsolete retry attempts.
+
+Consequences:
+- Failed cluster peer dials can recover when the peer listener becomes
+  available without treating the remote association cache as membership truth.
+- Retry timing is deterministic and testable; no sleeping retry thread or
+  broad dependency is introduced.
+- Periodic timer cadence for these retry ticks remains future work.
+
+## ADR-0057: Cluster TCP Peer Connector Bridges Events To Runtime
+
+Status: Accepted
+
+Context:
+`ClusterTcpPeerRuntime` can apply cluster snapshots and events to live TCP
+association routes, and `ClusterTcpPeerReconnectState` can retain deterministic
+retry intent after failed dials. The remaining local wiring gap was an
+actor-backed boundary that subscribes to the cluster event stream and owns the
+runtime lifecycle without moving membership truth into remoting.
+
+Decision:
+Kairo adds `ClusterTcpPeerConnector` in a focused module. The connector actor
+subscribes to `Cluster` with an initial snapshot, adapts
+`ClusterSubscriptionEvent` messages into its own protocol, forwards snapshots
+and events into `ClusterTcpPeerRuntime`, and records the latest route report or
+error for deterministic tests and diagnostics. It also accepts explicit
+`RetryDuePeerRoutes` messages with a caller-provided monotonic timestamp so
+tests and future schedulers can drive reconnect attempts without sleeping.
+
+When the connector stops, it unsubscribes from cluster events and shuts down
+the owned TCP peer runtime. The connector does not inspect the association
+cache to infer membership and does not mutate gossip state.
+
+Consequences:
+- Cluster membership events can now drive multi-peer TCP route ownership from
+  an actor mailbox turn.
+- Retry attempts are actor-addressable and deterministic, while automatic
+  timer cadence remains separate work.
+- Membership state, peer planning, socket route ownership, reconnect state,
+  and actor lifecycle wiring remain separate modules.
