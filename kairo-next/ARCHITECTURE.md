@@ -1750,9 +1750,13 @@ Cluster-tools TCP runtime:
 - it routes live socket frames into the existing `ClusterToolsSystemInbound<M>`
   boundary and can send return traffic over the same bidirectional
   association,
+- `ClusterToolsTcpPeerRoutes` consumes cluster membership-derived
+  `ClusterAssociationPeerChange` values, applies them to
+  `ClusterToolsTcpAssociationRuntime<M>`, owns per-peer route registrations,
+  and closes/removes cached routes when peers become locally unreachable or
+  leave,
 - peer selection still comes from cluster membership/tool state; the TCP
-  runtime is configured with a concrete peer and does not become a cluster
-  membership source.
+  runtime and route table do not become cluster membership sources.
 
 ## `kairo-testkit`
 

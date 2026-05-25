@@ -1050,6 +1050,11 @@ Implemented:
   registry, route installer, dialer, and dialing-side lane readers, and routes
   pubsub gossip, pubsub publish envelopes, and singleton handover messages
   through live socket associations to the existing system inbound handlers.
+- `kairo-cluster-tools` now has a focused TCP peer-route owner that consumes
+  cluster membership-derived dial/remove plans, applies them to
+  `ClusterToolsTcpAssociationRuntime`, keeps route registrations separate from
+  membership state, and closes/removes cached routes when peers are removed by
+  local reachability or membership changes.
 - The `kairo` facade now has a `config` feature with format-neutral
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
@@ -1083,9 +1088,8 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster-tools socket integration still needs broader cluster-driven peer
-  discovery, reconnect policy, and multi-peer runtime ownership beyond the
-  focused configured-peer TCP association slice.
+- Cluster-tools socket integration still needs reconnect policy and
+  multi-peer runtime ownership beyond the focused peer-route table.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.

@@ -6,6 +6,7 @@ mod pubsub;
 mod remote_tcp;
 mod singleton;
 mod system_inbound;
+mod tcp_peer_routes;
 mod topic;
 
 pub use codec::{
@@ -44,6 +45,10 @@ pub use singleton::{
 };
 pub use system_inbound::{
     ClusterToolsSystemInbound, ClusterToolsSystemInboundError, is_cluster_tools_system_manifest,
+};
+pub use tcp_peer_routes::{
+    ClusterToolsTcpPeerRouteError, ClusterToolsTcpPeerRouteReport, ClusterToolsTcpPeerRouteResult,
+    ClusterToolsTcpPeerRoutes,
 };
 pub use topic::{
     LocalTopic, TopicName, TopicPublishMode, TopicPublishReport, TopicSubscriptionChange,

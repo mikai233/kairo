@@ -1662,3 +1662,31 @@ Consequences:
   runtime or sleeping retry worker.
 - The retry timer only drives desired peers retained by membership-derived
   state; it does not infer membership from association cache routes.
+
+## ADR-0059: Cluster-Tools TCP Peer Routes Apply Membership Plans Explicitly
+
+Status: Accepted
+
+Context:
+`ClusterToolsTcpAssociationRuntime<M>` can carry pubsub gossip, pubsub publish
+delivery, and singleton handover messages over bidirectional TCP associations,
+but it was still configured by directly dialing a concrete peer. Pekko's
+cluster-tools actors subscribe to cluster membership and keep peer selection
+separate from transport state. Kairo already has a cluster membership-derived
+peer planner in `kairo-cluster`; cluster-tools needs a route owner that can
+consume those plans without making its association cache a membership source.
+
+Decision:
+Kairo adds `ClusterToolsTcpPeerRoutes` in a focused module. It consumes
+`ClusterAssociationPeerChange` values, dials peers through
+`ClusterToolsTcpAssociationRuntime<M>`, records one route registration per
+peer identity, and closes plus removes cached routes when a peer is removed by
+membership or local reachability.
+
+Consequences:
+- Cluster-tools TCP routes can now be driven by cluster membership-derived
+  dial/remove plans in a tested vertical slice.
+- Pubsub/singleton membership state, peer planning, and socket route ownership
+  remain separate from the TCP runtime and association cache.
+- Reconnect policy and actor-backed multi-peer runtime ownership for
+  cluster-tools remain future work.
