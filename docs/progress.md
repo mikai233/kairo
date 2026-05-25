@@ -245,6 +245,11 @@ Implemented:
   remote envelopes to shared outbound association routes, rejects local-only
   recipients before transport send, reports missing routes explicitly, and
   preserves guarded association close/quarantine checks.
+- `kairo-remote` now has a focused association route installer that populates
+  the shared `RemoteAssociationCache` from concrete stream-lane association
+  pipelines, reports replaced routes, supports explicit removal, and keeps
+  guarded association state shared with cache-routed sends so closed or
+  quarantined associations reject before touching byte sinks.
 - `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
   actor path, removes refs before termination is observable, and exposes local
   resolution helpers so remoting can resolve inbound recipients without making
@@ -955,10 +960,10 @@ Not yet implemented:
 - Full actor tree lifecycle semantics beyond recursive local stop and
   restart-time child handling.
 - Full actor-system local/remote provider integration, optional codec helper
-  crates, socket-backed association creation, and broader cross-crate
-  compatibility fixtures.
-- Distributed-data socket wiring and automatic population of shared remote
-  association-cache routes from concrete socket associations.
+  crates, socket listener/dialer creation around the existing association
+  route installer, and broader cross-crate compatibility fixtures.
+- Distributed-data socket listener/dialer wiring around the shared remote
+  association cache and route installer.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

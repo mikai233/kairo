@@ -777,7 +777,11 @@ Association routing:
   association routes and does not hold cache locks while transport sends run,
 - association state checks remain in the guarded association outbound wrapper
   so a cache route still rejects quarantined or closed associations before
-  touching the transport.
+  touching the transport,
+- `RemoteAssociationRouteInstaller` populates the shared cache from concrete
+  stream-lane association pipelines, keeping socket byte sinks and association
+  state in `kairo-remote` while higher-level cluster/ddata/tools adapters only
+  depend on the cache as a route table.
 
 ### Transport
 

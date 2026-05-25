@@ -1011,3 +1011,32 @@ Consequences:
 - One-message-per-group selection remains a sender-side planning decision; the
   remote envelope carries the selected group to the target mediator.
 - Socket-backed association population remains a later integration step.
+
+## ADR-0039: Association Pipelines Populate The Shared Remote Cache
+
+Status: Accepted
+
+Context:
+Pekko remoting creates transport associations for remote addresses and routes
+subsequent outbound messages for that address through the associated endpoint.
+Kairo already has explicit `RemoteEnvelope` metadata, lane/stream framing,
+association state, and a shared `RemoteAssociationCache`, but higher-level
+subsystems still needed a focused way to populate that cache from a concrete
+association pipeline before TCP listener/dialer code exists.
+
+Decision:
+Kairo introduces `RemoteAssociationRouteInstaller` in `kairo-remote`. It builds
+an `AssociationOutboundPipeline` from concrete control, ordinary, and large
+byte sinks, inserts the guarded pipeline into `RemoteAssociationCache` under a
+structured `RemoteAssociationAddress`, reports whether a route was replaced,
+and supports explicit route removal.
+
+Consequences:
+- Cluster, distributed-data, sharding, and cluster-tools adapters can share one
+  route table once a socket layer supplies byte sinks.
+- Association state remains owned by the remote pipeline; cache-routed sends
+  still observe close/quarantine checks before any byte sink is touched.
+- The cache remains only an outbound transport route table. Cluster membership
+  and peer selection stay in cluster-owned state.
+- TCP bind/dial lifecycle remains a later integration step around this
+  transport-neutral installer.
