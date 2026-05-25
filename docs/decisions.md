@@ -826,3 +826,57 @@ Consequences:
   configurable later without changing the status/delta payload manifests.
 - User publish/send message delivery remains a separate remote-wire decision
   because business messages need their own stable codec metadata.
+
+## ADR-0033: Cluster Membership Uses Remote Envelopes For Core Daemon Traffic
+
+Status: Accepted
+
+Context:
+Pekko sends cluster membership commands such as `Join`, `Welcome`, and
+`GossipEnvelope` to the remote cluster core daemon path
+`/system/cluster/core/daemon`. Kairo already has stable cluster protocol
+codecs and a transport-neutral membership wire bridge, but still needs a
+shared remote association boundary that does not turn remoting into a
+membership authority.
+
+Decision:
+Kairo wraps serialized cluster membership payloads in `RemoteEnvelope` metadata
+addressed to `/system/cluster/core/daemon` on the target node.
+`ClusterMembershipRemoteEnvelopeOutbound` may use the shared
+`RemoteAssociationCache` for routing, rejects local-only targets before
+transport delivery, and leaves membership peer selection and state transitions
+inside the gossip membership actor.
+
+Consequences:
+- Join, welcome, and gossip payloads can share remote associations with other
+  cluster subsystems without duplicating transport route tables.
+- The cluster core daemon path is a documented Kairo system path and can be
+  made configurable later without changing cluster message manifests.
+- Socket-backed cluster transport and heartbeat receiver routing remain
+  separate integration steps.
+
+## ADR-0034: Remote Inbound Composition Splits Business And System Traffic
+
+Status: Accepted
+
+Context:
+The remote inbound pipeline must deliver ordinary user messages to typed local
+actor refs while routing death-watch control messages to the remote watcher.
+Both flows share association lane decoding and remote envelope framing, but
+they should not make erased dynamic messages part of the user actor API.
+
+Decision:
+`ActorSystemRemoteInbound<M>` composes association lane readers with a focused
+inbound frame router. Control-lane death-watch manifests are deserialized by
+the remote-watch system inbound boundary and delivered to the actor-backed
+watcher. Ordinary manifests are deserialized as `M` and resolved through the
+local `ActorSystem` actor-ref registry. Death-watch manifests arriving on
+ordinary or large lanes are rejected.
+
+Consequences:
+- The inbound socket wiring can be built around one reusable association
+  reader without mixing business delivery and system watch state machines.
+- Local typed actors remain addressed through `ActorRef<M>` and do not receive
+  erased dynamic envelopes.
+- Additional system protocols can later be added to the router with stable
+  manifests and explicit lane rules.

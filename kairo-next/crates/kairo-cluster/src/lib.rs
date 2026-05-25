@@ -16,6 +16,7 @@ mod member;
 mod membership_actor;
 mod protocol;
 mod reachability;
+mod remote;
 mod vector_clock;
 mod wire;
 
@@ -52,6 +53,10 @@ pub use member::{Member, MemberStatus, UniqueAddress};
 pub use membership_actor::{ClusterMembership, ClusterMembershipMsg};
 pub use protocol::{GossipEnvelope, Heartbeat, HeartbeatRsp, Join, Welcome};
 pub use reachability::{Reachability, ReachabilityRecord, ReachabilityStatus};
+pub use remote::{
+    ClusterMembershipRemoteEnvelopeError, ClusterMembershipRemoteEnvelopeOutbound,
+    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH,
+};
 pub use vector_clock::{VectorClock, VectorClockNode, VectorClockOrdering};
 pub use wire::{
     ClusterMembershipWireError, ClusterMembershipWireInbound, ClusterMembershipWireOutbound,

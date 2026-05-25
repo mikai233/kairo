@@ -285,6 +285,11 @@ Implemented:
   control lane to the system inbound boundary, routes ordinary business
   manifests to the typed inbound delivery path, and rejects misrouted
   death-watch frames on non-control lanes.
+- `kairo-remote` now has an `ActorSystemRemoteInbound` composition boundary
+  that wires association lane readers to the inbound frame router, local actor
+  recipient resolution, and actor-backed remote death watch so framed inbound
+  bytes can reach typed local actors or system watch handlers without exposing
+  erased messages as the user API.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
@@ -805,6 +810,12 @@ Implemented:
   inbound serialized payloads into the actor-backed membership state machine,
   and uses an actor-backed outbound adapter for welcome/gossip talkback replies
   without adding socket transport or a central membership authority.
+- `kairo-cluster` now has focused remote-envelope wiring for membership
+  traffic: `ClusterMembershipRemoteEnvelopeOutbound` addresses serialized
+  join, welcome, and gossip payloads to `/system/cluster/core/daemon` on the
+  target node, can use the shared `kairo-remote::RemoteAssociationCache`,
+  rejects local-only targets, and keeps cluster membership state owned by the
+  gossip actor rather than remoting.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member
@@ -912,8 +923,8 @@ Not yet implemented:
 - Full actor tree lifecycle semantics beyond recursive local stop and
   restart-time child handling.
 - Full actor-system local/remote provider integration, optional codec helper
-  crates, socket-backed association creation, actor-system-backed inbound
-  target resolution, and broader cross-crate compatibility fixtures.
+  crates, socket-backed association creation, and broader cross-crate
+  compatibility fixtures.
 - Distributed-data socket wiring and automatic population of shared remote
   association-cache routes from concrete socket associations.
 - Sharding remember-entity stores still need broader automatic region/shard
@@ -922,10 +933,9 @@ Not yet implemented:
   explicitly supplied local coordinator refs.
 - Cluster singleton remote routing and distributed pubsub user-message socket
   or remote-association wiring beyond status/delta gossip envelopes.
-- Multi-node cluster membership socket or remote-association transport,
-  remote-backed heartbeat receiver routing, actor-backed downing provider
-  timing, indirectly-connected split-brain handling, and lease-majority
-  support.
+- Multi-node cluster membership socket transport, remote-backed heartbeat
+  receiver routing, actor-backed downing provider timing, indirectly-connected
+  split-brain handling, and lease-majority support.
 
 ## Last Validation
 

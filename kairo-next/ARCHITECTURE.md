@@ -740,6 +740,9 @@ src/
   association_pipeline.rs
   outbound.rs
   inbound.rs
+  inbound_router.rs
+  local_delivery.rs
+  system_inbound.rs
   protocol.rs
   watch.rs
   quarantine.rs
@@ -808,6 +811,11 @@ Inbound pipeline:
 3. deserialize payload,
 4. resolve target ref,
 5. enqueue to target or dead letters.
+
+`ActorSystemRemoteInbound<M>` composes the transport-neutral association lane
+readers with the inbound frame router. Control-lane death-watch manifests are
+delivered to the actor-backed remote watcher, while ordinary manifests are
+deserialized as `M` and resolved through the local `ActorSystem` registry.
 
 ### System Message Delivery
 
@@ -1098,6 +1106,18 @@ Startup:
    clock, marking self as seen, and replying `Welcome`.
 5. Joining node adopts `Welcome.gossip`, marks itself seen, starts heartbeat and
    periodic gossip.
+
+Membership transport:
+
+- `ClusterMembershipWireOutbound` serializes `Join`, `Welcome`, and
+  `GossipEnvelope` using stable cluster protocol codecs before transport.
+- `ClusterMembershipRemoteEnvelopeOutbound` wraps those serialized payloads in
+  `RemoteEnvelope` metadata addressed to `/system/cluster/core/daemon` on the
+  target node.
+- The outbound may use `RemoteAssociationCache` for association routing, but
+  the cache is not a membership source of truth. Cluster membership remains
+  gossip plus local failure-detector observations.
+- Local-only target addresses are rejected at the remote-envelope boundary.
 
 Gossip tick:
 
