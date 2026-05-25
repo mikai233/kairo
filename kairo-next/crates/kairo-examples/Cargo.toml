@@ -7,4 +7,4 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-kairo = { path = "../kairo", features = ["cluster-tools"] }
+kairo = { path = "../kairo", features = ["cluster-tools", "cluster-sharding"] }

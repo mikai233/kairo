@@ -1118,6 +1118,10 @@ Implemented:
   `counter` module and includes a `configured_counter` example that loads
   `kairo.local.toml`, maps format-neutral settings into an actor-system
   builder, and runs the typed counter with configured dispatcher throughput.
+- `kairo-examples` now includes a runnable local cluster-sharding example that
+  wires a shard coordinator, local shard region, `ShardingEnvelopeRouter`, and
+  `EntityRef<String>` through reusable helper code and demonstrates stable
+  shard-id routing into an active local shard.
 
 Not yet implemented:
 
