@@ -331,15 +331,17 @@ mod tests {
         let settings = ClusterToolsTcpPeerBootstrapSettings::new()
             .with_connector_name("tools-peer")
             .with_shutdown_timeout(Duration::from_secs(1));
+        let system = kit.system().clone();
+        let kit_ref = &kit;
 
         let bootstrap = ClusterToolsTcpPeerBootstrap::bind_and_spawn(
-            kit.system(),
+            &system,
             cluster,
             1,
             11,
             RemoteSettings::new("127.0.0.1", 0),
             settings,
-            |self_node| inbound_for("bootstrap", &kit, registry, self_node),
+            move |self_node| inbound_for("bootstrap", kit_ref, registry, self_node),
         )
         .unwrap();
 
@@ -350,7 +352,7 @@ mod tests {
         );
         assert!(!bootstrap.connector().is_stopped());
 
-        kit.system()
+        system
             .coordinated_shutdown()
             .run_from("test", Some(PHASE_BEFORE_CLUSTER_SHUTDOWN))
             .unwrap();

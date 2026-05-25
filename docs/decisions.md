@@ -1745,8 +1745,8 @@ Consequences:
   membership truth.
 - Retry behavior remains deterministic in tests through explicit messages or
   manual-time driven actor timers.
-- A top-level bootstrap/facade that creates the connector from runtime
-  configuration and coordinated shutdown remains future work.
+- Runtime binding, connector spawning, and coordinated shutdown are layered on
+  top of the connector by `ClusterToolsTcpPeerBootstrap<M>`.
 
 ## ADR-0062: Cluster-Tools TCP Bootstrap Registers Coordinated Shutdown
 
