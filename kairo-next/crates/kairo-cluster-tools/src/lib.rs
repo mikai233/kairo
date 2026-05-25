@@ -6,6 +6,7 @@ mod pubsub;
 mod remote_tcp;
 mod singleton;
 mod system_inbound;
+mod tcp_peer_bootstrap;
 mod tcp_peer_connector;
 mod tcp_peer_reconnect;
 mod tcp_peer_routes;
@@ -48,6 +49,10 @@ pub use singleton::{
 };
 pub use system_inbound::{
     ClusterToolsSystemInbound, ClusterToolsSystemInboundError, is_cluster_tools_system_manifest,
+};
+pub use tcp_peer_bootstrap::{
+    ClusterToolsTcpPeerBootstrap, ClusterToolsTcpPeerBootstrapError,
+    ClusterToolsTcpPeerBootstrapResult, ClusterToolsTcpPeerBootstrapSettings,
 };
 pub use tcp_peer_connector::{
     ClusterToolsTcpPeerConnector, ClusterToolsTcpPeerConnectorMsg,

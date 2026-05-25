@@ -1764,6 +1764,10 @@ Cluster-tools TCP runtime:
   initial snapshot, applies later member/reachability events, exposes runtime
   snapshots for diagnostics, and can schedule fixed-delay retry ticks through
   actor timers,
+- `ClusterToolsTcpPeerBootstrap<M>` binds the cluster-tools TCP peer runtime,
+  spawns the connector under the actor system, and registers a coordinated
+  shutdown actor-termination task so configured socket routes are stopped
+  before cluster shutdown,
 - peer selection still comes from cluster membership/tool state; the TCP
   runtime and route table do not become cluster membership sources.
 

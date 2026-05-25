@@ -1747,3 +1747,31 @@ Consequences:
   manual-time driven actor timers.
 - A top-level bootstrap/facade that creates the connector from runtime
   configuration and coordinated shutdown remains future work.
+
+## ADR-0062: Cluster-Tools TCP Bootstrap Registers Coordinated Shutdown
+
+Status: Accepted
+
+Context:
+`ClusterToolsTcpPeerRuntime<M>` and `ClusterToolsTcpPeerConnector<M>` provided
+the socket lifecycle and actor-backed cluster subscription boundary, but users
+still had to wire runtime binding, connector spawning, and coordinated shutdown
+manually. Pekko cluster-tools extensions own their system actors and add
+shutdown hooks where needed instead of requiring every caller to duplicate that
+orchestration.
+
+Decision:
+Kairo adds `ClusterToolsTcpPeerBootstrap<M>` in a focused module. The bootstrap
+binds the cluster-tools TCP peer runtime from explicit `RemoteSettings`, spawns
+the connector with explicit connector settings, exposes the connector ref,
+self node, and local association address, and registers an actor-termination
+task with coordinated shutdown. The default task runs in
+`before-cluster-shutdown`, and callers can override connector name, connector
+settings, shutdown phase, task name, and timeout through a Rust builder.
+
+Consequences:
+- Cluster-tools socket integration has one reusable top-level lifecycle
+  boundary without making transport associations membership authority.
+- Coordinated shutdown closes the connector-owned runtime through the actor
+  stop path, preserving the same cleanup behavior as explicit actor stop.
+- End-to-end examples and multi-node tests remain future work.
