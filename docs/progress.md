@@ -444,6 +444,11 @@ Implemented:
   synchronous turn, updating read/write aggregation replicas, delta
   propagation nodes, unreachable replica selection, removed-node pruning
   tracking, and removed-node delta cleanup together.
+- `kairo-distributed-data` now has an actor-backed cluster connector that
+  subscribes to `ClusterSubscriptionEvent` with Pekko-style initial event
+  replay, owns the distributed-data route state, forwards structured route
+  updates to the replicator through typed actor messages, and unsubscribes on
+  stop.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -847,9 +852,9 @@ Not yet implemented:
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
-  propagation/direct read/write, actor subscription wiring from cluster events
-  into peer transport targets, cluster-event-driven pruning tick configuration,
-  and gossip-backed replication.
+  propagation/direct read/write, peer transport target registration from
+  cluster routes, cluster-event-driven pruning tick configuration, and
+  gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

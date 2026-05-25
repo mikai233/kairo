@@ -120,6 +120,10 @@ impl ReplicatorClusterRoutes {
         }
     }
 
+    pub fn self_node(&self) -> &UniqueAddress {
+        &self.self_node
+    }
+
     pub fn remote_replicas(&self) -> Vec<ReplicaId> {
         self.up.union(&self.weakly_up).cloned().collect::<Vec<_>>()
     }
