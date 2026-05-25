@@ -851,7 +851,7 @@ impl Actor for SupervisionProbe {
                 Ok(())
             }
             Signal::PostStop => self.stopped(ctx),
-            Signal::Terminated(_) => Ok(()),
+            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
         }
     }
 }
@@ -1139,7 +1139,7 @@ impl Actor for EscalationParent {
                 Ok(())
             }
             Signal::PostStop => self.stopped(ctx),
-            Signal::Terminated(_) => Ok(()),
+            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
         }
     }
 }
@@ -1505,6 +1505,10 @@ enum WatchProbeMsg {
         subject: ActorRef<()>,
         reply_to: mpsc::Sender<()>,
     },
+    WatchFailing {
+        subject: ActorRef<SupervisionMsg>,
+        reply_to: mpsc::Sender<()>,
+    },
     WatchWith {
         subject: ActorRef<()>,
         registered: mpsc::Sender<()>,
@@ -1529,6 +1533,12 @@ impl Actor for WatchProbe {
         match msg {
             WatchProbeMsg::WatchTwice { subject, reply_to } => {
                 ctx.watch(&subject)?;
+                ctx.watch(&subject)?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::WatchFailing { subject, reply_to } => {
                 ctx.watch(&subject)?;
                 reply_to
                     .send(())
@@ -1569,6 +1579,73 @@ impl Actor for WatchProbe {
             self.terminated
                 .send(actor.path().clone())
                 .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+enum ParentWatchMsg {
+    FailChild,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ParentWatchSignal {
+    Terminated(ActorPath),
+    ChildFailed { path: ActorPath, reason: String },
+}
+
+struct ParentWatchProbe {
+    observed: mpsc::Sender<ParentWatchSignal>,
+    child: Option<ActorRef<SupervisionMsg>>,
+}
+
+impl Actor for ParentWatchProbe {
+    type Msg = ParentWatchMsg;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let child = ctx.spawn(
+            "child",
+            Props::new(|| SupervisionProbe {
+                value: 0,
+                restarted: None,
+            }),
+        )?;
+        ctx.watch(&child)?;
+        self.child = Some(child);
+        Ok(())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            ParentWatchMsg::FailChild => {
+                let child = self
+                    .child
+                    .as_ref()
+                    .expect("child should be spawned before messages are processed");
+                child
+                    .tell(SupervisionMsg::Fail)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn signal(&mut self, _ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::ChildFailed { actor, reason } => {
+                self.observed
+                    .send(ParentWatchSignal::ChildFailed {
+                        path: actor.path().clone(),
+                        reason,
+                    })
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            Signal::Terminated(actor) => {
+                self.observed
+                    .send(ParentWatchSignal::Terminated(actor.path().clone()))
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            Signal::PreRestart | Signal::PostStop => {}
         }
         Ok(())
     }
@@ -1676,6 +1753,70 @@ fn unwatch_suppresses_later_termination_signal() {
         terminated_rx
             .recv_timeout(Duration::from_millis(100))
             .is_err()
+    );
+}
+
+#[test]
+fn parent_watch_receives_child_failed_when_child_stops_from_failure() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(move || ParentWatchProbe {
+                observed: observed_tx,
+                child: None,
+            }),
+        )
+        .unwrap();
+
+    parent.tell(ParentWatchMsg::FailChild).unwrap();
+
+    let observed = observed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let ParentWatchSignal::ChildFailed { path, reason } = observed else {
+        panic!("expected child failure signal");
+    };
+    assert_eq!(path.name(), Some("child"));
+    assert_eq!(reason, "boom");
+}
+
+#[test]
+fn non_parent_watch_receives_plain_terminated_for_failed_actor() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system
+        .spawn(
+            "subject",
+            Props::new(|| SupervisionProbe {
+                value: 0,
+                restarted: None,
+            }),
+        )
+        .unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchFailing {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    subject.tell(SupervisionMsg::Fail).unwrap();
+
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject.path().clone()
     );
 }
 

@@ -1938,3 +1938,30 @@ Consequences:
 - Message types that cannot be cloned can still model idle behavior with an
   explicit timer or a small cloneable timeout command that carries a reply
   handle or key.
+
+## ADR-0069: Failed Child Watch Uses A Typed Signal Variant
+
+Status: Accepted
+
+Context:
+Pekko typed `ChildFailed` is a specialized `Terminated` signal delivered when
+a watched direct child terminates due to failure. Other watchers observe normal
+termination, and `watchWith` delivers the caller-provided protocol message
+instead of exposing the failure cause.
+
+Decision:
+Kairo extends `Signal` with `ChildFailed { actor, reason }`. Local actor
+failure stop paths carry the failure reason into the death-watch registry.
+Signal-based watch registrations compare the watcher path with the terminated
+actor's direct parent path: the parent receives `ChildFailed` when the subject
+stopped from failure, while non-parent signal watchers receive
+`Terminated`. Custom `watch_with` registrations ignore the failure cause and
+send the registered typed message.
+
+Consequences:
+- Parent-child failure observation matches Pekko's observable typed
+  lifecycle behavior without copying Scala's signal class inheritance.
+- Non-parent watchers and custom watch messages keep their previous
+  termination behavior.
+- Failure reasons are explicit strings because Kairo actor failures are
+  represented by `ActorError`, not JVM `Throwable` instances.

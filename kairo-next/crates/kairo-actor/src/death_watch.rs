@@ -5,6 +5,12 @@ use std::sync::Mutex;
 use crate::error::ActorError;
 use crate::path::ActorPath;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TerminationCause {
+    Stopped,
+    Failed(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeathWatchKind {
     Signal,
@@ -14,14 +20,14 @@ pub(crate) enum DeathWatchKind {
 pub(crate) struct DeathWatchRegistration {
     watcher: ActorPath,
     kind: DeathWatchKind,
-    notify: Box<dyn FnOnce() + Send>,
+    notify: Box<dyn FnOnce(TerminationCause) + Send>,
 }
 
 impl DeathWatchRegistration {
     pub(crate) fn new(
         watcher: ActorPath,
         kind: DeathWatchKind,
-        notify: impl FnOnce() + Send + 'static,
+        notify: impl FnOnce(TerminationCause) + Send + 'static,
     ) -> Self {
         Self {
             watcher,
@@ -34,8 +40,8 @@ impl DeathWatchRegistration {
         &self.watcher
     }
 
-    pub(crate) fn notify(self) {
-        (self.notify)();
+    pub(crate) fn notify(self, cause: TerminationCause) {
+        (self.notify)(cause);
     }
 }
 
@@ -101,7 +107,7 @@ impl DeathWatchRegistry {
         });
     }
 
-    pub(crate) fn notify(&self, subject: &ActorPath) {
+    pub(crate) fn notify(&self, subject: &ActorPath, cause: TerminationCause) {
         let registrations = self
             .watchers
             .lock()
@@ -109,7 +115,7 @@ impl DeathWatchRegistry {
             .remove(subject)
             .unwrap_or_default();
         for registration in registrations {
-            registration.notify();
+            registration.notify(cause.clone());
         }
     }
 }

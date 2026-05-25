@@ -5,4 +5,5 @@ pub enum Signal {
     PreRestart,
     PostStop,
     Terminated(AnyActorRef),
+    ChildFailed { actor: AnyActorRef, reason: String },
 }

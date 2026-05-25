@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 use crate::actor::{Actor, Context, Props};
 use crate::coordinated_shutdown::CoordinatedShutdown;
 use crate::dead_letters::DeadLetters;
-use crate::death_watch::{DeathWatchKind, DeathWatchRegistration, DeathWatchRegistry};
+use crate::death_watch::{
+    DeathWatchKind, DeathWatchRegistration, DeathWatchRegistry, TerminationCause,
+};
 use crate::dispatcher::DispatcherSettings;
 use crate::error::{ActorError, ActorResult};
 use crate::event_stream::EventStream;
@@ -256,10 +258,23 @@ impl ActorSystem {
             return Ok(());
         }
         let subject_ref = subject.as_any();
+        let subject_parent = subject.path().parent();
+        let watcher_path = watcher.path().clone();
         let registration = DeathWatchRegistration::new(
-            watcher.path().clone(),
+            watcher_path.clone(),
             DeathWatchKind::Signal,
-            move || watcher.send_system_signal(Signal::Terminated(subject_ref)),
+            move |cause| {
+                if let TerminationCause::Failed(reason) = cause
+                    && subject_parent.as_ref() == Some(&watcher_path)
+                {
+                    watcher.send_system_signal(Signal::ChildFailed {
+                        actor: subject_ref.clone(),
+                        reason,
+                    });
+                } else {
+                    watcher.send_system_signal(Signal::Terminated(subject_ref));
+                }
+            },
         );
         self.watch_registered(subject, registration)
     }
@@ -280,7 +295,7 @@ impl ActorSystem {
         let registration = DeathWatchRegistration::new(
             watcher.path().clone(),
             DeathWatchKind::Custom,
-            move || {
+            move |_| {
                 let _ = watcher.tell(message);
             },
         );
@@ -341,7 +356,7 @@ impl ActorSystem {
         N: Send + 'static,
     {
         if subject.is_terminated() {
-            registration.notify();
+            registration.notify(TerminationCause::Stopped);
             return Ok(());
         }
 
@@ -349,7 +364,9 @@ impl ActorSystem {
             .death_watch
             .watch(subject.path().clone(), registration)?;
         if subject.is_terminated() {
-            self.inner.death_watch.notify(subject.path());
+            self.inner
+                .death_watch
+                .notify(subject.path(), TerminationCause::Stopped);
         }
         Ok(())
     }
@@ -498,9 +515,12 @@ fn run_actor<A>(
         receive_timeout: ReceiveTimeoutState::default(),
         stash: StashState::new(props.stash_capacity()),
     };
-    let mut supervision_state = SupervisionState::default();
+    let mut run_state = ActorRunState::default();
 
-    if actor.started(&mut context).is_err() || context.stop_requested {
+    if let Err(error) = actor.started(&mut context) {
+        run_state.termination_cause = TerminationCause::Failed(error.to_string());
+        actor_ref.target.stopped.store(true, Ordering::Release);
+    } else if context.stop_requested {
         actor_ref.target.stopped.store(true, Ordering::Release);
     }
 
@@ -517,7 +537,7 @@ fn run_actor<A>(
             &mut context,
             &props,
             &system_inner,
-            &mut supervision_state,
+            &mut run_state,
         );
         let mut processed_user = usize::from(processed);
 
@@ -532,7 +552,7 @@ fn run_actor<A>(
                 &mut context,
                 &props,
                 &system_inner,
-                &mut supervision_state,
+                &mut run_state,
             ) {
                 processed_user += 1;
             }
@@ -559,8 +579,25 @@ fn run_actor<A>(
     let _ = actor.signal(&mut context, Signal::PostStop);
     actor_ref.target.terminated.mark_stopped();
     system_inner.death_watch.remove_watcher(actor_ref.path());
-    system_inner.death_watch.notify(actor_ref.path());
+    system_inner
+        .death_watch
+        .notify(actor_ref.path(), run_state.termination_cause);
     system_inner.receptionist.remove_actor(actor_ref.path());
+}
+
+#[derive(Debug)]
+struct ActorRunState {
+    supervision: SupervisionState,
+    termination_cause: TerminationCause,
+}
+
+impl Default for ActorRunState {
+    fn default() -> Self {
+        Self {
+            supervision: SupervisionState::default(),
+            termination_cause: TerminationCause::Stopped,
+        }
+    }
 }
 
 fn process_dequeued<A>(
@@ -570,7 +607,7 @@ fn process_dequeued<A>(
     context: &mut Context<A::Msg>,
     props: &Props<A>,
     system_inner: &ActorSystemInner,
-    supervision_state: &mut SupervisionState,
+    run_state: &mut ActorRunState,
 ) -> bool
 where
     A: Actor,
@@ -591,31 +628,35 @@ where
                 failure.reason()
             );
             if apply_actor_failure(
-                ActorError::Message(reason),
+                ActorError::Message(reason.clone()),
                 actor_ref,
                 actor,
                 context,
                 props,
                 system_inner,
-                supervision_state,
+                &mut run_state.supervision,
             ) || context.stop_requested
             {
+                run_state.termination_cause = TerminationCause::Failed(reason);
                 actor_ref.target.stopped.store(true, Ordering::Release);
             }
             false
         }
         Dequeued::User(UserEnvelope::Message(message)) => {
             context.before_influencing_message();
-            if apply_receive_result(
+            let stop_reason = apply_receive_result(
                 actor.receive(context, message),
                 actor_ref,
                 actor,
                 context,
                 props,
                 system_inner,
-                supervision_state,
-            ) || context.stop_requested
-            {
+                &mut run_state.supervision,
+            );
+            if stop_reason.is_some() || context.stop_requested {
+                if let Some(reason) = stop_reason {
+                    run_state.termination_cause = TerminationCause::Failed(reason);
+                }
                 actor_ref.target.stopped.store(true, Ordering::Release);
             }
             context.after_influencing_message();
@@ -623,16 +664,19 @@ where
         }
         Dequeued::User(UserEnvelope::Adapted(adapt)) => {
             context.before_influencing_message();
-            if apply_receive_result(
+            let stop_reason = apply_receive_result(
                 actor.receive(context, adapt()),
                 actor_ref,
                 actor,
                 context,
                 props,
                 system_inner,
-                supervision_state,
-            ) || context.stop_requested
-            {
+                &mut run_state.supervision,
+            );
+            if stop_reason.is_some() || context.stop_requested {
+                if let Some(reason) = stop_reason {
+                    run_state.termination_cause = TerminationCause::Failed(reason);
+                }
                 actor_ref.target.stopped.store(true, Ordering::Release);
             }
             context.after_influencing_message();
@@ -641,16 +685,19 @@ where
         Dequeued::User(UserEnvelope::Timer(timer)) => {
             if context.accept_timer(&timer) {
                 context.before_influencing_message();
-                if apply_receive_result(
+                let stop_reason = apply_receive_result(
                     actor.receive(context, timer.into_message()),
                     actor_ref,
                     actor,
                     context,
                     props,
                     system_inner,
-                    supervision_state,
-                ) || context.stop_requested
-                {
+                    &mut run_state.supervision,
+                );
+                if stop_reason.is_some() || context.stop_requested {
+                    if let Some(reason) = stop_reason {
+                        run_state.termination_cause = TerminationCause::Failed(reason);
+                    }
                     actor_ref.target.stopped.store(true, Ordering::Release);
                 }
                 context.after_influencing_message();
@@ -662,16 +709,19 @@ where
         Dequeued::User(UserEnvelope::ReceiveTimeout(timeout)) => {
             if context.accept_receive_timeout(&timeout) {
                 context.before_influencing_message();
-                if apply_receive_result(
+                let stop_reason = apply_receive_result(
                     actor.receive(context, timeout.into_message()),
                     actor_ref,
                     actor,
                     context,
                     props,
                     system_inner,
-                    supervision_state,
-                ) || context.stop_requested
-                {
+                    &mut run_state.supervision,
+                );
+                if stop_reason.is_some() || context.stop_requested {
+                    if let Some(reason) = stop_reason {
+                        run_state.termination_cause = TerminationCause::Failed(reason);
+                    }
                     actor_ref.target.stopped.store(true, Ordering::Release);
                 }
                 context.after_influencing_message();
@@ -691,15 +741,16 @@ fn apply_receive_result<A>(
     props: &Props<A>,
     system_inner: &ActorSystemInner,
     supervision_state: &mut SupervisionState,
-) -> bool
+) -> Option<String>
 where
     A: Actor,
 {
     let Err(error) = result else {
-        return false;
+        return None;
     };
+    let reason = error.to_string();
 
-    apply_actor_failure(
+    if apply_actor_failure(
         error,
         actor_ref,
         actor,
@@ -707,7 +758,11 @@ where
         props,
         system_inner,
         supervision_state,
-    )
+    ) {
+        Some(reason)
+    } else {
+        None
+    }
 }
 
 fn apply_actor_failure<A>(

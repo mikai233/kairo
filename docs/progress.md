@@ -68,6 +68,10 @@ Implemented:
 - `Signal::Terminated` is delivered once to local watchers after the watched
   actor terminates; `watch_with` delivers a typed custom protocol message, and
   `unwatch` suppresses later local termination notification.
+- `Signal::ChildFailed` now reports a failed direct child to a parent that is
+  watching that child, while non-parent watchers still receive plain
+  `Signal::Terminated` and `watch_with` continues to deliver the caller's
+  custom message.
 - Death-watch registration and notification state lives in a focused
   `death_watch` module.
 - `ActorSystem::schedule_once`, `Context::schedule_once`, and
