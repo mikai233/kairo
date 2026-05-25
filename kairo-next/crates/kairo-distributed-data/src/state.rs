@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    DataEnvelope, DeltaReplicatedData, GetResponse, ReplicatedDelta, ReplicatorChange,
+    DataEnvelope, DeltaReplicatedData, GetResponse, PruningPerformed, PruningState,
+    RemovedNodePruning, RemovedNodePruningFailure, ReplicaId, ReplicatedDelta, ReplicatorChange,
     ReplicatorKey, UpdateOutcome,
 };
 
@@ -118,6 +119,123 @@ where
         self.entries.insert(key.clone(), envelope);
         if changed {
             self.changed.insert(key);
+        }
+        changed
+    }
+}
+
+impl<D> ReplicatorState<D>
+where
+    D: DeltaReplicatedData + RemovedNodePruning,
+{
+    pub fn modified_by_replica_ids(&self) -> BTreeSet<ReplicaId> {
+        self.entries
+            .values()
+            .flat_map(DataEnvelope::modified_by_replica_ids)
+            .collect()
+    }
+
+    pub fn mark_pruning_seen(&mut self, seen_by: ReplicaId) -> BTreeSet<ReplicatorKey> {
+        let updates = self
+            .entries
+            .iter()
+            .filter_map(|(key, envelope)| {
+                let next = envelope.add_pruning_seen(seen_by.clone());
+                (next != *envelope).then_some((key.clone(), next))
+            })
+            .collect::<Vec<_>>();
+        self.apply_pruning_updates(updates)
+    }
+
+    pub fn init_removed_node_pruning(
+        &mut self,
+        removed: &ReplicaId,
+        owner: &ReplicaId,
+    ) -> BTreeSet<ReplicatorKey> {
+        let updates = self
+            .entries
+            .iter()
+            .filter_map(|(key, envelope)| {
+                if !envelope.need_pruning_from(removed) {
+                    return None;
+                }
+
+                let should_initialize = match envelope.pruning().get(removed) {
+                    None => true,
+                    Some(PruningState::Initialized(initialized)) => initialized.owner() != owner,
+                    Some(PruningState::Performed(_)) => false,
+                };
+
+                should_initialize.then(|| {
+                    (
+                        key.clone(),
+                        envelope.init_removed_node_pruning(removed.clone(), owner.clone()),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        self.apply_pruning_updates(updates)
+    }
+
+    pub fn perform_removed_node_pruning(
+        &mut self,
+        owner: &ReplicaId,
+        live_replicas: &BTreeSet<ReplicaId>,
+        performed_marker: PruningPerformed,
+    ) -> (BTreeSet<ReplicatorKey>, Vec<RemovedNodePruningFailure>) {
+        let mut updates = Vec::new();
+        let mut failures = Vec::new();
+
+        for (key, envelope) in &self.entries {
+            let mut next_envelope = envelope.clone();
+            for removed in envelope
+                .pruning()
+                .ready_to_perform(owner, live_replicas.iter())
+            {
+                match next_envelope.prune_removed_node(&removed, performed_marker) {
+                    Ok(next) => next_envelope = next,
+                    Err(error) => failures.push(RemovedNodePruningFailure {
+                        key: key.clone(),
+                        removed,
+                        reason: error.to_string(),
+                    }),
+                }
+            }
+            if next_envelope != *envelope {
+                updates.push((key.clone(), next_envelope));
+            }
+        }
+
+        (self.apply_pruning_updates(updates), failures)
+    }
+
+    pub fn remove_obsolete_pruning_performed(
+        &mut self,
+        now_millis: u64,
+    ) -> (BTreeSet<ReplicatorKey>, BTreeSet<ReplicaId>) {
+        let mut updates = Vec::new();
+        let mut removed_nodes = BTreeSet::new();
+
+        for (key, envelope) in &self.entries {
+            let (next, removed) = envelope.remove_obsolete_pruning_performed(now_millis);
+            if next != *envelope {
+                updates.push((key.clone(), next));
+            }
+            removed_nodes.extend(removed);
+        }
+
+        (self.apply_pruning_updates(updates), removed_nodes)
+    }
+
+    fn apply_pruning_updates(
+        &mut self,
+        updates: Vec<(ReplicatorKey, DataEnvelope<D>)>,
+    ) -> BTreeSet<ReplicatorKey> {
+        let mut changed = BTreeSet::new();
+        for (key, envelope) in updates {
+            if self.set_data(key.clone(), envelope) {
+                changed.insert(key);
+            }
         }
         changed
     }

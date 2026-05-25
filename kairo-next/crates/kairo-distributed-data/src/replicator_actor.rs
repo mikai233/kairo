@@ -9,14 +9,15 @@ use crate::{
     DeltaPropagationLoop, DeltaPropagationReceiveReport, DeltaPropagationTickReport,
     DeltaReceiveStatus, DeltaReceiveTracker, DeltaReplicatedData, DirectReadResult,
     DirectWriteResult, GetResponse, ReadAggregationPlan, ReadAggregatorState, ReadConsistency,
-    ReplicaId, ReplicatedDelta, ReplicatorAggregation, ReplicatorChange,
+    RemovedNodePruning, RemovedNodePruningTick, RemovedNodePruningTickReport,
+    RemovedNodePruningTracker, ReplicaId, ReplicatedDelta, ReplicatorAggregation, ReplicatorChange,
     ReplicatorDeltaPropagation, ReplicatorKey, ReplicatorRead, ReplicatorState, ReplicatorWrite,
     UpdateResponse, WriteAggregationPlan, WriteAggregatorState, WriteConsistency,
 };
 
 pub struct ReplicatorActor<D>
 where
-    D: DeltaReplicatedData + Send + 'static,
+    D: DeltaReplicatedData + RemovedNodePruning + Send + 'static,
     D::Delta: Send + 'static,
 {
     state: ReplicatorState<D>,
@@ -29,11 +30,12 @@ where
     aggregation: Option<ReplicatorAggregation<D>>,
     delta_loop: Option<DeltaPropagationLoop<D::Delta>>,
     delta_tick_interval: Option<Duration>,
+    removed_node_pruning: RemovedNodePruningTracker,
 }
 
 impl<D> ReplicatorActor<D>
 where
-    D: DeltaReplicatedData + Send + 'static,
+    D: DeltaReplicatedData + RemovedNodePruning + Send + 'static,
     D::Delta: Send + 'static,
 {
     pub fn new() -> Self {
@@ -52,6 +54,7 @@ where
             aggregation: None,
             delta_loop: None,
             delta_tick_interval: None,
+            removed_node_pruning: RemovedNodePruningTracker::new(),
         }
     }
 
@@ -98,7 +101,7 @@ where
 
 impl<D> Default for ReplicatorActor<D>
 where
-    D: DeltaReplicatedData + Send + 'static,
+    D: DeltaReplicatedData + RemovedNodePruning + Send + 'static,
     D::Delta: Send + 'static,
 {
     fn default() -> Self {
@@ -179,6 +182,14 @@ where
         reply_to: ActorRef<DeltaPropagationTickReport>,
     },
     DeltaPropagationTick,
+    MarkRemovedNodePruningSeen {
+        seen_by: ReplicaId,
+        reply_to: ActorRef<BTreeSet<ReplicatorKey>>,
+    },
+    RunRemovedNodePruning {
+        tick: RemovedNodePruningTick,
+        reply_to: ActorRef<RemovedNodePruningTickReport>,
+    },
     Subscribe {
         key: ReplicatorKey,
         subscriber: ActorRef<ReplicatorChange<D>>,
@@ -192,7 +203,7 @@ where
 
 impl<D> Actor for ReplicatorActor<D>
 where
-    D: DeltaReplicatedData + Send + 'static,
+    D: DeltaReplicatedData + RemovedNodePruning + Send + 'static,
     D::Delta: Send + 'static,
 {
     type Msg = ReplicatorActorMsg<D>;
@@ -310,6 +321,14 @@ where
                 self.run_delta_propagation_tick();
                 self.schedule_delta_propagation_tick(ctx);
             }
+            ReplicatorActorMsg::MarkRemovedNodePruningSeen { seen_by, reply_to } => {
+                let changed = self.state.mark_pruning_seen(seen_by);
+                tell_or_actor_error(&reply_to, changed)?;
+            }
+            ReplicatorActorMsg::RunRemovedNodePruning { tick, reply_to } => {
+                let report = self.run_removed_node_pruning_tick(tick);
+                tell_or_actor_error(&reply_to, report)?;
+            }
             ReplicatorActorMsg::Subscribe { key, subscriber } => {
                 self.subscribe(key, subscriber);
             }
@@ -326,7 +345,7 @@ where
 
 impl<D> ReplicatorActor<D>
 where
-    D: DeltaReplicatedData + Send + 'static,
+    D: DeltaReplicatedData + RemovedNodePruning + Send + 'static,
     D::Delta: Send + 'static,
 {
     fn handle_get(
@@ -517,6 +536,60 @@ where
         if let Some(interval) = self.delta_tick_interval {
             ctx.schedule_once_self(interval, ReplicatorActorMsg::DeltaPropagationTick);
         }
+    }
+
+    fn run_removed_node_pruning_tick(
+        &mut self,
+        tick: RemovedNodePruningTick,
+    ) -> RemovedNodePruningTickReport {
+        if !tick.unreachable_replicas.is_empty() {
+            return RemovedNodePruningTickReport::skipped_unreachable();
+        }
+
+        let mut report = RemovedNodePruningTickReport::default();
+
+        if tick.is_leader {
+            let mut known_nodes = tick.live_replicas.clone();
+            known_nodes.insert(tick.self_replica.clone());
+            known_nodes.extend(self.removed_node_pruning.removed_nodes().keys().cloned());
+
+            let modified_by = self.state.modified_by_replica_ids();
+            report.collected_removed = self.removed_node_pruning.record_unknown_modified_nodes(
+                modified_by.iter(),
+                &known_nodes,
+                &tick.self_replica,
+                tick.all_reachable_time_nanos,
+            );
+
+            for removed in self.removed_node_pruning.ready_to_initialize(
+                tick.all_reachable_time_nanos,
+                tick.max_pruning_dissemination_nanos,
+            ) {
+                report.initialized.extend(
+                    self.state
+                        .init_removed_node_pruning(&removed, &tick.self_replica),
+                );
+            }
+        }
+
+        let (performed, failures) = self.state.perform_removed_node_pruning(
+            &tick.self_replica,
+            &tick.live_replicas,
+            tick.pruning_performed(),
+        );
+        report.performed = performed;
+        report.failures = failures;
+
+        let (obsolete_markers, forgotten_removed) = self
+            .state
+            .remove_obsolete_pruning_performed(tick.now_millis);
+        report.obsolete_markers = obsolete_markers;
+        for removed in forgotten_removed {
+            self.removed_node_pruning.forget_removed(&removed);
+            report.forgotten_removed.insert(removed);
+        }
+
+        report
     }
 }
 

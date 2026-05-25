@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::ReplicaId;
+use crate::{ReplicaId, ReplicatorKey};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PruningState {
@@ -294,6 +294,62 @@ impl RemovedNodePruningTracker {
             })
             .collect()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedNodePruningTick {
+    pub self_replica: ReplicaId,
+    pub live_replicas: BTreeSet<ReplicaId>,
+    pub unreachable_replicas: BTreeSet<ReplicaId>,
+    pub all_reachable_time_nanos: u64,
+    pub max_pruning_dissemination_nanos: u64,
+    pub now_millis: u64,
+    pub pruning_marker_ttl_millis: u64,
+    pub is_leader: bool,
+}
+
+impl RemovedNodePruningTick {
+    pub fn pruning_performed(&self) -> PruningPerformed {
+        PruningPerformed::new(
+            self.now_millis
+                .saturating_add(self.pruning_marker_ttl_millis),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RemovedNodePruningTickReport {
+    pub skipped_unreachable: bool,
+    pub collected_removed: BTreeSet<ReplicaId>,
+    pub initialized: BTreeSet<ReplicatorKey>,
+    pub performed: BTreeSet<ReplicatorKey>,
+    pub obsolete_markers: BTreeSet<ReplicatorKey>,
+    pub forgotten_removed: BTreeSet<ReplicaId>,
+    pub failures: Vec<RemovedNodePruningFailure>,
+}
+
+impl RemovedNodePruningTickReport {
+    pub fn skipped_unreachable() -> Self {
+        Self {
+            skipped_unreachable: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn changed_key_count(&self) -> usize {
+        self.initialized
+            .union(&self.performed)
+            .chain(self.obsolete_markers.iter())
+            .collect::<BTreeSet<_>>()
+            .len()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedNodePruningFailure {
+    pub key: ReplicatorKey,
+    pub removed: ReplicaId,
+    pub reason: String,
 }
 
 #[cfg(test)]

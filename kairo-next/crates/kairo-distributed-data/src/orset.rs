@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{DeltaReplicatedData, ReplicaId, ReplicatedData, ReplicatedDelta};
+use crate::{
+    CrdtError, DeltaReplicatedData, RemovedNodePruning, ReplicaId, ReplicatedData, ReplicatedDelta,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ORSet<T> {
@@ -249,6 +251,73 @@ where
     }
 }
 
+impl<T> RemovedNodePruning for ORSet<T>
+where
+    T: Clone + Eq + Ord,
+{
+    fn modified_by_replica_ids(&self) -> BTreeSet<ReplicaId> {
+        self.version_vector.modified_by_replica_ids()
+    }
+
+    fn need_pruning_from(&self, removed_replica: &ReplicaId) -> bool {
+        self.version_vector.need_pruning_from(removed_replica)
+    }
+
+    fn prune(
+        &self,
+        removed_replica: &ReplicaId,
+        collapse_into: ReplicaId,
+    ) -> Result<Self, CrdtError> {
+        let mut pruned_elements = BTreeMap::new();
+        let mut touched_elements = Vec::new();
+        for (element, dots) in &self.elements {
+            if dots.need_pruning_from(removed_replica) {
+                pruned_elements.insert(
+                    element.clone(),
+                    dots.prune(removed_replica, collapse_into.clone()),
+                );
+                touched_elements.push(element.clone());
+            } else {
+                pruned_elements.insert(element.clone(), dots.clone());
+            }
+        }
+
+        let base = Self {
+            elements: pruned_elements,
+            version_vector: self
+                .version_vector
+                .prune(removed_replica, collapse_into.clone()),
+            delta: None,
+        };
+
+        Ok(touched_elements.into_iter().fold(base, |current, element| {
+            current.add(collapse_into.clone(), element)
+        }))
+    }
+
+    fn pruning_cleanup(&self, removed_replica: &ReplicaId) -> Self {
+        Self {
+            elements: self
+                .elements
+                .iter()
+                .map(|(element, dots)| {
+                    (
+                        element.clone(),
+                        if dots.need_pruning_from(removed_replica) {
+                            dots.pruning_cleanup(removed_replica)
+                        } else {
+                            dots.clone()
+                        },
+                    )
+                })
+                .filter(|(_, dots)| !dots.is_empty())
+                .collect(),
+            version_vector: self.version_vector.pruning_cleanup(removed_replica),
+            delta: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ORSetRemoveDelta<T> {
     element: T,
@@ -351,5 +420,25 @@ impl VersionVector {
         dots.entries()
             .iter()
             .all(|(replica, version)| self.version_at(replica) >= *version)
+    }
+
+    fn modified_by_replica_ids(&self) -> BTreeSet<ReplicaId> {
+        self.0.keys().cloned().collect()
+    }
+
+    fn need_pruning_from(&self, removed_replica: &ReplicaId) -> bool {
+        self.0.contains_key(removed_replica)
+    }
+
+    fn prune(&self, removed_replica: &ReplicaId, collapse_into: ReplicaId) -> Self {
+        let mut pruned = self.pruning_cleanup(removed_replica);
+        pruned = pruned.increment(&collapse_into);
+        pruned
+    }
+
+    fn pruning_cleanup(&self, removed_replica: &ReplicaId) -> Self {
+        let mut entries = self.0.clone();
+        entries.remove(removed_replica);
+        Self(entries)
     }
 }

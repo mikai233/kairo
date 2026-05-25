@@ -422,12 +422,19 @@ Implemented:
   markers, performing owner-collapse pruning, cleaning performed removed-node
   data during merges, and removing obsolete performed markers.
 - `kairo-distributed-data::RemovedNodePruning` defines the CRDT pruning
-  contract used by envelopes, and `GCounter`/`PNCounter` implement it through
-  their existing removed-replica collapse and cleanup helpers.
+  contract used by envelopes. `GCounter`, `PNCounter`, and `ORSet` implement
+  removed-replica collapse and cleanup, while `GSet` explicitly provides the
+  no-op implementation appropriate for data without per-replica dots.
 - Distributed-data full-state wire envelopes now carry pruning metadata with
   explicit removed-replica entries and tagged initialized/performed states,
   preserving owner, seen replicas, and obsolete times across write and
   read-result codecs without relying on Rust enum discriminants.
+- `ReplicatorState<D>` and `ReplicatorActor<D>` now run removed-node pruning
+  through explicit synchronous actor messages: ticks collect unknown modified
+  replicas, wait for the all-reachable dissemination threshold, initialize
+  pruning markers when the local replica is leader, record seen markers,
+  perform owner-collapse pruning after all live replicas have seen the marker,
+  and remove obsolete performed markers.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -832,7 +839,7 @@ Not yet implemented:
   resolution, and broader cross-crate compatibility fixtures.
 - Distributed-data socket or remote-association transport for delta
   propagation/direct read/write, automatic peer route installation from
-  cluster events, actor-backed removed-node pruning scheduling, and
+  cluster events, cluster-event-driven pruning tick configuration, and
   gossip-backed replication.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed

@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use crate::{DeltaReplicatedData, ReplicatedData, ReplicatedDelta};
+use crate::{
+    CrdtError, DeltaReplicatedData, RemovedNodePruning, ReplicaId, ReplicatedData, ReplicatedDelta,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GSet<T> {
@@ -113,5 +115,30 @@ where
 
     fn zero(&self) -> Self::Full {
         Self::new()
+    }
+}
+
+impl<T> RemovedNodePruning for GSet<T>
+where
+    T: Clone + Eq + Ord,
+{
+    fn modified_by_replica_ids(&self) -> BTreeSet<ReplicaId> {
+        BTreeSet::new()
+    }
+
+    fn need_pruning_from(&self, _removed_replica: &ReplicaId) -> bool {
+        false
+    }
+
+    fn prune(
+        &self,
+        _removed_replica: &ReplicaId,
+        _collapse_into: ReplicaId,
+    ) -> Result<Self, CrdtError> {
+        Ok(self.clone())
+    }
+
+    fn pruning_cleanup(&self, _removed_replica: &ReplicaId) -> Self {
+        self.clone()
     }
 }

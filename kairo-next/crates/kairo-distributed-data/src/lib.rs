@@ -109,7 +109,8 @@ pub use protocol::{
     ReplicatorUpdate, ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
 };
 pub use pruning::{
-    PruningInitialized, PruningPerformed, PruningState, PruningTable, RemovedNodePruningTracker,
+    PruningInitialized, PruningPerformed, PruningState, PruningTable, RemovedNodePruningFailure,
+    RemovedNodePruningTick, RemovedNodePruningTickReport, RemovedNodePruningTracker,
 };
 pub use read_write_receive::{DirectReadResult, DirectWriteResult, apply_write, serve_read};
 pub use remote_envelope::{
