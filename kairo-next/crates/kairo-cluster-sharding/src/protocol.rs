@@ -1,4 +1,4 @@
-use kairo_serialization::{ActorRefWireData, RemoteMessage};
+use kairo_serialization::{ActorRefWireData, RemoteMessage, SerializedMessage};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Register {
@@ -101,6 +101,18 @@ impl RemoteMessage for ShardStopped {
     const VERSION: u16 = 1;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutedShardEnvelope {
+    pub shard_id: String,
+    pub entity_id: String,
+    pub message: SerializedMessage,
+}
+
+impl RemoteMessage for RoutedShardEnvelope {
+    const MANIFEST: &'static str = "kairo.sharding.routed-envelope";
+    const VERSION: u16 = 1;
+}
+
 #[cfg(test)]
 mod tests {
     use kairo_serialization::RemoteMessage;
@@ -122,6 +134,10 @@ mod tests {
         );
         assert_eq!(HandOff::MANIFEST, "kairo.sharding.handoff");
         assert_eq!(ShardStopped::VERSION, 1);
+        assert_eq!(
+            RoutedShardEnvelope::MANIFEST,
+            "kairo.sharding.routed-envelope"
+        );
         assert!(!ShardHome::MANIFEST.contains(std::any::type_name::<ShardHome>()));
     }
 }

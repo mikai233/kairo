@@ -1,12 +1,12 @@
 use bytes::Bytes;
 use kairo_serialization::{
-    ActorRefWireData, MessageCodec, Registry, SerializationError, SerializationRegistry,
-    WireReader, WireWriter,
+    ActorRefWireData, Manifest, MessageCodec, Registry, SerializationError, SerializationRegistry,
+    SerializedMessage, WireReader, WireWriter,
 };
 
 use crate::{
     BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
-    ShardHome, ShardStarted, ShardStopped,
+    RoutedShardEnvelope, ShardHome, ShardStarted, ShardStopped,
 };
 
 pub const REGISTER_SERIALIZER_ID: u32 = 4_000;
@@ -19,6 +19,7 @@ pub const BEGIN_HANDOFF_SERIALIZER_ID: u32 = 4_006;
 pub const BEGIN_HANDOFF_ACK_SERIALIZER_ID: u32 = 4_007;
 pub const HANDOFF_SERIALIZER_ID: u32 = 4_008;
 pub const SHARD_STOPPED_SERIALIZER_ID: u32 = 4_009;
+pub const ROUTED_SHARD_ENVELOPE_SERIALIZER_ID: u32 = 4_010;
 
 pub fn register_sharding_protocol_codecs(
     registry: &mut Registry,
@@ -33,6 +34,7 @@ pub fn register_sharding_protocol_codecs(
     registry.register::<BeginHandOffAck, _>(BeginHandOffAckCodec)?;
     registry.register::<HandOff, _>(HandOffCodec)?;
     registry.register::<ShardStopped, _>(ShardStoppedCodec)?;
+    registry.register::<RoutedShardEnvelope, _>(RoutedShardEnvelopeCodec)?;
     Ok(())
 }
 
@@ -241,6 +243,37 @@ impl MessageCodec<ShardStopped> for ShardStoppedCodec {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct RoutedShardEnvelopeCodec;
+
+impl MessageCodec<RoutedShardEnvelope> for RoutedShardEnvelopeCodec {
+    fn serializer_id(&self) -> u32 {
+        ROUTED_SHARD_ENVELOPE_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &RoutedShardEnvelope) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_string(&message.shard_id)?;
+        writer.write_string(&message.entity_id)?;
+        write_serialized_message(&mut writer, &message.message)?;
+        Ok(writer.finish())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<RoutedShardEnvelope> {
+        ensure_version::<RoutedShardEnvelope>(version)?;
+        let mut reader = WireReader::new(&payload);
+        Ok(RoutedShardEnvelope {
+            shard_id: reader.read_string()?,
+            entity_id: reader.read_string()?,
+            message: read_serialized_message(&mut reader)?,
+        })
+    }
+}
+
 fn encode_actor_ref(ref_data: &ActorRefWireData) -> kairo_serialization::Result<Bytes> {
     let mut writer = WireWriter::new();
     writer.write_string(ref_data.path())?;
@@ -256,6 +289,27 @@ fn encode_shard_id(shard_id: &str) -> kairo_serialization::Result<Bytes> {
     let mut writer = WireWriter::new();
     writer.write_string(shard_id)?;
     Ok(writer.finish())
+}
+
+fn write_serialized_message(
+    writer: &mut WireWriter,
+    message: &SerializedMessage,
+) -> kairo_serialization::Result<()> {
+    writer.write_u32(message.serializer_id);
+    writer.write_string(message.manifest.as_str())?;
+    writer.write_u16(message.version);
+    writer.write_bytes(&message.payload)
+}
+
+fn read_serialized_message(
+    reader: &mut WireReader<'_>,
+) -> kairo_serialization::Result<SerializedMessage> {
+    Ok(SerializedMessage::new(
+        reader.read_u32()?,
+        Manifest::try_new(reader.read_string()?)?,
+        reader.read_u16()?,
+        reader.read_bytes()?,
+    ))
 }
 
 fn decode_shard_id(payload: &Bytes) -> kairo_serialization::Result<String> {
@@ -279,7 +333,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use kairo_serialization::{Manifest, RemoteMessage, SerializedMessage};
+    use kairo_serialization::{RemoteMessage, SerializedMessage};
 
     use super::*;
 
@@ -366,6 +420,16 @@ mod tests {
         let stopped = ShardStopped {
             shard_id: "42".to_string(),
         };
+        let routed = RoutedShardEnvelope {
+            shard_id: "42".to_string(),
+            entity_id: "entity-1".to_string(),
+            message: SerializedMessage::new(
+                777,
+                kairo_serialization::Manifest::new("kairo.test.message"),
+                3,
+                Bytes::from_static(b"payload"),
+            ),
+        };
 
         assert_eq!(
             registry
@@ -402,6 +466,17 @@ mod tests {
                 .deserialize::<ShardStopped>(registry.serialize(&stopped).unwrap())
                 .unwrap(),
             stopped
+        );
+        let serialized_routed = registry.serialize(&routed).unwrap();
+        assert_eq!(
+            serialized_routed.serializer_id,
+            ROUTED_SHARD_ENVELOPE_SERIALIZER_ID
+        );
+        assert_eq!(
+            registry
+                .deserialize::<RoutedShardEnvelope>(serialized_routed)
+                .unwrap(),
+            routed
         );
     }
 

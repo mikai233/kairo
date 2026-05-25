@@ -1522,6 +1522,10 @@ Implementation shape:
 - Entity-backed local-shard mode spawns `EntityShardActor<M>`, preserving the
   same region routing, buffering, and coordinator allocation flow while letting
   shard delivery plans reach typed entity children.
+- Remote region route mode uses `RoutedShardEnvelope` with explicit shard id,
+  entity id, and nested serialized business message metadata. Outbound and
+  inbound adapters translate between typed `ShardRegionMsg<M>` and stable
+  `RemoteEnvelope` payloads at `/system/sharding/region`.
 
 Ordering:
 

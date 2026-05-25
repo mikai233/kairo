@@ -642,8 +642,8 @@ Implemented:
   planning, and transport send orchestration.
 - `kairo-cluster-sharding::register_sharding_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial region/coordinator
-  registration, shard-home, host-shard, start, handoff, and stopped protocol
-  messages.
+  registration, shard-home, host-shard, start, handoff, stopped, and routed
+  shard-envelope protocol messages.
 - Serialization tests cover rolling-version decode behavior by proving codecs
   receive the wire `version` and can decode older payload shapes under the same
   stable manifest.
@@ -847,6 +847,12 @@ Implemented:
   Region actors can forward later messages for known remote shard homes and can
   replay buffered messages to the selected remote region after shard-home
   resolution while preserving per-message delivery reply refs.
+- `kairo-cluster-sharding` now has a focused remote region route bridge:
+  `ShardRegionRemoteOutbound<M>` wraps routed sharding envelopes in stable
+  `RemoteEnvelope` messages addressed to `/system/sharding/region`, and
+  `ShardRegionRemoteInbound<M>` validates that recipient, decodes the nested
+  business message through registered codecs, and re-enters typed local region
+  delivery.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.

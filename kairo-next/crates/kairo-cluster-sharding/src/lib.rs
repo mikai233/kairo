@@ -23,6 +23,7 @@ mod region_actor;
 mod region_home_requests;
 mod region_protocol;
 mod region_registration;
+mod region_remote;
 mod region_runtime;
 mod region_shards;
 mod region_transport;
@@ -42,9 +43,10 @@ pub use codec::{
     BEGIN_HANDOFF_ACK_SERIALIZER_ID, BEGIN_HANDOFF_SERIALIZER_ID, BeginHandOffAckCodec,
     BeginHandOffCodec, GET_SHARD_HOME_SERIALIZER_ID, GetShardHomeCodec, HANDOFF_SERIALIZER_ID,
     HOST_SHARD_SERIALIZER_ID, HandOffCodec, HostShardCodec, REGISTER_ACK_SERIALIZER_ID,
-    REGISTER_SERIALIZER_ID, RegisterAckCodec, RegisterCodec, SHARD_HOME_SERIALIZER_ID,
-    SHARD_STARTED_SERIALIZER_ID, SHARD_STOPPED_SERIALIZER_ID, ShardHomeCodec, ShardStartedCodec,
-    ShardStoppedCodec, register_sharding_protocol_codecs,
+    REGISTER_SERIALIZER_ID, ROUTED_SHARD_ENVELOPE_SERIALIZER_ID, RegisterAckCodec, RegisterCodec,
+    RoutedShardEnvelopeCodec, SHARD_HOME_SERIALIZER_ID, SHARD_STARTED_SERIALIZER_ID,
+    SHARD_STOPPED_SERIALIZER_ID, ShardHomeCodec, ShardStartedCodec, ShardStoppedCodec,
+    register_sharding_protocol_codecs,
 };
 pub use coordinator::{CoordinatorEvent, CoordinatorState};
 pub use coordinator_actor::{CoordinatorStateSnapshot, ShardCoordinatorActor, ShardCoordinatorMsg};
@@ -71,7 +73,7 @@ pub use handoff_worker::{
 pub use hashing::{DEFAULT_SHARD_COUNT, default_shard_id_for, shard_id_for, stable_hash_entity_id};
 pub use protocol::{
     BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
-    ShardHome, ShardStarted, ShardStopped,
+    RoutedShardEnvelope, ShardHome, ShardStarted, ShardStopped,
 };
 pub use region_actor::ShardRegionActor;
 pub use region_protocol::{
@@ -80,6 +82,10 @@ pub use region_protocol::{
     ShardRegionSnapshot,
 };
 pub use region_registration::{RegionRegistrationConfig, RegionRegistrationStatus};
+pub use region_remote::{
+    DEFAULT_SHARD_REGION_REMOTE_PATH, ShardRegionRemoteError, ShardRegionRemoteInbound,
+    ShardRegionRemoteOutbound,
+};
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
     ShardRegionRuntime, ShardStartedPlan,

@@ -2,8 +2,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
+use bytes::Bytes;
+use kairo_actor::{
+    Actor, ActorError, ActorRef, ActorResult, ActorSystem, Address, Context, Props, Recipient,
+};
+use kairo_cluster::UniqueAddress;
 use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
+use kairo_serialization::{
+    MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationRegistry, WireReader,
+    WireWriter,
+};
 
 use crate::{
     BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState,
@@ -24,11 +32,13 @@ use crate::{
     RememberedEntitiesPlan, ShardActor, ShardAllocationStrategy, ShardAllocations,
     ShardCoordinatorActor, ShardCoordinatorBootstrap, ShardCoordinatorMsg, ShardDeliverPlan,
     ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg,
-    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRuntime, ShardRegionSnapshot,
-    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
-    ShardingEnvelopeRouter, ShardingError, default_shard_id_for, remember_coordinator_shards_key,
-    remember_entity_key_index, remember_entity_key_index_for, remember_entity_shard_key,
-    remember_entity_shard_replicator_key, shard_id_for, stable_hash_entity_id,
+    ShardRebalancePlan, ShardRegionActor, ShardRegionMsg, ShardRegionRemoteInbound,
+    ShardRegionRemoteOutbound, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
+    ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
+    ShardingEnvelopeRouter, ShardingError, default_shard_id_for, register_sharding_protocol_codecs,
+    remember_coordinator_shards_key, remember_entity_key_index, remember_entity_key_index_for,
+    remember_entity_shard_key, remember_entity_shard_replicator_key, shard_id_for,
+    stable_hash_entity_id,
 };
 
 #[test]
@@ -173,6 +183,105 @@ fn entity_ref_routes_through_registered_region_to_entity_actor() {
 
     assert_eq!(
         observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("entity-1".to_string(), "first".to_string())
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn remote_region_route_envelope_reenters_local_region_delivery() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("sharding-remote-region-route").unwrap();
+    let mut registry = Registry::new();
+    register_sharding_protocol_codecs(&mut registry).unwrap();
+    registry
+        .register::<RemoteRouteMessage, _>(RemoteRouteMessageCodec)
+        .unwrap();
+    let registry = std::sync::Arc::new(registry);
+    let self_node = remote_node("sharding", "127.0.0.1", 25520);
+    let remote_envelopes = kit
+        .create_probe::<RemoteEnvelope>("remote-envelopes")
+        .unwrap();
+    let route_replies = kit
+        .create_probe::<RegionLocalRoutePlan<RemoteRouteMessage>>("route-replies")
+        .unwrap();
+    let delivery_replies = kit
+        .create_probe::<ShardDeliverPlan<RemoteRouteMessage>>("delivery-replies")
+        .unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let entity_factory = EntityActorFactory::new(move |entity_id| RecordingRemoteEntity {
+        entity_id,
+        observed: observed_tx.clone(),
+    });
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<RemoteRouteMessage>::props_with_local_entity_shards(
+                "region-a",
+                10,
+                10,
+                entity_factory,
+            ),
+        )
+        .unwrap();
+    let host = kit
+        .create_probe::<HostShardPlan<RemoteRouteMessage>>("host")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    let outbound = ShardRegionRemoteOutbound::<RemoteRouteMessage>::new(
+        self_node.clone(),
+        registry.clone(),
+        remote_envelopes.actor_ref(),
+    );
+    outbound
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", RemoteRouteMessage("first".to_string())),
+            route_reply_to: route_replies.actor_ref(),
+            delivery_reply_to: delivery_replies.actor_ref(),
+        })
+        .unwrap();
+    let envelope = remote_envelopes
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+
+    let inbound = ShardRegionRemoteInbound::new(
+        self_node,
+        registry,
+        region,
+        route_replies.actor_ref(),
+        delivery_replies.actor_ref(),
+    );
+    inbound.receive(envelope).unwrap();
+
+    assert_eq!(
+        route_replies
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        delivery_replies
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", RemoteRouteMessage("first".to_string())),
+        }
+    );
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
         ("entity-1".to_string(), "first".to_string())
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
@@ -5520,6 +5629,61 @@ impl Actor for RecordingEntity {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemoteRouteMessage(String);
+
+impl RemoteMessage for RemoteRouteMessage {
+    const MANIFEST: &'static str = "kairo.sharding.test.remote-route";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RemoteRouteMessageCodec;
+
+impl MessageCodec<RemoteRouteMessage> for RemoteRouteMessageCodec {
+    fn serializer_id(&self) -> u32 {
+        49_001
+    }
+
+    fn encode(&self, message: &RemoteRouteMessage) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_string(&message.0)?;
+        Ok(writer.finish())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<RemoteRouteMessage> {
+        assert_eq!(version, RemoteRouteMessage::VERSION);
+        let mut reader = WireReader::new(&payload);
+        Ok(RemoteRouteMessage(reader.read_string()?))
+    }
+}
+
+struct RecordingRemoteEntity {
+    entity_id: String,
+    observed: mpsc::Sender<(String, String)>,
+}
+
+impl Actor for RecordingRemoteEntity {
+    type Msg = RemoteRouteMessage;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        self.observed
+            .send((self.entity_id.clone(), msg.0))
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+fn remote_node(system: &str, host: &str, port: u16) -> UniqueAddress {
+    UniqueAddress::new(
+        Address::new("kairo", system, Some(host.to_string()), Some(port)),
+        1,
+    )
 }
 
 fn wait_for_local_shard(
