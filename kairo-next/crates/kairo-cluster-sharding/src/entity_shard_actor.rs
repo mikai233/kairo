@@ -4,7 +4,7 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 
 use crate::{
     EntityActorFactory, EntityDelivery, EntityId, EntityTerminatedPlan, PassivatePlan,
-    ShardDeliverPlan, ShardId, ShardMsg, ShardRuntime, ShardSnapshot,
+    ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardMsg, ShardRuntime, ShardSnapshot,
 };
 
 pub struct EntityShardActor<M>
@@ -83,11 +83,15 @@ where
                 reply_to,
             } => {
                 let plan = self.runtime.handoff(stop_message);
+                self.apply_handoff_plan(&plan)?;
                 let _ = reply_to.tell(plan);
             }
             ShardMsg::HandOffStopperTerminated { reply_to } => {
-                let was_in_progress = self.runtime.handoff_stopper_terminated();
-                let _ = reply_to.tell(was_in_progress);
+                let completed = self.runtime.handoff_in_progress() && self.entity_refs.is_empty();
+                if completed {
+                    self.runtime.handoff_stopper_terminated();
+                }
+                let _ = reply_to.tell(completed);
             }
             ShardMsg::SetPreparingForShutdown { preparing } => {
                 self.runtime.set_preparing_for_shutdown(preparing);
@@ -160,6 +164,32 @@ where
             | EntityTerminatedPlan::RememberUpdate { .. }
             | EntityTerminatedPlan::RememberUpdateQueued { .. }
             | EntityTerminatedPlan::IgnoredUnknown { .. } => Ok(()),
+        }
+    }
+
+    fn apply_handoff_plan(&self, plan: &ShardHandOffPlan<M>) -> Result<(), ActorError> {
+        match plan {
+            ShardHandOffPlan::StartEntityStopper {
+                entities,
+                stop_message,
+                ..
+            }
+            | ShardHandOffPlan::StopImmediately {
+                entities,
+                stop_message,
+                ..
+            } => {
+                for entity_id in entities {
+                    if let Some(entity) = self.entity_refs.get(entity_id) {
+                        entity
+                            .tell(stop_message.clone())
+                            .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+                    }
+                }
+                Ok(())
+            }
+            ShardHandOffPlan::ReplyShardStopped { .. }
+            | ShardHandOffPlan::AlreadyInProgress { .. } => Ok(()),
         }
     }
 

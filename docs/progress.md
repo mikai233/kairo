@@ -717,8 +717,9 @@ Implemented:
 - `kairo-cluster-sharding` now has `EntityActorFactory<M>` and
   `EntityShardActor<M>`, a focused entity-backed shard boundary that spawns
   typed local entity children from shard delivery plans, forwards business
-  messages to those children, sends passivation stop messages, watches child
-  termination, and feeds observed termination back into the shard runtime.
+  messages to those children, sends passivation and handoff stop messages,
+  watches child termination, and feeds observed termination back into the shard
+  runtime.
 - `ShardRegionActor<M>` can now be configured with entity-backed local shard
   children, so `EntityRef<M>` routes through the stable shard hash,
   registered region, coordinator allocation, local shard child, and finally
