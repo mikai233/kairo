@@ -8,6 +8,7 @@ use kairo_serialization::{ActorRefWireData, Registry, SerializationError};
 use crate::{
     AggregationTarget, AggregationTargetRegistry, AggregationTransport, DeltaPropagationTarget,
     DeltaPropagationTargetRegistry, DeltaPropagationTransport, ReplicaId, ReplicatorClusterRoutes,
+    ReplicatorGossipTarget, ReplicatorGossipTargetRegistry, ReplicatorGossipTransport,
     ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteTarget,
 };
 
@@ -64,16 +65,19 @@ impl ReplicatorRemoteTargetRegistrationReport {
 pub struct ReplicatorRemoteRouteRegistrationReport {
     delta_registered: Vec<ReplicaId>,
     aggregation_registered: Vec<ReplicaId>,
+    gossip_registered: Vec<ReplicaId>,
 }
 
 impl ReplicatorRemoteRouteRegistrationReport {
     pub fn new(
         delta_registered: impl IntoIterator<Item = ReplicaId>,
         aggregation_registered: impl IntoIterator<Item = ReplicaId>,
+        gossip_registered: impl IntoIterator<Item = ReplicaId>,
     ) -> Self {
         Self {
             delta_registered: delta_registered.into_iter().collect(),
             aggregation_registered: aggregation_registered.into_iter().collect(),
+            gossip_registered: gossip_registered.into_iter().collect(),
         }
     }
 
@@ -83,6 +87,10 @@ impl ReplicatorRemoteRouteRegistrationReport {
 
     pub fn aggregation_registered(&self) -> &[ReplicaId] {
         &self.aggregation_registered
+    }
+
+    pub fn gossip_registered(&self) -> &[ReplicaId] {
+        &self.gossip_registered
     }
 }
 
@@ -197,6 +205,32 @@ impl ReplicatorRemoteRouteTargets {
         Ok(ReplicatorRemoteTargetRegistrationReport { registered })
     }
 
+    pub fn set_gossip_targets(
+        &self,
+        routes: &ReplicatorClusterRoutes,
+        transport: &mut ReplicatorGossipTransport,
+    ) -> Result<ReplicatorRemoteTargetRegistrationReport, ReplicatorRemoteTargetError> {
+        self.set_gossip_target_registry(routes, &transport.target_registry())
+    }
+
+    pub fn set_gossip_target_registry(
+        &self,
+        routes: &ReplicatorClusterRoutes,
+        registry: &ReplicatorGossipTargetRegistry,
+    ) -> Result<ReplicatorRemoteTargetRegistrationReport, ReplicatorRemoteTargetError> {
+        let targets = routes
+            .remote_nodes()
+            .iter()
+            .map(|node| self.gossip_target_for_node(node))
+            .collect::<Result<Vec<_>, _>>()?;
+        let registered = targets
+            .iter()
+            .map(|target| target.replica().clone())
+            .collect();
+        registry.set_targets(targets);
+        Ok(ReplicatorRemoteTargetRegistrationReport { registered })
+    }
+
     fn delta_target_for_node(
         &self,
         node: &UniqueAddress,
@@ -214,6 +248,18 @@ impl ReplicatorRemoteRouteTargets {
     ) -> Result<AggregationTarget, ReplicatorRemoteTargetError> {
         let target = self.target_for_node(node)?;
         Ok(AggregationTarget::remote_envelope(
+            target.replica().clone(),
+            self.outbound_for(target.clone()),
+            self.outbound_for(target),
+        ))
+    }
+
+    fn gossip_target_for_node(
+        &self,
+        node: &UniqueAddress,
+    ) -> Result<ReplicatorGossipTarget, ReplicatorRemoteTargetError> {
+        let target = self.target_for_node(node)?;
+        Ok(ReplicatorGossipTarget::new(
             target.replica().clone(),
             self.outbound_for(target.clone()),
             self.outbound_for(target),
@@ -245,12 +291,13 @@ mod tests {
     use crate::{
         AggregationTransport, DataEnvelope, DeltaPropagationLog, DeltaPropagationTransport,
         DeltaReplicatedData, GCounter, GCounterCodec, ReadAggregationPlan, ReadAggregatorState,
-        ReadConsistency, ReplicatorKey, WriteAggregationPlan, WriteAggregatorState,
-        WriteConsistency, decode_delta_propagation, register_ddata_protocol_codecs,
+        ReadConsistency, ReplicatorGossipTransport, ReplicatorKey, WriteAggregationPlan,
+        WriteAggregatorState, WriteConsistency, decode_delta_propagation,
+        register_ddata_protocol_codecs,
     };
 
     #[test]
-    fn route_targets_register_remote_envelope_delta_and_aggregation_targets() {
+    fn route_targets_register_remote_envelope_ddata_targets() {
         let self_node = node("self", 1);
         let peer = node("peer", 2);
         let weak = node("weak", 3);
@@ -278,6 +325,7 @@ mod tests {
             DeltaPropagationTransport::new(ReplicaId::from(&self_node), GCounterCodec);
         let mut aggregation_transport =
             AggregationTransport::new(ReplicaId::from(&self_node), GCounterCodec);
+        let mut gossip_transport = ReplicatorGossipTransport::new();
 
         let delta_report = route_targets
             .set_delta_targets(&routes, &mut delta_transport)
@@ -285,14 +333,19 @@ mod tests {
         let aggregation_report = route_targets
             .set_aggregation_targets(&routes, &mut aggregation_transport)
             .unwrap();
+        let gossip_report = route_targets
+            .set_gossip_targets(&routes, &mut gossip_transport)
+            .unwrap();
 
         assert_eq!(
             delta_report.registered(),
             &[ReplicaId::from(&peer), ReplicaId::from(&weak)]
         );
         assert_eq!(aggregation_report.registered(), delta_report.registered());
+        assert_eq!(gossip_report.registered(), delta_report.registered());
         assert_eq!(delta_transport.target_count(), 2);
         assert_eq!(aggregation_transport.target_count(), 2);
+        assert_eq!(gossip_transport.target_count(), 2);
 
         let key = ReplicatorKey::new("counter");
         let mut log = DeltaPropagationLog::new([ReplicaId::from(&peer)]);

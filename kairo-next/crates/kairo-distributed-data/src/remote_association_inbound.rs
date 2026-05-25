@@ -10,9 +10,10 @@ use kairo_serialization::{RemoteEnvelope, RemoteMessage};
 
 use crate::{
     DeltaReplicatedData, ReplicaId, ReplicatorDeltaAck, ReplicatorDeltaNack,
-    ReplicatorDeltaPropagation, ReplicatorRead, ReplicatorReadResult, ReplicatorRemoteReplyError,
-    ReplicatorRemoteReplyInbound, ReplicatorRemoteRequestError, ReplicatorRemoteRequestInbound,
-    ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
+    ReplicatorDeltaPropagation, ReplicatorGossip, ReplicatorGossipStatus, ReplicatorRead,
+    ReplicatorReadResult, ReplicatorRemoteReplyError, ReplicatorRemoteReplyInbound,
+    ReplicatorRemoteRequestError, ReplicatorRemoteRequestInbound, ReplicatorWrite,
+    ReplicatorWriteAck, ReplicatorWriteNack,
 };
 
 pub trait ReplicatorRemoteRequestReceiver: Send + Sync + 'static {
@@ -152,7 +153,11 @@ impl RemoteFrameHandler for ReplicatorRemoteAssociationInbound {
 pub fn is_replicator_request_manifest(manifest: &str) -> bool {
     matches!(
         manifest,
-        ReplicatorDeltaPropagation::MANIFEST | ReplicatorWrite::MANIFEST | ReplicatorRead::MANIFEST
+        ReplicatorDeltaPropagation::MANIFEST
+            | ReplicatorWrite::MANIFEST
+            | ReplicatorRead::MANIFEST
+            | ReplicatorGossipStatus::MANIFEST
+            | ReplicatorGossip::MANIFEST
     )
 }
 

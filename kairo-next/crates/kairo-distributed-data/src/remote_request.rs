@@ -11,9 +11,10 @@ use kairo_serialization::{
 
 use crate::{
     DeltaPropagationReceiveReport, DeltaReplicatedData, DirectReadResult, DirectWriteResult,
-    ReplicaId, ReplicatorActorMsg, ReplicatorDeltaPropagation, ReplicatorRead,
-    ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeError, ReplicatorRemoteEnvelopeInbound,
-    ReplicatorRemoteReplyOutbound, ReplicatorRemoteTarget, ReplicatorWireCodecs, ReplicatorWrite,
+    ReplicaId, ReplicatorActorMsg, ReplicatorDeltaPropagation, ReplicatorGossip,
+    ReplicatorGossipStatus, ReplicatorRead, ReplicatorRemoteEnvelope,
+    ReplicatorRemoteEnvelopeError, ReplicatorRemoteEnvelopeInbound, ReplicatorRemoteReplyOutbound,
+    ReplicatorRemoteTarget, ReplicatorWireCodecs, ReplicatorWrite,
 };
 
 #[derive(Debug)]
@@ -191,6 +192,32 @@ where
                         read,
                         codec: self.codecs.data_codec(),
                         reply_to,
+                    })
+                    .map_err(|error| ReplicatorRemoteRequestError::Send(error.reason().to_string()))
+            }
+            ReplicatorGossipStatus::MANIFEST => {
+                let status = self
+                    .registry
+                    .deserialize::<ReplicatorGossipStatus>(inbound.message)?;
+                self.replicator
+                    .tell(ReplicatorActorMsg::ReceiveGossipStatus {
+                        from,
+                        status,
+                        codec: self.codecs.data_codec(),
+                        reply_to: None,
+                    })
+                    .map_err(|error| ReplicatorRemoteRequestError::Send(error.reason().to_string()))
+            }
+            ReplicatorGossip::MANIFEST => {
+                let gossip = self
+                    .registry
+                    .deserialize::<ReplicatorGossip>(inbound.message)?;
+                self.replicator
+                    .tell(ReplicatorActorMsg::ReceiveGossip {
+                        from,
+                        gossip,
+                        codec: self.codecs.data_codec(),
+                        reply_to: None,
                     })
                     .map_err(|error| ReplicatorRemoteRequestError::Send(error.reason().to_string()))
             }

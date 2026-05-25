@@ -8,9 +8,9 @@ use crate::{
     AggregationTargetRegistry, DeltaPropagationTargetRegistry, DeltaReplicatedData,
     RemovedNodePruningTick, RemovedNodePruningTickReport, ReplicaId, ReplicatorActorMsg,
     ReplicatorClusterConnectorTimingSettings, ReplicatorClusterRouteReport,
-    ReplicatorClusterRouteUpdate, ReplicatorClusterRoutes, ReplicatorRemoteRouteRegistrationReport,
-    ReplicatorRemoteRouteTargets, SharedReplicatorClusterConnectorClock,
-    SystemReplicatorClusterConnectorClock,
+    ReplicatorClusterRouteUpdate, ReplicatorClusterRoutes, ReplicatorGossipTargetRegistry,
+    ReplicatorRemoteRouteRegistrationReport, ReplicatorRemoteRouteTargets,
+    SharedReplicatorClusterConnectorClock, SystemReplicatorClusterConnectorClock,
 };
 
 use crate::cluster_connector_timing::{CLOCK_TIMER_KEY, PRUNING_TIMER_KEY};
@@ -52,6 +52,7 @@ where
     remote_route_targets: Option<ReplicatorRemoteRouteTargets>,
     delta_target_registry: Option<DeltaPropagationTargetRegistry>,
     aggregation_target_registry: Option<AggregationTargetRegistry>,
+    gossip_target_registry: Option<ReplicatorGossipTargetRegistry>,
     last_target_registration: Option<ReplicatorRemoteRouteRegistrationReport>,
 }
 
@@ -83,6 +84,7 @@ where
             remote_route_targets: None,
             delta_target_registry: None,
             aggregation_target_registry: None,
+            gossip_target_registry: None,
             last_target_registration: None,
         }
     }
@@ -112,6 +114,7 @@ where
             remote_route_targets: None,
             delta_target_registry: None,
             aggregation_target_registry: None,
+            gossip_target_registry: None,
             last_target_registration: None,
         }
     }
@@ -144,10 +147,12 @@ where
         targets: ReplicatorRemoteRouteTargets,
         delta_registry: Option<DeltaPropagationTargetRegistry>,
         aggregation_registry: Option<AggregationTargetRegistry>,
+        gossip_registry: Option<ReplicatorGossipTargetRegistry>,
     ) -> Self {
         self.remote_route_targets = Some(targets);
         self.delta_target_registry = delta_registry;
         self.aggregation_target_registry = aggregation_registry;
+        self.gossip_target_registry = gossip_registry;
         self
     }
 }
@@ -336,9 +341,20 @@ where
             Vec::new()
         };
 
+        let gossip_registered = if let Some(registry) = &self.gossip_target_registry {
+            targets
+                .set_gossip_target_registry(&self.routes, registry)
+                .map_err(|error| ActorError::Message(error.to_string()))?
+                .registered()
+                .to_vec()
+        } else {
+            Vec::new()
+        };
+
         self.last_target_registration = Some(ReplicatorRemoteRouteRegistrationReport::new(
             delta_registered,
             aggregation_registered,
+            gossip_registered,
         ));
         Ok(())
     }
@@ -687,6 +703,7 @@ mod tests {
             forward_ref::<ReplicatorRemoteEnvelope>(&system, "remote-out");
         let delta_targets = DeltaPropagationTargetRegistry::new();
         let aggregation_targets = AggregationTargetRegistry::new();
+        let gossip_targets = ReplicatorGossipTargetRegistry::new();
         let route_targets = ReplicatorRemoteRouteTargets::new(registry(), outbound);
 
         publisher
@@ -709,6 +726,7 @@ mod tests {
                     let route_targets = route_targets.clone();
                     let delta_targets = delta_targets.clone();
                     let aggregation_targets = aggregation_targets.clone();
+                    let gossip_targets = gossip_targets.clone();
                     move || {
                         ReplicatorClusterConnector::with_required_roles(
                             cluster,
@@ -720,6 +738,7 @@ mod tests {
                             route_targets,
                             Some(delta_targets),
                             Some(aggregation_targets),
+                            Some(gossip_targets),
                         )
                     }
                 }),
@@ -743,8 +762,13 @@ mod tests {
             registration.aggregation_registered(),
             registration.delta_registered()
         );
+        assert_eq!(
+            registration.gossip_registered(),
+            registration.delta_registered()
+        );
         assert_eq!(delta_targets.target_count(), 2);
         assert_eq!(aggregation_targets.target_count(), 2);
+        assert_eq!(gossip_targets.target_count(), 2);
 
         let transport = DeltaPropagationTransport::with_target_registry(
             ReplicaId::from(&self_node),

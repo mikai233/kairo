@@ -8,8 +8,8 @@ use kairo_serialization::{
 };
 
 use crate::{
-    ReplicaId, ReplicatorDeltaPropagation, ReplicatorRead, ReplicatorReadResult, ReplicatorWrite,
-    ReplicatorWriteAck, ReplicatorWriteNack,
+    ReplicaId, ReplicatorDeltaPropagation, ReplicatorGossip, ReplicatorGossipStatus,
+    ReplicatorRead, ReplicatorReadResult, ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +181,23 @@ impl Recipient<ReplicatorWrite> for ReplicatorRemoteEnvelopeOutbound {
 
 impl Recipient<ReplicatorRead> for ReplicatorRemoteEnvelopeOutbound {
     fn tell(&self, message: ReplicatorRead) -> Result<(), SendError<ReplicatorRead>> {
+        self.send(&message)
+            .map_err(|error| SendError::new(message, error.to_string()))
+    }
+}
+
+impl Recipient<ReplicatorGossipStatus> for ReplicatorRemoteEnvelopeOutbound {
+    fn tell(
+        &self,
+        message: ReplicatorGossipStatus,
+    ) -> Result<(), SendError<ReplicatorGossipStatus>> {
+        self.send(&message)
+            .map_err(|error| SendError::new(message, error.to_string()))
+    }
+}
+
+impl Recipient<ReplicatorGossip> for ReplicatorRemoteEnvelopeOutbound {
+    fn tell(&self, message: ReplicatorGossip) -> Result<(), SendError<ReplicatorGossip>> {
         self.send(&message)
             .map_err(|error| SendError::new(message, error.to_string()))
     }

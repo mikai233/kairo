@@ -12,8 +12,12 @@ use crate::{
     RemovedNodePruning, RemovedNodePruningTick, RemovedNodePruningTickReport,
     RemovedNodePruningTracker, ReplicaId, ReplicatedDelta, ReplicatorAggregation, ReplicatorChange,
     ReplicatorClusterRouteReport, ReplicatorClusterRouteUpdate, ReplicatorDeltaPropagation,
+    ReplicatorGossip, ReplicatorGossipReceiveReport, ReplicatorGossipStatus,
+    ReplicatorGossipStatusReceiveReport, ReplicatorGossipTickReport,
+    ReplicatorGossipTickSkipReason, ReplicatorGossipTransport, ReplicatorGossipTransportReport,
     ReplicatorKey, ReplicatorRead, ReplicatorState, ReplicatorWrite, UpdateResponse,
-    WriteAggregationPlan, WriteAggregatorState, WriteConsistency,
+    WriteAggregationPlan, WriteAggregatorState, WriteConsistency, apply_gossip,
+    build_gossip_status, respond_to_gossip_status,
 };
 
 pub struct ReplicatorActor<D>
@@ -31,6 +35,13 @@ where
     aggregation: Option<ReplicatorAggregation<D>>,
     delta_loop: Option<DeltaPropagationLoop<D::Delta>>,
     delta_tick_interval: Option<Duration>,
+    gossip_transport: Option<ReplicatorGossipTransport>,
+    gossip_codec: Option<Arc<dyn CrdtDataCodec<D> + Send + Sync>>,
+    gossip_tick_interval: Option<Duration>,
+    gossip_max_entries: usize,
+    gossip_next_index: usize,
+    gossip_next_chunk: u32,
+    self_system_uid: Option<u64>,
     removed_node_pruning: RemovedNodePruningTracker,
 }
 
@@ -55,6 +66,13 @@ where
             aggregation: None,
             delta_loop: None,
             delta_tick_interval: None,
+            gossip_transport: None,
+            gossip_codec: None,
+            gossip_tick_interval: None,
+            gossip_max_entries: 10,
+            gossip_next_index: 0,
+            gossip_next_chunk: 0,
+            self_system_uid: None,
             removed_node_pruning: RemovedNodePruningTracker::new(),
         }
     }
@@ -81,6 +99,36 @@ where
         let mut actor = Self::with_delta_propagation_loop(delta_loop);
         actor.delta_tick_interval = Some(interval);
         actor
+    }
+
+    pub fn with_gossip(
+        transport: ReplicatorGossipTransport,
+        codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,
+    ) -> Self {
+        let mut actor = Self::new();
+        actor.gossip_transport = Some(transport);
+        actor.gossip_codec = Some(codec);
+        actor
+    }
+
+    pub fn with_gossip_interval(
+        transport: ReplicatorGossipTransport,
+        codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,
+        interval: Duration,
+    ) -> Self {
+        let mut actor = Self::with_gossip(transport, codec);
+        actor.gossip_tick_interval = Some(interval);
+        actor
+    }
+
+    pub fn with_gossip_max_entries(mut self, max_entries: usize) -> Self {
+        self.gossip_max_entries = max_entries.max(1);
+        self
+    }
+
+    pub fn with_self_system_uid(mut self, uid: u64) -> Self {
+        self.self_system_uid = Some(uid);
+        self
     }
 
     pub fn state(&self) -> &ReplicatorState<D> {
@@ -188,6 +236,22 @@ where
         reply_to: ActorRef<DeltaPropagationTickReport>,
     },
     DeltaPropagationTick,
+    RunGossip {
+        reply_to: Option<ActorRef<ReplicatorGossipTickReport>>,
+    },
+    GossipTick,
+    ReceiveGossipStatus {
+        from: ReplicaId,
+        status: ReplicatorGossipStatus,
+        codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,
+        reply_to: Option<ActorRef<ReplicatorGossipStatusReceiveReport>>,
+    },
+    ReceiveGossip {
+        from: ReplicaId,
+        gossip: ReplicatorGossip,
+        codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,
+        reply_to: Option<ActorRef<ReplicatorGossipReceiveReport>>,
+    },
     MarkRemovedNodePruningSeen {
         seen_by: ReplicaId,
         reply_to: ActorRef<BTreeSet<ReplicatorKey>>,
@@ -216,6 +280,7 @@ where
 
     fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
         self.schedule_delta_propagation_tick(ctx);
+        self.schedule_gossip_tick(ctx);
         Ok(())
     }
 
@@ -334,6 +399,38 @@ where
             ReplicatorActorMsg::DeltaPropagationTick => {
                 self.run_delta_propagation_tick();
                 self.schedule_delta_propagation_tick(ctx);
+            }
+            ReplicatorActorMsg::RunGossip { reply_to } => {
+                let report = self.run_gossip_tick()?;
+                if let Some(reply_to) = reply_to {
+                    tell_or_actor_error(&reply_to, report)?;
+                }
+            }
+            ReplicatorActorMsg::GossipTick => {
+                self.run_gossip_tick()?;
+                self.schedule_gossip_tick(ctx);
+            }
+            ReplicatorActorMsg::ReceiveGossipStatus {
+                from,
+                status,
+                codec,
+                reply_to,
+            } => {
+                let report = self.receive_gossip_status(from, &status, codec.as_ref())?;
+                if let Some(reply_to) = reply_to {
+                    tell_or_actor_error(&reply_to, report)?;
+                }
+            }
+            ReplicatorActorMsg::ReceiveGossip {
+                from,
+                gossip,
+                codec,
+                reply_to,
+            } => {
+                let report = self.receive_gossip(from, &gossip, codec.as_ref())?;
+                if let Some(reply_to) = reply_to {
+                    tell_or_actor_error(&reply_to, report)?;
+                }
             }
             ReplicatorActorMsg::MarkRemovedNodePruningSeen { seen_by, reply_to } => {
                 let changed = self.state.mark_pruning_seen(seen_by);
@@ -580,6 +677,101 @@ where
         }
     }
 
+    fn run_gossip_tick(&mut self) -> Result<ReplicatorGossipTickReport, ActorError> {
+        let (Some(transport), Some(codec)) =
+            (self.gossip_transport.clone(), self.gossip_codec.clone())
+        else {
+            return Ok(ReplicatorGossipTickReport::skipped(
+                ReplicatorGossipTickSkipReason::NotConfigured,
+            ));
+        };
+        let Some(target) = self.select_gossip_target() else {
+            return Ok(ReplicatorGossipTickReport::skipped(
+                ReplicatorGossipTickSkipReason::NoReachableTargets,
+            ));
+        };
+
+        let entry_count = self.state.entries().count();
+        let total_chunks = gossip_total_chunks(entry_count, self.gossip_max_entries);
+        let chunk = if total_chunks == 1 {
+            0
+        } else {
+            let chunk = self.gossip_next_chunk % total_chunks;
+            self.gossip_next_chunk = (chunk + 1) % total_chunks;
+            chunk
+        };
+        let status = build_gossip_status(
+            &self.state,
+            codec.as_ref(),
+            chunk,
+            total_chunks,
+            None,
+            self.self_system_uid,
+        )
+        .map_err(|error| ActorError::Message(error.to_string()))?;
+        let report = transport.send_status(target.clone(), status.clone());
+        Ok(ReplicatorGossipTickReport::sent(target, status, report))
+    }
+
+    fn receive_gossip_status(
+        &mut self,
+        from: ReplicaId,
+        status: &ReplicatorGossipStatus,
+        codec: &dyn CrdtDataCodec<D>,
+    ) -> Result<ReplicatorGossipStatusReceiveReport, ActorError> {
+        let plan = respond_to_gossip_status(&self.state, status, codec, self.gossip_max_entries)
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        let mut transport_report = ReplicatorGossipTransportReport::empty();
+        if let Some(transport) = &self.gossip_transport {
+            if let Some(gossip) = plan.gossip().cloned() {
+                transport_report.extend(transport.send_gossip(from.clone(), gossip));
+            }
+            if let Some(missing_status) = plan.missing_status().cloned() {
+                transport_report.extend(transport.send_status(from, missing_status));
+            }
+        }
+        Ok(ReplicatorGossipStatusReceiveReport::new(
+            plan,
+            transport_report,
+        ))
+    }
+
+    fn receive_gossip(
+        &mut self,
+        from: ReplicaId,
+        gossip: &ReplicatorGossip,
+        codec: &dyn CrdtDataCodec<D>,
+    ) -> Result<ReplicatorGossipReceiveReport, ActorError> {
+        let apply = apply_gossip(&mut self.state, gossip, codec)
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        let mut transport_report = ReplicatorGossipTransportReport::empty();
+        if let (Some(transport), Some(reply)) = (&self.gossip_transport, apply.reply().cloned()) {
+            transport_report.extend(transport.send_gossip(from, reply));
+        }
+        Ok(ReplicatorGossipReceiveReport::new(apply, transport_report))
+    }
+
+    fn select_gossip_target(&mut self) -> Option<ReplicaId> {
+        let reachable = self
+            .remote_nodes
+            .iter()
+            .filter(|node| !self.unreachable_nodes.contains(*node))
+            .cloned()
+            .collect::<Vec<_>>();
+        if reachable.is_empty() {
+            return None;
+        }
+        let index = self.gossip_next_index % reachable.len();
+        self.gossip_next_index = (index + 1) % reachable.len();
+        Some(reachable[index].clone())
+    }
+
+    fn schedule_gossip_tick(&self, ctx: &Context<ReplicatorActorMsg<D>>) {
+        if let Some(interval) = self.gossip_tick_interval {
+            ctx.schedule_once_self(interval, ReplicatorActorMsg::GossipTick);
+        }
+    }
+
     fn run_removed_node_pruning_tick(
         &mut self,
         tick: RemovedNodePruningTick,
@@ -632,6 +824,15 @@ where
         }
 
         report
+    }
+}
+
+fn gossip_total_chunks(entry_count: usize, max_entries: usize) -> u32 {
+    if entry_count <= max_entries {
+        1
+    } else {
+        let chunks = entry_count.div_ceil(max_entries);
+        chunks.min(u32::MAX as usize) as u32
     }
 }
 

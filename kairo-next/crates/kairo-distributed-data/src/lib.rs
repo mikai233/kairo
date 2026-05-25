@@ -22,6 +22,7 @@ mod envelope;
 mod errors;
 mod gcounter;
 mod gossip;
+mod gossip_transport;
 mod gset;
 mod key;
 mod orset;
@@ -124,6 +125,11 @@ pub use gossip::{
     REPLICATOR_GOSSIP_NOT_FOUND_DIGEST, ReplicatorGossipApplyReport, ReplicatorGossipError,
     ReplicatorGossipStatusPlan, apply_gossip, build_gossip_status, create_gossip, digest_envelope,
     respond_to_gossip_status,
+};
+pub use gossip_transport::{
+    ReplicatorGossipReceiveReport, ReplicatorGossipStatusReceiveReport, ReplicatorGossipTarget,
+    ReplicatorGossipTargetRegistry, ReplicatorGossipTickReport, ReplicatorGossipTickSkipReason,
+    ReplicatorGossipTransport, ReplicatorGossipTransportFailure, ReplicatorGossipTransportReport,
 };
 pub use gset::GSet;
 pub use key::ReplicatorKey;

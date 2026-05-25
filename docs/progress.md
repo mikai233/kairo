@@ -489,6 +489,12 @@ Implemented:
   keys, requests missing remote keys with a reserved not-found digest, applies
   inbound full-state gossip merges, and plans Pekko-style send-back replies
   without folding this logic into the crate root.
+- `ReplicatorActor<D>` now has an actor-backed full-state gossip loop:
+  configured gossip ticks select reachable remote replicas, publish digest
+  status messages through a focused gossip transport registry, receive gossip
+  status and full-state gossip in synchronous actor turns, merge inbound state,
+  and send Pekko-style gossip or not-found status replies through the same
+  remote-envelope route targets used by delta and aggregation traffic.
 - `ReplicatorActor<D>` can apply inbound versioned causal deltas through
   `WriteCausalDelta`, update local CRDT state only for in-order deltas, and
   reply with a typed `DeltaReceiveStatus` for future ack/nack mapping.
@@ -891,8 +897,8 @@ Not yet implemented:
 - Full actor-system local/remote provider integration, optional codec helper
   crates, transport-backed associations, actor-system-backed inbound target
   resolution, and broader cross-crate compatibility fixtures.
-- Distributed-data socket wiring, association-cache integration, and
-  actor-backed gossip tick transport for full-state replication.
+- Distributed-data socket wiring and automatic association-cache integration
+  for full-state gossip, delta propagation, and direct read/write traffic.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond

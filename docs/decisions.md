@@ -748,3 +748,28 @@ Consequences:
   payload serialization.
 - Changing the digest algorithm later would require an intentional protocol
   version decision because mixed nodes compare these digest values.
+
+## ADR-0030: Distributed-Data Gossip Ticks Use Deterministic Target Rotation
+
+Status: Accepted
+
+Context:
+Pekko's distributed-data full-state gossip tick selects a random node from the
+known replicas before sending a status digest. Kairo needs the same eventual
+anti-entropy behavior, but early actor tests and manual scheduler scenarios
+benefit from deterministic, timeout-light execution.
+
+Decision:
+Kairo's initial actor-backed full-state gossip tick rotates through reachable
+remote replicas in deterministic order. Chunked status messages also advance
+one chunk per tick. Inbound `Status` and `Gossip` handling still preserves the
+Pekko state transitions: send differing or missing local keys as gossip,
+request remote-only keys with the reserved not-found digest, merge inbound
+full-state data, and send a non-recursive reply gossip when `send_back` is set.
+
+Consequences:
+- Gossip tests can assert exact target selection under manual time without
+  introducing randomness or broad dependencies.
+- Anti-entropy still progresses across reachable replicas and chunks.
+- A later randomized or pluggable selection policy can be added as an explicit
+  setting if production load distribution requires it.

@@ -1186,6 +1186,7 @@ src/
   delta.rs
   pruning.rs
   gossip.rs
+  gossip_transport.rs
   remote_association.rs
   remote_association_inbound.rs
   durable.rs
