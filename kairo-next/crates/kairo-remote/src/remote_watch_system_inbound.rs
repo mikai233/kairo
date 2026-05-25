@@ -149,7 +149,10 @@ mod tests {
     fn inbound(
         registry: Arc<Registry>,
         sink: Arc<RecordingEffectSink>,
-    ) -> RemoteDeathWatchSystemInbound {
+    ) -> (
+        RemoteDeathWatchSystemInbound,
+        kairo_actor::ActorRef<crate::RemoteDeathWatchCommand>,
+    ) {
         let system = ActorSystem::builder("local").build().unwrap();
         let watcher = system
             .spawn(
@@ -157,9 +160,12 @@ mod tests {
                 RemoteDeathWatchActor::props(sink as Arc<dyn RemoteDeathWatchEffectSink>),
             )
             .unwrap();
-        RemoteDeathWatchSystemInbound::new(
-            registry,
-            RemoteDeathWatchProtocolDelivery::new(watcher, 42),
+        (
+            RemoteDeathWatchSystemInbound::new(
+                registry,
+                RemoteDeathWatchProtocolDelivery::new(watcher.clone(), 42),
+            ),
+            watcher,
         )
     }
 
@@ -167,7 +173,7 @@ mod tests {
     fn system_inbound_routes_watch_unwatch_and_heartbeat_envelopes() {
         let registry = registry();
         let sink = Arc::new(RecordingEffectSink::default());
-        let inbound = inbound(registry.clone(), sink.clone());
+        let (inbound, _watcher_actor) = inbound(registry.clone(), sink.clone());
         let watchee = watchee("target");
         let watcher = watcher("observer");
 
@@ -200,24 +206,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            sink.wait_for_len(5, Duration::from_secs(1)),
-            vec![
-                RemoteDeathWatchEffect::StartHeartbeat {
-                    address: "kairo://remote@127.0.0.1:25520".to_string()
-                },
-                RemoteDeathWatchEffect::SendWatchRemote(WatchRemote {
-                    watchee: watchee.clone(),
-                    watcher: watcher.clone()
-                }),
-                RemoteDeathWatchEffect::SendHeartbeatAck {
-                    address: "kairo://remote@127.0.0.1:25520".to_string(),
-                    message: RemoteHeartbeatAck { uid: 42 }
-                },
-                RemoteDeathWatchEffect::SendUnwatchRemote(UnwatchRemote { watchee, watcher }),
-                RemoteDeathWatchEffect::StopHeartbeat {
-                    address: "kairo://remote@127.0.0.1:25520".to_string()
-                },
-            ]
+            sink.wait_for_len(1, Duration::from_secs(1)),
+            vec![RemoteDeathWatchEffect::SendHeartbeatAck {
+                address: "kairo://remote@127.0.0.1:25520".to_string(),
+                message: RemoteHeartbeatAck { uid: 42 }
+            }]
         );
     }
 
@@ -225,19 +218,15 @@ mod tests {
     fn system_inbound_deserializes_ack_and_drives_rewatch() {
         let registry = registry();
         let sink = Arc::new(RecordingEffectSink::default());
-        let inbound = inbound(registry.clone(), sink.clone());
+        let (inbound, watcher_actor) = inbound(registry.clone(), sink.clone());
         let watchee = watchee("target");
         let watcher = watcher("observer");
 
-        inbound
-            .receive(envelope(
-                &registry,
-                &WatchRemote {
-                    watchee: watchee.clone(),
-                    watcher: watcher.clone(),
-                },
-                Some(remote_watcher()),
-            ))
+        watcher_actor
+            .tell(crate::RemoteDeathWatchCommand::Watch(WatchRemote {
+                watchee: watchee.clone(),
+                watcher: watcher.clone(),
+            }))
             .unwrap();
         inbound
             .receive(envelope(
@@ -258,7 +247,7 @@ mod tests {
     fn system_inbound_rejects_unknown_remote_watch_manifest() {
         let registry = registry();
         let sink = Arc::new(RecordingEffectSink::default());
-        let inbound = inbound(registry, sink);
+        let (inbound, _watcher_actor) = inbound(registry, sink);
         let envelope = RemoteEnvelope::new(
             local_watcher(),
             Some(remote_watcher()),
@@ -283,7 +272,7 @@ mod tests {
         let mut encoding_registry = Registry::new();
         register_remote_protocol_codecs(&mut encoding_registry).unwrap();
         let sink = Arc::new(RecordingEffectSink::default());
-        let inbound = inbound(Arc::new(Registry::new()), sink);
+        let (inbound, _watcher_actor) = inbound(Arc::new(Registry::new()), sink);
 
         let error = inbound
             .receive(envelope(

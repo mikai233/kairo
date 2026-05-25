@@ -11,6 +11,7 @@ use crate::{
 pub struct RemoteDeathWatchStats {
     pub watching: usize,
     pub watched_addresses: usize,
+    pub inbound_watching: usize,
     pub unreachable_addresses: usize,
 }
 
@@ -18,6 +19,8 @@ pub struct RemoteDeathWatchStats {
 pub enum RemoteDeathWatchCommand {
     Watch(WatchRemote),
     Unwatch(UnwatchRemote),
+    InboundWatch(WatchRemote),
+    InboundUnwatch(UnwatchRemote),
     HeartbeatTick {
         local_uid: u64,
     },
@@ -70,6 +73,7 @@ impl RemoteDeathWatchActor {
         RemoteDeathWatchStats {
             watching: self.state.watching_count(),
             watched_addresses: self.state.watched_address_count(),
+            inbound_watching: self.state.inbound_watching_count(),
             unreachable_addresses: self.state.unreachable_address_count(),
         }
     }
@@ -96,6 +100,16 @@ impl Actor for RemoteDeathWatchActor {
             }
             RemoteDeathWatchCommand::Unwatch(message) => {
                 let effects = self.state.unwatch(&message.watchee, &message.watcher);
+                self.apply_effects(effects)
+            }
+            RemoteDeathWatchCommand::InboundWatch(message) => {
+                let effects = self.state.inbound_watch(message.watchee, message.watcher);
+                self.apply_effects(effects)
+            }
+            RemoteDeathWatchCommand::InboundUnwatch(message) => {
+                let effects = self
+                    .state
+                    .inbound_unwatch(&message.watchee, &message.watcher);
                 self.apply_effects(effects)
             }
             RemoteDeathWatchCommand::HeartbeatTick { local_uid } => {
@@ -339,8 +353,48 @@ mod tests {
             RemoteDeathWatchStats {
                 watching: 1,
                 watched_addresses: 1,
+                inbound_watching: 0,
                 unreachable_addresses: 1,
             }
         );
+    }
+
+    #[test]
+    fn remote_watch_actor_records_inbound_watch_without_outbound_effects() {
+        let system = ActorSystem::builder("watcher").build().unwrap();
+        let sink = Arc::new(RecordingEffectSink::default());
+        let actor = system
+            .spawn(
+                "remote-watch",
+                RemoteDeathWatchActor::props(sink.clone() as Arc<dyn RemoteDeathWatchEffectSink>),
+            )
+            .unwrap();
+        let (stats_tx, stats_rx) = mpsc::channel();
+        let stats_probe = system
+            .spawn("stats", Props::new(move || Probe { sender: stats_tx }))
+            .unwrap();
+
+        actor
+            .tell(RemoteDeathWatchCommand::InboundWatch(WatchRemote {
+                watchee: watchee("target"),
+                watcher: watcher("observer"),
+            }))
+            .unwrap();
+        actor
+            .tell(RemoteDeathWatchCommand::GetStats {
+                reply_to: stats_probe,
+            })
+            .unwrap();
+
+        assert_eq!(
+            stats_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            RemoteDeathWatchStats {
+                watching: 0,
+                watched_addresses: 0,
+                inbound_watching: 1,
+                unreachable_addresses: 0,
+            }
+        );
+        assert!(sink.wait_for_len(1, Duration::from_millis(50)).is_empty());
     }
 }

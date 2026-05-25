@@ -73,7 +73,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use bytes::Bytes;
-    use kairo_actor::ActorSystem;
+    use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
     use kairo_serialization::{
         ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, SerializationRegistry,
     };
@@ -131,6 +131,23 @@ mod tests {
                 .expect("business delivery poisoned")
                 .push(message);
             Ok(())
+        }
+    }
+
+    struct Probe<T> {
+        sender: std::sync::mpsc::Sender<T>,
+    }
+
+    impl<T> Actor for Probe<T>
+    where
+        T: Send + 'static,
+    {
+        type Msg = T;
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+            self.sender
+                .send(msg)
+                .map_err(|error| ActorError::Message(error.to_string()))
         }
     }
 
@@ -196,11 +213,11 @@ mod tests {
     }
 
     fn watchee(name: &str) -> ActorRefWireData {
-        ActorRefWireData::new(format!("kairo://remote@127.0.0.1:25520/user/{name}")).unwrap()
+        ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
     }
 
     fn watcher(name: &str) -> ActorRefWireData {
-        ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
+        ActorRefWireData::new(format!("kairo://remote@127.0.0.1:25520/user/{name}")).unwrap()
     }
 
     fn business_envelope(registry: &Registry, value: u8) -> RemoteEnvelope {
@@ -223,11 +240,17 @@ mod tests {
         )
     }
 
+    struct RouterFixture {
+        router: RemoteInboundFrameRouter<Business>,
+        death_watch: ActorRef<crate::RemoteDeathWatchCommand>,
+        system: ActorSystem,
+    }
+
     fn router(
         registry: Arc<Registry>,
         delivery: Arc<CollectingBusinessDelivery>,
         effects: Arc<RecordingEffectSink>,
-    ) -> RemoteInboundFrameRouter<Business> {
+    ) -> RouterFixture {
         let system = ActorSystem::builder("local").build().unwrap();
         let watcher = system
             .spawn(
@@ -235,16 +258,21 @@ mod tests {
                 RemoteDeathWatchActor::props(effects as Arc<dyn RemoteDeathWatchEffectSink>),
             )
             .unwrap();
-        RemoteInboundFrameRouter::new(
+        let router = RemoteInboundFrameRouter::new(
             RemoteInbound::new(
                 registry.clone(),
                 delivery as Arc<dyn RemoteInboundDelivery<Business>>,
             ),
             RemoteDeathWatchSystemInbound::new(
                 registry,
-                crate::RemoteDeathWatchProtocolDelivery::new(watcher, 42),
+                crate::RemoteDeathWatchProtocolDelivery::new(watcher.clone(), 42),
             ),
-        )
+        );
+        RouterFixture {
+            router,
+            death_watch: watcher,
+            system,
+        }
     }
 
     #[test]
@@ -252,10 +280,11 @@ mod tests {
         let registry = registry();
         let delivery = Arc::new(CollectingBusinessDelivery::default());
         let effects = Arc::new(RecordingEffectSink::default());
-        let router = router(registry.clone(), delivery.clone(), effects.clone());
+        let fixture = router(registry.clone(), delivery.clone(), effects.clone());
         let frame = encode_remote_envelope_frame(&business_envelope(&registry, 9)).unwrap();
 
-        router
+        fixture
+            .router
             .handle_frame(RemoteStreamId::Ordinary, frame)
             .expect("business frame should route");
 
@@ -269,22 +298,35 @@ mod tests {
         let registry = registry();
         let delivery = Arc::new(CollectingBusinessDelivery::default());
         let effects = Arc::new(RecordingEffectSink::default());
-        let router = router(registry.clone(), delivery.clone(), effects.clone());
+        let fixture = router(registry.clone(), delivery.clone(), effects.clone());
         let frame = encode_remote_envelope_frame(&watch_envelope(&registry)).unwrap();
+        let (stats_tx, stats_rx) = std::sync::mpsc::channel();
+        let stats_probe = fixture
+            .system
+            .spawn("stats", Props::new(move || Probe { sender: stats_tx }))
+            .unwrap();
 
-        router
+        fixture
+            .router
             .handle_frame(RemoteStreamId::Control, frame)
             .expect("watch frame should route");
+        fixture
+            .death_watch
+            .tell(crate::RemoteDeathWatchCommand::GetStats {
+                reply_to: stats_probe,
+            })
+            .unwrap();
 
         assert!(delivery.messages().is_empty());
-        let effects = effects.wait_for_len(2, Duration::from_secs(1));
-        assert!(matches!(
-            effects.as_slice(),
-            [
-                RemoteDeathWatchEffect::StartHeartbeat { .. },
-                RemoteDeathWatchEffect::SendWatchRemote(_)
-            ]
-        ));
+        let stats = stats_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(stats.inbound_watching, 1);
+        assert_eq!(stats.watching, 0);
+        assert_eq!(stats.watched_addresses, 0);
+        assert!(
+            effects
+                .wait_for_len(1, Duration::from_millis(50))
+                .is_empty()
+        );
     }
 
     #[test]
@@ -292,10 +334,11 @@ mod tests {
         let registry = registry();
         let delivery = Arc::new(CollectingBusinessDelivery::default());
         let effects = Arc::new(RecordingEffectSink::default());
-        let router = router(registry.clone(), delivery, effects);
+        let fixture = router(registry.clone(), delivery, effects);
         let frame = encode_remote_envelope_frame(&watch_envelope(&registry)).unwrap();
 
-        let error = router
+        let error = fixture
+            .router
             .handle_frame(RemoteStreamId::Ordinary, frame)
             .expect_err("death-watch frame on ordinary lane should fail");
 

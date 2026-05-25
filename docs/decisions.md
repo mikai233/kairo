@@ -1374,3 +1374,44 @@ Consequences:
   membership evidence.
 - Reader supervision and reconnect/backoff policy remain future work; this
   decision only establishes bidirectional lane ownership for live associations.
+
+## ADR-0050: Inbound Remote Watch Is Separate From Outbound Watch Intent
+
+Status: Accepted
+
+Context:
+Pekko's `RemoteWatcher` receives `WatchRemote` from the local provider when a
+local actor starts watching a remote watchee. That local command records the
+outbound watch, starts heartbeat monitoring for the remote address, and sends
+the actual remote system watch toward the watchee. On the watched node, the
+remote system watch is installed against the local watchee; it is not treated
+as a new local request to watch the sender's node.
+
+Kairo's first remote death-watch wire slice reused the same `WatchRemote`
+command for both outbound watch intent and decoded inbound wire messages. Once
+TCP associations became bidirectional, an inbound watch could therefore echo a
+new outbound watch back through the local remote watcher and try to monitor the
+wrong address.
+
+Decision:
+Kairo keeps outbound `Watch` and `Unwatch` commands for local watch intent and
+adds explicit `InboundWatch` and `InboundUnwatch` commands for decoded remote
+death-watch protocol messages. `RemoteDeathWatchState` now stores inbound
+remote-watch registrations in a separate map from the outbound watched-address
+state. Inbound registrations are idempotent and produce no outbound watch,
+heartbeat, or failure-detector effects.
+
+The inbound state is intentionally small until local actor termination can
+drive remote per-watchee termination notifications over the system lane.
+Heartbeat replies still use the existing remote watcher sender metadata and
+outbound heartbeat-ack effect path.
+
+Consequences:
+- Receiving a wire `WatchRemote` records the remote watcher of a local watchee
+  without recursively sending another `WatchRemote` to the peer.
+- Outbound heartbeat monitoring remains tied only to local watch intent.
+- The split matches Pekko's observable directionality while keeping Kairo's
+  Rust implementation as explicit command/state variants instead of Scala
+  provider interception.
+- Future per-watchee remote termination delivery can extend the inbound watch
+  map without changing the outbound heartbeat state machine.

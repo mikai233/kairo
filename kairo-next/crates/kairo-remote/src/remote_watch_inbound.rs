@@ -37,13 +37,13 @@ impl RemoteDeathWatchProtocolDelivery {
 
 impl RemoteInboundDelivery<WatchRemote> for RemoteDeathWatchProtocolDelivery {
     fn deliver(&self, inbound: InboundMessage<WatchRemote>) -> Result<()> {
-        self.tell(RemoteDeathWatchCommand::Watch(inbound.message))
+        self.tell(RemoteDeathWatchCommand::InboundWatch(inbound.message))
     }
 }
 
 impl RemoteInboundDelivery<UnwatchRemote> for RemoteDeathWatchProtocolDelivery {
     fn deliver(&self, inbound: InboundMessage<UnwatchRemote>) -> Result<()> {
-        self.tell(RemoteDeathWatchCommand::Unwatch(inbound.message))
+        self.tell(RemoteDeathWatchCommand::InboundUnwatch(inbound.message))
     }
 }
 
@@ -95,7 +95,7 @@ mod tests {
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::{Duration, Instant};
 
-    use kairo_actor::{ActorSystem, Props};
+    use kairo_actor::{Actor, ActorError, ActorResult, ActorSystem, Context, Props};
 
     use super::*;
     use crate::{RemoteDeathWatchActor, RemoteDeathWatchEffect, RemoteDeathWatchEffectSink};
@@ -142,6 +142,23 @@ mod tests {
         }
     }
 
+    struct Probe<T> {
+        sender: std::sync::mpsc::Sender<T>,
+    }
+
+    impl<T> Actor for Probe<T>
+    where
+        T: Send + 'static,
+    {
+        type Msg = T;
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+            self.sender
+                .send(msg)
+                .map_err(|error| ActorError::Message(error.to_string()))
+        }
+    }
+
     fn watchee(name: &str) -> ActorRefWireData {
         ActorRefWireData::new(format!("kairo://remote@127.0.0.1:25520/user/{name}")).unwrap()
     }
@@ -152,6 +169,48 @@ mod tests {
 
     fn remote_watcher() -> ActorRefWireData {
         ActorRefWireData::new("kairo://remote@127.0.0.1:25520/system/remote-watch").unwrap()
+    }
+
+    #[test]
+    fn inbound_watch_records_remote_watcher_without_outbound_watch_effect() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let sink = Arc::new(RecordingEffectSink::default());
+        let actor = system
+            .spawn(
+                "remote-watch",
+                RemoteDeathWatchActor::props(sink.clone() as Arc<dyn RemoteDeathWatchEffectSink>),
+            )
+            .unwrap();
+        let delivery = RemoteDeathWatchProtocolDelivery::new(actor.clone(), 42);
+        let (stats_tx, stats_rx) = std::sync::mpsc::channel();
+        let stats_probe = system
+            .spawn("stats", Props::new(move || Probe { sender: stats_tx }))
+            .unwrap();
+
+        delivery
+            .deliver(InboundMessage {
+                recipient: ActorRefWireData::new(
+                    "kairo://local@127.0.0.1:25521/system/remote-watch",
+                )
+                .unwrap(),
+                sender: Some(remote_watcher()),
+                message: WatchRemote {
+                    watchee: watchee("target"),
+                    watcher: watcher("observer"),
+                },
+            })
+            .unwrap();
+        actor
+            .tell(RemoteDeathWatchCommand::GetStats {
+                reply_to: stats_probe,
+            })
+            .unwrap();
+
+        let stats = stats_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(stats.watching, 0);
+        assert_eq!(stats.watched_addresses, 0);
+        assert_eq!(stats.inbound_watching, 1);
+        assert!(sink.wait_for_len(1, Duration::from_millis(50)).is_empty());
     }
 
     #[test]

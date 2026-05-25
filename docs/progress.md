@@ -320,12 +320,16 @@ Implemented:
   start/stop/send effects, re-watches after remote UID changes, emits
   address-terminated effects for unreachable addresses, and resets failure
   detection when watching resumes after an unreachable observation.
+- Remote death-watch state now keeps inbound remote watch registrations
+  separate from outbound watch intent, so decoded wire watch/unwatch messages
+  record the remote watcher of a local watchee without starting local outbound
+  heartbeat monitoring or echoing another watch message back to the peer.
 - `kairo-remote` now has an actor-backed remote death-watch command handler
   that wraps the focused state machine in synchronous actor turns, emits
   transport-neutral effects through an explicit sink boundary, handles
   heartbeat ticks, heartbeat acks, unreachable observations, watch/unwatch
-  commands, and reports deterministic watch statistics for tests and future
-  diagnostics.
+  commands, inbound remote watch/unwatch registrations, and reports
+  deterministic watch statistics for tests and future diagnostics.
 - `kairo-remote` now has a focused remote death-watch outbound effect sink
   that serializes watch, unwatch, heartbeat, and re-watch effects through the
   registered remote protocol codecs to the stable `/system/remote-watch`
@@ -352,6 +356,11 @@ Implemented:
   recipient resolution, and actor-backed remote death watch so framed inbound
   bytes can reach typed local actors or system watch handlers without exposing
   erased messages as the user API.
+- TCP actor-system runtime tests now cover the remote death-watch control-lane
+  path across a bidirectional association: outbound watch registration reaches
+  the peer as an inbound local-watchee registration, heartbeat messages are
+  acknowledged over the reverse lane, and the watcher re-sends watch metadata
+  after observing the peer UID.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.

@@ -36,10 +36,16 @@ struct WatcheeEntry {
     watchers: BTreeMap<String, ActorRefWireData>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct InboundWatchEntry {
+    watchers: BTreeMap<String, ActorRefWireData>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteDeathWatchState {
     watchees: BTreeMap<String, WatcheeEntry>,
     watchees_by_address: BTreeMap<String, BTreeSet<String>>,
+    inbound_watches: BTreeMap<String, InboundWatchEntry>,
     address_uids: BTreeMap<String, u64>,
     unreachable: BTreeSet<String>,
 }
@@ -58,6 +64,13 @@ impl RemoteDeathWatchState {
 
     pub fn watched_address_count(&self) -> usize {
         self.watchees_by_address.len()
+    }
+
+    pub fn inbound_watching_count(&self) -> usize {
+        self.inbound_watches
+            .values()
+            .map(|entry| entry.watchers.len())
+            .sum()
     }
 
     pub fn unreachable_address_count(&self) -> usize {
@@ -167,6 +180,40 @@ impl RemoteDeathWatchState {
         }
 
         effects
+    }
+
+    pub fn inbound_watch(
+        &mut self,
+        watchee: ActorRefWireData,
+        watcher: ActorRefWireData,
+    ) -> Vec<RemoteDeathWatchEffect> {
+        let watchee_path = watchee.path().to_string();
+        let watcher_path = watcher.path().to_string();
+        let entry = self
+            .inbound_watches
+            .entry(watchee_path)
+            .or_insert_with(|| InboundWatchEntry {
+                watchers: BTreeMap::new(),
+            });
+        entry.watchers.insert(watcher_path, watcher);
+        Vec::new()
+    }
+
+    pub fn inbound_unwatch(
+        &mut self,
+        watchee: &ActorRefWireData,
+        watcher: &ActorRefWireData,
+    ) -> Vec<RemoteDeathWatchEffect> {
+        let watchee_path = watchee.path().to_string();
+        let watcher_path = watcher.path().to_string();
+        let Some(entry) = self.inbound_watches.get_mut(&watchee_path) else {
+            return Vec::new();
+        };
+        entry.watchers.remove(&watcher_path);
+        if entry.watchers.is_empty() {
+            self.inbound_watches.remove(&watchee_path);
+        }
+        Vec::new()
     }
 
     pub fn heartbeat_due(&self, local_uid: u64) -> Vec<RemoteDeathWatchEffect> {
@@ -295,6 +342,31 @@ mod tests {
         assert!(state.watch(watchee, watcher).is_empty());
         assert_eq!(state.watching_count(), 1);
         assert_eq!(state.watched_address_count(), 1);
+    }
+
+    #[test]
+    fn inbound_watch_records_remote_watcher_without_outbound_effects() {
+        let mut state = RemoteDeathWatchState::new();
+        let effects = state.inbound_watch(watchee("target"), watcher("observer"));
+
+        assert!(effects.is_empty());
+        assert_eq!(state.inbound_watching_count(), 1);
+        assert_eq!(state.watching_count(), 0);
+        assert_eq!(state.watched_address_count(), 0);
+        assert!(state.heartbeat_due(42).is_empty());
+    }
+
+    #[test]
+    fn inbound_unwatch_removes_remote_watcher_without_outbound_effects() {
+        let mut state = RemoteDeathWatchState::new();
+        let watchee = watchee("target");
+        let watcher = watcher("observer");
+        state.inbound_watch(watchee.clone(), watcher.clone());
+
+        let effects = state.inbound_unwatch(&watchee, &watcher);
+
+        assert!(effects.is_empty());
+        assert_eq!(state.inbound_watching_count(), 0);
     }
 
     #[test]

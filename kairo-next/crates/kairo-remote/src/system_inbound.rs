@@ -145,6 +145,23 @@ mod tests {
         }
     }
 
+    struct Probe<T> {
+        sender: mpsc::Sender<T>,
+    }
+
+    impl<T> Actor for Probe<T>
+    where
+        T: Send + 'static,
+    {
+        type Msg = T;
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+            self.sender
+                .send(msg)
+                .map_err(|error| kairo_actor::ActorError::Message(error.to_string()))
+        }
+    }
+
     #[derive(Default)]
     struct RecordingEffectSink {
         effects: Mutex<Vec<RemoteDeathWatchEffect>>,
@@ -202,6 +219,10 @@ mod tests {
         ActorRefWireData::new(format!("kairo://sender@127.0.0.1:25521/user/{name}")).unwrap()
     }
 
+    fn local_actor(name: &str) -> ActorRefWireData {
+        ActorRefWireData::new(format!("kairo://receiver@127.0.0.1:25520/user/{name}")).unwrap()
+    }
+
     #[test]
     fn system_inbound_routes_business_frames_to_local_actor_refs() {
         let system = ActorSystem::builder("receiver").build().unwrap();
@@ -254,12 +275,19 @@ mod tests {
                     ),
                 )
                 .unwrap();
-        let inbound =
-            ActorSystemRemoteInbound::<Ping>::new(system, registry.clone(), death_watch, 42);
+        let (stats_tx, stats_rx) = mpsc::channel();
+        let stats_probe = system
+            .spawn("stats", Props::new(move || Probe { sender: stats_tx }))
+            .unwrap();
+        let inbound = ActorSystemRemoteInbound::<Ping>::new(
+            system,
+            registry.clone(),
+            death_watch.clone(),
+            42,
+        );
         let watch = WatchRemote {
-            watchee: remote_actor("target"),
-            watcher: ActorRefWireData::new("kairo://receiver@127.0.0.1:25520/user/watcher")
-                .unwrap(),
+            watchee: local_actor("target"),
+            watcher: remote_actor("watcher"),
         };
         let envelope = RemoteEnvelope::new(
             local_watcher(),
@@ -274,14 +302,20 @@ mod tests {
             )
             .unwrap();
 
-        let effects = effects.wait_for_len(2, Duration::from_secs(1));
-        assert!(matches!(
-            effects.as_slice(),
-            [
-                RemoteDeathWatchEffect::StartHeartbeat { .. },
-                RemoteDeathWatchEffect::SendWatchRemote(_)
-            ]
-        ));
+        death_watch
+            .tell(RemoteDeathWatchCommand::GetStats {
+                reply_to: stats_probe,
+            })
+            .unwrap();
+        let stats = stats_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert_eq!(stats.inbound_watching, 1);
+        assert_eq!(stats.watching, 0);
+        assert_eq!(stats.watched_addresses, 0);
+        assert!(
+            effects
+                .wait_for_len(1, Duration::from_millis(50))
+                .is_empty()
+        );
     }
 
     #[test]
