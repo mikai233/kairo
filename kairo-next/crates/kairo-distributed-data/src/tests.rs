@@ -16,10 +16,11 @@ use crate::{
     ReadAggregationPlan, ReadAggregatorState, ReadConsistency, RemovedNodePruning,
     RemovedNodePruningTick, RemovedNodePruningTickReport, ReplicaId, ReplicatedData,
     ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorAggregation,
-    ReplicatorDeltaPropagation, ReplicatorKey, ReplicatorState, UpdateResponse,
-    WriteAggregationOutcome, WriteAggregationPlan, WriteAggregatorState, WriteConsistency,
-    calculate_majority, decode_data_envelope, decode_delta_propagation, decode_read_result,
-    encode_data_envelope, encode_delta_propagation, encode_read, encode_read_result, encode_write,
+    ReplicatorClusterRouteReport, ReplicatorClusterRouteUpdate, ReplicatorDeltaPropagation,
+    ReplicatorKey, ReplicatorState, UpdateResponse, WriteAggregationOutcome, WriteAggregationPlan,
+    WriteAggregatorState, WriteConsistency, calculate_majority, decode_data_envelope,
+    decode_delta_propagation, decode_read_result, encode_data_envelope, encode_delta_propagation,
+    encode_read, encode_read_result, encode_write,
 };
 
 fn replica(id: &str) -> ReplicaId {
@@ -2060,6 +2061,61 @@ fn replicator_actor_plans_remote_write_and_reports_quorum_errors() {
             available: 2,
         }
     );
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn replicator_actor_applies_cluster_route_updates_to_remote_plans() {
+    let system = ActorSystem::builder("ddata-replicator-cluster-routes")
+        .build()
+        .unwrap();
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let (route_ref, route_rx) =
+        forward_ref::<ReplicatorClusterRouteReport>(&system, "route-replies");
+    let (plan_ref, plan_rx) =
+        forward_ref::<Result<WriteAggregationPlan, AggregationError>>(&system, "route-plans");
+
+    replicator
+        .tell(ReplicatorActorMsg::ApplyClusterRouteUpdate {
+            update: ReplicatorClusterRouteUpdate::new(
+                [replica("c"), replica("a"), replica("b")],
+                [replica("b")],
+                [replica("removed")],
+                true,
+            ),
+            all_reachable_time_nanos: 42,
+            reply_to: route_ref,
+        })
+        .unwrap();
+
+    let report = route_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        report.remote_replicas,
+        vec![replica("a"), replica("b"), replica("c")]
+    );
+    assert_eq!(report.unreachable_replicas, BTreeSet::from([replica("b")]));
+    assert_eq!(
+        report.recorded_removed,
+        BTreeSet::from([replica("removed")])
+    );
+
+    replicator
+        .tell(ReplicatorActorMsg::PlanWrite {
+            key: ReplicatorKey::new("counter"),
+            consistency: WriteConsistency::majority(Duration::from_secs(1)),
+            reply_to: plan_ref,
+        })
+        .unwrap();
+
+    let plan = plan_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(plan.selection().primary(), &[replica("a"), replica("c")]);
+    assert_eq!(plan.selection().secondary(), &[replica("b")]);
 
     system.terminate(Duration::from_secs(1)).unwrap();
 }

@@ -6,6 +6,7 @@ mod aggregation_operation;
 mod aggregation_session;
 mod aggregation_transport;
 mod aggregation_wire;
+mod cluster_routes;
 mod codec;
 mod consistency;
 mod crdt_codec;
@@ -64,6 +65,9 @@ pub use aggregation_transport::{
 pub use aggregation_wire::{
     decode_data_envelope, decode_read_result, encode_data_envelope, encode_read,
     encode_read_result, encode_write,
+};
+pub use cluster_routes::{
+    ReplicatorClusterRouteReport, ReplicatorClusterRouteUpdate, ReplicatorClusterRoutes,
 };
 pub use codec::{
     REPLICATOR_CHANGED_SERIALIZER_ID, REPLICATOR_DELTA_ACK_SERIALIZER_ID,
