@@ -1,11 +1,12 @@
 use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use kairo::actor::{ActorRef, ActorSystem};
+use kairo::actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context};
 use kairo::cluster_sharding::{
-    CoordinatorState, DEFAULT_SHARD_COUNT, EntityRef, HandoffTransport,
+    CoordinatorState, DEFAULT_SHARD_COUNT, EntityActorFactory, EntityRef, HandoffTransport,
     LeastShardAllocationStrategy, ShardCoordinatorActor, ShardMsg, ShardRegionActor,
     ShardRegionMsg, ShardSnapshot, ShardingEnvelopeRouter, default_shard_id_for,
 };
@@ -18,11 +19,18 @@ pub struct LocalShardingExample {
     system: ActorSystem,
     region: ActorRef<ShardRegionMsg<String>>,
     router: ActorRef<kairo::cluster_sharding::ShardingEnvelope<String>>,
+    observed: mpsc::Receiver<EntityObservation>,
 }
 
 impl LocalShardingExample {
     pub fn start(system_name: &str) -> Result<Self, Box<dyn Error>> {
         let system = ActorSystem::builder(system_name).build()?;
+        let (observed_tx, observed) = mpsc::channel();
+        let entity_factory = EntityActorFactory::new(move |entity_id| CounterEntity {
+            entity_id,
+            value: 0,
+            observed: observed_tx.clone(),
+        });
         let coordinator = system.spawn(
             "coordinator",
             ShardCoordinatorActor::props_with_handoff(
@@ -35,10 +43,11 @@ impl LocalShardingExample {
         )?;
         let region = system.spawn(
             "region-a",
-            ShardRegionActor::<String>::props_with_local_shards_and_registration(
+            ShardRegionActor::<String>::props_with_local_entity_shards_and_registration(
                 "region-a",
                 32,
                 32,
+                entity_factory,
                 coordinator,
                 Duration::from_millis(20),
             ),
@@ -52,6 +61,7 @@ impl LocalShardingExample {
             system,
             region,
             router,
+            observed,
         })
     }
 
@@ -83,6 +93,32 @@ impl LocalShardingExample {
                 .into());
             }
             thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    pub fn wait_for_entity_value(
+        &self,
+        entity_id: &str,
+        expected_value: i64,
+        timeout: Duration,
+    ) -> Result<EntityObservation, Box<dyn Error>> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .unwrap_or_default();
+            if remaining.is_zero() {
+                return Err(format!(
+                    "timed out waiting for entity `{entity_id}` to reach {expected_value}"
+                )
+                .into());
+            }
+            let observed = self
+                .observed
+                .recv_timeout(remaining.min(Duration::from_millis(100)))?;
+            if observed.entity_id == entity_id && observed.value == expected_value {
+                return Ok(observed);
+            }
         }
     }
 
@@ -125,5 +161,38 @@ impl LocalShardingExample {
             spawn_one_shot_reply(&self.system, format!("shard-snapshot-{id}"))?;
         shard.tell(ShardMsg::GetState { reply_to })?;
         Ok(replies.recv_timeout(timeout)?)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityObservation {
+    pub entity_id: String,
+    pub value: i64,
+}
+
+struct CounterEntity {
+    entity_id: String,
+    value: i64,
+    observed: mpsc::Sender<EntityObservation>,
+}
+
+impl Actor for CounterEntity {
+    type Msg = String;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg.as_str() {
+            "increment" => {
+                self.value += 1;
+                self.observed
+                    .send(EntityObservation {
+                        entity_id: self.entity_id.clone(),
+                        value: self.value,
+                    })
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            "stop" => ctx.stop(ctx.myself())?,
+            _ => {}
+        }
+        Ok(())
     }
 }

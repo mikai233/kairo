@@ -1138,7 +1138,8 @@ Implemented:
 - `kairo-examples` now includes a runnable local cluster-sharding example that
   wires a shard coordinator, local shard region, `ShardingEnvelopeRouter`, and
   `EntityRef<String>` through reusable helper code and demonstrates stable
-  shard-id routing into an active local shard.
+  shard-id routing into an entity-backed local shard whose typed counter
+  entity receives business messages.
 
 Not yet implemented:
 
