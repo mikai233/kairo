@@ -52,6 +52,77 @@ fn test_probe_reports_expectation_mismatch() {
 }
 
 #[test]
+fn test_probe_receive_messages_collects_fixed_count_under_deadline() {
+    let kit = ActorSystemTestKit::new("test-probe-receive-messages").expect("system should build");
+    let probe = kit.create_probe::<u8>("probe").expect("probe should spawn");
+
+    for message in [1, 2, 3] {
+        probe
+            .actor_ref()
+            .tell(message)
+            .expect("probe tell should enqueue");
+    }
+
+    assert_eq!(
+        probe
+            .receive_messages(3, Duration::from_millis(50))
+            .expect("probe should receive all messages"),
+        vec![1, 2, 3]
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_receive_messages_reports_partial_timeout() {
+    let kit = ActorSystemTestKit::new("test-probe-receive-messages-timeout")
+        .expect("system should build");
+    let probe = kit.create_probe::<u8>("probe").expect("probe should spawn");
+
+    probe
+        .actor_ref()
+        .tell(1)
+        .expect("probe tell should enqueue");
+
+    let error = probe
+        .receive_messages(2, Duration::from_millis(5))
+        .expect_err("probe should report partial timeout");
+
+    assert!(matches!(
+        error,
+        ProbeError::ReceiveMessagesTimeout {
+            expected: 2,
+            received: 1,
+            ..
+        }
+    ));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_receive_messages_zero_count_does_not_consume() {
+    let kit =
+        ActorSystemTestKit::new("test-probe-receive-messages-zero").expect("system should build");
+    let probe = kit.create_probe::<u8>("probe").expect("probe should spawn");
+
+    probe
+        .actor_ref()
+        .tell(7)
+        .expect("probe tell should enqueue");
+
+    assert_eq!(
+        probe
+            .receive_messages(0, Duration::ZERO)
+            .expect("zero count should succeed"),
+        Vec::<u8>::new()
+    );
+    assert_eq!(probe.expect_msg(Duration::from_millis(50)).unwrap(), 7);
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn test_probe_watch_with_receives_custom_termination_message() {
     let kit = ActorSystemTestKit::new("test-probe-watch-with").expect("system should build");
     let probe = kit

@@ -2044,3 +2044,28 @@ Consequences:
   behavior of Pekko's fishing API.
 - Timeout diagnostics report the number of collected messages instead of
   stringifying arbitrary typed messages.
+
+## ADR-0073: Probe Fixed-Count Receive Uses One Deadline
+
+Status: Accepted
+
+Context:
+Pekko's typed `receiveMessages` waits for a requested number of probe messages
+under one overall timeout and reports how many messages arrived before the
+deadline. Kairo needs this deterministic batch assertion without weakening the
+typed probe message boundary.
+
+Decision:
+Kairo adds `TestProbe::receive_messages(count, timeout)`. The method drains up
+to `count` typed messages from the probe queue using one deadline shared by
+the whole batch. A count of zero returns an empty vector without touching the
+queue. If the deadline expires first, the method returns
+`ProbeError::ReceiveMessagesTimeout` with the requested and received counts.
+
+Consequences:
+- Batch probe assertions preserve send order and match Pekko's shared-deadline
+  behavior.
+- The API returns owned typed messages without requiring cloning or dynamic
+  downcasting.
+- Timeout diagnostics avoid stringifying arbitrary messages and instead report
+  objective batch progress.

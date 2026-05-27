@@ -159,6 +159,9 @@ Implemented:
   `expect_terminated` helpers for deterministic local lifecycle assertions.
 - `kairo-testkit::await_assert` retries result-returning test assertions until
   success or timeout and reports the final error with attempt metadata.
+- `TestProbe::receive_messages` collects a fixed number of typed messages
+  under one shared deadline and reports how many were received when the
+  deadline expires.
 - `TestProbe::fish_for_message` classifies probe messages as complete, fail,
   continue-and-collect, or continue-and-ignore under one shared deadline, with
   the fishing outcome API kept in a focused testkit module.

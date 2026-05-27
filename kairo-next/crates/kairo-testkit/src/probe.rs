@@ -73,6 +73,28 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    pub fn receive_messages(&self, count: usize, timeout: Duration) -> Result<Vec<M>, ProbeError> {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut messages = Vec::with_capacity(count);
+
+        while messages.len() < count {
+            let remaining = remaining_until(deadline).unwrap_or(Duration::ZERO);
+            match self.receiver.recv_timeout(remaining) {
+                Ok(message) => messages.push(message),
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(ProbeError::ReceiveMessagesTimeout {
+                        timeout,
+                        expected: count,
+                        received: messages.len(),
+                    });
+                }
+                Err(RecvTimeoutError::Disconnected) => return Err(ProbeError::Closed),
+            }
+        }
+
+        Ok(messages)
+    }
+
     pub fn fish_for_message<F>(
         &self,
         timeout: Duration,
@@ -155,17 +177,38 @@ impl<M: Send + 'static> Actor for ProbeActor<M> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeError {
     Timeout(Duration),
-    FishTimeout { timeout: Duration, seen: usize },
+    ReceiveMessagesTimeout {
+        timeout: Duration,
+        expected: usize,
+        received: usize,
+    },
+    FishTimeout {
+        timeout: Duration,
+        seen: usize,
+    },
     Closed,
     WatchFailed(String),
     FishingFailed(String),
-    UnexpectedMessage { expected: String, actual: String },
+    UnexpectedMessage {
+        expected: String,
+        actual: String,
+    },
 }
 
 impl Display for ProbeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Timeout(timeout) => write!(f, "timed out after {timeout:?} waiting for message"),
+            Self::ReceiveMessagesTimeout {
+                timeout,
+                expected,
+                received,
+            } => {
+                write!(
+                    f,
+                    "timed out after {timeout:?} while expecting {expected} messages and receiving {received}"
+                )
+            }
             Self::FishTimeout { timeout, seen } => {
                 write!(
                     f,
