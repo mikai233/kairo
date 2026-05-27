@@ -2069,3 +2069,29 @@ Consequences:
   downcasting.
 - Timeout diagnostics avoid stringifying arbitrary messages and instead report
   objective batch progress.
+
+## ADR-0074: Manual-Time No-Message Checks Allow Mailbox Settlement
+
+Status: Accepted
+
+Context:
+Pekko's manual time helper advances the explicit scheduler and then calls
+`expectNoMessage(Duration.Zero)` on each probe. In Kairo, manual scheduled
+actions enqueue messages into normal actor mailboxes, and the probe actor moves
+those messages into the probe queue on the dispatcher thread.
+
+Decision:
+Kairo adds `ManualTime::expect_no_msg_for(duration, probes)` in the focused
+manual-time module. The helper advances manual time and then checks each
+same-typed probe with a short real-time settle window so due scheduled messages
+can complete the mailbox-to-probe hop before the no-message assertion passes.
+The Rust API accepts a slice of same-typed probes instead of Pekko's dynamic
+varargs.
+
+Consequences:
+- Due scheduled probe messages fail the no-message assertion deterministically
+  instead of racing the dispatcher thread.
+- Manual time remains explicit for scheduler advancement while actor mailbox
+  delivery continues to use the normal runtime path.
+- Heterogeneous probe groups can call the helper once per message type without
+  introducing an untyped testkit queue.

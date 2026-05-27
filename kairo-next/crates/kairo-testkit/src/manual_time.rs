@@ -2,7 +2,11 @@ use std::time::Duration;
 
 use kairo_actor::{ActorRef, Cancellable, ManualScheduler};
 
+use crate::probe::{ProbeError, TestProbe};
+
 pub type ManualTimeHandle = Cancellable;
+
+const NO_MESSAGE_SETTLE: Duration = Duration::from_millis(50);
 
 #[derive(Debug, Clone, Default)]
 pub struct ManualTime {
@@ -36,6 +40,21 @@ impl ManualTime {
 
     pub fn advance(&self, amount: Duration) {
         self.scheduler.advance(amount);
+    }
+
+    pub fn expect_no_msg_for<M>(
+        &self,
+        duration: Duration,
+        probes: &[&TestProbe<M>],
+    ) -> Result<(), ProbeError>
+    where
+        M: Send + 'static,
+    {
+        self.advance(duration);
+        for probe in probes {
+            probe.expect_no_msg(NO_MESSAGE_SETTLE)?;
+        }
+        Ok(())
     }
 
     pub fn run_due(&self) {

@@ -394,6 +394,56 @@ fn manual_time_can_drive_actor_system_schedule_once() {
 }
 
 #[test]
+fn manual_time_expect_no_msg_for_advances_and_checks_probe() {
+    let kit = ActorSystemTestKit::new("manual-time-expect-no-msg").expect("system should build");
+    let first = kit
+        .create_probe::<&'static str>("first")
+        .expect("first probe should spawn");
+    let second = kit
+        .create_probe::<&'static str>("second")
+        .expect("second probe should spawn");
+    let time = ManualTime::default();
+
+    time.schedule_once(Duration::from_secs(1), first.actor_ref(), "first");
+    time.schedule_once(Duration::from_secs(2), second.actor_ref(), "second");
+
+    time.expect_no_msg_for(Duration::from_millis(999), &[&first, &second])
+        .expect("no probe should receive before the first deadline");
+    assert_eq!(time.now(), Duration::from_millis(999));
+
+    time.advance(Duration::from_millis(1));
+    assert_eq!(
+        first.expect_msg(Duration::from_millis(50)).unwrap(),
+        "first"
+    );
+    assert_eq!(second.expect_no_msg(Duration::ZERO), Ok(()));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn manual_time_expect_no_msg_for_reports_due_probe_message() {
+    let kit =
+        ActorSystemTestKit::new("manual-time-expect-no-msg-failure").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let time = ManualTime::default();
+
+    time.schedule_once(Duration::from_secs(1), probe.actor_ref(), "due");
+
+    let error = time
+        .expect_no_msg_for(Duration::from_secs(1), &[&probe])
+        .expect_err("due message should fail no-message expectation");
+    assert!(matches!(
+        error,
+        ProbeError::UnexpectedMessage { expected, .. } if expected == "no message"
+    ));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn manual_time_can_drive_actor_timers() {
     let (kit, time) =
         ActorSystemTestKit::with_manual_time("manual-time-timer").expect("system should build");
