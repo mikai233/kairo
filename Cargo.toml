@@ -19,7 +19,7 @@ kairo-distributed-data = { path = "kairo-next/crates/kairo-distributed-data" }
 kairo-cluster-tools = { path = "kairo-next/crates/kairo-cluster-tools" }
 kairo-cluster-sharding = { path = "kairo-next/crates/kairo-cluster-sharding" }
 kairo-testkit = { path = "kairo-next/crates/kairo-testkit" }
-bytes = "1.5"
+bytes = "1.11"
 thiserror = "2.0"
 toml = "0.8"
 
