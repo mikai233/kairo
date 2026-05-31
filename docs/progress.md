@@ -1264,6 +1264,11 @@ Implemented:
   coordinator shard-home bridge that serializes stable `GetShardHome`
   envelopes to resolved coordinator recipients and decodes `ShardHome` replies
   addressed to the region without serializing local coordinator enums.
+- `ShardRegionActor` now consumes decoded remote coordinator registration
+  acknowledgements and shard-home replies through a focused
+  `RegionRemoteCoordinator` state module, marking matching remote coordinator
+  acknowledgements as registered and mapping remote region wire refs to stable
+  path-based region ids before replaying buffered deliveries.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1287,8 +1292,8 @@ Not yet implemented:
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration,
-  transport-backed remote region targets, region actor integration for decoded
-  remote registration acknowledgements and shard-home replies, and broader
+  transport-backed remote region targets, outbound region-driven remote
+  coordinator registration and shard-home request retries, and broader
   multi-node validation of the discovery subscriber plus region/coordinator
   flow.
 - Cluster, distributed-data, and cluster-tools socket integration still need
@@ -1303,6 +1308,9 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding remote_coordinator
+cargo test -p kairo-cluster-sharding region_actor_marks_remote_coordinator_registered_from_decoded_ack
+cargo test -p kairo-cluster-sharding region_actor_applies_decoded_remote_shard_home_reply
 cargo test -p kairo-cluster-sharding remote_home
 cargo test -p kairo-cluster-sharding remote_registration
 cargo test -p kairo-cluster-sharding coordinator_remote_target

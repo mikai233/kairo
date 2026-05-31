@@ -1447,6 +1447,7 @@ src/
   coordinator_remote_target.rs
   region_coordinator_discovery.rs
   region_discovery_subscriber.rs
+  region_remote_coordinator.rs
   allocation.rs
   handoff.rs
   passivation.rs
@@ -1558,6 +1559,11 @@ Implementation shape:
   stable `GetShardHome` envelopes to the coordinator target and decodes
   `ShardHome` replies back into explicit region wire data for later local
   routing integration.
+- Region remote-coordinator state consumes decoded remote `RegisterAck` and
+  `ShardHome` values, rejects stale acknowledgements that do not match the
+  selected remote coordinator target, and maps remote region wire refs to
+  region ids through their stable actor-ref path strings before replaying
+  buffered deliveries through the existing region runtime.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.

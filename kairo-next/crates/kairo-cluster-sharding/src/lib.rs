@@ -83,6 +83,7 @@ mod region_home_requests;
 mod region_protocol;
 mod region_registration;
 mod region_remote;
+mod region_remote_coordinator;
 mod region_runtime;
 mod region_shards;
 mod region_transport;
@@ -166,6 +167,10 @@ pub use region_registration::{RegionRegistrationConfig, RegionRegistrationStatus
 pub use region_remote::{
     DEFAULT_SHARD_REGION_REMOTE_PATH, ShardRegionRemoteError, ShardRegionRemoteInbound,
     ShardRegionRemoteOutbound,
+};
+pub use region_remote_coordinator::{
+    RegionRemoteCoordinator, RegionRemoteRegistrationPlan, RegionRemoteShardHomePlan,
+    region_id_from_wire_ref, shard_home_plan_from_remote,
 };
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,

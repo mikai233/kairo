@@ -2317,3 +2317,34 @@ Consequences:
   matching their different state transitions in the region flow.
 - Mapping decoded remote region wire data into local `RegionId` routing state
   remains an explicit follow-up step instead of being hidden in the codec.
+
+## ADR-0082: Region Remote Coordinator State Owns Decoded Reply Application
+
+Status: Accepted
+
+Context:
+Pekko shard regions apply `RegisterAck` by recording the active coordinator
+and apply `ShardHome` by updating the region's shard-home cache and replaying
+buffered messages. Kairo now decodes these remote messages through stable wire
+bridges, but applying them directly in `ShardRegionActor` would mix remote
+target validation, wire-ref mapping, and region runtime state transitions in
+one actor file.
+
+Decision:
+Kairo adds `RegionRemoteCoordinator` as a focused sharding module. It tracks
+the selected remote coordinator target, marks matching decoded
+`RegisterAck` values as registered, rejects stale acknowledgements for a
+different coordinator recipient, and maps decoded `ShardHome` region refs to
+`RegionId` values using the stable actor-ref path string. `ShardRegionActor`
+consumes the resulting plans and reuses the existing region runtime to record
+homes and replay buffered messages.
+
+Consequences:
+- Remote reply semantics are integrated into region behavior without
+  serializing or exposing the local `ShardCoordinatorMsg<M>` enum as a wire
+  contract.
+- Remote region identities are stable across nodes because they use explicit
+  `ActorRefWireData` paths instead of process-local actor-ref values.
+- Outbound retry scheduling for remote registration and shard-home requests
+  remains a follow-up that can build on this state module and the existing
+  transport-neutral wire bridges.

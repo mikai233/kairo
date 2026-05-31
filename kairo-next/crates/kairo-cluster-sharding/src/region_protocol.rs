@@ -7,8 +7,9 @@ use kairo_cluster::{ClusterEvent, CurrentClusterState};
 use crate::{
     BeginHandOffPlan, GetShardHome, GetShardHomePlan, HandOff, HandOffPlan, HostShardPlan,
     RegionDropReason, RegionId, RegionRegistrationStatus, RegionRouteDelivery, RegionRoutePlan,
-    ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime,
-    ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
+    ShardCoordinatorRemoteHome, ShardCoordinatorRemoteRegistrationAck, ShardDeliverPlan,
+    ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStarted,
+    ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
 };
 
 pub enum ShardRegionMsg<M> {
@@ -68,10 +69,16 @@ pub enum ShardRegionMsg<M> {
     CoordinatorRegistrationResult {
         result: Result<crate::CoordinatorStateSnapshot, ShardingError>,
     },
+    RemoteCoordinatorRegistrationAck {
+        ack: ShardCoordinatorRemoteRegistrationAck,
+    },
     RetryCoordinatorRegistration,
     CoordinatorShardHomeResult {
         requested_shard: ShardId,
         result: Result<GetShardHomePlan, ShardingError>,
+    },
+    RemoteCoordinatorShardHome {
+        home: ShardCoordinatorRemoteHome,
     },
     CoordinatorDiscoverySnapshot {
         state: CurrentClusterState,

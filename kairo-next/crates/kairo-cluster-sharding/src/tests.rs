@@ -12,8 +12,8 @@ use kairo_cluster::{
 };
 use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
 use kairo_serialization::{
-    MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationRegistry, WireReader,
-    WireWriter,
+    ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationRegistry,
+    WireReader, WireWriter,
 };
 
 use crate::{
@@ -34,11 +34,13 @@ use crate::{
     RememberShardStoreSnapshot, RememberShardStoreState, RememberShardUpdate,
     RememberUpdateDonePlan, RememberedEntities, RememberedEntitiesPlan, ShardActor,
     ShardAllocationStrategy, ShardAllocations, ShardCoordinatorActor, ShardCoordinatorBootstrap,
-    ShardCoordinatorMsg, ShardDeliverPlan, ShardDropReason, ShardEntityState, ShardHandOffPlan,
-    ShardHomePlan, ShardMsg, ShardRebalancePlan, ShardRegionActor, ShardRegionDiscoverySubscriber,
-    ShardRegionDiscoverySubscriberMsg, ShardRegionDiscoverySubscriberSnapshot, ShardRegionMsg,
-    ShardRegionRemoteInbound, ShardRegionRemoteOutbound, ShardRegionRuntime, ShardRegionSnapshot,
-    ShardRuntime, ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
+    ShardCoordinatorMsg, ShardCoordinatorRemoteHome, ShardCoordinatorRemoteRegistrationAck,
+    ShardCoordinatorRemoteTarget, ShardDeliverPlan, ShardDropReason, ShardEntityState,
+    ShardHandOffPlan, ShardHomePlan, ShardMsg, ShardRebalancePlan, ShardRegionActor,
+    ShardRegionDiscoverySubscriber, ShardRegionDiscoverySubscriberMsg,
+    ShardRegionDiscoverySubscriberSnapshot, ShardRegionMsg, ShardRegionRemoteInbound,
+    ShardRegionRemoteOutbound, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
+    ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
     ShardingEnvelopeRouter, ShardingError, default_shard_id_for, register_sharding_protocol_codecs,
     remember_coordinator_shards_key, remember_entity_key_index, remember_entity_key_index_for,
     remember_entity_shard_key, remember_entity_shard_replicator_key, shard_id_for,
@@ -3481,6 +3483,80 @@ fn region_actor_registers_with_discovered_local_coordinator() {
 }
 
 #[test]
+fn region_actor_marks_remote_coordinator_registered_from_decoded_ack() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-remote-registration-ack").unwrap();
+    let coordinator_node =
+        remote_unique_node("region-remote-registration-ack", "127.0.0.1", 2671, 7);
+    let remote_target = ShardCoordinatorRemoteTarget::for_node(
+        coordinator_node.clone(),
+        crate::DEFAULT_SHARD_COORDINATOR_REMOTE_PATH,
+    )
+    .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::<String>::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    )
+    .with_remote_coordinator(remote_target.clone());
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_shards_and_coordinator_discovery(
+                "region-a", 10, 10, discovery,
+            ),
+        )
+        .unwrap();
+    let region_state = kit
+        .create_probe::<ShardRegionSnapshot>("remote-registration-region-state")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::CoordinatorDiscoverySnapshot {
+            state: cluster_state(vec![cluster_member(
+                coordinator_node,
+                MemberStatus::Up,
+                ["backend"],
+                1,
+            )]),
+        })
+        .unwrap();
+    region
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        region_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .registration_status,
+        RegionRegistrationStatus::Registering
+    );
+
+    region
+        .tell(ShardRegionMsg::RemoteCoordinatorRegistrationAck {
+            ack: ShardCoordinatorRemoteRegistrationAck {
+                sender: Some(remote_target.recipient().clone()),
+                coordinator: remote_target.recipient().clone(),
+            },
+        })
+        .unwrap();
+    region
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        region_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .registration_status,
+        RegionRegistrationStatus::Registered
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_discovery_subscriber_forwards_cluster_snapshot_to_region_registration() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-discovery-subscription").unwrap();
     let self_node = remote_unique_node("region-discovery-subscription", "127.0.0.1", 2660, 11);
@@ -3964,6 +4040,113 @@ fn region_actor_forwards_buffered_remote_home_after_resolution() {
                 shard: "shard-1".to_string(),
                 region: "region-b".to_string(),
             }),
+        })
+        .unwrap();
+    assert_eq!(
+        first_delivery
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", "first".to_string()),
+        }
+    );
+    assert_eq!(
+        second_delivery
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "second".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_applies_decoded_remote_shard_home_reply() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-remote-home-reply").unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_shards("region-b", 10, 10),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    region_b
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    let remote_region =
+        ActorRefWireData::new("kairo://remote@127.0.0.1:2552/system/sharding/region").unwrap();
+    let mut route_transport = RegionRouteTransport::new();
+    route_transport.insert_target(RegionRouteTarget::new(
+        remote_region.path().to_string(),
+        region_b,
+    ));
+    let region_a = kit
+        .system()
+        .spawn(
+            "region-a",
+            Props::new(move || {
+                ShardRegionActor::<String>::new_with_local_shards("region-a", 10, 10)
+                    .with_region_route_transport(route_transport)
+            }),
+        )
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let first_delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("first-remote-delivery")
+        .unwrap();
+    let second_delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("second-remote-delivery")
+        .unwrap();
+
+    region_a
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: first_delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    region_a
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "second".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: second_delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: None,
+        }
+    );
+
+    region_a
+        .tell(ShardRegionMsg::RemoteCoordinatorShardHome {
+            home: ShardCoordinatorRemoteHome {
+                sender: None,
+                shard_id: "shard-1".to_string(),
+                region: remote_region,
+            },
         })
         .unwrap();
     assert_eq!(
