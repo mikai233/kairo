@@ -549,6 +549,43 @@ mod route_tests {
     }
 
     #[test]
+    fn peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial() {
+        let receiver_port = unused_port();
+        let receiver_node = node("receiver", receiver_port, 2);
+        let retry_interval = Duration::from_millis(25);
+        let mut sender = bind_peer_runtime(
+            "sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&receiver_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+
+        sender
+            .apply_snapshot_at(
+                state(
+                    vec![member(sender_node), member(receiver_node.clone())],
+                    vec![],
+                ),
+                Duration::ZERO,
+            )
+            .unwrap_err();
+
+        assert_eq!(sender.peer_route_count(), 0);
+        assert_eq!(sender.pending_peer_reconnect_count(), 1);
+
+        let report = sender.shutdown().unwrap();
+
+        assert!(report.peer_routes.is_empty());
+        assert_eq!(report.pending_reconnects.cleared.len(), 1);
+        assert_eq!(report.pending_reconnects.cleared[0].node(), &receiver_node);
+        assert!(report.pending_reconnects.scheduled.is_empty());
+        assert_eq!(report.listener.accepted_associations, 0);
+    }
+
+    #[test]
     fn peer_runtime_clears_pending_reconnect_when_peer_is_removed() {
         let receiver_port = unused_port();
         let receiver_node = node("receiver", receiver_port, 2);

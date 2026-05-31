@@ -683,6 +683,9 @@ Implemented:
   TCP association runtime together, applying membership snapshots/events,
   retrying due failed dials, and clearing active routes plus pending reconnects
   during shutdown.
+- Distributed-data TCP peer runtime shutdown now has focused lifecycle coverage
+  proving that a failed dial's pending reconnect is cleared and reported even
+  when the peer never becomes reachable.
 - `kairo-distributed-data` now has an actor-backed TCP peer connector that
   subscribes to cluster snapshots/events, applies membership-derived ddata peer
   routes through `ReplicatorTcpPeerRuntime`, drives explicit and timer-based
@@ -1671,6 +1674,8 @@ cargo test -p kairo --all-targets --all-features config
 cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-distributed-data bootstrap
+cargo test -p kairo-distributed-data peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial
+cargo test -p kairo-distributed-data tcp_peer_runtime
 cargo test -p kairo-distributed-data codec
 cargo test -p kairo-distributed-data crdt_foundation
 cargo test -p kairo-distributed-data crdt_codecs
