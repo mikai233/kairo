@@ -1206,6 +1206,8 @@ Implemented:
   interprets manager start/stop effects by spawning the singleton child under
   the manager, watching the child, sending the configured typed termination
   message during handoff, and completing handoff after child termination.
+- `kairo-cluster-tools` local singleton manager actor tests and their probe
+  fixture now live in a focused sibling test module.
 - `kairo-cluster-tools` now has a typed local singleton proxy actor that
   forwards messages to the current singleton, buffers messages while no
   singleton is identified, drops the oldest buffered message when the bounded
@@ -1673,6 +1675,7 @@ cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_r
 cargo test -p kairo-cluster-tools bootstrap
 cargo test -p kairo-cluster-tools singleton_oldest
 cargo test -p kairo-cluster-tools singleton_manager
+cargo test -p kairo-cluster-tools local_singleton_manager
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor startup_failure
