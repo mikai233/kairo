@@ -60,6 +60,7 @@ mod coordinator;
 mod coordinator_actor;
 mod coordinator_discovery;
 mod coordinator_handoff;
+mod coordinator_remote_home;
 mod coordinator_remote_registration;
 mod coordinator_remote_target;
 mod coordinator_runtime;
@@ -112,6 +113,10 @@ pub use coordinator_discovery::{
     CoordinatorDiscoveryChange, CoordinatorDiscoverySettings, CoordinatorDiscoveryState,
 };
 pub use coordinator_handoff::CoordinatorHandoff;
+pub use coordinator_remote_home::{
+    ShardCoordinatorRemoteHome, ShardCoordinatorRemoteHomeError, ShardCoordinatorRemoteHomeInbound,
+    ShardCoordinatorRemoteHomeOutbound,
+};
 pub use coordinator_remote_registration::{
     ShardCoordinatorRemoteRegistrationAck, ShardCoordinatorRemoteRegistrationError,
     ShardCoordinatorRemoteRegistrationInbound, ShardCoordinatorRemoteRegistrationOutbound,

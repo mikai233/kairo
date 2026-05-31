@@ -1442,6 +1442,7 @@ src/
   shard.rs
   coordinator.rs
   coordinator_discovery.rs
+  coordinator_remote_home.rs
   coordinator_remote_registration.rs
   coordinator_remote_target.rs
   region_coordinator_discovery.rs
@@ -1553,6 +1554,10 @@ Implementation shape:
   serializes stable `Register` envelopes to resolved coordinator recipients
   with region sender metadata, and decodes `RegisterAck` replies addressed to
   the region before typed region state consumes the acknowledgement.
+- Remote coordinator shard-home requests use a separate bridge that serializes
+  stable `GetShardHome` envelopes to the coordinator target and decodes
+  `ShardHome` replies back into explicit region wire data for later local
+  routing integration.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.

@@ -2287,3 +2287,33 @@ Consequences:
   smaller follow-up slice.
 - Remote shard-home request/reply handling remains a separate bridge with its
   own stable protocol tests.
+
+## ADR-0081: Remote Sharding Shard-Home Lookup Uses A Focused Wire Bridge
+
+Status: Accepted
+
+Context:
+After registration, Pekko shard regions ask the active coordinator for shard
+homes with `GetShardHome` whenever buffered messages need a location, and they
+apply `ShardHome` replies to the region's shard-home cache before replaying
+buffered messages. Kairo's local region currently asks a typed
+`ShardCoordinatorMsg<M>` ref, while the remote coordinator protocol already
+has stable `GetShardHome` and `ShardHome` messages.
+
+Decision:
+Kairo adds `ShardCoordinatorRemoteHomeOutbound` and
+`ShardCoordinatorRemoteHomeInbound` as a focused transport-neutral bridge.
+Outbound shard-home lookup serializes stable `GetShardHome` messages to the
+resolved coordinator `ActorRefWireData` recipient and uses the region wire ref
+as sender metadata by default. Inbound shard-home handling validates replies
+are addressed to the expected region, deserializes only stable `ShardHome`
+payloads, and returns decoded shard id plus region wire data for later region
+routing integration.
+
+Consequences:
+- Remote shard-home lookup no longer needs to treat the local
+  `ShardCoordinatorMsg<M>` enum as a wire protocol.
+- Remote registration and remote shard-home lookup remain separate modules,
+  matching their different state transitions in the region flow.
+- Mapping decoded remote region wire data into local `RegionId` routing state
+  remains an explicit follow-up step instead of being hidden in the codec.
