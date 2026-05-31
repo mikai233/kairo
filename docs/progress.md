@@ -146,6 +146,10 @@ Implemented:
   at the runtime boundary where possible and converted into explicit
   `ActorError` failures, so receive panics follow the configured supervision
   strategy and startup panics enter the startup supervision path.
+- Actor signal handler errors now enter the configured supervision strategy
+  instead of being discarded; death-watch signal failures can stop or restart
+  the watching actor through the same local supervision boundary as receive
+  failures.
 - `SupervisorStrategy::restart_with_limit` supports Pekko-style bounded
   restarts by allowing a configured number of restarts within a time window,
   stopping the actor when the limit is exceeded, and resetting the count after
@@ -1403,6 +1407,8 @@ cargo test -p kairo-actor startup_failure_escalates_to_parent_supervision
 cargo test -p kairo-actor receive_panic
 cargo test -p kairo-actor startup_panic
 cargo test -p kairo-actor restart_supervision_rebuilds_actor_after_receive_panic
+cargo test -p kairo-actor signal_failure
+cargo test -p kairo-actor restart_supervision_rebuilds_actor_after_signal_failure
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding --all-targets --all-features

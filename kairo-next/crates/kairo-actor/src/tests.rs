@@ -1856,6 +1856,52 @@ impl Actor for WatchProbe {
     }
 }
 
+enum SignalFailureWatcherMsg {
+    Watch {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<()>,
+    },
+    Ping(mpsc::Sender<()>),
+}
+
+struct SignalFailureWatcher {
+    pre_restart: Option<mpsc::Sender<()>>,
+}
+
+impl Actor for SignalFailureWatcher {
+    type Msg = SignalFailureWatcherMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            SignalFailureWatcherMsg::Watch { subject, reply_to } => {
+                ctx.watch(&subject)?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            SignalFailureWatcherMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::Terminated(_) => Err(ActorError::Message("signal boom".to_string())),
+            Signal::PreRestart => {
+                if let Some(pre_restart) = &self.pre_restart {
+                    pre_restart
+                        .send(())
+                        .map_err(|error| ActorError::Message(error.to_string()))?;
+                }
+                Ok(())
+            }
+            Signal::PostStop => self.stopped(ctx),
+            Signal::ChildFailed { .. } => Ok(()),
+        }
+    }
+}
+
 enum ParentWatchMsg {
     FailChild,
 }
@@ -1958,6 +2004,79 @@ fn watch_delivers_terminated_signal_once() {
             .recv_timeout(Duration::from_millis(100))
             .is_err()
     );
+}
+
+#[test]
+fn signal_failure_stops_actor_by_default() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (subject_stopped_tx, _subject_stopped_rx) = mpsc::channel();
+    let subject = system
+        .spawn(
+            "subject",
+            Props::new(move || StopProbe {
+                stopped: subject_stopped_tx,
+            }),
+        )
+        .unwrap();
+    let watcher = system
+        .spawn(
+            "signal-failure-watcher",
+            Props::new(|| SignalFailureWatcher { pre_restart: None }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(SignalFailureWatcherMsg::Watch {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    system.stop(&subject);
+
+    assert!(watcher.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn restart_supervision_rebuilds_actor_after_signal_failure() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (subject_stopped_tx, _subject_stopped_rx) = mpsc::channel();
+    let subject = system
+        .spawn(
+            "subject",
+            Props::new(move || StopProbe {
+                stopped: subject_stopped_tx,
+            }),
+        )
+        .unwrap();
+    let (pre_restart_tx, pre_restart_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "signal-failure-watcher",
+            Props::restartable(move || SignalFailureWatcher {
+                pre_restart: Some(pre_restart_tx.clone()),
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    watcher
+        .tell(SignalFailureWatcherMsg::Watch {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    system.stop(&subject);
+    pre_restart_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    watcher
+        .tell(SignalFailureWatcherMsg::Ping(ping_tx))
+        .unwrap();
+
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(!watcher.is_stopped());
 }
 
 #[test]

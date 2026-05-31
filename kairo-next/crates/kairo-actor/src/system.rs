@@ -627,7 +627,21 @@ where
             false
         }
         Dequeued::System(SystemMessage::Signal(signal)) => {
-            let _ = invoke_signal(actor, context, signal);
+            let stop_reason = apply_receive_result(
+                invoke_signal(actor, context, signal),
+                actor_ref,
+                actor,
+                context,
+                props,
+                system_inner,
+                &mut run_state.supervision,
+            );
+            if stop_reason.is_some() || context.stop_requested {
+                if let Some(reason) = stop_reason {
+                    run_state.termination_cause = TerminationCause::Failed(reason);
+                }
+                actor_ref.target.stopped.store(true, Ordering::Release);
+            }
             false
         }
         Dequeued::System(SystemMessage::SupervisionFailure(failure)) => {
