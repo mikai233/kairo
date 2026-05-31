@@ -1354,6 +1354,8 @@ Implemented:
   setup and socket validation data.
 - Cluster-tools singleton oldest-tracker tests now live in a focused child
   test module instead of the broad cluster-tools crate test file.
+- Cluster-tools singleton proxy buffering, remote target, re-identification,
+  and termination-watch tests now live in a focused sibling test module.
 - `kairo-examples` now includes a runnable cluster-tools TCP peer bootstrap
   example, with pubsub gossip, pubsub delivery, singleton inbound wiring, and
   reusable route/snapshot setup kept in a focused example module.
@@ -1689,6 +1691,7 @@ cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_r
 cargo test -p kairo-cluster-tools bootstrap
 cargo test -p kairo-cluster-tools singleton_oldest
 cargo test -p kairo-cluster-tools singleton_manager
+cargo test -p kairo-cluster-tools singleton_proxy
 cargo test -p kairo-cluster-tools local_singleton_manager
 cargo test -p kairo-cluster-tools local_topic
 cargo test -p kairo-cluster-tools local_pubsub
