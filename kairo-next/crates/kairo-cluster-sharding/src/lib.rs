@@ -61,10 +61,13 @@ mod coordinator_actor;
 mod coordinator_discovery;
 mod coordinator_handoff;
 mod coordinator_remote_home;
+mod coordinator_remote_regions;
 mod coordinator_remote_registration;
+mod coordinator_remote_reply;
 mod coordinator_remote_target;
 mod coordinator_runtime;
 mod coordinator_store;
+mod coordinator_system_inbound;
 mod entity_factory;
 mod entity_ref;
 mod entity_router;
@@ -120,10 +123,12 @@ pub use coordinator_remote_home::{
     ShardCoordinatorRemoteHome, ShardCoordinatorRemoteHomeError, ShardCoordinatorRemoteHomeInbound,
     ShardCoordinatorRemoteHomeOutbound,
 };
+pub use coordinator_remote_regions::{CoordinatorRemoteRegions, remote_region_id};
 pub use coordinator_remote_registration::{
     ShardCoordinatorRemoteRegistrationAck, ShardCoordinatorRemoteRegistrationError,
     ShardCoordinatorRemoteRegistrationInbound, ShardCoordinatorRemoteRegistrationOutbound,
 };
+pub use coordinator_remote_reply::{CoordinatorRemoteReplyError, CoordinatorRemoteReplyTarget};
 pub use coordinator_remote_target::{
     DEFAULT_SHARD_COORDINATOR_REMOTE_PATH, ShardCoordinatorRemoteTarget,
     ShardCoordinatorRemoteTargetError, coordinator_recipient_for_node,
@@ -131,6 +136,10 @@ pub use coordinator_remote_target::{
 pub use coordinator_runtime::{
     CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan, RebalanceCompletionPlan,
     RebalancePlan, RebalanceSkipReason, ShardRebalancePlan,
+};
+pub use coordinator_system_inbound::{
+    ShardCoordinatorSystemInbound, ShardCoordinatorSystemInboundError,
+    is_shard_coordinator_system_manifest,
 };
 pub use entity_factory::EntityActorFactory;
 pub use entity_ref::EntityRef;

@@ -1279,6 +1279,12 @@ Implemented:
   `RoutedShardEnvelope` re-enters local region delivery, `RegisterAck` becomes
   `RemoteCoordinatorRegistrationAck`, and `ShardHome` becomes
   `RemoteCoordinatorShardHome`.
+- `kairo-cluster-sharding` now has coordinator-side system inbound routing
+  for stable remote envelopes addressed to `/system/sharding/coordinator`:
+  decoded `Register` commands register remote regions through the coordinator
+  actor and reply with `RegisterAck`, while decoded `GetShardHome` commands
+  re-enter coordinator allocation state and reply with `ShardHome` for known
+  or newly allocated remote homes.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1302,10 +1308,8 @@ Not yet implemented:
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration,
-  transport-backed remote region targets, coordinator-side inbound system
-  routing from remote envelopes into coordinator actors, and broader
-  multi-node validation of the discovery subscriber plus region/coordinator
-  flow.
+  transport-backed remote region host/handoff targets, and broader multi-node
+  validation of the discovery subscriber plus region/coordinator flow.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
@@ -1319,6 +1323,8 @@ Not yet implemented:
 ```bash
 cargo fmt --all -- --check
 cargo test -p kairo-cluster-sharding region_system_inbound
+cargo test -p kairo-cluster-sharding coordinator_system_inbound
+cargo test -p kairo-cluster-sharding coordinator_remote
 cargo test -p kairo-cluster-sharding remote_coordinator_transport
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_register_on_discovery_and_retry
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_shard_home_after_registration_ack

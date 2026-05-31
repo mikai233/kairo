@@ -1443,8 +1443,11 @@ src/
   coordinator.rs
   coordinator_discovery.rs
   coordinator_remote_home.rs
+  coordinator_remote_regions.rs
   coordinator_remote_registration.rs
+  coordinator_remote_reply.rs
   coordinator_remote_target.rs
+  coordinator_system_inbound.rs
   region_coordinator_discovery.rs
   region_discovery_subscriber.rs
   region_remote_coordinator.rs
@@ -1575,6 +1578,12 @@ Implementation shape:
   to `/system/sharding/region` by manifest: routed entity envelopes enter the
   local region delivery path, while decoded `RegisterAck` and `ShardHome`
   replies enter the remote-coordinator region messages.
+- Coordinator system inbound routing dispatches stable remote envelopes
+  addressed to `/system/sharding/coordinator` by manifest: decoded `Register`
+  commands register the remote region by its stable actor-ref path and reply
+  with `RegisterAck`, while decoded `GetShardHome` commands enter the
+  coordinator actor and reply with `ShardHome` when the runtime returns a
+  known or newly allocated remote region home.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.

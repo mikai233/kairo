@@ -2,15 +2,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, AskError, Context, Props};
+use kairo_serialization::ActorRefWireData;
 
 use crate::coordinator_handoff::CoordinatorHandoff;
 use crate::coordinator_store::{CoordinatorRememberStore, LocalCoordinatorRememberStoreProvider};
 use crate::{
-    CoordinatorEvent, CoordinatorRuntime, CoordinatorState, GetShardHomePlan, HandoffRegionTarget,
-    HandoffTransport, HandoffWorkerDone, LeastShardAllocationStrategy, RebalanceCompletionPlan,
-    RebalancePlan, RegionId, RememberCoordinatorStoreMsg, RememberCoordinatorStoreState,
-    RememberCoordinatorUpdateDone, RememberedShards, ShardAllocationStrategy, ShardId,
-    ShardingError,
+    CoordinatorEvent, CoordinatorRemoteRegions, CoordinatorRemoteReplyTarget, CoordinatorRuntime,
+    CoordinatorState, GetShardHomePlan, HandoffRegionTarget, HandoffTransport, HandoffWorkerDone,
+    LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan, RegionId,
+    RememberCoordinatorStoreMsg, RememberCoordinatorStoreState, RememberCoordinatorUpdateDone,
+    RememberedShards, ShardAllocationStrategy, ShardId, ShardingError, remote_region_id,
 };
 
 pub const REBALANCE_TIMER_KEY: &str = "sharding-coordinator-rebalance";
@@ -26,6 +27,7 @@ where
     local_remember_store_provider: Option<LocalCoordinatorRememberStoreProvider>,
     waiting_for_remember_store_load: bool,
     handoff: Option<CoordinatorHandoff<M>>,
+    remote_regions: CoordinatorRemoteRegions,
 }
 
 impl ShardCoordinatorActor<()> {
@@ -41,6 +43,7 @@ impl ShardCoordinatorActor<()> {
             local_remember_store_provider: None,
             waiting_for_remember_store_load: false,
             handoff: None,
+            remote_regions: CoordinatorRemoteRegions::new(),
         }
     }
 
@@ -57,6 +60,7 @@ impl ShardCoordinatorActor<()> {
             local_remember_store_provider: None,
             waiting_for_remember_store_load: false,
             handoff: None,
+            remote_regions: CoordinatorRemoteRegions::new(),
         }
     }
 
@@ -74,6 +78,7 @@ impl ShardCoordinatorActor<()> {
             local_remember_store_provider: None,
             waiting_for_remember_store_load: true,
             handoff: None,
+            remote_regions: CoordinatorRemoteRegions::new(),
         }
     }
 
@@ -94,6 +99,7 @@ impl ShardCoordinatorActor<()> {
             )),
             waiting_for_remember_store_load: true,
             handoff: None,
+            remote_regions: CoordinatorRemoteRegions::new(),
         }
     }
 
@@ -166,6 +172,7 @@ where
                 handoff_timeout,
                 transport,
             )),
+            remote_regions: CoordinatorRemoteRegions::new(),
         }
     }
 
@@ -221,6 +228,15 @@ where
     RegisterLocalRegion {
         target: HandoffRegionTarget<M>,
         reply_to: ActorRef<Result<CoordinatorStateSnapshot, ShardingError>>,
+    },
+    RegisterRemoteRegion {
+        region: ActorRefWireData,
+        reply: CoordinatorRemoteReplyTarget,
+    },
+    RequestRemoteShardHome {
+        requester: ActorRefWireData,
+        shard: ShardId,
+        reply: CoordinatorRemoteReplyTarget,
     },
     PlanRebalance {
         reply_to: ActorRef<Result<RebalancePlan, ShardingError>>,
@@ -327,6 +343,16 @@ where
             ShardCoordinatorMsg::RegisterLocalRegion { target, reply_to } => {
                 let result = self.register_local_region(ctx, target)?;
                 let _ = reply_to.tell(result);
+            }
+            ShardCoordinatorMsg::RegisterRemoteRegion { region, reply } => {
+                self.register_remote_region(ctx, region, reply)?;
+            }
+            ShardCoordinatorMsg::RequestRemoteShardHome {
+                requester,
+                shard,
+                reply,
+            } => {
+                self.request_remote_shard_home(ctx, requester, shard, reply)?;
             }
             ShardCoordinatorMsg::PlanRebalance { reply_to } => {
                 let result = self.runtime.plan_rebalance(self.strategy.as_ref());
@@ -494,6 +520,69 @@ where
         }
         self.allocate_remembered_shard_homes(ctx)?;
         Ok(Ok(CoordinatorStateSnapshot::from(&self.runtime)))
+    }
+
+    fn register_remote_region(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
+        region: ActorRefWireData,
+        reply: CoordinatorRemoteReplyTarget,
+    ) -> ActorResult {
+        let region_id = self.remote_regions.register(region.clone());
+        if !self
+            .runtime
+            .state()
+            .allocations()
+            .contains_region(&region_id)
+        {
+            self.runtime
+                .apply_event(CoordinatorEvent::ShardRegionRegistered { region: region_id })
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        reply
+            .send_register_ack(region)
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        self.allocate_remembered_shard_homes(ctx)
+    }
+
+    fn request_remote_shard_home(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
+        requester: ActorRefWireData,
+        shard: ShardId,
+        reply: CoordinatorRemoteReplyTarget,
+    ) -> ActorResult {
+        let requester_id = remote_region_id(&requester);
+        let result = self
+            .runtime
+            .request_shard_home(requester_id, shard, self.strategy.as_ref());
+        self.persist_allocated_shard(ctx, &result)?;
+        let plan = result.map_err(|error| ActorError::Message(error.to_string()))?;
+        self.reply_remote_shard_home(requester, reply, plan)
+    }
+
+    fn reply_remote_shard_home(
+        &self,
+        requester: ActorRefWireData,
+        reply: CoordinatorRemoteReplyTarget,
+        plan: GetShardHomePlan,
+    ) -> ActorResult {
+        let (shard, region) = match plan {
+            GetShardHomePlan::Reply { shard, region } => (shard, region),
+            GetShardHomePlan::Allocated {
+                event: CoordinatorEvent::ShardHomeAllocated { shard, region },
+                ..
+            } => (shard, region),
+            GetShardHomePlan::Allocated { .. }
+            | GetShardHomePlan::Deferred { .. }
+            | GetShardHomePlan::Ignored { .. } => return Ok(()),
+        };
+        let Some(home_region) = self.remote_regions.wire_ref(&region).cloned() else {
+            return Ok(());
+        };
+        reply
+            .send_shard_home(shard, requester, home_region)
+            .map_err(|error| ActorError::Message(error.to_string()))
     }
 
     fn allocate_remembered_shard_homes(

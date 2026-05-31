@@ -2406,3 +2406,29 @@ Consequences:
 - Stable manifests remain the dispatch contract for sharding system messages.
 - Coordinator-side inbound routing remains a separate slice so coordinator
   request/reply semantics can be handled without growing the region router.
+
+## ADR-0085: Shard Coordinator System Inbound Routes Through Actor Turns
+
+Status: Accepted
+
+Context:
+Pekko shard coordinators receive `Register` and `GetShardHome` as normal actor
+messages. Kairo's remote boundary carries these messages as stable
+`RemoteEnvelope` payloads addressed to `/system/sharding/coordinator`, while
+the coordinator runtime still owns the registration and allocation state.
+
+Decision:
+Kairo adds `ShardCoordinatorSystemInbound<M>` as a focused coordinator-side
+inbound router. It validates the coordinator recipient, dispatches by stable
+manifest, decodes `Register` and `GetShardHome` through registered codecs, and
+sends explicit coordinator actor messages. Remote region identity is tracked in
+`CoordinatorRemoteRegions` by stable actor-ref path, and remote `RegisterAck`
+or `ShardHome` replies are built by `CoordinatorRemoteReplyTarget`.
+
+Consequences:
+- Remote coordinator commands re-enter synchronous coordinator actor turns
+  instead of mutating coordinator runtime state from the transport boundary.
+- The wire protocol remains stable and independent of local
+  `ShardCoordinatorMsg<M>` enum layout or Rust type names.
+- Transport-backed remote `HostShard`, handoff, and shard-start acknowledgements
+  remain a later slice built on the same remote region identity table.
