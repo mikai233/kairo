@@ -1418,6 +1418,8 @@ Implemented:
 - `kairo-cluster-sharding` entity-ref, sharding-envelope, and remote region
   route tests now live in a focused sibling test module instead of the broad
   crate-level test file.
+- `kairo-cluster-sharding` shard allocation and least-shard allocation
+  strategy tests now live in a focused sibling test module.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1454,6 +1456,7 @@ cargo test -p kairo-cluster-sharding remote_control
 cargo test -p kairo-cluster-sharding region_system_inbound
 cargo test -p kairo-cluster-sharding graceful_shutdown
 cargo test -p kairo-cluster-sharding remote_shutdown
+cargo test -p kairo-cluster-sharding allocation
 cargo test -p kairo-cluster-sharding coordinator_system_inbound_routes_region_shutdown_messages
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_graceful_shutdown_and_region_stopped
 cargo test -p kairo-cluster-sharding sharding_protocol_codecs_round_trip_handoff_messages
