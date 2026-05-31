@@ -1455,6 +1455,9 @@ Implemented:
   now live in a focused sibling test module.
 - `kairo-actor` message-adapter mapping and stopped-owner rejection tests now
   live in a focused sibling test module.
+- `kairo-actor` watch, watch_with, self-watch rejection, duplicate-watch
+  rejection, unwatch, signal-failure, and parent-child watch tests now live in
+  a focused sibling test module.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1521,6 +1524,7 @@ cargo test -p kairo-actor timer
 cargo test -p kairo-actor receive_timeout
 cargo test -p kairo-actor task
 cargo test -p kairo-actor adapter
+cargo test -p kairo-actor watch
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote reader_supervisor
