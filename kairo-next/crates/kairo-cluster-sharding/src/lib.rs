@@ -176,8 +176,8 @@ pub use region_protocol::{
 };
 pub use region_registration::{RegionRegistrationConfig, RegionRegistrationStatus};
 pub use region_remote::{
-    DEFAULT_SHARD_REGION_REMOTE_PATH, ShardRegionRemoteError, ShardRegionRemoteInbound,
-    ShardRegionRemoteOutbound,
+    DEFAULT_SHARD_REGION_REMOTE_PATH, ShardRegionRemoteControlOutbound, ShardRegionRemoteError,
+    ShardRegionRemoteInbound, ShardRegionRemoteOutbound,
 };
 pub use region_remote_coordinator::{
     RegionRemoteCoordinator, RegionRemoteRegistrationPlan, RegionRemoteShardHomePlan,

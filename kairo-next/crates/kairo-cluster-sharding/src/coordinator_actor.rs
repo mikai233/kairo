@@ -7,11 +7,12 @@ use kairo_serialization::ActorRefWireData;
 use crate::coordinator_handoff::CoordinatorHandoff;
 use crate::coordinator_store::{CoordinatorRememberStore, LocalCoordinatorRememberStoreProvider};
 use crate::{
-    CoordinatorEvent, CoordinatorRemoteRegions, CoordinatorRemoteReplyTarget, CoordinatorRuntime,
-    CoordinatorState, GetShardHomePlan, HandoffRegionTarget, HandoffTransport, HandoffWorkerDone,
-    LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan, RegionId,
-    RememberCoordinatorStoreMsg, RememberCoordinatorStoreState, RememberCoordinatorUpdateDone,
-    RememberedShards, ShardAllocationStrategy, ShardId, ShardingError, remote_region_id,
+    BeginHandOffAck, CoordinatorEvent, CoordinatorRemoteRegions, CoordinatorRemoteReplyTarget,
+    CoordinatorRuntime, CoordinatorState, GetShardHomePlan, HandoffRegionTarget, HandoffTransport,
+    HandoffWorkerDone, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
+    RegionId, RememberCoordinatorStoreMsg, RememberCoordinatorStoreState,
+    RememberCoordinatorUpdateDone, RememberedShards, ShardAllocationStrategy, ShardId,
+    ShardStarted, ShardStopped, ShardingError, remote_region_id,
 };
 
 pub const REBALANCE_TIMER_KEY: &str = "sharding-coordinator-rebalance";
@@ -250,6 +251,18 @@ where
     HostShardObserved {
         shard: ShardId,
     },
+    RemoteHostShardObserved {
+        region: ActorRefWireData,
+        started: ShardStarted,
+    },
+    RemoteBeginHandOffAck {
+        region: ActorRefWireData,
+        ack: BeginHandOffAck,
+    },
+    RemoteShardStopped {
+        region: ActorRefWireData,
+        stopped: ShardStopped,
+    },
     RebalanceTick {
         reply_to: Option<ActorRef<Result<RebalancePlan, ShardingError>>>,
     },
@@ -371,6 +384,15 @@ where
                 self.apply_handoff_worker_done(ctx, done)?
             }
             ShardCoordinatorMsg::HostShardObserved { shard: _ } => {}
+            ShardCoordinatorMsg::RemoteHostShardObserved { region, started: _ } => {
+                self.remote_regions.register(region);
+            }
+            ShardCoordinatorMsg::RemoteBeginHandOffAck { region, ack } => {
+                self.apply_remote_begin_handoff_ack(region, ack)?;
+            }
+            ShardCoordinatorMsg::RemoteShardStopped { region, stopped } => {
+                self.apply_remote_shard_stopped(region, stopped)?;
+            }
             ShardCoordinatorMsg::RebalanceTick { reply_to } => {
                 let result = self.runtime.plan_rebalance(self.strategy.as_ref());
                 self.spawn_handoff_workers(ctx, &result)?;
@@ -615,6 +637,30 @@ where
             .complete_rebalance(done.shard, done.ok)
             .map_err(|error| ActorError::Message(error.to_string()))?;
         self.reallocate_completed_rebalance(ctx, completion)
+    }
+
+    fn apply_remote_begin_handoff_ack(
+        &mut self,
+        region: ActorRefWireData,
+        ack: BeginHandOffAck,
+    ) -> ActorResult {
+        let region_id = self.remote_regions.register(region);
+        if let Some(handoff) = &self.handoff {
+            handoff.forward_remote_begin_handoff_ack(region_id, ack)?;
+        }
+        Ok(())
+    }
+
+    fn apply_remote_shard_stopped(
+        &mut self,
+        region: ActorRefWireData,
+        stopped: ShardStopped,
+    ) -> ActorResult {
+        let region_id = self.remote_regions.register(region);
+        if let Some(handoff) = &self.handoff {
+            handoff.forward_remote_shard_stopped(region_id, stopped)?;
+        }
+        Ok(())
     }
 
     fn reallocate_completed_rebalance(

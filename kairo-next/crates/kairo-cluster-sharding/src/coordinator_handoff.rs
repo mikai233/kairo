@@ -4,8 +4,9 @@ use std::time::Duration;
 use kairo_actor::{ActorError, ActorRef, Context};
 
 use crate::{
-    GetShardHomePlan, HandoffRegionTarget, HandoffTransport, HandoffWorkerActor, HandoffWorkerMsg,
-    ShardCoordinatorMsg, ShardId, ShardRebalancePlan,
+    BeginHandOffAck, BeginHandOffPlan, GetShardHomePlan, HandoffRegionTarget, HandoffTransport,
+    HandoffWorkerActor, HandoffWorkerMsg, RegionId, ShardCoordinatorMsg, ShardId,
+    ShardRebalancePlan, ShardStopped,
 };
 
 pub struct CoordinatorHandoff<M>
@@ -99,6 +100,36 @@ where
 
     pub fn active_worker_shards(&self) -> Vec<ShardId> {
         self.active_workers.keys().cloned().collect()
+    }
+
+    pub fn forward_remote_begin_handoff_ack(
+        &self,
+        region: RegionId,
+        ack: BeginHandOffAck,
+    ) -> Result<(), ActorError> {
+        let Some(worker) = self.active_workers.get(&ack.shard_id) else {
+            return Ok(());
+        };
+        let shard = ack.shard_id.clone();
+        worker
+            .tell(HandoffWorkerMsg::BeginHandOffAck {
+                region,
+                plan: BeginHandOffPlan::Ack { shard, ack },
+            })
+            .map_err(|error| ActorError::Message(error.reason().to_string()))
+    }
+
+    pub fn forward_remote_shard_stopped(
+        &self,
+        region: RegionId,
+        stopped: ShardStopped,
+    ) -> Result<(), ActorError> {
+        let Some(worker) = self.active_workers.get(&stopped.shard_id) else {
+            return Ok(());
+        };
+        worker
+            .tell(HandoffWorkerMsg::RemoteShardStopped { region, stopped })
+            .map_err(|error| ActorError::Message(error.reason().to_string()))
     }
 
     pub fn transport_mut(&mut self) -> &mut HandoffTransport<M> {

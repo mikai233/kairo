@@ -1452,6 +1452,7 @@ src/
   region_discovery_subscriber.rs
   region_remote_coordinator.rs
   region_remote_coordinator_transport.rs
+  region_remote/control.rs
   region_system_inbound.rs
   allocation.rs
   handoff.rs
@@ -1584,6 +1585,11 @@ Implementation shape:
   with `RegisterAck`, while decoded `GetShardHome` commands enter the
   coordinator actor and reply with `ShardHome` when the runtime returns a
   known or newly allocated remote region home.
+- Remote region control targets serialize coordinator-driven `HostShard`,
+  `BeginHandOff`, and `HandOff` commands as stable remote envelopes addressed
+  to `/system/sharding/region`; coordinator system inbound routing accepts
+  stable `ShardStarted`, `BeginHandOffAck`, and `ShardStopped` replies and
+  forwards handoff acknowledgements back to active handoff workers.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.

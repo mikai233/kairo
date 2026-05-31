@@ -2432,3 +2432,32 @@ Consequences:
   `ShardCoordinatorMsg<M>` enum layout or Rust type names.
 - Transport-backed remote `HostShard`, handoff, and shard-start acknowledgements
   remain a later slice built on the same remote region identity table.
+
+## ADR-0086: Remote Region Control Uses Stable Envelopes
+
+Status: Accepted
+
+Context:
+Pekko coordinators send `HostShard`, `BeginHandOff`, and `HandOff` to shard
+regions, and receive `ShardStarted`, `BeginHandOffAck`, and `ShardStopped`
+back through actor messages. Kairo's local `HandoffTransport` already models
+that sequence for typed local regions, but remote regions need the same control
+flow without serializing local `ShardRegionMsg<M>` enum variants.
+
+Decision:
+Kairo adds `ShardRegionRemoteControlOutbound<M>` as a focused remote region
+target. It implements the existing region recipient boundary for coordinator
+control messages by serializing stable sharding protocol commands to
+`/system/sharding/region` with coordinator sender metadata. Coordinator system
+inbound routing now decodes stable control replies and re-enters coordinator
+actor turns; handoff replies are forwarded to active handoff workers by shard
+id and stable remote region path.
+
+Consequences:
+- Coordinator allocation and rebalance workers can target remote regions
+  through the same transport abstraction used for local regions.
+- Remote sharding control messages use stable manifests and codecs rather than
+  local Rust enum layout, discriminants, or type names.
+- Region-side inbound execution of remote `HostShard`, `BeginHandOff`, and
+  `HandOff` commands remains a follow-up so replies can be generated from
+  actual local region actor results.

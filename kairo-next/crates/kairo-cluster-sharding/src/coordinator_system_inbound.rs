@@ -7,7 +7,10 @@ use kairo_serialization::{
     ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage, SerializationError,
 };
 
-use crate::{CoordinatorRemoteReplyTarget, GetShardHome, Register, ShardCoordinatorMsg};
+use crate::{
+    BeginHandOffAck, CoordinatorRemoteReplyTarget, GetShardHome, Register, ShardCoordinatorMsg,
+    ShardStarted, ShardStopped,
+};
 
 #[derive(Debug)]
 pub enum ShardCoordinatorSystemInboundError {
@@ -118,6 +121,9 @@ where
         match envelope.message.manifest.as_str() {
             Register::MANIFEST => self.receive_register(envelope),
             GetShardHome::MANIFEST => self.receive_get_shard_home(envelope),
+            ShardStarted::MANIFEST => self.receive_shard_started(envelope),
+            BeginHandOffAck::MANIFEST => self.receive_begin_handoff_ack(envelope),
+            ShardStopped::MANIFEST => self.receive_shard_stopped(envelope),
             manifest => Err(ShardCoordinatorSystemInboundError::UnsupportedManifest(
                 manifest.to_string(),
             )),
@@ -155,6 +161,51 @@ where
         })
     }
 
+    fn receive_shard_started(
+        &self,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ShardCoordinatorSystemInboundError> {
+        let region = envelope
+            .sender
+            .ok_or(ShardCoordinatorSystemInboundError::MissingSender(
+                ShardStarted::MANIFEST,
+            ))?;
+        let started = self
+            .registry
+            .deserialize::<ShardStarted>(envelope.message)?;
+        self.tell_coordinator(ShardCoordinatorMsg::RemoteHostShardObserved { region, started })
+    }
+
+    fn receive_begin_handoff_ack(
+        &self,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ShardCoordinatorSystemInboundError> {
+        let region = envelope
+            .sender
+            .ok_or(ShardCoordinatorSystemInboundError::MissingSender(
+                BeginHandOffAck::MANIFEST,
+            ))?;
+        let ack = self
+            .registry
+            .deserialize::<BeginHandOffAck>(envelope.message)?;
+        self.tell_coordinator(ShardCoordinatorMsg::RemoteBeginHandOffAck { region, ack })
+    }
+
+    fn receive_shard_stopped(
+        &self,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ShardCoordinatorSystemInboundError> {
+        let region = envelope
+            .sender
+            .ok_or(ShardCoordinatorSystemInboundError::MissingSender(
+                ShardStopped::MANIFEST,
+            ))?;
+        let stopped = self
+            .registry
+            .deserialize::<ShardStopped>(envelope.message)?;
+        self.tell_coordinator(ShardCoordinatorMsg::RemoteShardStopped { region, stopped })
+    }
+
     fn reply_target(&self) -> CoordinatorRemoteReplyTarget {
         CoordinatorRemoteReplyTarget::from_arc(
             self.coordinator_wire.clone(),
@@ -177,7 +228,14 @@ where
 }
 
 pub fn is_shard_coordinator_system_manifest(manifest: &str) -> bool {
-    matches!(manifest, Register::MANIFEST | GetShardHome::MANIFEST)
+    matches!(
+        manifest,
+        Register::MANIFEST
+            | GetShardHome::MANIFEST
+            | ShardStarted::MANIFEST
+            | BeginHandOffAck::MANIFEST
+            | ShardStopped::MANIFEST
+    )
 }
 
 #[cfg(test)]
@@ -259,6 +317,82 @@ mod tests {
                 region: region_wire(),
             }
         );
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn coordinator_system_inbound_routes_region_control_replies() {
+        let kit = ActorSystemTestKit::new("sharding-coordinator-system-control-replies").unwrap();
+        let registry = registry();
+        let outbound = kit
+            .create_probe::<RemoteEnvelope>("remote-outbound")
+            .unwrap();
+        let coordinator = kit
+            .create_probe::<ShardCoordinatorMsg<()>>("coordinator")
+            .unwrap();
+        let inbound = ShardCoordinatorSystemInbound::<()>::new(
+            coordinator.actor_ref(),
+            coordinator_wire(),
+            registry.clone(),
+            outbound.actor_ref(),
+        );
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                coordinator_wire(),
+                Some(region_wire()),
+                registry
+                    .serialize(&ShardStarted {
+                        shard_id: "12".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        match coordinator.expect_msg(Duration::from_millis(500)).unwrap() {
+            ShardCoordinatorMsg::RemoteHostShardObserved { region, started } => {
+                assert_eq!(region, region_wire());
+                assert_eq!(started.shard_id, "12");
+            }
+            _ => panic!("expected remote host-shard observation"),
+        }
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                coordinator_wire(),
+                Some(region_wire()),
+                registry
+                    .serialize(&BeginHandOffAck {
+                        shard_id: "12".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        match coordinator.expect_msg(Duration::from_millis(500)).unwrap() {
+            ShardCoordinatorMsg::RemoteBeginHandOffAck { region, ack } => {
+                assert_eq!(region, region_wire());
+                assert_eq!(ack.shard_id, "12");
+            }
+            _ => panic!("expected remote begin-handoff ack"),
+        }
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                coordinator_wire(),
+                Some(region_wire()),
+                registry
+                    .serialize(&ShardStopped {
+                        shard_id: "12".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        match coordinator.expect_msg(Duration::from_millis(500)).unwrap() {
+            ShardCoordinatorMsg::RemoteShardStopped { region, stopped } => {
+                assert_eq!(region, region_wire());
+                assert_eq!(stopped.shard_id, "12");
+            }
+            _ => panic!("expected remote shard-stopped"),
+        }
         kit.shutdown(Duration::from_secs(1)).unwrap();
     }
 

@@ -1285,6 +1285,11 @@ Implemented:
   actor and reply with `RegisterAck`, while decoded `GetShardHome` commands
   re-enter coordinator allocation state and reply with `ShardHome` for known
   or newly allocated remote homes.
+- `kairo-cluster-sharding` now has a transport-backed remote region control
+  target for coordinator-driven `HostShard`, `BeginHandOff`, and `HandOff`
+  sends, plus coordinator-side inbound routing for stable `ShardStarted`,
+  `BeginHandOffAck`, and `ShardStopped` replies back into coordinator and
+  handoff-worker actor turns.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1308,8 +1313,9 @@ Not yet implemented:
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration,
-  transport-backed remote region host/handoff targets, and broader multi-node
-  validation of the discovery subscriber plus region/coordinator flow.
+  region-side inbound handling for remote `HostShard`/handoff control
+  commands, and broader multi-node validation of the discovery subscriber plus
+  region/coordinator flow.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
@@ -1322,8 +1328,10 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding remote_control
 cargo test -p kairo-cluster-sharding region_system_inbound
 cargo test -p kairo-cluster-sharding coordinator_system_inbound
+cargo test -p kairo-cluster-sharding handoff_worker_completes_from_remote_shard_stopped
 cargo test -p kairo-cluster-sharding coordinator_remote
 cargo test -p kairo-cluster-sharding remote_coordinator_transport
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_register_on_discovery_and_retry
