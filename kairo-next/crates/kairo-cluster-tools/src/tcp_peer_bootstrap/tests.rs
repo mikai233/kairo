@@ -216,6 +216,105 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
+    let first_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-first").unwrap();
+    let second_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-second").unwrap();
+    let third_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-third").unwrap();
+    let registry = registry();
+    let first_runtime = bind_runtime(
+        "cluster-tools-bootstrap-first",
+        1,
+        11,
+        &first_kit,
+        registry.clone(),
+    );
+    let second_runtime = bind_runtime(
+        "cluster-tools-bootstrap-second",
+        2,
+        22,
+        &second_kit,
+        registry.clone(),
+    );
+    let third_runtime = bind_runtime("cluster-tools-bootstrap-third", 3, 33, &third_kit, registry);
+    let first_node = first_runtime.self_node().clone();
+    let second_node = second_runtime.self_node().clone();
+    let third_node = third_runtime.self_node().clone();
+    let first_publisher = spawn_publisher(&first_kit, "first-publisher", first_node.clone());
+    let second_publisher = spawn_publisher(&second_kit, "second-publisher", second_node.clone());
+    let third_publisher = spawn_publisher(&third_kit, "third-publisher", third_node.clone());
+    let first_cluster = Cluster::new(first_publisher.clone());
+    let second_cluster = Cluster::new(second_publisher.clone());
+    let third_cluster = Cluster::new(third_publisher.clone());
+    let settings = ClusterToolsTcpPeerBootstrapSettings::new().with_connector_settings(
+        ClusterToolsTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
+
+    let first_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        first_kit.system(),
+        first_cluster,
+        first_runtime,
+        settings.clone().with_connector_name("first-tools-peer"),
+    )
+    .unwrap();
+    let second_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        second_kit.system(),
+        second_cluster,
+        second_runtime,
+        settings.clone().with_connector_name("second-tools-peer"),
+    )
+    .unwrap();
+    let third_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        third_kit.system(),
+        third_cluster,
+        third_runtime,
+        settings.with_connector_name("third-tools-peer"),
+    )
+    .unwrap();
+    let first_snapshots = first_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("first-snapshots")
+        .unwrap();
+    let second_snapshots = second_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("second-snapshots")
+        .unwrap();
+    let third_snapshots = third_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("third-snapshots")
+        .unwrap();
+
+    let gossip = Gossip::from_members([
+        Member::new(first_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(second_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(third_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+    ]);
+    for publisher in [&first_publisher, &second_publisher, &third_publisher] {
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
+            .unwrap();
+    }
+
+    await_connector_routes(
+        first_bootstrap.connector(),
+        &first_snapshots,
+        &[second_node.clone(), third_node.clone()],
+    );
+    await_connector_routes(
+        second_bootstrap.connector(),
+        &second_snapshots,
+        &[first_node.clone(), third_node.clone()],
+    );
+    await_connector_routes(
+        third_bootstrap.connector(),
+        &third_snapshots,
+        &[first_node, second_node],
+    );
+
+    first_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 fn bind_runtime(
     system: &str,
     node_uid: u64,
@@ -251,6 +350,14 @@ fn await_connector_route(
     snapshots: &TestProbe<ClusterToolsTcpPeerConnectorSnapshot>,
     expected_peer: &UniqueAddress,
 ) {
+    await_connector_routes(connector, snapshots, std::slice::from_ref(expected_peer));
+}
+
+fn await_connector_routes(
+    connector: &ActorRef<ClusterToolsTcpPeerConnectorMsg>,
+    snapshots: &TestProbe<ClusterToolsTcpPeerConnectorSnapshot>,
+    expected_peers: &[UniqueAddress],
+) {
     await_assert(
         Duration::from_secs(1),
         Duration::from_millis(10),
@@ -263,12 +370,13 @@ fn await_connector_route(
             let snapshot = snapshots
                 .expect_msg(Duration::from_millis(100))
                 .map_err(|error| error.to_string())?;
-            if snapshot.route_count == 1
-                && snapshot
+            let has_all_expected_peers = expected_peers.iter().all(|expected_peer| {
+                snapshot
                     .active_targets
                     .iter()
                     .any(|target| target.node() == expected_peer)
-            {
+            });
+            if snapshot.route_count == expected_peers.len() && has_all_expected_peers {
                 Ok(())
             } else {
                 Err(format!("unexpected connector snapshot: {snapshot:?}"))
