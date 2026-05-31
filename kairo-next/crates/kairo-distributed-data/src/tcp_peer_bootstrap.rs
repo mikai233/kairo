@@ -252,15 +252,17 @@ fn register_connector_shutdown(
 #[cfg(test)]
 mod tests {
     use kairo_actor::{Address, PHASE_BEFORE_CLUSTER_SHUTDOWN};
-    use kairo_cluster::ClusterEventPublisher;
+    use kairo_cluster::{
+        ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus,
+    };
     use kairo_remote::RemoteSettings;
     use kairo_serialization::RemoteEnvelope;
-    use kairo_testkit::ActorSystemTestKit;
+    use kairo_testkit::{ActorSystemTestKit, await_assert};
 
     use super::*;
     use crate::{
         ReplicatorRemoteReplyError, ReplicatorRemoteRequestError,
-        ReplicatorTcpPeerConnectorSettings,
+        ReplicatorTcpPeerConnectorSettings, ReplicatorTcpPeerConnectorSnapshot,
     };
 
     #[derive(Default)]
@@ -330,5 +332,138 @@ mod tests {
 
         assert!(bootstrap.connector().wait_for_stop(Duration::from_secs(1)));
         kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
+        let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-sender").unwrap();
+        let receiver_kit = ActorSystemTestKit::new("ddata-bootstrap-receiver").unwrap();
+        let sender_runtime =
+            bind_runtime("ddata-bootstrap-sender", 1, 11, ReplicaId::new("receiver"));
+        let receiver_runtime =
+            bind_runtime("ddata-bootstrap-receiver", 2, 22, ReplicaId::new("sender"));
+        let sender_node = sender_runtime.self_node().clone();
+        let receiver_node = receiver_runtime.self_node().clone();
+        let sender_publisher =
+            spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+        let receiver_publisher =
+            spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+        let sender_cluster = Cluster::new(sender_publisher.clone());
+        let receiver_cluster = Cluster::new(receiver_publisher.clone());
+        let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
+            .with_connector_settings(
+                ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                    .unwrap()
+                    .with_automatic_retry_ticks(false),
+            );
+
+        let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+            sender_kit.system(),
+            sender_cluster,
+            sender_runtime,
+            settings.clone().with_connector_name("sender-ddata-peer"),
+        )
+        .unwrap();
+        let receiver_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+            receiver_kit.system(),
+            receiver_cluster,
+            receiver_runtime,
+            settings.with_connector_name("receiver-ddata-peer"),
+        )
+        .unwrap();
+        let sender_snapshots = sender_kit
+            .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("sender-snapshots")
+            .unwrap();
+        let receiver_snapshots = receiver_kit
+            .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("receiver-snapshots")
+            .unwrap();
+
+        let gossip = Gossip::from_members([
+            Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+            Member::new(receiver_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        ]);
+        sender_publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
+            .unwrap();
+        receiver_publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
+            .unwrap();
+
+        await_connector_route(
+            sender_bootstrap.connector(),
+            &sender_snapshots,
+            &receiver_node,
+        );
+        await_connector_route(
+            receiver_bootstrap.connector(),
+            &receiver_snapshots,
+            &sender_node,
+        );
+
+        sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+        receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    fn bind_runtime(
+        system: &str,
+        node_uid: u64,
+        system_uid: u64,
+        remote_replica: ReplicaId,
+    ) -> ReplicatorTcpPeerRuntime {
+        ReplicatorTcpPeerRuntime::bind(
+            system,
+            node_uid,
+            system_uid,
+            remote_replica,
+            RemoteSettings::new("127.0.0.1", 0),
+            Arc::new(IgnoreRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
+            Arc::new(IgnoreReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
+        )
+        .unwrap()
+    }
+
+    fn spawn_publisher(
+        kit: &ActorSystemTestKit,
+        name: &str,
+        self_node: UniqueAddress,
+    ) -> ActorRef<ClusterEventPublisherMsg> {
+        kit.system()
+            .spawn(
+                name,
+                Props::new(move || ClusterEventPublisher::new(self_node.clone())),
+            )
+            .unwrap()
+    }
+
+    fn await_connector_route(
+        connector: &ActorRef<ReplicatorTcpPeerConnectorMsg>,
+        snapshots: &kairo_testkit::TestProbe<ReplicatorTcpPeerConnectorSnapshot>,
+        expected_peer: &UniqueAddress,
+    ) {
+        await_assert(
+            Duration::from_secs(1),
+            Duration::from_millis(10),
+            || -> Result<(), String> {
+                connector
+                    .tell(ReplicatorTcpPeerConnectorMsg::Snapshot {
+                        reply_to: snapshots.actor_ref(),
+                    })
+                    .map_err(|error| error.reason().to_string())?;
+                let snapshot = snapshots
+                    .expect_msg(Duration::from_millis(100))
+                    .map_err(|error| error.to_string())?;
+                if snapshot.route_count == 1
+                    && snapshot
+                        .active_targets
+                        .iter()
+                        .any(|target| target.node() == expected_peer)
+                {
+                    Ok(())
+                } else {
+                    Err(format!("unexpected connector snapshot: {snapshot:?}"))
+                }
+            },
+        )
+        .unwrap();
     }
 }

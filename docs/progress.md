@@ -687,6 +687,10 @@ Implemented:
   distributed-data peer runtime, spawns the connector actor with explicit
   settings, and registers coordinated shutdown to stop the connector before
   cluster shutdown so socket cleanup goes through the actor stop path.
+- Distributed-data TCP peer bootstrap now has a two-node socket validation:
+  two real bound runtimes are spawned through the bootstrap facade, cluster
+  membership is published to both connector actors, and each side installs a
+  peer route for the other node through the actor-backed connector boundary.
 - `kairo-examples` now includes a runnable distributed-data TCP peer bootstrap
   example, with reusable setup and one-shot reply helpers kept in focused
   example modules instead of placing route orchestration in one binary file.
@@ -1436,6 +1440,7 @@ cargo test -p kairo-cluster all_observers_reports_negative_reachability_observer
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo test -p kairo --all-targets --all-features config
+cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-actor startup_failure
 cargo test -p kairo-actor bounded_restart_supervision
 cargo test -p kairo-actor startup_failure_escalates_to_parent_supervision
