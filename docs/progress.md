@@ -723,6 +723,9 @@ Implemented:
   focused sibling test module.
 - `kairo-distributed-data` replicator state get, update, merge, delta, and
   flush tests now live in a focused sibling test module.
+- `kairo-distributed-data` replicator actor local get/update, non-local
+  read/write session, subscribe, and unsubscribe tests now live in a focused
+  sibling test module.
 - `kairo-examples` now includes a runnable distributed-data TCP peer bootstrap
   example, with reusable setup and one-shot reply helpers kept in focused
   example modules instead of placing route orchestration in one binary file.
@@ -1600,6 +1603,7 @@ cargo test -p kairo-distributed-data aggregation_wire
 cargo test -p kairo-distributed-data aggregation_transport
 cargo test -p kairo-distributed-data direct_receive
 cargo test -p kairo-distributed-data replicator_state
+cargo test -p kairo-distributed-data replicator_actor_client
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership
