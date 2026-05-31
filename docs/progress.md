@@ -1212,6 +1212,10 @@ Implemented:
   `local_counter`, `ask_pipe_to_self`, and `cluster_sharding_local` modules,
   validating the example crate from the same public module boundary used by
   downstream callers instead of relying only on binary entry points.
+- `kairo-examples` now has localhost two-node TCP bootstrap smoke tests for
+  distributed-data and cluster-tools example modules, publishing matching
+  cluster membership snapshots and verifying each side establishes one peer
+  route before coordinated shutdown.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1231,13 +1235,15 @@ Not yet implemented:
   cross-crate compatibility fixtures.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
-  runtime, actor-backed connector, and bootstrap.
+  runtime, actor-backed connector, and bootstrap beyond the current localhost
+  two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
 - Cluster-tools socket integration still needs broader multi-node tests around
-  the bootstrap facade once the test harness exists.
+  the bootstrap facade beyond the current localhost two-node example smoke
+  test.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   actor-backed downing provider timing,
   indirectly-connected split-brain handling, and lease-majority support.
