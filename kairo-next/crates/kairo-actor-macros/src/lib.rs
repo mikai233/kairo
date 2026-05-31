@@ -1,4 +1,29 @@
 //! Procedural macros for Kairo actor protocols.
+//!
+//! This crate keeps macro support deliberately narrow. Local actor messages do
+//! not need macros or serialization, and remote wire compatibility remains an
+//! explicit contract. [`KairoRemoteMessage`] derives only the
+//! `kairo_serialization::RemoteMessage` manifest/version metadata from a
+//! `#[kairo(...)]` attribute; it does not choose serializer ids, generate
+//! codecs, register codecs, or infer wire metadata from Rust type names.
+//!
+//! ```
+//! use kairo_actor_macros::KairoRemoteMessage;
+//! use kairo_serialization::RemoteMessage;
+//!
+//! #[derive(KairoRemoteMessage)]
+//! #[kairo(manifest = "kairo.example.Created", version = 1)]
+//! struct Created {
+//!     id: String,
+//! }
+//!
+//! assert_eq!(Created::MANIFEST, "kairo.example.Created");
+//! assert_eq!(Created::VERSION, 1);
+//! ```
+//!
+//! The `manifest` must be a stable, non-empty string and `version` must fit in
+//! `u16`. Remote payload encoding still belongs in an explicit
+//! `MessageCodec<M>` implementation registered with `kairo-serialization`.
 
 use proc_macro::TokenStream;
 use quote::quote;

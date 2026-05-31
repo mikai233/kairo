@@ -207,6 +207,10 @@ Implemented:
   `#[kairo(manifest = "...", version = N)]` and emits only the
   `RemoteMessage` metadata implementation; it does not select or generate a
   codec.
+- `kairo-actor-macros` crate docs now document that macro support is
+  metadata-only, local messages do not need macros or serialization,
+  serializer ids/codecs remain explicit, and `KairoRemoteMessage` has a
+  compile-checked manifest/version example.
 - `ActorRefWireData` stores serialized actor-ref paths with explicit protocol,
   system, host, and port metadata, and `ActorRefResolver` defines the provider
   boundary for resolving those refs later.
