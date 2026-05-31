@@ -1466,6 +1466,8 @@ Implemented:
 - `kairo-cluster-sharding` coordinator runtime shard-home, remember-entity,
   rebalance deferral, and completion tests now live in a focused sibling test
   module.
+- `kairo-cluster-sharding` coordinator actor allocation, remember-store,
+  rebalance, and timer tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` region runtime buffering, shard-home, host-shard,
   handoff, and drop-plan tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` basic shard runtime delivery, passivation,
@@ -1548,6 +1550,7 @@ cargo test -p kairo-cluster-sharding region_system_inbound
 cargo test -p kairo-cluster-sharding graceful_shutdown
 cargo test -p kairo-cluster-sharding remote_shutdown
 cargo test -p kairo-cluster-sharding allocation
+cargo test -p kairo-cluster-sharding coordinator_actor
 cargo test -p kairo-cluster-sharding coordinator_state
 cargo test -p kairo-cluster-sharding coordinator_runtime
 cargo test -p kairo-cluster-sharding region_runtime
