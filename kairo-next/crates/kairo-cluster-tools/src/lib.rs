@@ -1,4 +1,58 @@
 //! Higher-level cluster utilities built on top of `kairo-cluster`.
+//!
+//! `kairo-cluster-tools` contains features that depend on cluster membership
+//! without becoming the membership authority. Singleton tracking consumes
+//! `kairo-cluster` member events to find the oldest eligible node, manager
+//! actors turn oldest-member changes into explicit handover/start/stop effects,
+//! proxy actors buffer while the singleton is unknown, and pubsub actors keep
+//! local topics plus versioned distributed registrations. TCP peer runtimes and
+//! system inbound routers connect those tools to `kairo-remote` association
+//! caches while cluster truth remains gossip plus local failure-detector
+//! observations.
+//!
+//! Remote cluster-tools messages use stable
+//! [`RemoteMessage`](kairo_serialization::RemoteMessage) manifests, serializer
+//! ids, and registered codecs. Singleton handover messages and distributed
+//! pubsub status/delta/publish envelopes encode explicit `UniqueAddress`,
+//! topic, group, bucket-version, tombstone, recipient, and payload fields
+//! instead of Rust type names, enum discriminants, or memory layout.
+//!
+//! ```
+//! use kairo_actor::Address;
+//! use kairo_cluster::{Member, MemberStatus, UniqueAddress};
+//! use kairo_cluster_tools::{SingletonOldestTracker, SingletonScope};
+//!
+//! fn member(port: u16, uid: u64, up_number: u64) -> Member {
+//!     let address = Address::new(
+//!         "kairo",
+//!         "cluster",
+//!         Some("127.0.0.1".to_string()),
+//!         Some(port),
+//!     );
+//!     Member::new(UniqueAddress::new(address, uid), vec!["backend".to_string()])
+//!         .with_status(MemberStatus::Up)
+//!         .with_up_number(up_number)
+//! }
+//!
+//! let oldest = member(25520, 1, 1);
+//! let self_member = member(25521, 2, 2);
+//! let self_node = self_member.unique_address.clone();
+//!
+//! let (_tracker, observation) = SingletonOldestTracker::from_members(
+//!     self_node,
+//!     SingletonScope::for_role("backend"),
+//!     [oldest.clone(), self_member],
+//! );
+//!
+//! assert_eq!(observation.oldest(), Some(&oldest.unique_address));
+//! assert!(observation.safe_to_be_oldest());
+//! ```
+//!
+//! The public API is intentionally split by responsibility: singleton oldest
+//! tracking, manager runtime, local manager actor, proxy route table, topic
+//! state, local pubsub, distributed pubsub registry, pubsub gossip, remote
+//! envelope adapters, and TCP peer ownership all live in focused modules rather
+//! than in the crate root.
 
 mod codec;
 mod protocol;
