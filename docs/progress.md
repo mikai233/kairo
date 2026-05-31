@@ -1192,6 +1192,9 @@ Implemented:
   `kairo-next`, with a `local_counter` example that demonstrates spawning a
   typed actor, sending local messages without serialization, replying through
   an explicit channel, and stopping the actor.
+- `kairo-examples` crate docs now list the runnable vertical-slice examples,
+  document the split between small binaries and reusable helper modules, and
+  include a compile-checked local counter example.
 - `kairo-examples` now keeps reusable example actor protocol/state in a focused
   `counter` module and includes a `configured_counter` example that loads
   `kairo.local.toml`, maps format-neutral settings into an actor-system
