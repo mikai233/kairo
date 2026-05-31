@@ -126,6 +126,8 @@ Implemented:
 - Task bridge state and handles live in a focused `tasks` module.
 - `Context::message_adapter` creates typed local adapter refs that enqueue
   adapted protocol messages into the owning actor's mailbox.
+- Message adapter refs now terminate with their owning actor and notify local
+  death-watch subscribers for the adapter path when the owner stops.
 - Adapted user-message envelopes live in the mailbox runtime, and adapter ref
   construction lives in a focused `adapters` module.
 - `Props::with_stash_capacity` enables opt-in typed stash support, and
@@ -1430,6 +1432,7 @@ cargo test -p kairo-actor watch_with_self
 cargo test -p kairo-actor requires_unwatch_first
 cargo test -p kairo-actor --test death_watch
 cargo test -p kairo-actor --test tasks
+cargo test -p kairo-actor --test adapters
 cargo test -p kairo-actor mailbox::tests
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings

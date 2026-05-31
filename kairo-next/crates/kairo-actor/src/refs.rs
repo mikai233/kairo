@@ -73,7 +73,13 @@ impl<M> ActorRef<M> {
         }
     }
 
-    pub(crate) fn adapter<N, F>(path: ActorPath, owner: ActorRef<N>, map: F) -> Self
+    pub(crate) fn adapter<N, F>(
+        path: ActorPath,
+        owner: ActorRef<N>,
+        stopped: Arc<AtomicBool>,
+        terminated: Arc<TerminationLatch>,
+        map: F,
+    ) -> Self
     where
         M: Send + 'static,
         N: Send + 'static,
@@ -113,13 +119,12 @@ impl<M> ActorRef<M> {
                     }
                 })
         });
-        let terminated = Arc::new(TerminationLatch::default());
         Self {
             path,
             target: ActorRefTarget {
                 mailbox: None,
                 adapter: Some(adapter),
-                stopped: Arc::new(AtomicBool::new(false)),
+                stopped,
                 terminated,
                 stopped_reason: "actor is stopped",
             },

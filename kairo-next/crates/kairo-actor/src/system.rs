@@ -521,6 +521,7 @@ fn run_actor<A>(
         receive_timeout: ReceiveTimeoutState::default(),
         stash: StashState::new(props.stash_capacity()),
         tasks: Default::default(),
+        adapters: Default::default(),
     };
     let mut run_state = ActorRunState::default();
 
@@ -580,6 +581,11 @@ fn run_actor<A>(
     context.cancel_all_timers();
     context.cancel_receive_timeout();
     context.cancel_tasks();
+    for adapter_path in context.stop_adapters() {
+        system_inner
+            .death_watch
+            .notify(&adapter_path, TerminationCause::Stopped);
+    }
     for _ in 0..mailbox.close_and_drain_user() {
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
     }
