@@ -1442,6 +1442,7 @@ src/
   shard.rs
   coordinator.rs
   coordinator_discovery.rs
+  coordinator_remote_target.rs
   region_coordinator_discovery.rs
   region_discovery_subscriber.rs
   allocation.rs
@@ -1542,6 +1543,11 @@ Implementation shape:
   region's registration target when the selected coordinator changes, and
   leaves remote singleton target resolution as the later transport-backed
   extension.
+- Remote coordinator target resolution derives stable `ActorRefWireData`
+  recipients under `/system/sharding/coordinator` from discovered
+  `UniqueAddress` values. This keeps remote registration on the stable
+  sharding wire protocol instead of pretending remote coordinators are local
+  `ActorRef<ShardCoordinatorMsg<M>>` values.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.

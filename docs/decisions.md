@@ -2224,3 +2224,34 @@ Consequences:
   cluster facade lifecycle details.
 - Future bootstrap helpers can spawn the subscriber alongside the region and
   later extend it to support remote singleton target resolution.
+
+## ADR-0079: Remote Sharding Coordinator Targets Are Wire Recipients
+
+Status: Accepted
+
+Context:
+Pekko shard regions register with coordinator actor selections derived from
+cluster member addresses. Kairo's local coordinator API is a typed
+`ActorRef<ShardCoordinatorMsg<M>>`, but the remote coordinator protocol is
+already expressed as stable wire messages such as `Register`,
+`RegisterAck`, `GetShardHome`, and `ShardHome`. Treating a remote coordinator
+as a local typed coordinator ref would either require serializing the local
+enum or hiding the actual wire contract.
+
+Decision:
+Kairo adds a focused remote coordinator target module that derives stable
+`ActorRefWireData` recipients from discovered `UniqueAddress` values and the
+documented `/system/sharding/coordinator` path. Region coordinator discovery
+can now select either a local typed coordinator target, which produces a
+`RegionRegistrationConfig`, or a remote coordinator target, which produces a
+stable wire recipient for a future remote registration bridge.
+
+Consequences:
+- Remote coordinator discovery advances without relying on Rust enum
+  discriminants, type names, or local-only coordinator messages as wire
+  contracts.
+- The actual remote registration outbound/reply bridge remains a separate
+  transport-facing module that can serialize `Register` and correlate
+  `RegisterAck` explicitly.
+- Local registration behavior remains unchanged for current runnable sharding
+  tests.

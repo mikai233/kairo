@@ -60,6 +60,7 @@ mod coordinator;
 mod coordinator_actor;
 mod coordinator_discovery;
 mod coordinator_handoff;
+mod coordinator_remote_target;
 mod coordinator_runtime;
 mod coordinator_store;
 mod entity_factory;
@@ -110,6 +111,10 @@ pub use coordinator_discovery::{
     CoordinatorDiscoveryChange, CoordinatorDiscoverySettings, CoordinatorDiscoveryState,
 };
 pub use coordinator_handoff::CoordinatorHandoff;
+pub use coordinator_remote_target::{
+    DEFAULT_SHARD_COORDINATOR_REMOTE_PATH, ShardCoordinatorRemoteTarget,
+    ShardCoordinatorRemoteTargetError, coordinator_recipient_for_node,
+};
 pub use coordinator_runtime::{
     CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan, RebalanceCompletionPlan,
     RebalancePlan, RebalanceSkipReason, ShardRebalancePlan,

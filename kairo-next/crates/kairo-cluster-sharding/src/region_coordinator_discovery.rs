@@ -6,7 +6,8 @@ use kairo_cluster::{ClusterEvent, CurrentClusterState, UniqueAddress};
 
 use crate::{
     CoordinatorDiscoveryChange, CoordinatorDiscoverySettings, CoordinatorDiscoveryState,
-    RegionRegistrationConfig, ShardCoordinatorMsg,
+    DEFAULT_SHARD_COORDINATOR_REMOTE_PATH, RegionRegistrationConfig, ShardCoordinatorMsg,
+    ShardCoordinatorRemoteTarget, ShardCoordinatorRemoteTargetError,
 };
 
 pub struct RegionCoordinatorDiscoveryConfig<M>
@@ -46,7 +47,37 @@ where
     ) {
         self.targets.insert(
             node.ordering_key(),
-            RegionCoordinatorDiscoveryTarget { node, coordinator },
+            RegionCoordinatorDiscoveryTarget::Local { node, coordinator },
+        );
+    }
+
+    pub fn with_remote_coordinator(mut self, target: ShardCoordinatorRemoteTarget) -> Self {
+        self.add_remote_coordinator(target);
+        self
+    }
+
+    pub fn with_remote_coordinator_path(
+        mut self,
+        node: UniqueAddress,
+        recipient_path: impl AsRef<str>,
+    ) -> Result<Self, ShardCoordinatorRemoteTargetError> {
+        let target = ShardCoordinatorRemoteTarget::for_node(node.clone(), recipient_path.as_ref())?;
+        self.add_remote_coordinator(target);
+        Ok(self)
+    }
+
+    pub fn with_default_remote_coordinator(
+        self,
+        node: UniqueAddress,
+    ) -> Result<Self, ShardCoordinatorRemoteTargetError> {
+        self.with_remote_coordinator_path(node, DEFAULT_SHARD_COORDINATOR_REMOTE_PATH)
+    }
+
+    pub fn add_remote_coordinator(&mut self, target: ShardCoordinatorRemoteTarget) {
+        let node = target.node().clone();
+        self.targets.insert(
+            node.ordering_key(),
+            RegionCoordinatorDiscoveryTarget::Remote { node, target },
         );
     }
 
@@ -72,12 +103,18 @@ where
     }
 }
 
-struct RegionCoordinatorDiscoveryTarget<M>
+enum RegionCoordinatorDiscoveryTarget<M>
 where
     M: Send + 'static,
 {
-    node: UniqueAddress,
-    coordinator: ActorRef<ShardCoordinatorMsg<M>>,
+    Local {
+        node: UniqueAddress,
+        coordinator: ActorRef<ShardCoordinatorMsg<M>>,
+    },
+    Remote {
+        node: UniqueAddress,
+        target: ShardCoordinatorRemoteTarget,
+    },
 }
 
 impl<M> Clone for RegionCoordinatorDiscoveryTarget<M>
@@ -85,9 +122,15 @@ where
     M: Send + 'static,
 {
     fn clone(&self) -> Self {
-        Self {
-            node: self.node.clone(),
-            coordinator: self.coordinator.clone(),
+        match self {
+            Self::Local { node, coordinator } => Self::Local {
+                node: node.clone(),
+                coordinator: coordinator.clone(),
+            },
+            Self::Remote { node, target } => Self::Remote {
+                node: node.clone(),
+                target: target.clone(),
+            },
         }
     }
 }
@@ -141,18 +184,22 @@ where
         membership_change: CoordinatorDiscoveryChange,
     ) -> RegionCoordinatorDiscoveryPlan<M> {
         let previous_selected = self.selected.clone();
-        let selected = self.select_target().map(|target| target.node.clone());
+        let selected = self
+            .select_target()
+            .map(RegionCoordinatorDiscoveryTarget::node);
         let registration_changed = previous_selected != selected;
         self.selected = selected.clone();
-        let registration = if registration_changed {
-            selected.as_ref().and_then(|node| {
-                self.targets.get(&node.ordering_key()).map(|target| {
-                    RegionRegistrationConfig::new(target.coordinator.clone(), self.retry_interval)
-                })
+        let selected_target = selected
+            .as_ref()
+            .and_then(|node| self.targets.get(&node.ordering_key()));
+        let registration = registration_changed
+            .then(|| {
+                selected_target.and_then(|target| target.local_registration(self.retry_interval))
             })
-        } else {
-            None
-        };
+            .flatten();
+        let remote_target = registration_changed
+            .then(|| selected_target.and_then(RegionCoordinatorDiscoveryTarget::remote_target))
+            .flatten();
 
         RegionCoordinatorDiscoveryPlan {
             membership_change,
@@ -160,6 +207,7 @@ where
             selected,
             registration_changed,
             registration,
+            remote_target,
         }
     }
 
@@ -168,6 +216,34 @@ where
             .coordinator_candidates()
             .into_iter()
             .find_map(|node| self.targets.get(&node.ordering_key()))
+    }
+}
+
+impl<M> RegionCoordinatorDiscoveryTarget<M>
+where
+    M: Send + 'static,
+{
+    fn node(&self) -> UniqueAddress {
+        match self {
+            Self::Local { node, .. } | Self::Remote { node, .. } => node.clone(),
+        }
+    }
+
+    fn local_registration(&self, retry_interval: Duration) -> Option<RegionRegistrationConfig<M>> {
+        match self {
+            Self::Local { coordinator, .. } => Some(RegionRegistrationConfig::new(
+                coordinator.clone(),
+                retry_interval,
+            )),
+            Self::Remote { .. } => None,
+        }
+    }
+
+    fn remote_target(&self) -> Option<ShardCoordinatorRemoteTarget> {
+        match self {
+            Self::Local { .. } => None,
+            Self::Remote { target, .. } => Some(target.clone()),
+        }
     }
 }
 
@@ -180,6 +256,7 @@ where
     pub selected: Option<UniqueAddress>,
     pub registration_changed: bool,
     pub registration: Option<RegionRegistrationConfig<M>>,
+    pub remote_target: Option<ShardCoordinatorRemoteTarget>,
 }
 
 #[cfg(test)]
@@ -254,6 +331,35 @@ mod tests {
         assert!(plan.registration_changed);
         assert!(plan.registration.is_none());
         kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn region_coordinator_discovery_reports_remote_target_without_local_registration() {
+        let node_a = node("a", 1, 2551);
+        let config = RegionCoordinatorDiscoveryConfig::<String>::new(
+            CoordinatorDiscoverySettings::default().with_required_role("backend"),
+            Duration::from_millis(20),
+        )
+        .with_default_remote_coordinator(node_a.clone())
+        .unwrap();
+        let mut discovery = RegionCoordinatorDiscovery::new(config);
+
+        let plan = discovery.apply_snapshot(&state(vec![member(
+            node_a.clone(),
+            MemberStatus::Up,
+            ["backend"],
+            1,
+        )]));
+
+        assert_eq!(plan.selected, Some(node_a));
+        assert!(plan.registration_changed);
+        assert!(plan.registration.is_none());
+        assert_eq!(
+            plan.remote_target
+                .as_ref()
+                .map(|target| target.recipient().path()),
+            Some("kairo://a@127.0.0.1:2551/system/sharding/coordinator")
+        );
     }
 
     struct DiscoveryCoordinatorProbe;
