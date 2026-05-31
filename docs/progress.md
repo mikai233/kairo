@@ -56,6 +56,10 @@ Implemented:
   suppression, exact event-type matching, publishing, and unsubscribe.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
+- `kairo-actor` crate docs now explain typed local protocols, why
+  `Actor::receive` is synchronous, why local messages do not need
+  serialization, and how external work returns through mailbox messages with a
+  compile-checked example.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
   module instead of being embedded in the system runtime loop.
 - `ActorPath` now stores structured address, path segments, and incarnation UID

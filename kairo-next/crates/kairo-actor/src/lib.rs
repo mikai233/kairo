@@ -1,4 +1,88 @@
 //! Typed local actor API and runtime primitives.
+//!
+//! `kairo-actor` is the local runtime foundation. Users define a protocol as
+//! normal Rust types, implement [`Actor`] for stateful actor structs, and send
+//! messages through [`ActorRef<M>`]. Local messages only need `Send + 'static`;
+//! they do not need serialization metadata.
+//!
+//! Actor state changes happen during short synchronous [`Actor::receive`]
+//! turns. This preserves the core actor invariant that a single actor processes
+//! one mailbox message at a time. Work that would block, wait, or outlive the
+//! current turn should run outside the actor and return through the mailbox
+//! using [`Context::pipe_to_self`], [`Context::spawn_task`], [`Context::ask`],
+//! timers, or message adapters. Kairo intentionally does not provide an
+//! `AsyncActor` in the initial design because holding `&mut self` across an
+//! await point would make actor state observable outside a mailbox turn and
+//! complicate supervision and cancellation.
+//!
+//! This follows the observable Pekko/Akka model while using Rust ownership and
+//! explicit error values instead of Scala behavior returns or implicit sender
+//! APIs.
+//!
+//! ```no_run
+//! use std::time::Duration;
+//!
+//! use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
+//!
+//! enum CounterMsg {
+//!     Add(i64),
+//!     AddFromTask(i64),
+//!     Get(ActorRef<i64>),
+//!     Stop,
+//! }
+//!
+//! struct Counter {
+//!     value: i64,
+//! }
+//!
+//! impl Actor for Counter {
+//!     type Msg = CounterMsg;
+//!
+//!     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+//!         match msg {
+//!             CounterMsg::Add(delta) => {
+//!                 self.value += delta;
+//!             }
+//!             CounterMsg::AddFromTask(delta) => {
+//!                 ctx.pipe_to_self(
+//!                     move || Ok::<i64, ()>(delta),
+//!                     |result| CounterMsg::Add(result.unwrap_or(0)),
+//!                 )?;
+//!             }
+//!             CounterMsg::Get(reply_to) => {
+//!                 reply_to
+//!                     .tell(self.value)
+//!                     .map_err(|error| ActorError::Message(error.to_string()))?;
+//!             }
+//!             CounterMsg::Stop => ctx.stop(ctx.myself())?,
+//!         }
+//!         Ok(())
+//!     }
+//! }
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let system = ActorSystem::builder("actor-docs").build()?;
+//! let counter = system.spawn("counter", Props::new(|| Counter { value: 0 }))?;
+//! let replies = system.spawn("replies", Props::new(|| ReplySink))?;
+//!
+//! counter.tell(CounterMsg::Add(1))?;
+//! counter.tell(CounterMsg::AddFromTask(41))?;
+//! counter.tell(CounterMsg::Get(replies))?;
+//! counter.tell(CounterMsg::Stop)?;
+//! system.terminate(Duration::from_secs(1))?;
+//! # Ok(())
+//! # }
+//!
+//! struct ReplySink;
+//!
+//! impl Actor for ReplySink {
+//!     type Msg = i64;
+//!
+//!     fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+//!         Ok(())
+//!     }
+//! }
+//! ```
 
 mod actor;
 mod adapters;
