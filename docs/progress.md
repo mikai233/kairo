@@ -456,6 +456,9 @@ Implemented:
   stable direct read/write aggregation protocol messages, including full CRDT
   envelope payloads, optional sender replica metadata, write ack/nack, and
   optional read results.
+- `kairo-distributed-data` protocol codec implementation is split into
+  focused client, delta, direct read/write, gossip, and shared wire-helper
+  modules while preserving the stable serializer ids and registration facade.
 - `kairo-distributed-data` now has focused read/write aggregation wire helpers
   that convert typed `DataEnvelope<D>` values to stable
   `ReplicatorDataEnvelope`, `ReplicatorWrite`, `ReplicatorRead`, and
@@ -1666,6 +1669,7 @@ cargo test -p kairo --all-targets --all-features config
 cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-distributed-data bootstrap
+cargo test -p kairo-distributed-data codec
 cargo test -p kairo-distributed-data crdt_foundation
 cargo test -p kairo-distributed-data crdt_codecs
 cargo test -p kairo-distributed-data delta_propagation_log
