@@ -219,6 +219,10 @@ Implemented:
 - `kairo-remote` is split into focused modules for settings, errors, outbound
   delivery, association state, provider resolution, remote refs, and protocol
   metadata instead of concentrating remote logic in the crate root.
+- `kairo-remote` crate docs now describe typed remote refs, provider
+  resolution, stable remote message metadata and codec registration,
+  association/stream module boundaries, remote death-watch semantics, and a
+  compile-checked outbound send example.
 - `RemoteActorRef<M>` serializes `RemoteMessage` values through the registry
   into `RemoteEnvelope` values, preserves optional sender actor-ref wire data,
   implements the typed `Recipient<M>` boundary, and returns rejected messages

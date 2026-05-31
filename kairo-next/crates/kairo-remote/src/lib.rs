@@ -1,4 +1,111 @@
 //! Remote actor references, associations, transports, and remote death watch.
+//!
+//! `kairo-remote` is the typed boundary between local actors and transport
+//! frames. It keeps local `ActorRef<M>` semantics in `kairo-actor`, stable wire
+//! metadata in `kairo-serialization`, and remote delivery in focused modules:
+//! [`RemoteActorRef`] serializes typed messages, [`RemoteActorRefProvider`]
+//! resolves addressed paths, association and lane types model outbound link
+//! state, stream/frame helpers provide transport-neutral bytes, and remote
+//! death-watch state keeps the heartbeat/watch protocol explicit.
+//!
+//! A remote-capable message must implement
+//! [`RemoteMessage`](kairo_serialization::RemoteMessage) and have a registered
+//! [`MessageCodec`](kairo_serialization::MessageCodec). The wire contract is
+//! the registered serializer id, manifest, version, recipient actor-ref wire
+//! data, optional sender actor-ref wire data, and payload bytes. Do not rely on
+//! Rust enum discriminants, type names, or memory layout for remote
+//! compatibility.
+//!
+//! ```
+//! use std::sync::{Arc, Mutex};
+//!
+//! use bytes::Bytes;
+//! use kairo_remote::{RemoteActorRef, RemoteError, RemoteOutbound};
+//! use kairo_serialization::{
+//!     ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage,
+//!     SerializationError, SerializationRegistry,
+//! };
+//!
+//! #[derive(Debug, PartialEq, Eq)]
+//! struct Ping {
+//!     value: u8,
+//! }
+//!
+//! impl RemoteMessage for Ping {
+//!     const MANIFEST: &'static str = "kairo.example.Ping";
+//!     const VERSION: u16 = 1;
+//! }
+//!
+//! struct PingCodec;
+//!
+//! impl MessageCodec<Ping> for PingCodec {
+//!     fn serializer_id(&self) -> u32 {
+//!         1201
+//!     }
+//!
+//!     fn encode(&self, message: &Ping) -> kairo_serialization::Result<Bytes> {
+//!         Ok(Bytes::from(vec![message.value]))
+//!     }
+//!
+//!     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<Ping> {
+//!         if version != Ping::VERSION {
+//!             return Err(SerializationError::Message(format!(
+//!                 "unsupported Ping version {version}"
+//!             )));
+//!         }
+//!         Ok(Ping { value: payload[0] })
+//!     }
+//! }
+//!
+//! #[derive(Default)]
+//! struct RecordingOutbound {
+//!     sent: Mutex<Vec<RemoteEnvelope>>,
+//! }
+//!
+//! impl RemoteOutbound for RecordingOutbound {
+//!     fn send(&self, envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+//!         self.sent
+//!             .lock()
+//!             .map_err(|error| RemoteError::Outbound(error.to_string()))?
+//!             .push(envelope);
+//!         Ok(())
+//!     }
+//! }
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut registry = Registry::new();
+//! registry.register::<Ping, _>(PingCodec)?;
+//! let registry = Arc::new(registry);
+//! let outbound = Arc::new(RecordingOutbound::default());
+//!
+//! let recipient =
+//!     ActorRefWireData::new("kairo://worker-system@127.0.0.1:25520/user/pinger#4")?;
+//! let pinger = RemoteActorRef::<Ping>::new(
+//!     recipient,
+//!     registry,
+//!     outbound.clone() as Arc<dyn RemoteOutbound>,
+//! );
+//!
+//! pinger.tell(Ping { value: 7 })?;
+//!
+//! let sent = outbound.sent.lock().unwrap();
+//! assert_eq!(sent.len(), 1);
+//! assert_eq!(sent[0].message.serializer_id, 1201);
+//! assert_eq!(sent[0].message.manifest.as_str(), Ping::MANIFEST);
+//! assert_eq!(sent[0].message.version, Ping::VERSION);
+//! assert_eq!(sent[0].message.payload, Bytes::from_static(&[7]));
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Remote actor refs are location-transparent at the typed send boundary, but
+//! they are not local actors. Local-only messages still need no serialization,
+//! and `RemoteActorRefProvider::resolve` rejects local-only paths so callers do
+//! not accidentally treat local refs as remoting endpoints. Remote death watch
+//! follows Pekko's observable model of explicit watch/unwatch messages,
+//! heartbeat acknowledgements per watched address, re-watch when a peer UID is
+//! first learned or changes, and address termination when the watched address is
+//! deemed unreachable.
 
 mod association;
 mod association_cache;
