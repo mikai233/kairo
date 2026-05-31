@@ -1270,6 +1270,9 @@ Implemented:
   gossip slice with explicit peer recipients, deterministic status ticks,
   status/delta exchange, known-peer filtering for inbound deltas, peer removal
   pruning, and delta-count inspection.
+- `kairo-cluster-tools` pubsub gossip actor status, delta exchange,
+  known-peer merge, and peer-removal tests now live in a focused sibling test
+  module.
 - `kairo-cluster-tools` now has an actor-backed distributed pubsub mediator
   slice that keeps local topic subscriptions, the replicated topic registry,
   and publish delivery planning in one synchronous actor turn. It registers
@@ -1686,6 +1689,7 @@ cargo test -p kairo-cluster-tools local_singleton_manager
 cargo test -p kairo-cluster-tools local_topic
 cargo test -p kairo-cluster-tools local_pubsub
 cargo test -p kairo-cluster-tools pubsub_registry
+cargo test -p kairo-cluster-tools pubsub_gossip
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor startup_failure
