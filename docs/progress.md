@@ -1292,6 +1292,8 @@ Implemented:
 - Cluster-tools TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
+- Cluster-tools singleton oldest-tracker tests now live in a focused child
+  test module instead of the broad cluster-tools crate test file.
 - `kairo-examples` now includes a runnable cluster-tools TCP peer bootstrap
   example, with pubsub gossip, pubsub delivery, singleton inbound wiring, and
   reusable route/snapshot setup kept in a focused example module.
@@ -1486,6 +1488,7 @@ cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnin
 cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster-tools bootstrap
+cargo test -p kairo-cluster-tools singleton_oldest
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor startup_failure
