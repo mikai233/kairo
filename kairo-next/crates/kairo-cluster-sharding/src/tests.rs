@@ -1338,6 +1338,64 @@ fn coordinator_actor_applies_registration_and_allocates_shard_home() {
 }
 
 #[test]
+fn coordinator_actor_dispatches_host_shard_on_new_allocation() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-host-dispatch").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .create_probe::<ShardRegionMsg<String>>("region-a")
+        .unwrap();
+    let register = kit
+        .create_probe::<Result<CoordinatorStateSnapshot, ShardingError>>("register")
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RegisterLocalRegion {
+            target: HandoffRegionTarget::new("region-a", region.actor_ref()),
+            reply_to: register.actor_ref(),
+        })
+        .unwrap();
+    register
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-a".to_string(),
+            shard: "new-shard".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+
+    match region.expect_msg(Duration::from_millis(500)).unwrap() {
+        ShardRegionMsg::HostShard { shard, .. } => assert_eq!(shard, "new-shard"),
+        _ => panic!("expected HostShard dispatch"),
+    }
+    assert!(matches!(
+        home.expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        GetShardHomePlan::Allocated { host_region, .. } if host_region == "region-a"
+    ));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_loads_remembered_shards_before_serving_requests() {
     let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-remember-load").unwrap();
     let coordinator = kit

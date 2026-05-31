@@ -236,6 +236,7 @@ where
     },
     RegisterRemoteRegion {
         region: ActorRefWireData,
+        target: Option<HandoffRegionTarget<M>>,
         reply: CoordinatorRemoteReplyTarget,
     },
     RemoteGracefulShutdownReq {
@@ -369,14 +370,21 @@ where
                     self.runtime
                         .request_shard_home(requester, shard, self.strategy.as_ref());
                 self.persist_allocated_shard(ctx, &result)?;
+                if let (Some(handoff), Ok(plan)) = (&self.handoff, &result) {
+                    handoff.dispatch_host_shard(ctx, plan)?;
+                }
                 let _ = reply_to.tell(result);
             }
             ShardCoordinatorMsg::RegisterLocalRegion { target, reply_to } => {
                 let result = self.register_local_region(ctx, target)?;
                 let _ = reply_to.tell(result);
             }
-            ShardCoordinatorMsg::RegisterRemoteRegion { region, reply } => {
-                self.register_remote_region(ctx, region, reply)?;
+            ShardCoordinatorMsg::RegisterRemoteRegion {
+                region,
+                target,
+                reply,
+            } => {
+                self.register_remote_region(ctx, region, target, reply)?;
             }
             ShardCoordinatorMsg::RemoteGracefulShutdownReq { region } => {
                 self.apply_remote_graceful_shutdown(ctx, region)?;
@@ -590,6 +598,7 @@ where
         &mut self,
         ctx: &Context<ShardCoordinatorMsg<M>>,
         region: ActorRefWireData,
+        target: Option<HandoffRegionTarget<M>>,
         reply: CoordinatorRemoteReplyTarget,
     ) -> ActorResult {
         let region_id = self.remote_regions.register(region.clone());
@@ -602,6 +611,9 @@ where
             self.runtime
                 .apply_event(CoordinatorEvent::ShardRegionRegistered { region: region_id })
                 .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        if let (Some(handoff), Some(target)) = (&mut self.handoff, target) {
+            handoff.register_region_target(target);
         }
         reply
             .send_register_ack(region)
@@ -642,6 +654,9 @@ where
             .runtime
             .request_shard_home(requester_id, shard, self.strategy.as_ref());
         self.persist_allocated_shard(ctx, &result)?;
+        if let (Some(handoff), Ok(plan)) = (&self.handoff, &result) {
+            handoff.dispatch_host_shard(ctx, plan)?;
+        }
         let plan = result.map_err(|error| ActorError::Message(error.to_string()))?;
         self.reply_remote_shard_home(requester, reply, plan)
     }

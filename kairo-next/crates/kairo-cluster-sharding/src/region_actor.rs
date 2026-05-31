@@ -469,6 +469,7 @@ where
             ShardRegionMsg::HostShard { shard, reply_to } => {
                 let plan = self.runtime.host_shard(shard);
                 let plan = self.maybe_start_local_shard_from_host_plan(ctx, plan)?;
+                let plan = self.replay_buffered_from_host_plan(plan)?;
                 let _ = reply_to.tell(plan);
             }
             ShardRegionMsg::HostShardAndReplayBuffered {
@@ -650,6 +651,7 @@ where
     ) -> ActorResult {
         let plan = self.runtime.host_shard(shard);
         let plan = self.maybe_start_local_shard_from_host_plan(ctx, plan)?;
+        let plan = self.replay_buffered_from_host_plan(plan)?;
         if let HostShardPlan::AlreadyStarted { started, .. } = plan {
             reply
                 .send_shard_started(started.shard_id)
@@ -916,6 +918,28 @@ where
                 self.register_with_coordinator(ctx)
             }
         }
+    }
+
+    fn replay_buffered_from_host_plan(
+        &mut self,
+        plan: HostShardPlan<M>,
+    ) -> Result<HostShardPlan<M>, ActorError> {
+        let HostShardPlan::AlreadyStarted {
+            shard,
+            started,
+            buffered,
+        } = plan
+        else {
+            return Ok(plan);
+        };
+
+        let delivery_reply_to = self.home_requests.drain(&shard);
+        self.replay_buffered_to_local_shard_with_replies(&shard, buffered, delivery_reply_to)?;
+        Ok(HostShardPlan::AlreadyStarted {
+            shard,
+            started,
+            buffered: Vec::new(),
+        })
     }
 
     fn apply_coordinator_discovery_plan(

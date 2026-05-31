@@ -18,12 +18,39 @@ pub struct ShardRegionRemoteControlOutbound<M>
 where
     M: Send + 'static,
 {
-    target: UniqueAddress,
+    target: ShardRegionRemoteControlTarget,
     registry: Arc<Registry>,
-    recipient_path: String,
     sender: Option<ActorRefWireData>,
     outbound: Arc<dyn Recipient<RemoteEnvelope> + Send + Sync>,
     _message: std::marker::PhantomData<fn(M)>,
+}
+
+#[derive(Clone)]
+enum ShardRegionRemoteControlTarget {
+    Node {
+        node: UniqueAddress,
+        recipient_path: String,
+    },
+    Recipient(ActorRefWireData),
+}
+
+impl ShardRegionRemoteControlTarget {
+    fn recipient(&self) -> Result<ActorRefWireData, ShardRegionRemoteError> {
+        match self {
+            Self::Node {
+                node,
+                recipient_path,
+            } => recipient_for_node(node, recipient_path),
+            Self::Recipient(recipient) => Ok(recipient.clone()),
+        }
+    }
+
+    fn key(&self) -> String {
+        match self {
+            Self::Node { node, .. } => node.ordering_key(),
+            Self::Recipient(recipient) => recipient.path().to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,9 +264,33 @@ where
         outbound: Arc<dyn Recipient<RemoteEnvelope> + Send + Sync>,
     ) -> Self {
         Self {
-            target,
+            target: ShardRegionRemoteControlTarget::Node {
+                node: target,
+                recipient_path: DEFAULT_SHARD_REGION_REMOTE_PATH.to_string(),
+            },
             registry,
-            recipient_path: DEFAULT_SHARD_REGION_REMOTE_PATH.to_string(),
+            sender: None,
+            outbound,
+            _message: std::marker::PhantomData,
+        }
+    }
+
+    pub fn for_recipient(
+        recipient: ActorRefWireData,
+        registry: Arc<Registry>,
+        outbound: impl Recipient<RemoteEnvelope> + Send + Sync + 'static,
+    ) -> Self {
+        Self::for_recipient_arc(recipient, registry, Arc::new(outbound))
+    }
+
+    pub fn for_recipient_arc(
+        recipient: ActorRefWireData,
+        registry: Arc<Registry>,
+        outbound: Arc<dyn Recipient<RemoteEnvelope> + Send + Sync>,
+    ) -> Self {
+        Self {
+            target: ShardRegionRemoteControlTarget::Recipient(recipient),
+            registry,
             sender: None,
             outbound,
             _message: std::marker::PhantomData,
@@ -247,7 +298,9 @@ where
     }
 
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
-        self.recipient_path = path.into();
+        if let ShardRegionRemoteControlTarget::Node { recipient_path, .. } = &mut self.target {
+            *recipient_path = path.into();
+        }
         self
     }
 
@@ -257,7 +310,7 @@ where
     }
 
     pub fn recipient_for_target(&self) -> Result<ActorRefWireData, ShardRegionRemoteError> {
-        recipient_for_node(&self.target, &self.recipient_path)
+        self.target.recipient()
     }
 
     pub fn into_handoff_region_target(self, region: impl Into<RegionId>) -> HandoffRegionTarget<M> {
@@ -274,7 +327,7 @@ where
         self.outbound
             .tell(envelope)
             .map_err(|error| ShardRegionRemoteError::Send {
-                target: self.target.ordering_key(),
+                target: self.target.key(),
                 reason: error.reason().to_string(),
             })
     }

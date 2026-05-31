@@ -2430,8 +2430,8 @@ Consequences:
   instead of mutating coordinator runtime state from the transport boundary.
 - The wire protocol remains stable and independent of local
   `ShardCoordinatorMsg<M>` enum layout or Rust type names.
-- Transport-backed remote `HostShard`, handoff, and shard-start acknowledgements
-  remain a later slice built on the same remote region identity table.
+- Transport-backed remote `HostShard`, handoff, and shard-start
+  acknowledgements can be layered on the same remote region identity table.
 
 ## ADR-0086: Remote Region Control Uses Stable Envelopes
 
@@ -2579,3 +2579,32 @@ Consequences:
   lookup transport, so the crate keeps one responsibility per module.
 - Wire compatibility is tied to explicit manifests, versions, serializer ids,
   and `ActorRefWireData`, not to local Rust actor-message representation.
+
+## ADR-0091: Remote Region Registration Installs Control Targets
+
+Status: Accepted
+
+Context:
+Pekko coordinator registration stores the region actor ref as the region's
+control target and, when allocating a new shard home, sends `HostShard` before
+replying with `ShardHome`. Kairo's coordinator-side remote inbound path
+decoded `Register` into coordinator state, but the handoff transport still
+needed an explicit remote region control target before host-shard and handoff
+commands could reach that registered remote region.
+
+Decision:
+`ShardCoordinatorSystemInbound<M>` now builds a
+`ShardRegionRemoteControlOutbound<M>` from the registered region's stable
+`ActorRefWireData` and includes it in `RegisterRemoteRegion`. The coordinator
+actor installs that target into `CoordinatorHandoff` while applying remote
+registration. For newly allocated shard homes, both local and remote
+`RequestShardHome` paths dispatch `HostShard` through the handoff transport
+before replying with `ShardHome`.
+
+Consequences:
+- Remote registration is enough for later coordinator-driven `HostShard`,
+  `BeginHandOff`, and `HandOff` commands to use the stable region wire ref.
+- Allocation ordering matches Pekko's observable flow: register region, choose
+  home, send `HostShard`, then answer `ShardHome`.
+- Region control transport remains modular and transport-neutral; the
+  coordinator actor only sees a typed `HandoffRegionTarget<M>`.

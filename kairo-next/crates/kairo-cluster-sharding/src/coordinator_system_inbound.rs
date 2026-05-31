@@ -9,7 +9,8 @@ use kairo_serialization::{
 
 use crate::{
     BeginHandOffAck, CoordinatorRemoteReplyTarget, GetShardHome, GracefulShutdownReq,
-    RegionStopped, Register, ShardCoordinatorMsg, ShardStarted, ShardStopped,
+    RegionStopped, Register, ShardCoordinatorMsg, ShardRegionRemoteControlOutbound, ShardStarted,
+    ShardStopped, remote_region_id,
 };
 
 #[derive(Debug)]
@@ -137,8 +138,16 @@ where
         envelope: RemoteEnvelope,
     ) -> Result<(), ShardCoordinatorSystemInboundError> {
         let register = self.registry.deserialize::<Register>(envelope.message)?;
+        let target = ShardRegionRemoteControlOutbound::<M>::for_recipient_arc(
+            register.region.clone(),
+            self.registry.clone(),
+            self.outbound.clone(),
+        )
+        .with_sender(Some(self.coordinator_wire.clone()))
+        .into_handoff_region_target(remote_region_id(&register.region));
         self.tell_coordinator(ShardCoordinatorMsg::RegisterRemoteRegion {
             region: register.region,
+            target: Some(target),
             reply: self.reply_target(),
         })
     }
@@ -275,8 +284,8 @@ mod tests {
     use kairo_testkit::ActorSystemTestKit;
 
     use crate::{
-        CoordinatorState, LeastShardAllocationStrategy, RegisterAck, ShardCoordinatorActor,
-        ShardHome, register_sharding_protocol_codecs,
+        CoordinatorState, HandoffTransport, HostShard, LeastShardAllocationStrategy, RegisterAck,
+        ShardCoordinatorActor, ShardHome, register_sharding_protocol_codecs,
     };
 
     use super::*;
@@ -292,9 +301,12 @@ mod tests {
             .system()
             .spawn(
                 "coordinator",
-                ShardCoordinatorActor::props(
+                ShardCoordinatorActor::props_with_handoff(
                     CoordinatorState::new(),
                     LeastShardAllocationStrategy::default(),
+                    (),
+                    Duration::from_millis(500),
+                    HandoffTransport::new(),
                 ),
             )
             .unwrap();
@@ -333,6 +345,17 @@ mod tests {
                     .unwrap(),
             ))
             .unwrap();
+
+        let host = outbound.expect_msg(Duration::from_millis(500)).unwrap();
+        assert_eq!(host.recipient, region_wire());
+        assert_eq!(host.sender, Some(coordinator_wire()));
+        assert_eq!(host.message.manifest.as_str(), HostShard::MANIFEST);
+        assert_eq!(
+            registry.deserialize::<HostShard>(host.message).unwrap(),
+            HostShard {
+                shard_id: "12".to_string(),
+            }
+        );
 
         let home = outbound.expect_msg(Duration::from_millis(500)).unwrap();
         assert_eq!(home.recipient, region_wire());

@@ -1285,6 +1285,10 @@ Implemented:
   actor and reply with `RegisterAck`, while decoded `GetShardHome` commands
   re-enter coordinator allocation state and reply with `ShardHome` for known
   or newly allocated remote homes.
+- Remote coordinator registration now also attaches a remote region control
+  target to the coordinator handoff transport, and newly allocated shard homes
+  dispatch `HostShard` before replying `ShardHome`, matching Pekko's
+  allocation ordering for local and remote regions.
 - `kairo-cluster-sharding` now has a transport-backed remote region control
   target for coordinator-driven `HostShard`, `BeginHandOff`, and `HandOff`
   sends, plus coordinator-side inbound routing for stable `ShardStarted`,
@@ -1357,6 +1361,11 @@ cargo test -p kairo-cluster-sharding coordinator_system_inbound_routes_region_sh
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_graceful_shutdown_and_region_stopped
 cargo test -p kairo-cluster-sharding sharding_protocol_codecs_round_trip_handoff_messages
 cargo test -p kairo-cluster-sharding remote_coordinator_transport
+cargo test -p kairo-cluster-sharding coordinator_actor_dispatches_host_shard_on_new_allocation
+cargo test -p kairo-cluster-sharding coordinator_system_inbound_routes_register_and_get_shard_home
+cargo test -p kairo-cluster-sharding entity_ref_routes_through_registered_region_to_entity_actor
+cargo test -p kairo-cluster-sharding entity_ref_routes_through_sharding_envelope_router_to_local_shard
+cargo test -p kairo-cluster-sharding region_actor_requests_shard_home_from_registered_coordinator_for_local_route
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check

@@ -1585,10 +1585,12 @@ Implementation shape:
   replies enter the remote-coordinator region messages.
 - Coordinator system inbound routing dispatches stable remote envelopes
   addressed to `/system/sharding/coordinator` by manifest: decoded `Register`
-  commands register the remote region by its stable actor-ref path and reply
+  commands register the remote region by its stable actor-ref path, attach a
+  remote region control target to the coordinator handoff transport, and reply
   with `RegisterAck`, while decoded `GetShardHome` commands enter the
-  coordinator actor and reply with `ShardHome` when the runtime returns a
-  known or newly allocated remote region home.
+  coordinator actor, dispatch `HostShard` for newly allocated homes, and reply
+  with `ShardHome` when the runtime returns a known or newly allocated remote
+  region home.
 - Coordinator system inbound routing also accepts decoded
   `GracefulShutdownReq` and `RegionStopped` messages, maps their stable
   region wire refs into coordinator region ids, and re-enters the same
