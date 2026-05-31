@@ -1415,6 +1415,9 @@ Implemented:
 - `kairo-cluster-sharding` remember-entity, remember-coordinator, and stable
   shard-hash tests now live in a focused sibling test module instead of
   growing the crate-level test file further.
+- `kairo-cluster-sharding` entity-ref, sharding-envelope, and remote region
+  route tests now live in a focused sibling test module instead of the broad
+  crate-level test file.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1459,6 +1462,7 @@ cargo test -p kairo-cluster-sharding coordinator_actor_dispatches_host_shard_on_
 cargo test -p kairo-cluster-sharding coordinator_system_inbound_routes_register_and_get_shard_home
 cargo test -p kairo-cluster-sharding entity_ref_routes_through_registered_region_to_entity_actor
 cargo test -p kairo-cluster-sharding entity_ref_routes_through_sharding_envelope_router_to_local_shard
+cargo test -p kairo-cluster-sharding entity_routing
 cargo test -p kairo-cluster-sharding region_actor_requests_shard_home_from_registered_coordinator_for_local_route
 cargo test -p kairo-cluster-sharding remember
 cargo test -p kairo-cluster-sharding --all-targets --all-features
