@@ -182,6 +182,9 @@ Implemented:
   without real sleeps.
 - `kairo-serialization` is split into focused `message`, `manifest`, `codec`,
   `registry`, `envelope`, and `errors` modules.
+- `kairo-serialization` crate docs now explain that local actor messages do
+  not need serialization, while remote messages require stable manifests,
+  versions, serializer ids, registered codecs, and compile-checked examples.
 - `RemoteMessage`, `MessageCodec<M>`, `DynCodec`, `SerializedMessage`, and
   `RemoteEnvelope` define the stable metadata and payload boundary for remote
   messages.
