@@ -1398,6 +1398,9 @@ Implemented:
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
   compile-checked example.
+- `kairo-cluster-sharding` remember-entity, remember-coordinator, and stable
+  shard-hash tests now live in a focused sibling test module instead of
+  growing the crate-level test file further.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1443,6 +1446,9 @@ cargo test -p kairo-cluster-sharding coordinator_system_inbound_routes_register_
 cargo test -p kairo-cluster-sharding entity_ref_routes_through_registered_region_to_entity_actor
 cargo test -p kairo-cluster-sharding entity_ref_routes_through_sharding_envelope_router_to_local_shard
 cargo test -p kairo-cluster-sharding region_actor_requests_shard_home_from_registered_coordinator_for_local_route
+cargo test -p kairo-cluster-sharding remember
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote reader_supervisor
 cargo test -p kairo-remote tcp_listener_accept_loop_spawns_and_joins_lane_readers
 cargo test -p kairo-remote tcp_lane_reader_supervision_records_lane_restart_decision
