@@ -2,11 +2,30 @@ use std::time::Duration;
 
 use super::error::ConfigError;
 use super::settings::{
-    ActorConfig, ClusterHeartbeatConfig, ClusterShardingConfig, ClusterToolsConfig,
-    DispatcherConfig, RemoteTransportConfig,
+    ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterHeartbeatConfig,
+    ClusterShardingConfig, ClusterToolsConfig, DispatcherConfig, KairoSettings, RemoteConfig,
+    RemoteTransportConfig,
 };
 
+impl KairoSettings {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        self.actor.validate()?;
+        self.remote.validate()?;
+        self.cluster.validate()?;
+        Ok(())
+    }
+}
+
 impl ActorConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        self.default_dispatcher()?
+            .validated_throughput("actor.dispatchers.default.throughput")?;
+        for (name, dispatcher) in &self.dispatchers {
+            dispatcher.validated_throughput(format!("actor.dispatchers.{name}.throughput"))?;
+        }
+        Ok(())
+    }
+
     pub fn default_dispatcher(&self) -> Result<&DispatcherConfig, ConfigError> {
         self.dispatchers
             .get("default")
@@ -64,6 +83,22 @@ impl RemoteTransportConfig {
     }
 }
 
+impl RemoteConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        self.transport.validate()
+    }
+}
+
+impl ClusterConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        self.heartbeat.validate()?;
+        self.downing.validate()?;
+        self.sharding.validated_shard_count()?;
+        self.tools.validate()?;
+        Ok(())
+    }
+}
+
 impl ClusterHeartbeatConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
         reject_zero(
@@ -100,6 +135,18 @@ impl ClusterHeartbeatConfig {
             failure_detector,
         )
         .with_heartbeat_expected_response_after(self.expected_response_after))
+    }
+}
+
+impl ClusterDowningConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.strategy.is_empty() {
+            return Err(ConfigError::InvalidValue {
+                path: "cluster.downing.strategy".to_string(),
+                reason: "must not be empty".to_string(),
+            });
+        }
+        Ok(())
     }
 }
 

@@ -255,3 +255,43 @@ fn config_runtime_helpers_validate_directly_constructed_settings() {
         }
     );
 }
+
+#[test]
+fn config_validate_checks_all_format_neutral_sections() {
+    let settings = KairoSettings {
+        actor: ActorConfig {
+            dispatchers: BTreeMap::from([
+                ("default".to_string(), DispatcherConfig { throughput: 5 }),
+                ("blocking".to_string(), DispatcherConfig { throughput: 0 }),
+            ]),
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "actor.dispatchers.blocking.throughput".to_string(),
+            reason: "must be greater than zero".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        cluster: super::ClusterConfig {
+            downing: super::ClusterDowningConfig {
+                strategy: String::new(),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "cluster.downing.strategy".to_string(),
+            reason: "must not be empty".to_string(),
+        }
+    );
+
+    assert!(KairoSettings::default().validate().is_ok());
+}

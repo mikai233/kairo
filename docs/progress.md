@@ -1267,6 +1267,9 @@ Implemented:
   failure-detector/heartbeat settings, sharding shard counts, and cluster-tools
   pubsub settings while keeping the base config model usable without enabling
   every runtime crate.
+- `KairoSettings::validate` now validates all format-neutral configuration
+  sections, including programmatically constructed actor, remote, cluster
+  heartbeat, downing, sharding, and cluster-tools settings.
 - `kairo-examples` now provides the first runnable example crate under
   `kairo-next`, with a `local_counter` example that demonstrates spawning a
   typed actor, sending local messages without serialization, replying through
