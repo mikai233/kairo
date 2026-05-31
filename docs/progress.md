@@ -1466,6 +1466,10 @@ Implemented:
 - `kairo-actor` context spawn, parent/child introspection, direct-child stop,
   parent-before-child shutdown, actor-path metadata, and post-stop signal tests
   now live in a focused sibling test module.
+- `kairo-actor` local core spawn/tell, builder, recipient, name validation,
+  dead-letter, local resolution, stop, name-reuse, and termination tests now
+  live in a focused sibling test module, leaving the parent test module for
+  shared fixtures.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1538,6 +1542,7 @@ cargo test -p kairo-actor supervision
 cargo test -p kairo-actor context_
 cargo test -p kairo-actor parent_stop
 cargo test -p kairo-actor post_stop_signal
+cargo test -p kairo-actor local_core
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote reader_supervisor
