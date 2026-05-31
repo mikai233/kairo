@@ -1,9 +1,9 @@
 use kairo_actor::{Actor, ActorRef, ActorResult, Context};
 
 use crate::{
-    ClusterEventPublisherMsg, CurrentClusterState, DowningDecision, DowningPlan, Gossip,
-    GossipEnvelope, Join, LeaderSelection, Member, ReachabilityStatus, UniqueAddress,
-    VectorClockOrdering, Welcome,
+    ClusterEventPublisherMsg, CurrentClusterState, DowningDecision, DowningPlan,
+    DowningProviderMsg, Gossip, GossipEnvelope, Join, LeaderSelection, Member, ReachabilityStatus,
+    UniqueAddress, VectorClockOrdering, Welcome,
 };
 
 #[derive(Debug, Clone)]
@@ -30,6 +30,9 @@ pub enum ClusterMembershipMsg {
         node: UniqueAddress,
     },
     ApplyDowningDecision(DowningDecision),
+    RegisterDowningProvider {
+        provider: ActorRef<DowningProviderMsg>,
+    },
     LeaderActionsTick,
     SendCurrentGossip {
         reply_to: ActorRef<Gossip>,
@@ -47,6 +50,7 @@ pub struct ClusterMembership {
     sequence_nr: u64,
     timestamp: u64,
     initialized: bool,
+    downing_provider: Option<ActorRef<DowningProviderMsg>>,
 }
 
 impl ClusterMembership {
@@ -63,6 +67,7 @@ impl ClusterMembership {
             sequence_nr: 0,
             timestamp: 0,
             initialized: false,
+            downing_provider: None,
         }
     }
 
@@ -204,6 +209,11 @@ impl ClusterMembership {
         }
     }
 
+    fn register_downing_provider(&mut self, provider: ActorRef<DowningProviderMsg>) {
+        let _ = provider.tell(DowningProviderMsg::ObserveGossip(self.gossip.clone()));
+        self.downing_provider = Some(provider);
+    }
+
     fn run_leader_actions(&mut self) {
         if LeaderSelection::for_gossip(&self.gossip, &self.self_node).leader()
             != Some(&self.self_node)
@@ -240,6 +250,9 @@ impl ClusterMembership {
             .tell(ClusterEventPublisherMsg::PublishChanges(
                 self.gossip.clone(),
             ));
+        if let Some(provider) = &self.downing_provider {
+            let _ = provider.tell(DowningProviderMsg::ObserveGossip(self.gossip.clone()));
+        }
     }
 
     fn reply_welcome(&self, reply_to: Option<ActorRef<ClusterMembershipMsg>>) {
@@ -297,6 +310,9 @@ impl Actor for ClusterMembership {
             ClusterMembershipMsg::ApplyDowningDecision(decision) => {
                 self.apply_downing_decision(decision);
             }
+            ClusterMembershipMsg::RegisterDowningProvider { provider } => {
+                self.register_downing_provider(provider);
+            }
             ClusterMembershipMsg::LeaderActionsTick => self.run_leader_actions(),
             ClusterMembershipMsg::SendCurrentGossip { reply_to } => {
                 let _ = reply_to.tell(self.gossip.clone());
@@ -317,12 +333,12 @@ mod tests {
     use std::time::Duration;
 
     use kairo_actor::{Address, Props};
-    use kairo_testkit::ActorSystemTestKit;
+    use kairo_testkit::{ActorSystemTestKit, await_assert};
 
     use super::*;
     use crate::{
-        ClusterEvent, ClusterEventPublisher, MemberEvent, MemberStatus, ReachabilityEvent,
-        SubscriptionInitialState,
+        ClusterEvent, ClusterEventPublisher, DowningProviderActor, DowningProviderSnapshot,
+        MemberEvent, MemberStatus, ReachabilityEvent, StaticDowningHook, SubscriptionInitialState,
     };
 
     #[test]
@@ -552,6 +568,100 @@ mod tests {
                     if member.unique_address == peer
             )
         });
+    }
+
+    #[test]
+    fn registered_downing_provider_observes_gossip_and_applies_stable_decision() {
+        let (kit, manual_time) =
+            ActorSystemTestKit::with_manual_time("cluster-membership-downing-provider").unwrap();
+        let self_node = node("self", 1);
+        let peer = node("peer", 2);
+        let (membership, _events) = spawn_membership(&kit, self_node.clone(), "membership");
+        let snapshots = kit
+            .create_probe::<DowningProviderSnapshot>("downing-snapshots")
+            .unwrap();
+        let gossip_probe = kit.create_probe::<Gossip>("downing-gossip").unwrap();
+        let provider = kit
+            .system()
+            .spawn(
+                "downing-provider",
+                DowningProviderActor::props(
+                    self_node.clone(),
+                    StaticDowningHook::new(DowningDecision::DownUnreachable),
+                    membership.clone(),
+                    Duration::from_secs(1),
+                ),
+            )
+            .unwrap();
+
+        membership
+            .tell(ClusterMembershipMsg::RegisterDowningProvider {
+                provider: provider.clone(),
+            })
+            .unwrap();
+        membership.tell(ClusterMembershipMsg::JoinSelf).unwrap();
+        membership
+            .tell(ClusterMembershipMsg::Join {
+                join: Join {
+                    node: peer.clone(),
+                    roles: Vec::new(),
+                },
+                reply_to: None,
+            })
+            .unwrap();
+        membership
+            .tell(ClusterMembershipMsg::MarkUnreachable {
+                observer: self_node,
+                subject: peer.clone(),
+            })
+            .unwrap();
+
+        await_assert(
+            Duration::from_secs(1),
+            Duration::from_millis(10),
+            || -> Result<(), String> {
+                provider
+                    .tell(DowningProviderMsg::Snapshot {
+                        reply_to: snapshots.actor_ref(),
+                    })
+                    .map_err(|error| error.reason().to_string())?;
+                let snapshot = snapshots
+                    .expect_msg(Duration::from_millis(100))
+                    .map_err(|error| error.to_string())?;
+                if snapshot.responsible
+                    && snapshot.stable_timer_active
+                    && snapshot.relevant_unreachable == vec![peer.clone()]
+                {
+                    Ok(())
+                } else {
+                    Err(format!("unexpected downing snapshot: {snapshot:?}"))
+                }
+            },
+        )
+        .unwrap();
+
+        manual_time.advance(Duration::from_secs(1));
+
+        await_assert(
+            Duration::from_secs(1),
+            Duration::from_millis(10),
+            || -> Result<(), String> {
+                membership
+                    .tell(ClusterMembershipMsg::SendCurrentGossip {
+                        reply_to: gossip_probe.actor_ref(),
+                    })
+                    .map_err(|error| error.reason().to_string())?;
+                let gossip = gossip_probe
+                    .expect_msg(Duration::from_millis(100))
+                    .map_err(|error| error.to_string())?;
+                match gossip.member(&peer).map(|member| member.status) {
+                    Some(MemberStatus::Down) => Ok(()),
+                    other => Err(format!("expected peer down, got {other:?}")),
+                }
+            },
+        )
+        .unwrap();
+        kit.shutdown(Duration::from_secs(1)).unwrap();
     }
 
     fn spawn_membership(

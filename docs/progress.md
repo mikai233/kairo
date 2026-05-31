@@ -940,8 +940,8 @@ Implemented:
   and removal forgets detector state.
 - `kairo-cluster::DowningHook`, `DowningDecision`, and `DowningPlan` define the
   initial downing hook boundary and SBR-style decision mapping for downing
-  reachable, unreachable, all, or self-quarantined members before actor-backed
-  providers are wired in.
+  reachable, unreachable, all, or self-quarantined members and are reused by
+  the actor-backed downing provider.
 - `kairo-cluster::SplitBrainResolverHook` provides the first concrete
   synchronous downing policies for `down-all`, `keep-majority`, and
   `keep-oldest`, including role-filtered majority decisions, tie-breaking by
@@ -953,6 +953,10 @@ Implemented:
   changes, gates decisions to the reachable leader, and sends structured
   `ApplyDowningDecision` commands to the membership actor after the stable
   period.
+- `kairo-cluster::ClusterMembership` can register a typed
+  `DowningProviderActor` observer, forwards each current gossip snapshot to it,
+  and applies the provider's stable downing decision through the existing
+  membership state machine.
 - `kairo-cluster::HeartbeatNodeRing` and `HeartbeatSenderState` model
   Pekko-style heartbeat receiver selection and sender bookkeeping, including
   deterministic ring ordering, configured receiver limits, unreachable receiver
@@ -1251,8 +1255,8 @@ Not yet implemented:
   test.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   indirectly-connected split-brain handling, lease-majority support, and
-  broader end-to-end validation of the actor-backed downing provider with live
-  membership sockets.
+  broader end-to-end validation of the actor-backed downing provider across
+  live membership sockets.
 
 ## Last Validation
 

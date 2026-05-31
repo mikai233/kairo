@@ -134,6 +134,9 @@ impl ClusterMembershipWireOutbound {
             ClusterMembershipMsg::ApplyDowningDecision(_) => Err(
                 ClusterMembershipWireError::UnsupportedMessage("apply-downing-decision"),
             ),
+            ClusterMembershipMsg::RegisterDowningProvider { .. } => Err(
+                ClusterMembershipWireError::UnsupportedMessage("register-downing-provider"),
+            ),
             ClusterMembershipMsg::LeaderActionsTick => Err(
                 ClusterMembershipWireError::UnsupportedMessage("leader-actions-tick"),
             ),

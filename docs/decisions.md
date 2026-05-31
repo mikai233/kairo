@@ -554,7 +554,7 @@ Consequences:
 - The facade remains a lightweight handle over the cluster event publisher
   until full membership actors own the publisher lifecycle.
 
-## ADR-0023: Initial Split-Brain Resolver Hooks Are Synchronous Policies
+## ADR-0023: Split-Brain Resolver Policies Use Actor-Backed Stable Timing
 
 Status: Accepted
 
@@ -562,24 +562,30 @@ Context:
 Pekko's split-brain resolver is an actor-backed downing provider. It waits for
 stable reachability, handles indirectly connected graphs, and can use lease
 acquisition for lease-majority decisions. Kairo has the gossip, reachability,
-and downing-plan state needed for deterministic decisions, but not yet the full
-provider lifecycle, lease abstraction, or multi-node transport.
+and downing-plan state needed for deterministic decisions, plus a local actor
+runtime with deterministic timers. It does not yet have lease-majority support
+or the full indirectly-connected graph logic.
 
 Decision:
-Kairo's first concrete downing slice exposes synchronous
+Kairo exposes synchronous
 `SplitBrainResolverHook` policies for `down-all`, `keep-majority`, and
 `keep-oldest`. These hooks implement the primary Pekko decisions over the
-current gossip snapshot and feed the existing `DowningPlan`; lease-majority,
-indirectly-connected graph handling, and stable-after actor timing remain
-future provider work.
+current gossip snapshot and feed the existing `DowningPlan`. The actor-backed
+`DowningProviderActor` owns the stable-after timer and applies hook decisions
+only after reachability has remained stable and the local node is the reachable
+leader. Membership gossip reaches the provider through an explicit typed
+registration message rather than hidden plugin lifecycle wiring until full
+cluster bootstrap owns provider startup. Lease-majority and
+indirectly-connected graph handling remain future provider work.
 
 Consequences:
 - Tests can cover concrete downing behavior without introducing a central
   membership authority or a premature lease dependency.
-- The public downing boundary remains `DowningHook` plus `DowningPlan`, so an
-  actor-backed provider can reuse the same policy decisions later.
-- Full split-brain resolver parity still requires stable-after scheduling,
-  indirectly-connected handling, and lease-majority support.
+- The public downing boundary remains `DowningHook` plus `DowningPlan`, while
+  provider timing is a focused actor rather than being folded into gossip
+  state.
+- Full split-brain resolver parity still requires indirectly-connected
+  handling, lease-majority support, and broader live-socket validation.
 
 ## ADR-0024: Remote Refs Start As Typed Recipient Boundaries
 
