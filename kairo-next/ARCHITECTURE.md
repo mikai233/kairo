@@ -1601,6 +1601,14 @@ Implementation shape:
   shard, observes the shard handoff plan, asks for stopper completion when
   needed, marks the local shard stopped, and replies with stable
   `ShardStopped` to the remote coordinator.
+- Local graceful region shutdown is modeled as explicit actor messages:
+  `ShardRegionActor<M>` marks graceful shutdown in progress, sends
+  `GracefulShutdownReq` to its registered local coordinator, rejects later
+  host-shard requests through the existing runtime flag, and stops once local
+  shard children and shard buffers are gone. The coordinator marks that region
+  as gracefully shutting down, excludes it from future allocation, starts
+  handoff workers for every shard currently owned by the region, and
+  reallocates completed handoffs through the existing shard-home path.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.

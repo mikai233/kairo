@@ -41,6 +41,23 @@ pub enum RebalancePlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegionShutdownPlan {
+    Started {
+        region: RegionId,
+        shards: Vec<ShardRebalancePlan>,
+    },
+    AlreadyInProgress {
+        region: RegionId,
+    },
+    UnknownRegion {
+        region: RegionId,
+    },
+    NoShards {
+        region: RegionId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShardRebalancePlan {
     pub shard: ShardId,
     pub from_region: RegionId,
@@ -243,6 +260,48 @@ impl CoordinatorRuntime {
             })
         } else {
             Ok(RebalancePlan::Started { shards: plans })
+        }
+    }
+
+    pub fn plan_region_shutdown(&mut self, region: impl Into<RegionId>) -> RegionShutdownPlan {
+        let region = region.into();
+        if self.graceful_shutdown_regions.contains(&region) {
+            return RegionShutdownPlan::AlreadyInProgress { region };
+        }
+        let Some(shards) = self
+            .state
+            .allocations()
+            .shards_for(&region)
+            .map(|shards| shards.to_vec())
+        else {
+            return RegionShutdownPlan::UnknownRegion { region };
+        };
+
+        self.mark_graceful_shutdown(region.clone());
+        let participants = self.rebalance_participants();
+        let mut plans = Vec::new();
+        for shard in shards {
+            if self.rebalance_in_progress.contains_key(&shard) {
+                continue;
+            }
+            self.begin_rebalance(shard.clone());
+            plans.push(ShardRebalancePlan {
+                begin_handoff: BeginHandOff {
+                    shard_id: shard.clone(),
+                },
+                participants: participants.clone(),
+                from_region: region.clone(),
+                shard,
+            });
+        }
+
+        if plans.is_empty() {
+            RegionShutdownPlan::NoShards { region }
+        } else {
+            RegionShutdownPlan::Started {
+                region,
+                shards: plans,
+            }
         }
     }
 

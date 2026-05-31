@@ -73,6 +73,9 @@ pub enum ShardRegionMsg<M> {
         result: AskResult<bool>,
         reply: ShardRegionRemoteControlReplyTarget,
     },
+    GracefulShutdown {
+        reply_to: Option<ActorRef<ShardRegionSnapshot>>,
+    },
     HandOffToLocalShard {
         shard: ShardId,
         stop_message: M,

@@ -10,7 +10,7 @@ use crate::{
     BeginHandOffAck, CoordinatorEvent, CoordinatorRemoteRegions, CoordinatorRemoteReplyTarget,
     CoordinatorRuntime, CoordinatorState, GetShardHomePlan, HandoffRegionTarget, HandoffTransport,
     HandoffWorkerDone, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
-    RegionId, RememberCoordinatorStoreMsg, RememberCoordinatorStoreState,
+    RegionId, RegionShutdownPlan, RememberCoordinatorStoreMsg, RememberCoordinatorStoreState,
     RememberCoordinatorUpdateDone, RememberedShards, ShardAllocationStrategy, ShardId,
     ShardStarted, ShardStopped, ShardingError, remote_region_id,
 };
@@ -221,6 +221,10 @@ where
     UnmarkRegionTerminating {
         region: RegionId,
     },
+    GracefulShutdownReq {
+        region: RegionId,
+        reply_to: Option<ActorRef<RegionShutdownPlan>>,
+    },
     RequestShardHome {
         requester: RegionId,
         shard: ShardId,
@@ -341,6 +345,11 @@ where
             }
             ShardCoordinatorMsg::UnmarkRegionTerminating { region } => {
                 self.runtime.unmark_region_terminating(&region);
+            }
+            ShardCoordinatorMsg::GracefulShutdownReq { region, reply_to } => {
+                let plan = self.runtime.plan_region_shutdown(region);
+                self.spawn_shutdown_workers(ctx, &plan)?;
+                reply_optional(reply_to, plan);
             }
             ShardCoordinatorMsg::RequestShardHome {
                 requester,
@@ -516,6 +525,20 @@ where
         result: &Result<RebalancePlan, ShardingError>,
     ) -> ActorResult {
         let (Some(handoff), Ok(RebalancePlan::Started { shards })) = (&mut self.handoff, result)
+        else {
+            return Ok(());
+        };
+
+        handoff.spawn_workers(ctx, shards)?;
+        Ok(())
+    }
+
+    fn spawn_shutdown_workers(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
+        plan: &RegionShutdownPlan,
+    ) -> ActorResult {
+        let (Some(handoff), RegionShutdownPlan::Started { shards, .. }) = (&mut self.handoff, plan)
         else {
             return Ok(());
         };

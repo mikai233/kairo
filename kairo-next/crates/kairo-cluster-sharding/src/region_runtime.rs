@@ -163,6 +163,16 @@ impl<M> ShardRegionRuntime<M> {
         self.preparing_for_shutdown = preparing;
     }
 
+    pub fn preparing_for_shutdown(&self) -> bool {
+        self.preparing_for_shutdown
+    }
+
+    pub fn graceful_shutdown_complete(&self) -> bool {
+        self.graceful_shutdown_in_progress
+            && self.local_shards.is_empty()
+            && self.total_buffered_count() == 0
+    }
+
     pub fn route(
         &mut self,
         shard: impl Into<ShardId>,

@@ -2522,3 +2522,33 @@ Consequences:
 - Regions that do not configure a remote handoff stop-message source do not
   falsely acknowledge hosted remote handoff commands; callers must opt in when
   they host shards reachable from a remote coordinator.
+
+## ADR-0089: Local Graceful Region Shutdown Reuses Handoff Workers
+
+Status: Accepted
+
+Context:
+Pekko shard regions handle `GracefulShutdown` by marking the region as
+shutting down, sending `GracefulShutdownReq` to the coordinator, and stopping
+once hosted shards and shard buffers are gone. The coordinator marks that
+region as gracefully shutting down, excludes it from new allocations, and
+starts normal shard handoff for each shard currently owned by the region.
+
+Decision:
+Kairo adds explicit local `GracefulShutdown` and `GracefulShutdownReq` actor
+messages. The region actor reuses its focused runtime flag and registered
+coordinator reference, then stops after local shards and buffers are empty. The
+coordinator runtime adds `RegionShutdownPlan`, which marks the region as
+gracefully shutting down and creates normal `ShardRebalancePlan` values for
+the region's current shards. The coordinator actor spawns the existing
+handoff-worker actors for those plans and lets successful completion reallocate
+through the existing shard-home path.
+
+Consequences:
+- Graceful shutdown uses the same handoff, allocation, remember-store, and
+  region-hosting code paths as rebalancing instead of adding a second shard
+  movement mechanism.
+- The first slice is local and typed; stable remote `GracefulShutdownReq` and
+  `RegionStopped` wire messages remain a later protocol slice.
+- The coordinator's existing graceful-shutdown exclusion now has an actor
+  message path that can be driven by regions and deterministic tests.

@@ -1300,6 +1300,12 @@ Implemented:
   shards forward into the local shard, observe the shard handoff plan, ask for
   stopper completion when required, mark the shard stopped, and send stable
   `ShardStopped` replies without putting business stop messages on the wire.
+- `kairo-cluster-sharding` now has a local graceful region-shutdown path:
+  regions notify their registered coordinator with `GracefulShutdownReq`,
+  coordinators mark that region as gracefully shutting down, start handoff
+  workers for each shard it owns, exclude it from new allocations, reallocate
+  completed handoffs through the normal shard-home path, and regions stop once
+  their local shards and buffers are gone.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1324,7 +1330,8 @@ Not yet implemented:
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration and broader
   multi-node validation of the discovery subscriber plus region/coordinator
-  flow.
+  flow. Graceful region shutdown still needs stable remote wire messages and
+  multi-node validation.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
@@ -1340,6 +1347,7 @@ cargo fmt --all -- --check
 cargo test -p kairo-cluster-sharding region_system_inbound_completes_hosted_remote_handoff_with_local_stop_message
 cargo test -p kairo-cluster-sharding remote_control
 cargo test -p kairo-cluster-sharding region_system_inbound
+cargo test -p kairo-cluster-sharding graceful_shutdown
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check

@@ -522,6 +522,10 @@ where
             } => {
                 self.apply_remote_local_shard_handoff_stopper_result(ctx, shard, result, reply)?;
             }
+            ShardRegionMsg::GracefulShutdown { reply_to } => {
+                self.apply_graceful_shutdown(ctx)?;
+                reply_optional(reply_to, self.snapshot());
+            }
             ShardRegionMsg::HandOffToLocalShard {
                 shard,
                 stop_message,
@@ -547,6 +551,7 @@ where
             } => {
                 let plan = self.apply_local_shard_handoff_stopper_result(ctx, shard, result)?;
                 let _ = reply_to.tell(plan);
+                self.try_complete_graceful_shutdown(ctx)?;
             }
             ShardRegionMsg::CoordinatorRegistrationResult { result } => {
                 self.apply_registration_result(result, ctx)?;
@@ -589,6 +594,7 @@ where
                 self.runtime.mark_shard_stopped(&shard);
                 self.local_shards.remove(&shard);
                 reply_optional(reply_to, self.snapshot());
+                self.try_complete_graceful_shutdown(ctx)?;
             }
             ShardRegionMsg::SetGracefulShutdown { in_progress } => {
                 self.runtime.set_graceful_shutdown_in_progress(in_progress);
@@ -658,6 +664,43 @@ where
             reply
                 .send_begin_handoff_ack(ack.shard_id)
                 .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn apply_graceful_shutdown(&mut self, ctx: &mut Context<ShardRegionMsg<M>>) -> ActorResult {
+        if self.runtime.preparing_for_shutdown() {
+            ctx.stop(ctx.myself())?;
+            return Ok(());
+        }
+
+        self.runtime.set_graceful_shutdown_in_progress(true);
+        self.send_graceful_shutdown_to_coordinator()?;
+        self.try_complete_graceful_shutdown(ctx)
+    }
+
+    fn send_graceful_shutdown_to_coordinator(&self) -> ActorResult {
+        let Some(registration) = &self.registration else {
+            return Ok(());
+        };
+        if !registration.is_registered() {
+            return Ok(());
+        }
+        registration
+            .coordinator()
+            .tell(ShardCoordinatorMsg::GracefulShutdownReq {
+                region: self.runtime.self_region().clone(),
+                reply_to: None,
+            })
+            .map_err(|error| ActorError::Message(error.reason().to_string()))
+    }
+
+    fn try_complete_graceful_shutdown(
+        &mut self,
+        ctx: &mut Context<ShardRegionMsg<M>>,
+    ) -> ActorResult {
+        if self.runtime.graceful_shutdown_complete() {
+            ctx.stop(ctx.myself())?;
         }
         Ok(())
     }
@@ -769,9 +812,11 @@ where
         }
         self.runtime.mark_shard_stopped(&shard);
         self.local_shards.remove(&shard);
-        reply
+        let result = reply
             .send_shard_stopped(shard)
-            .map_err(|error| ActorError::Message(error.to_string()))
+            .map_err(|error| ActorError::Message(error.to_string()));
+        self.try_complete_graceful_shutdown(ctx)?;
+        result
     }
 
     fn register_with_coordinator(&mut self, ctx: &Context<ShardRegionMsg<M>>) -> ActorResult {

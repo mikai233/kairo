@@ -136,7 +136,7 @@ pub use coordinator_remote_target::{
 };
 pub use coordinator_runtime::{
     CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan, RebalanceCompletionPlan,
-    RebalancePlan, RebalanceSkipReason, ShardRebalancePlan,
+    RebalancePlan, RebalanceSkipReason, RegionShutdownPlan, ShardRebalancePlan,
 };
 pub use coordinator_system_inbound::{
     ShardCoordinatorSystemInbound, ShardCoordinatorSystemInboundError,
