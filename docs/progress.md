@@ -75,6 +75,9 @@ Implemented:
 - `Signal::Terminated` is delivered once to local watchers after the watched
   actor terminates; `watch_with` delivers a typed custom protocol message, and
   `unwatch` suppresses later local termination notification.
+- Watching an already stopped local actor now has focused integration coverage:
+  plain `watch` immediately delivers `Signal::Terminated`, while `watch_with`
+  immediately delivers the caller's typed custom message.
 - `Signal::ChildFailed` now reports a failed direct child to a parent that is
   watching that child, while non-parent watchers still receive plain
   `Signal::Terminated` and `watch_with` continues to deliver the caller's
@@ -1422,6 +1425,7 @@ cargo test -p kairo-actor restart_supervision_rebuilds_actor_after_signal_failur
 cargo test -p kairo-actor watch_self
 cargo test -p kairo-actor watch_with_self
 cargo test -p kairo-actor requires_unwatch_first
+cargo test -p kairo-actor --test death_watch
 cargo test -p kairo-actor mailbox::tests
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
