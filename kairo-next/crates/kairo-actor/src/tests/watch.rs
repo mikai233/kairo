@@ -1,3 +1,4 @@
+use super::supervision::{SupervisionMsg, SupervisionProbe};
 use super::*;
 
 enum WatchProbeMsg {

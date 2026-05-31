@@ -1460,6 +1460,9 @@ Implemented:
   a focused sibling test module.
 - `kairo-actor` backoff-supervisor restart-delay tests now live in a focused
   sibling test module.
+- `kairo-actor` startup-failure, restart/resume strategy, restart-limit,
+  child-preservation, and escalation supervision tests now live in a focused
+  sibling test module with only the watch-shared probe fixture exposed.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1528,6 +1531,7 @@ cargo test -p kairo-actor task
 cargo test -p kairo-actor adapter
 cargo test -p kairo-actor watch
 cargo test -p kairo-actor backoff_supervisor
+cargo test -p kairo-actor supervision
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote reader_supervisor
