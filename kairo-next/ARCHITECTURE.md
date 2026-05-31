@@ -1443,6 +1443,7 @@ src/
   coordinator.rs
   coordinator_discovery.rs
   region_coordinator_discovery.rs
+  region_discovery_subscriber.rs
   allocation.rs
   handoff.rs
   passivation.rs
@@ -1541,6 +1542,9 @@ Implementation shape:
   region's registration target when the selected coordinator changes, and
   leaves remote singleton target resolution as the later transport-backed
   extension.
+- `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
+  discovery path, requests an initial cluster snapshot, forwards later cluster
+  events to `ShardRegionActor<M>`, and unsubscribes when stopped.
 
 Ordering:
 

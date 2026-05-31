@@ -2195,3 +2195,32 @@ Consequences:
 - Future remote coordinator targets can extend the bridge without changing the
   pure discovery state machine or making cluster membership authoritative in
   sharding.
+
+## ADR-0078: Sharding Discovery Subscription Is Owned By A Focused Actor
+
+Status: Accepted
+
+Context:
+Pekko shard regions subscribe to cluster member events in `preStart`, process
+the initial membership state and later events through the same region receive
+loop, and unsubscribe during stop. Kairo's `ShardRegionActor` already has
+focused routing, buffering, handoff, registration, and coordinator-discovery
+plan application responsibilities. Adding cluster subscription ownership
+directly to that actor would blur the region runtime boundary.
+
+Decision:
+Kairo adds `ShardRegionDiscoverySubscriber<M>` in a focused sharding module.
+The subscriber actor owns the `ClusterSubscriptionEvent` adapter, subscribes
+with an initial snapshot, forwards snapshots/events to
+`ShardRegionMsg::CoordinatorDiscoverySnapshot` and
+`ShardRegionMsg::CoordinatorDiscoveryEvent`, exposes a deterministic snapshot
+for tests, and unsubscribes when stopped. The region actor remains the place
+where discovery plans are applied and registration is retried.
+
+Consequences:
+- Sharding now has an explicit actor-backed owner for the cluster subscription
+  that drives coordinator discovery.
+- Region actor logic stays structured around region messages rather than
+  cluster facade lifecycle details.
+- Future bootstrap helpers can spawn the subscriber alongside the region and
+  later extend it to support remote singleton target resolution.

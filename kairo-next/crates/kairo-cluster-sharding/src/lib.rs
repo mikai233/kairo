@@ -75,6 +75,7 @@ mod hashing;
 mod protocol;
 mod region_actor;
 mod region_coordinator_discovery;
+mod region_discovery_subscriber;
 mod region_home_requests;
 mod region_protocol;
 mod region_registration;
@@ -136,6 +137,10 @@ pub use protocol::{
 pub use region_actor::ShardRegionActor;
 pub use region_coordinator_discovery::{
     RegionCoordinatorDiscovery, RegionCoordinatorDiscoveryConfig, RegionCoordinatorDiscoveryPlan,
+};
+pub use region_discovery_subscriber::{
+    ShardRegionDiscoverySubscriber, ShardRegionDiscoverySubscriberMsg,
+    ShardRegionDiscoverySubscriberSnapshot,
 };
 pub use region_protocol::{
     RegionBufferedReplayPlan, RegionLocalHandOffCompletionFailure,

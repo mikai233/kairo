@@ -913,6 +913,10 @@ Implemented:
   discovery snapshots/events, use a focused region coordinator-discovery
   bridge to select a typed local coordinator target, and start the normal
   self-registration/retry flow when the selected coordinator appears or moves.
+- `kairo-cluster-sharding` now has an actor-backed shard-region discovery
+  subscriber that owns the cluster subscription, requests an initial cluster
+  snapshot, forwards snapshots/events into the region's coordinator-discovery
+  messages, and unsubscribes during actor stop.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -1270,9 +1274,9 @@ Not yet implemented:
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration,
-  transport-backed remote region targets, cluster subscription ownership for
-  region coordinator discovery, and remote singleton target resolution beyond
-  typed local coordinator refs.
+  transport-backed remote region targets, remote singleton target resolution
+  beyond typed local coordinator refs, and broader multi-node validation of the
+  discovery subscriber plus region/coordinator flow.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
@@ -1288,6 +1292,7 @@ cargo fmt --all -- --check
 cargo test -p kairo-cluster-sharding coordinator_discovery
 cargo test -p kairo-cluster-sharding region_coordinator_discovery
 cargo test -p kairo-cluster-sharding region_actor_registers_with_discovered_local_coordinator
+cargo test -p kairo-cluster-sharding region_discovery_subscriber_forwards_cluster_snapshot_to_region_registration
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
