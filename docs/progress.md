@@ -1208,6 +1208,10 @@ Implemented:
   `EntityRef<String>` through reusable helper code and demonstrates stable
   shard-id routing into an entity-backed local shard whose typed counter
   entity receives business messages.
+- `kairo-examples` now has integration smoke tests for the reusable
+  `local_counter`, `ask_pipe_to_self`, and `cluster_sharding_local` modules,
+  validating the example crate from the same public module boundary used by
+  downstream callers instead of relying only on binary entry points.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
