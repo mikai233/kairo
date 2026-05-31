@@ -702,6 +702,8 @@ Implemented:
 - `kairo-distributed-data` CRDT foundation tests for replica ids, GSet, ORSet,
   GCounter, PNCounter, deltas, pruning, and overflow now live in a focused
   sibling test module.
+- `kairo-distributed-data` built-in CRDT codec round-trip and rejection tests
+  now live in a focused sibling test module.
 - `kairo-examples` now includes a runnable distributed-data TCP peer bootstrap
   example, with reusable setup and one-shot reply helpers kept in focused
   example modules instead of placing route orchestration in one binary file.
@@ -1569,6 +1571,7 @@ cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_fro
 cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-distributed-data bootstrap
 cargo test -p kairo-distributed-data crdt_foundation
+cargo test -p kairo-distributed-data crdt_codecs
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership
