@@ -1285,6 +1285,8 @@ Implemented:
   lifecycle events for node removal, dropping remote mediator routes and
   registry buckets when members leave, are downed, or are removed, and it routes
   one-message-per-group publishes across local and remote mediator targets.
+- `kairo-cluster-tools` distributed pubsub mediator actor-boundary tests now
+  live in a focused sibling test module.
 - `kairo-cluster-tools` now declares stable remote metadata and explicit codecs
   for distributed pubsub gossip status and delta messages, including
   `UniqueAddress`, bucket versions, topic/group registry entries, tombstones,
@@ -1693,6 +1695,7 @@ cargo test -p kairo-cluster-tools local_pubsub
 cargo test -p kairo-cluster-tools pubsub_registry
 cargo test -p kairo-cluster-tools pubsub_gossip
 cargo test -p kairo-cluster-tools pubsub_delivery
+cargo test -p kairo-cluster-tools distributed_pubsub_mediator
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor startup_failure
