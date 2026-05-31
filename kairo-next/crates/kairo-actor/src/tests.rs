@@ -811,6 +811,7 @@ fn post_stop_signal_is_delivered_during_termination() {
 enum SupervisionMsg {
     Increment,
     Fail,
+    Panic,
     Get(mpsc::Sender<usize>),
 }
 
@@ -834,6 +835,7 @@ impl Actor for SupervisionProbe {
                 Ok(())
             }
             SupervisionMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            SupervisionMsg::Panic => panic!("panic boom"),
             SupervisionMsg::Get(reply_to) => reply_to
                 .send(self.value)
                 .map_err(|error| ActorError::Message(error.to_string())),
@@ -894,6 +896,31 @@ impl Actor for StartupProbe {
             }
             Signal::PostStop => self.stopped(ctx),
             Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
+        }
+    }
+}
+
+struct StartupPanicProbe {
+    starts: Arc<AtomicU64>,
+    panic_until: u64,
+}
+
+impl Actor for StartupPanicProbe {
+    type Msg = StartupProbeMsg;
+
+    fn started(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
+        if start <= self.panic_until {
+            panic!("startup panic {start}");
+        }
+        Ok(())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            StartupProbeMsg::GetStartCount(reply_to) => reply_to
+                .send(self.starts.load(Ordering::SeqCst))
+                .map_err(|error| ActorError::Message(error.to_string())),
         }
     }
 }
@@ -986,6 +1013,36 @@ fn bounded_restart_supervision_stops_when_startup_limit_is_exceeded() {
 }
 
 #[test]
+fn startup_panic_enters_bounded_restart_supervision() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let actor = system
+        .spawn(
+            "startup-panic-probe",
+            Props::restartable({
+                let starts = Arc::clone(&starts);
+                move || StartupPanicProbe {
+                    starts: Arc::clone(&starts),
+                    panic_until: 1,
+                }
+            })
+            .with_supervisor(SupervisorStrategy::restart_with_limit(
+                2,
+                Duration::from_secs(60),
+            )),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor
+        .tell(StartupProbeMsg::GetStartCount(reply_tx))
+        .unwrap();
+
+    assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+    assert!(!actor.is_stopped());
+}
+
+#[test]
 fn default_supervision_stops_actor_on_failure() {
     let system = ActorSystem::builder("test").build().unwrap();
     let actor = system
@@ -1002,6 +1059,49 @@ fn default_supervision_stops_actor_on_failure() {
 
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
     assert!(actor.tell(SupervisionMsg::Increment).is_err());
+}
+
+#[test]
+fn default_supervision_stops_actor_on_receive_panic() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "supervised",
+            Props::new(|| SupervisionProbe {
+                value: 0,
+                restarted: None,
+            }),
+        )
+        .unwrap();
+
+    actor.tell(SupervisionMsg::Panic).unwrap();
+
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(actor.tell(SupervisionMsg::Increment).is_err());
+}
+
+#[test]
+fn restart_supervision_rebuilds_actor_after_receive_panic() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (restarted_tx, restarted_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "supervised",
+            Props::restartable(move || SupervisionProbe {
+                value: 0,
+                restarted: Some(restarted_tx.clone()),
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor.tell(SupervisionMsg::Increment).unwrap();
+    actor.tell(SupervisionMsg::Panic).unwrap();
+    restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    actor.tell(SupervisionMsg::Get(reply_tx)).unwrap();
+
+    assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 0);
+    assert!(!actor.is_stopped());
 }
 
 #[test]

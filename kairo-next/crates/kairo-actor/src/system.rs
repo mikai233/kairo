@@ -1,3 +1,5 @@
+use std::any::Any;
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
@@ -583,7 +585,7 @@ fn run_actor<A>(
         .registry
         .remove_child(parent_path.as_str(), actor_ref.path());
     system_inner.registry.remove_handle(actor_ref.path());
-    let _ = actor.signal(&mut context, Signal::PostStop);
+    let _ = invoke_signal(&mut actor, &mut context, Signal::PostStop);
     actor_ref.target.terminated.mark_stopped();
     system_inner.death_watch.remove_watcher(actor_ref.path());
     system_inner
@@ -625,7 +627,7 @@ where
             false
         }
         Dequeued::System(SystemMessage::Signal(signal)) => {
-            let _ = actor.signal(context, signal);
+            let _ = invoke_signal(actor, context, signal);
             false
         }
         Dequeued::System(SystemMessage::SupervisionFailure(failure)) => {
@@ -652,7 +654,7 @@ where
         Dequeued::User(UserEnvelope::Message(message)) => {
             context.before_influencing_message();
             let stop_reason = apply_receive_result(
-                actor.receive(context, message),
+                invoke_receive(actor, context, message),
                 actor_ref,
                 actor,
                 context,
@@ -672,7 +674,7 @@ where
         Dequeued::User(UserEnvelope::Adapted(adapt)) => {
             context.before_influencing_message();
             let stop_reason = apply_receive_result(
-                actor.receive(context, adapt()),
+                invoke_receive(actor, context, adapt()),
                 actor_ref,
                 actor,
                 context,
@@ -693,7 +695,7 @@ where
             if context.accept_timer(&timer) {
                 context.before_influencing_message();
                 let stop_reason = apply_receive_result(
-                    actor.receive(context, timer.into_message()),
+                    invoke_receive(actor, context, timer.into_message()),
                     actor_ref,
                     actor,
                     context,
@@ -717,7 +719,7 @@ where
             if context.accept_receive_timeout(&timeout) {
                 context.before_influencing_message();
                 let stop_reason = apply_receive_result(
-                    actor.receive(context, timeout.into_message()),
+                    invoke_receive(actor, context, timeout.into_message()),
                     actor_ref,
                     actor,
                     context,
@@ -740,6 +742,41 @@ where
     }
 }
 
+fn invoke_started<A>(actor: &mut A, context: &mut Context<A::Msg>) -> ActorResult
+where
+    A: Actor,
+{
+    panic::catch_unwind(AssertUnwindSafe(|| actor.started(context)))
+        .unwrap_or_else(|panic| Err(panic_to_actor_error("started", panic)))
+}
+
+fn invoke_receive<A>(actor: &mut A, context: &mut Context<A::Msg>, message: A::Msg) -> ActorResult
+where
+    A: Actor,
+{
+    panic::catch_unwind(AssertUnwindSafe(|| actor.receive(context, message)))
+        .unwrap_or_else(|panic| Err(panic_to_actor_error("receive", panic)))
+}
+
+fn invoke_signal<A>(actor: &mut A, context: &mut Context<A::Msg>, signal: Signal) -> ActorResult
+where
+    A: Actor,
+{
+    panic::catch_unwind(AssertUnwindSafe(|| actor.signal(context, signal)))
+        .unwrap_or_else(|panic| Err(panic_to_actor_error("signal", panic)))
+}
+
+fn panic_to_actor_error(callback: &str, panic: Box<dyn Any + Send>) -> ActorError {
+    let message = if let Some(message) = panic.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = panic.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
+    };
+    ActorError::Message(format!("actor {callback} panicked: {message}"))
+}
+
 fn apply_start_result<A>(
     actor: &mut A,
     actor_ref: &ActorRef<A::Msg>,
@@ -752,7 +789,7 @@ where
     A: Actor,
 {
     loop {
-        let Err(error) = actor.started(context) else {
+        let Err(error) = invoke_started(actor, context) else {
             return None;
         };
         let reason = error.to_string();
@@ -912,9 +949,9 @@ where
     if stop_children_on_restart {
         stop_children(system_inner, actor_ref.path.as_str());
     }
-    let _ = actor.signal(context, Signal::PreRestart);
+    let _ = invoke_signal(actor, context, Signal::PreRestart);
     context.stop_requested = false;
-    restarted.started(context)?;
+    invoke_started(&mut restarted, context)?;
     *actor = restarted;
     Ok(())
 }

@@ -142,6 +142,10 @@ Implemented:
   resume strategies stop the actor, escalation reports the failed child to the
   parent, and bounded restart retries startup through `Props::restartable`
   without emitting `PreRestart` for an actor that never fully started.
+- Actor callback panics in `started`, `receive`, and signal handling are caught
+  at the runtime boundary where possible and converted into explicit
+  `ActorError` failures, so receive panics follow the configured supervision
+  strategy and startup panics enter the startup supervision path.
 - `SupervisorStrategy::restart_with_limit` supports Pekko-style bounded
   restarts by allowing a configured number of restarts within a time window,
   stopping the actor when the limit is exceeded, and resetting the count after
@@ -1396,6 +1400,9 @@ cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor startup_failure
 cargo test -p kairo-actor bounded_restart_supervision
 cargo test -p kairo-actor startup_failure_escalates_to_parent_supervision
+cargo test -p kairo-actor receive_panic
+cargo test -p kairo-actor startup_panic
+cargo test -p kairo-actor restart_supervision_rebuilds_actor_after_receive_panic
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding --all-targets --all-features
