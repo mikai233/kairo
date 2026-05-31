@@ -420,6 +420,10 @@ Implemented:
   `ReplicatedData`, delta CRDT contracts, `ReplicaId`, `GSet`, `GCounter`,
   `PNCounter`, and `ORSet` instead of concentrating data logic in the crate
   root.
+- `kairo-distributed-data` crate docs now describe the structured CRDT,
+  replicator state, aggregation, delta, gossip, pruning, cluster-route, and
+  remote-association boundaries, plus a compile-checked local CRDT update and
+  change-flush example.
 - `GSet` preserves immutable add-only union semantics with accumulated deltas;
   `GCounter` stores per-replica absolute counts and merges by maximum value;
   `PNCounter` composes increment and decrement `GCounter`s with explicit

@@ -1,4 +1,59 @@
 //! CRDT-based replicated data for Kairo clusters.
+//!
+//! `kairo-distributed-data` is built around Pekko-style replicated data
+//! semantics, but keeps the Rust implementation split into explicit state and
+//! transport boundaries. CRDT types such as [`GSet`], [`GCounter`],
+//! [`PNCounter`], and [`ORSet`] own merge behavior. [`ReplicatorState`] owns
+//! local get/update/write transitions and separates changed-key flushing from
+//! the update turn. Actor, aggregation, delta, gossip, pruning, cluster-route,
+//! and TCP association modules compose those pieces without making
+//! distributed data a cluster membership authority.
+//!
+//! Local CRDT values do not need remote serialization. Messages and CRDT
+//! payloads only cross remote boundaries through stable
+//! [`RemoteMessage`](kairo_serialization::RemoteMessage) manifests, serializer
+//! ids, versions, and registered codecs. The built-in protocol codecs use
+//! explicit fields for replica ids, keys, pruning metadata, deltas, full-state
+//! gossip, and direct read/write replies; they must not depend on Rust type
+//! names, enum discriminants, or memory layout.
+//!
+//! ```
+//! use kairo_distributed_data::{
+//!     GCounter, GetResponse, ReplicaId, ReplicatorKey, ReplicatorState,
+//! };
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let replica = ReplicaId::new("node-a");
+//! let key = ReplicatorKey::new("counters.requests");
+//! let mut state = ReplicatorState::<GCounter>::new();
+//!
+//! let outcome = state.update_local(key.clone(), GCounter::new(), |counter| {
+//!     counter.increment(replica.clone(), 3)
+//! })?;
+//! assert!(outcome.changed());
+//! assert!(outcome.delta().is_some());
+//!
+//! match state.get_local(&key) {
+//!     GetResponse::Success { data, .. } => assert_eq!(data.value()?, 3),
+//!     other => panic!("expected successful local read, got {other:?}"),
+//! }
+//!
+//! let changes = state.flush_changes();
+//! assert_eq!(changes.len(), 1);
+//! assert_eq!(changes[0].key(), &key);
+//! assert_eq!(changes[0].data().value()?, 3);
+//! assert!(state.flush_changes().is_empty());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! The public surface intentionally exposes focused building blocks instead of
+//! one erased protocol. [`ReplicatorActor`] wires CRDT state into synchronous
+//! actor turns, aggregation session actors handle quorum-style read/write
+//! operations, delta and gossip transports encode already-addressed
+//! replicator traffic, cluster connectors derive replica routes from cluster
+//! events, and TCP peer runtimes route those envelopes through `kairo-remote`
+//! association caches.
 
 mod aggregation;
 mod aggregation_actor;
