@@ -2164,3 +2164,34 @@ Consequences:
   handoff, and remember-entity state.
 - Downed and removed members are dropped from candidate state immediately,
   matching Kairo's explicit candidate set of statuses of interest.
+
+## ADR-0077: Region Discovery Wiring Uses Explicit Coordinator Targets First
+
+Status: Accepted
+
+Context:
+Pekko shard regions send registration to actor selections for the likely
+coordinator singleton locations computed from cluster membership. Kairo has
+typed actor refs and stable remote envelopes, but it does not yet have the
+final singleton/path resolution layer that can turn every discovered
+`UniqueAddress` into a remote coordinator target. The region actor still needs
+to react to cluster snapshots/events without embedding discovery logic into
+its routing and buffering code.
+
+Decision:
+Kairo adds a focused `RegionCoordinatorDiscovery` bridge in
+`kairo-cluster-sharding`. It owns the mapping from discovered coordinator
+nodes to typed local `ShardCoordinatorMsg<M>` refs for the current vertical
+slice, uses `CoordinatorDiscoveryState` for membership semantics, and returns
+registration configs only when the selected coordinator target changes. The
+region actor accepts discovery snapshots/events and refreshes its existing
+`RegionRegistration` boundary from that bridge.
+
+Consequences:
+- Region actor code remains focused on applying plans, routing messages, and
+  asking a registered coordinator for shard homes.
+- The current slice exercises cluster-event-driven registration with typed
+  local coordinator refs before remote singleton target resolution exists.
+- Future remote coordinator targets can extend the bridge without changing the
+  pure discovery state machine or making cluster membership authoritative in
+  sharding.

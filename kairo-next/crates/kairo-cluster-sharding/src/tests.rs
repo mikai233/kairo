@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -6,7 +6,7 @@ use bytes::Bytes;
 use kairo_actor::{
     Actor, ActorError, ActorRef, ActorResult, ActorSystem, Address, Context, Props, Recipient,
 };
-use kairo_cluster::UniqueAddress;
+use kairo_cluster::{CurrentClusterState, Member, MemberStatus, UniqueAddress};
 use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
 use kairo_serialization::{
     MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationRegistry, WireReader,
@@ -14,16 +14,16 @@ use kairo_serialization::{
 };
 
 use crate::{
-    BeginHandOffPlan, CoordinatorEvent, CoordinatorRuntime, CoordinatorState,
-    CoordinatorStateSnapshot, DEFAULT_SHARD_COUNT, EntityActorFactory, EntityDelivery, EntityRef,
-    EntityShardActor, GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan, HandOff,
-    HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget,
-    HandoffTransport, HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg, HostShard,
-    HostShardPlan, LeastShardAllocationStrategy, PassivatePlan, RebalanceCompletionPlan,
-    RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan, RegionDropReason,
-    RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan,
-    RegionRegistrationConfig, RegionRegistrationStatus, RegionRouteDelivery, RegionRoutePlan,
-    RegionRouteTarget, RegionRouteTransport, RememberCoordinatorDDataStoreActor,
+    BeginHandOffPlan, CoordinatorDiscoverySettings, CoordinatorEvent, CoordinatorRuntime,
+    CoordinatorState, CoordinatorStateSnapshot, DEFAULT_SHARD_COUNT, EntityActorFactory,
+    EntityDelivery, EntityRef, EntityShardActor, GetShardHome, GetShardHomeIgnoreReason,
+    GetShardHomePlan, HandOff, HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget,
+    HandoffRegionTarget, HandoffTransport, HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg,
+    HostShard, HostShardPlan, LeastShardAllocationStrategy, PassivatePlan, RebalanceCompletionPlan,
+    RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan, RegionCoordinatorDiscoveryConfig,
+    RegionDropReason, RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan,
+    RegionLocalRoutePlan, RegionRegistrationConfig, RegionRegistrationStatus, RegionRouteDelivery,
+    RegionRoutePlan, RegionRouteTarget, RegionRouteTransport, RememberCoordinatorDDataStoreActor,
     RememberCoordinatorDDataStoreMsg, RememberCoordinatorDDataStoreSnapshot,
     RememberCoordinatorStoreActor, RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot,
     RememberCoordinatorStoreState, RememberShardDDataStoreActor, RememberShardDDataStoreMsg,
@@ -3392,6 +3392,91 @@ fn region_actor_self_registers_with_local_coordinator_for_handoff() {
 }
 
 #[test]
+fn region_actor_registers_with_discovered_local_coordinator() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-discovered-registration").unwrap();
+    let coordinator_node = remote_node("region-discovered-registration", "127.0.0.1", 2651);
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    )
+    .with_local_coordinator(coordinator_node.clone(), coordinator.clone());
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_shards_and_coordinator_discovery(
+                "region-a", 10, 10, discovery,
+            ),
+        )
+        .unwrap();
+    let coordinator_state = kit
+        .create_probe::<CoordinatorStateSnapshot>("discovered-coordinator-state")
+        .unwrap();
+    let region_state = kit
+        .create_probe::<ShardRegionSnapshot>("discovered-region-state")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::CoordinatorDiscoverySnapshot {
+            state: cluster_state(vec![cluster_member(
+                coordinator_node,
+                MemberStatus::Up,
+                ["backend"],
+                1,
+            )]),
+        })
+        .unwrap();
+
+    let mut registered = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let state = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        registered = state.allocations.contains_key("region-a");
+        if registered {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        registered,
+        "region should register after coordinator discovery snapshot"
+    );
+
+    region
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        region_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .registration_status,
+        RegionRegistrationStatus::Registered
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_requests_shard_home_from_registered_coordinator_for_local_route() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-route-coordinator-home").unwrap();
     let coordinator = kit
@@ -5746,6 +5831,31 @@ fn remote_node(system: &str, host: &str, port: u16) -> UniqueAddress {
         Address::new("kairo", system, Some(host.to_string()), Some(port)),
         1,
     )
+}
+
+fn cluster_member(
+    unique_address: UniqueAddress,
+    status: MemberStatus,
+    roles: impl IntoIterator<Item = &'static str>,
+    up_number: u64,
+) -> Member {
+    Member::new(
+        unique_address,
+        roles.into_iter().map(ToString::to_string).collect(),
+    )
+    .with_status(status)
+    .with_up_number(up_number)
+}
+
+fn cluster_state(members: Vec<Member>) -> CurrentClusterState {
+    CurrentClusterState {
+        members,
+        unreachable: Vec::new(),
+        seen_by: HashSet::new(),
+        leader: None,
+        role_leaders: HashMap::new(),
+        member_tombstones: HashSet::new(),
+    }
 }
 
 fn wait_for_local_shard(

@@ -1442,6 +1442,7 @@ src/
   shard.rs
   coordinator.rs
   coordinator_discovery.rs
+  region_coordinator_discovery.rs
   allocation.rs
   handoff.rs
   passivation.rs
@@ -1535,6 +1536,11 @@ Implementation shape:
   `ClusterEvent` member changes, filters members by coordinator role/status,
   and computes Pekko-style oldest-first likely coordinator candidates before
   actor-ref or remote-target registration is wired into the region actor.
+- Region coordinator-discovery wiring maps those likely coordinator nodes to
+  typed local coordinator refs for the current vertical slice, refreshes the
+  region's registration target when the selected coordinator changes, and
+  leaves remote singleton target resolution as the later transport-backed
+  extension.
 
 Ordering:
 

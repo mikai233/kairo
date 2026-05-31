@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use kairo_actor::{ActorRef, AskResult};
+use kairo_cluster::{ClusterEvent, CurrentClusterState};
 
 use crate::{
     BeginHandOffPlan, GetShardHome, GetShardHomePlan, HandOff, HandOffPlan, HostShardPlan,
@@ -71,6 +72,12 @@ pub enum ShardRegionMsg<M> {
     CoordinatorShardHomeResult {
         requested_shard: ShardId,
         result: Result<GetShardHomePlan, ShardingError>,
+    },
+    CoordinatorDiscoverySnapshot {
+        state: CurrentClusterState,
+    },
+    CoordinatorDiscoveryEvent {
+        event: ClusterEvent,
     },
     ForwardedBufferedRouteResult {
         result: RegionLocalRoutePlan<M>,

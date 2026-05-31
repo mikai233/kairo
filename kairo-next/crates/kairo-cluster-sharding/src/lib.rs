@@ -74,6 +74,7 @@ mod handoff_worker;
 mod hashing;
 mod protocol;
 mod region_actor;
+mod region_coordinator_discovery;
 mod region_home_requests;
 mod region_protocol;
 mod region_registration;
@@ -133,6 +134,9 @@ pub use protocol::{
     RoutedShardEnvelope, ShardHome, ShardStarted, ShardStopped,
 };
 pub use region_actor::ShardRegionActor;
+pub use region_coordinator_discovery::{
+    RegionCoordinatorDiscovery, RegionCoordinatorDiscoveryConfig, RegionCoordinatorDiscoveryPlan,
+};
 pub use region_protocol::{
     RegionBufferedReplayPlan, RegionLocalHandOffCompletionFailure,
     RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan, RegionLocalRoutePlan, ShardRegionMsg,

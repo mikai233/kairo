@@ -15,9 +15,11 @@ use crate::region_registration::{
 use crate::region_shards::LocalShardSpawner;
 use crate::{
     CoordinatorEvent, CoordinatorStateSnapshot, EntityActorFactory, EntityId, GetShardHome,
-    GetShardHomePlan, HandoffRegionTarget, HostShardPlan, RegionId, RegionRouteDelivery,
-    RegionRoutePlan, RegionRouteTransport, ShardCoordinatorMsg, ShardDeliverPlan, ShardHandOffPlan,
-    ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope, ShardingError,
+    GetShardHomePlan, HandoffRegionTarget, HostShardPlan, RegionCoordinatorDiscovery,
+    RegionCoordinatorDiscoveryConfig, RegionCoordinatorDiscoveryPlan, RegionId,
+    RegionRouteDelivery, RegionRoutePlan, RegionRouteTransport, ShardCoordinatorMsg,
+    ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime,
+    ShardingEnvelope, ShardingError,
 };
 
 pub struct ShardRegionActor<M>
@@ -28,6 +30,7 @@ where
     local_shard_spawner: Option<LocalShardSpawner<M>>,
     local_shards: BTreeMap<ShardId, ActorRef<ShardMsg<M>>>,
     registration: Option<RegionRegistration<M>>,
+    coordinator_discovery: Option<RegionCoordinatorDiscovery<M>>,
     home_requests: RegionHomeRequests<M>,
     route_transport: Option<RegionRouteTransport<M>>,
 }
@@ -42,6 +45,7 @@ where
             local_shard_spawner: None,
             local_shards: BTreeMap::new(),
             registration: None,
+            coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
         }
@@ -57,6 +61,7 @@ where
             local_shard_spawner: Some(LocalShardSpawner::plain(shard_buffer_capacity)),
             local_shards: BTreeMap::new(),
             registration: None,
+            coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
         }
@@ -80,6 +85,7 @@ where
                 coordinator,
                 retry_interval,
             ))),
+            coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
         }
@@ -102,6 +108,7 @@ where
             )),
             local_shards: BTreeMap::new(),
             registration: None,
+            coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
         }
@@ -129,6 +136,7 @@ where
                 coordinator,
                 retry_interval,
             ))),
+            coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
         }
@@ -152,6 +160,7 @@ where
             )),
             local_shards: BTreeMap::new(),
             registration: None,
+            coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
         }
@@ -179,9 +188,19 @@ where
             )),
             local_shards: BTreeMap::new(),
             registration: Some(RegionRegistration::new(registration)),
+            coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
         }
+    }
+
+    pub fn with_coordinator_discovery(
+        mut self,
+        discovery: RegionCoordinatorDiscoveryConfig<M>,
+    ) -> Self {
+        self.registration = None;
+        self.coordinator_discovery = Some(RegionCoordinatorDiscovery::new(discovery));
+        self
     }
 
     pub fn with_region_route_transport(mut self, route_transport: RegionRouteTransport<M>) -> Self {
@@ -230,6 +249,22 @@ where
                 coordinator.clone(),
                 retry_interval,
             )
+        })
+    }
+
+    pub fn props_with_local_shards_and_coordinator_discovery(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        discovery: RegionCoordinatorDiscoveryConfig<M>,
+    ) -> Props<Self>
+    where
+        M: Send + 'static,
+    {
+        let self_region = self_region.into();
+        Props::new(move || {
+            Self::new_with_local_shards(self_region, region_buffer_capacity, shard_buffer_capacity)
+                .with_coordinator_discovery(discovery.clone())
         })
     }
 
@@ -446,6 +481,24 @@ where
             } => {
                 self.apply_coordinator_shard_home_result(ctx, requested_shard, result)?;
             }
+            ShardRegionMsg::CoordinatorDiscoverySnapshot { state } => {
+                let plan = self
+                    .coordinator_discovery
+                    .as_mut()
+                    .map(|discovery| discovery.apply_snapshot(&state));
+                if let Some(plan) = plan {
+                    self.apply_coordinator_discovery_plan(ctx, plan)?;
+                }
+            }
+            ShardRegionMsg::CoordinatorDiscoveryEvent { event } => {
+                let plan = self
+                    .coordinator_discovery
+                    .as_mut()
+                    .map(|discovery| discovery.apply_event(&event));
+                if let Some(plan) = plan {
+                    self.apply_coordinator_discovery_plan(ctx, plan)?;
+                }
+            }
             ShardRegionMsg::ForwardedBufferedRouteResult { result: _ } => {}
             ShardRegionMsg::MarkShardStopped { shard, reply_to } => {
                 self.runtime.mark_shard_stopped(&shard);
@@ -535,6 +588,17 @@ where
                 self.register_with_coordinator(ctx)
             }
         }
+    }
+
+    fn apply_coordinator_discovery_plan(
+        &mut self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        plan: RegionCoordinatorDiscoveryPlan<M>,
+    ) -> ActorResult {
+        if plan.registration_changed {
+            self.registration = plan.registration.map(RegionRegistration::new);
+        }
+        self.register_with_coordinator(ctx)
     }
 
     fn request_shard_home_from_coordinator(

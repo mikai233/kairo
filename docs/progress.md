@@ -909,6 +909,10 @@ Implemented:
   role/status, preserves Pekko's members-by-age movement detection, and
   computes likely coordinator targets for future region registration without
   folding that logic into the region actor.
+- `kairo-cluster-sharding` shard region actors can now accept coordinator
+  discovery snapshots/events, use a focused region coordinator-discovery
+  bridge to select a typed local coordinator target, and start the normal
+  self-registration/retry flow when the selected coordinator appears or moves.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -1266,9 +1270,9 @@ Not yet implemented:
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration,
-  transport-backed remote region targets, and region/coordinator actor wiring
-  for the new cluster-event-driven coordinator discovery state beyond
-  explicitly supplied local coordinator refs.
+  transport-backed remote region targets, cluster subscription ownership for
+  region coordinator discovery, and remote singleton target resolution beyond
+  typed local coordinator refs.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
@@ -1282,6 +1286,8 @@ Not yet implemented:
 ```bash
 cargo fmt --all -- --check
 cargo test -p kairo-cluster-sharding coordinator_discovery
+cargo test -p kairo-cluster-sharding region_coordinator_discovery
+cargo test -p kairo-cluster-sharding region_actor_registers_with_discovered_local_coordinator
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
