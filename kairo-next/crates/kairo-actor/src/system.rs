@@ -517,8 +517,15 @@ fn run_actor<A>(
     };
     let mut run_state = ActorRunState::default();
 
-    if let Err(error) = actor.started(&mut context) {
-        run_state.termination_cause = TerminationCause::Failed(error.to_string());
+    if let Some(reason) = apply_start_result(
+        &mut actor,
+        &actor_ref,
+        &mut context,
+        &props,
+        &system_inner,
+        &mut run_state.supervision,
+    ) {
+        run_state.termination_cause = TerminationCause::Failed(reason);
         actor_ref.target.stopped.store(true, Ordering::Release);
     } else if context.stop_requested {
         actor_ref.target.stopped.store(true, Ordering::Release);
@@ -733,6 +740,60 @@ where
     }
 }
 
+fn apply_start_result<A>(
+    actor: &mut A,
+    actor_ref: &ActorRef<A::Msg>,
+    context: &mut Context<A::Msg>,
+    props: &Props<A>,
+    system_inner: &ActorSystemInner,
+    supervision_state: &mut SupervisionState,
+) -> Option<String>
+where
+    A: Actor,
+{
+    loop {
+        let Err(error) = actor.started(context) else {
+            return None;
+        };
+        let reason = error.to_string();
+
+        match props.supervisor() {
+            SupervisorStrategy::Escalate => {
+                escalate_failure_to_parent(
+                    system_inner,
+                    context.parent.clone(),
+                    actor_ref.path.clone(),
+                    error,
+                );
+                return Some(reason);
+            }
+            SupervisorStrategy::RestartWithLimit {
+                max_restarts,
+                within,
+                stop_children,
+            } => {
+                if !supervision_state.startup_restart_allowed(max_restarts, within, Instant::now())
+                    || restart_after_start_failure(
+                        actor,
+                        actor_ref,
+                        context,
+                        props,
+                        system_inner,
+                        stop_children,
+                    )
+                    .is_err()
+                {
+                    return Some(reason);
+                }
+            }
+            SupervisorStrategy::Stop
+            | SupervisorStrategy::Resume
+            | SupervisorStrategy::Restart
+            | SupervisorStrategy::RestartPreservingChildren => return Some(reason),
+        }
+    }
+}
+
 fn apply_receive_result<A>(
     result: ActorResult,
     actor_ref: &ActorRef<A::Msg>,
@@ -854,6 +915,33 @@ where
     let _ = actor.signal(context, Signal::PreRestart);
     context.stop_requested = false;
     restarted.started(context)?;
+    *actor = restarted;
+    Ok(())
+}
+
+fn restart_after_start_failure<A>(
+    actor: &mut A,
+    actor_ref: &ActorRef<A::Msg>,
+    context: &mut Context<A::Msg>,
+    props: &Props<A>,
+    system_inner: &ActorSystemInner,
+    stop_children_on_restart: bool,
+) -> ActorResult
+where
+    A: Actor,
+{
+    let Some(restarted) = props.restart() else {
+        return Err(ActorError::Message(
+            "restart supervision requires restartable props".to_string(),
+        ));
+    };
+
+    context.cancel_all_timers();
+    context.cancel_receive_timeout();
+    if stop_children_on_restart {
+        stop_children(system_inner, actor_ref.path.as_str());
+    }
+    context.stop_requested = false;
     *actor = restarted;
     Ok(())
 }

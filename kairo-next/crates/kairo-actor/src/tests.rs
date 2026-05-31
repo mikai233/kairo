@@ -856,6 +856,135 @@ impl Actor for SupervisionProbe {
     }
 }
 
+enum StartupProbeMsg {
+    GetStartCount(mpsc::Sender<u64>),
+}
+
+struct StartupProbe {
+    starts: Arc<AtomicU64>,
+    pre_restarts: Arc<AtomicU64>,
+    fail_until: u64,
+}
+
+impl Actor for StartupProbe {
+    type Msg = StartupProbeMsg;
+
+    fn started(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
+        if start <= self.fail_until {
+            Err(ActorError::Message(format!("startup boom {start}")))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            StartupProbeMsg::GetStartCount(reply_to) => reply_to
+                .send(self.starts.load(Ordering::SeqCst))
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PreRestart => {
+                self.pre_restarts.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            Signal::PostStop => self.stopped(ctx),
+            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
+        }
+    }
+}
+
+#[test]
+fn startup_failure_stops_actor_by_default() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let actor = system
+        .spawn(
+            "startup-probe",
+            Props::new({
+                let starts = Arc::clone(&starts);
+                move || StartupProbe {
+                    starts,
+                    pre_restarts: Arc::new(AtomicU64::new(0)),
+                    fail_until: u64::MAX,
+                }
+            }),
+        )
+        .unwrap();
+
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    assert!(
+        actor
+            .tell(StartupProbeMsg::GetStartCount(mpsc::channel().0))
+            .is_err()
+    );
+}
+
+#[test]
+fn bounded_restart_supervision_retries_startup_failure() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let pre_restarts = Arc::new(AtomicU64::new(0));
+    let actor = system
+        .spawn(
+            "startup-probe",
+            Props::restartable({
+                let starts = Arc::clone(&starts);
+                let pre_restarts = Arc::clone(&pre_restarts);
+                move || StartupProbe {
+                    starts: Arc::clone(&starts),
+                    pre_restarts: Arc::clone(&pre_restarts),
+                    fail_until: 1,
+                }
+            })
+            .with_supervisor(SupervisorStrategy::restart_with_limit(
+                2,
+                Duration::from_secs(60),
+            )),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor
+        .tell(StartupProbeMsg::GetStartCount(reply_tx))
+        .unwrap();
+
+    assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+    assert_eq!(pre_restarts.load(Ordering::SeqCst), 0);
+    assert!(!actor.is_stopped());
+}
+
+#[test]
+fn bounded_restart_supervision_stops_when_startup_limit_is_exceeded() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let actor = system
+        .spawn(
+            "startup-probe",
+            Props::restartable({
+                let starts = Arc::clone(&starts);
+                move || StartupProbe {
+                    starts: Arc::clone(&starts),
+                    pre_restarts: Arc::new(AtomicU64::new(0)),
+                    fail_until: u64::MAX,
+                }
+            })
+            .with_supervisor(SupervisorStrategy::restart_with_limit(
+                2,
+                Duration::from_secs(60),
+            )),
+        )
+        .unwrap();
+
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(starts.load(Ordering::SeqCst), 2);
+}
+
 #[test]
 fn default_supervision_stops_actor_on_failure() {
     let system = ActorSystem::builder("test").build().unwrap();
@@ -1095,6 +1224,10 @@ enum EscalationParentMsg {
         child_stopped: Option<mpsc::Sender<()>>,
         reply_to: mpsc::Sender<ActorRef<EscalatingChildMsg>>,
     },
+    SpawnStartupFailingChild {
+        starts: Arc<AtomicU64>,
+        reply_to: mpsc::Sender<ActorRef<StartupProbeMsg>>,
+    },
     Ping(mpsc::Sender<()>),
 }
 
@@ -1115,6 +1248,20 @@ impl Actor for EscalationParent {
                     "child",
                     Props::new(move || EscalatingChild {
                         stopped: child_stopped,
+                    })
+                    .with_supervisor(SupervisorStrategy::Escalate),
+                )?;
+                reply_to
+                    .send(child)
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            EscalationParentMsg::SpawnStartupFailingChild { starts, reply_to } => {
+                let child = ctx.spawn(
+                    "startup-failing-child",
+                    Props::new(move || StartupProbe {
+                        starts,
+                        pre_restarts: Arc::new(AtomicU64::new(0)),
+                        fail_until: u64::MAX,
                     })
                     .with_supervisor(SupervisorStrategy::Escalate),
                 )?;
@@ -1200,6 +1347,31 @@ fn escalate_supervision_restarts_parent_when_parent_strategy_restarts() {
     parent.tell(EscalationParentMsg::Ping(ping_tx)).unwrap();
     ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(!parent.is_stopped());
+}
+
+#[test]
+fn startup_failure_escalates_to_parent_supervision() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(|| EscalationParent { restarted: None }),
+        )
+        .unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let (child_tx, child_rx) = mpsc::channel();
+
+    parent
+        .tell(EscalationParentMsg::SpawnStartupFailingChild {
+            starts: Arc::clone(&starts),
+            reply_to: child_tx,
+        })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
 }
 
 enum BackoffChildMsg {

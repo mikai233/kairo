@@ -138,6 +138,10 @@ Implemented:
 - `Props::restartable` provides the reusable actor factory required by restart
   supervision, which sends `Signal::PreRestart`, cancels timers, stops children,
   rebuilds actor state, reruns `started`, and preserves the actor ref path.
+- Actor startup failures now enter the same supervision boundary: default and
+  resume strategies stop the actor, escalation reports the failed child to the
+  parent, and bounded restart retries startup through `Props::restartable`
+  without emitting `PreRestart` for an actor that never fully started.
 - `SupervisorStrategy::restart_with_limit` supports Pekko-style bounded
   restarts by allowing a configured number of restarts within a time window,
   stopping the actor when the limit is exceeded, and resetting the count after
@@ -1389,6 +1393,11 @@ cargo test -p kairo-cluster indirectly_connected
 cargo test -p kairo-cluster all_observers_reports_negative_reachability_observers
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor startup_failure
+cargo test -p kairo-actor bounded_restart_supervision
+cargo test -p kairo-actor startup_failure_escalates_to_parent_supervision
+cargo test -p kairo-actor --all-targets --all-features
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check

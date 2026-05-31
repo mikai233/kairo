@@ -102,4 +102,30 @@ impl SupervisionState {
             true
         }
     }
+
+    pub(crate) fn startup_restart_allowed(
+        &mut self,
+        max_restarts: usize,
+        within: Duration,
+        now: Instant,
+    ) -> bool {
+        if max_restarts <= 1 {
+            return false;
+        }
+
+        let reset_window = self
+            .restart_window_started
+            .is_none_or(|started| !within.is_zero() && now.duration_since(started) > within);
+        if reset_window {
+            self.restart_window_started = Some(now);
+            self.restart_count = 0;
+        }
+
+        if self.restart_count + 1 >= max_restarts {
+            false
+        } else {
+            self.restart_count += 1;
+            true
+        }
+    }
 }
