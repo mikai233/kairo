@@ -1129,6 +1129,9 @@ Implemented:
   bound runtimes are spawned through the bootstrap facade, cluster membership
   is published to both connector actors, and each side installs a peer route
   for the other node through the actor-backed connector boundary.
+- Cluster TCP peer bootstrap now also has a three-node full-mesh socket
+  validation, proving each actor-backed connector installs membership-derived
+  routes for both remote peers from the same published gossip snapshot.
 - Cluster TCP peer bootstrap tests now live in a focused sibling test module,
   keeping the production bootstrap facade separate from socket fixture setup
   and two-node validation data.
@@ -1461,6 +1464,7 @@ cargo test -p kairo-cluster downing
 cargo test -p kairo-cluster indirectly_connected
 cargo test -p kairo-cluster all_observers_reports_negative_reachability_observers
 cargo test -p kairo-cluster bootstrap_two_nodes_install_peer_routes_from_cluster_membership
+cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster bootstrap
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
