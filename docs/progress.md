@@ -957,6 +957,11 @@ Implemented:
   `DowningProviderActor` observer, forwards each current gossip snapshot to it,
   and applies the provider's stable downing decision through the existing
   membership state machine.
+- `kairo-cluster` now has a focused live-socket membership/downing validation:
+  a remote `Join` crosses a real TCP association into an actor-backed
+  membership node, the registered downing provider observes the resulting
+  gossip, and a deterministic stable-after timer applies the downing decision
+  through the membership actor.
 - `kairo-cluster::HeartbeatNodeRing` and `HeartbeatSenderState` model
   Pekko-style heartbeat receiver selection and sender bookkeeping, including
   deterministic ring ordering, configured receiver limits, unreachable receiver
@@ -1255,8 +1260,8 @@ Not yet implemented:
   test.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   indirectly-connected split-brain handling, lease-majority support, and
-  broader end-to-end validation of the actor-backed downing provider across
-  live membership sockets.
+  broader automated multi-node scenarios beyond the current local two-node
+  membership/downing socket validation.
 
 ## Last Validation
 

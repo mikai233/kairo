@@ -77,6 +77,8 @@ mod reachability;
 mod remote;
 mod remote_tcp;
 mod system_inbound;
+#[cfg(test)]
+mod tcp_membership_downing;
 mod tcp_peer_connector;
 mod tcp_peer_reconnect;
 mod tcp_peer_routes;
