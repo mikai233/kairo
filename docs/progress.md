@@ -1240,6 +1240,9 @@ Implemented:
   topic modules, with typed local subscriptions, duplicate suppression,
   unsubscribe/removal handling, broadcast delivery, and deterministic
   one-message-per-group publish routing for the first pubsub foundation.
+- `kairo-cluster-tools` local topic broadcast, one-per-group routing,
+  unsubscribe, and subscriber-removal tests now live in a focused sibling test
+  module.
 - `kairo-cluster-tools` now has a focused local pubsub mediator state over
   named local topics, including current-topic listing, routed publish,
   subscribe/unsubscribe delegation, empty-topic cleanup, and subscriber removal
@@ -1676,6 +1679,7 @@ cargo test -p kairo-cluster-tools bootstrap
 cargo test -p kairo-cluster-tools singleton_oldest
 cargo test -p kairo-cluster-tools singleton_manager
 cargo test -p kairo-cluster-tools local_singleton_manager
+cargo test -p kairo-cluster-tools local_topic
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor startup_failure
