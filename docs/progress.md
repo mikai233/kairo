@@ -1267,6 +1267,10 @@ Implemented:
   tools TCP peer runtime from remote transport settings, spawns the connector,
   exposes its connector ref/self node/local association address, and registers
   a coordinated-shutdown actor-termination task before cluster shutdown.
+- Cluster-tools TCP peer bootstrap now has a two-node socket validation: two
+  real bound runtimes are spawned through the bootstrap facade, cluster
+  membership is published to both connector actors, and each side installs a
+  peer route for the other node through the actor-backed connector boundary.
 - `kairo-examples` now includes a runnable cluster-tools TCP peer bootstrap
   example, with pubsub gossip, pubsub delivery, singleton inbound wiring, and
   reusable route/snapshot setup kept in a focused example module.
@@ -1407,7 +1411,7 @@ Not yet implemented:
   flow, including graceful region shutdown across nodes.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
-  localhost two-node example smoke tests.
+  localhost two-node crate and example smoke tests.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation.
@@ -1446,6 +1450,7 @@ cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo test -p kairo --all-targets --all-features config
 cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership
+cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-actor startup_failure
 cargo test -p kairo-actor bounded_restart_supervision
 cargo test -p kairo-actor startup_failure_escalates_to_parent_supervision
