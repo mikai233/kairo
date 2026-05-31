@@ -1425,6 +1425,8 @@ Implemented:
 - `kairo-cluster-sharding` coordinator runtime shard-home, remember-entity,
   rebalance deferral, and completion tests now live in a focused sibling test
   module.
+- `kairo-cluster-sharding` region runtime buffering, shard-home, host-shard,
+  handoff, and drop-plan tests now live in a focused sibling test module.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1464,6 +1466,7 @@ cargo test -p kairo-cluster-sharding remote_shutdown
 cargo test -p kairo-cluster-sharding allocation
 cargo test -p kairo-cluster-sharding coordinator_state
 cargo test -p kairo-cluster-sharding coordinator_runtime
+cargo test -p kairo-cluster-sharding region_runtime
 cargo test -p kairo-cluster-sharding coordinator_system_inbound_routes_region_shutdown_messages
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_graceful_shutdown_and_region_stopped
 cargo test -p kairo-cluster-sharding sharding_protocol_codecs_round_trip_handoff_messages
