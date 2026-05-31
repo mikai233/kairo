@@ -1179,6 +1179,10 @@ Implemented:
   `EntityRef<String>` through reusable helper code and demonstrates stable
   shard-id routing into an entity-backed local shard whose typed counter
   entity receives business messages.
+- `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
+  `ShardingEnvelope<M>` routing, why sharded business messages do not embed
+  entity ids by default, and the documented stable FNV-1a shard hash with a
+  compile-checked example.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and

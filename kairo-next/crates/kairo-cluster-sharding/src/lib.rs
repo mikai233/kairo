@@ -1,4 +1,57 @@
 //! Cluster sharding API surface and protocols.
+//!
+//! Sharding routes by entity id while keeping business messages typed and
+//! free of embedded routing metadata. A caller can send directly through a
+//! region `ActorRef<ShardingEnvelope<M>>`, or bind one entity id into an
+//! [`EntityRef<M>`]. Sending through an entity ref wraps the business `M` in a
+//! [`ShardingEnvelope<M>`] before it reaches the region. The entity actor
+//! itself receives `M`, not the envelope.
+//!
+//! This follows Pekko's observable typed-sharding model without making
+//! [`EntityRef`] a normal watchable actor ref. Entity lifetime is owned by the
+//! shard and region; lifecycle observation belongs at those runtime
+//! boundaries, not on the logical entity handle.
+//!
+//! Shard ids are computed from the entity id with a documented fixed 64-bit
+//! FNV-1a hash through [`stable_hash_entity_id`] and [`shard_id_for`]. The
+//! default shard count is [`DEFAULT_SHARD_COUNT`]. The hash deliberately avoids
+//! Rust's `DefaultHasher`, type names, enum discriminants, and memory layout so
+//! independently started nodes assign the same entity id to the same shard.
+//!
+//! ```no_run
+//! use std::time::Duration;
+//!
+//! use kairo_actor::{Actor, ActorResult, ActorSystem, Context, Props};
+//! use kairo_cluster_sharding::{
+//!     EntityRef, ShardingEnvelope, default_shard_id_for, shard_id_for,
+//! };
+//!
+//! struct RegionProbe;
+//!
+//! impl Actor for RegionProbe {
+//!     type Msg = ShardingEnvelope<String>;
+//!
+//!     fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+//!         let (entity_id, business_message) = msg.into_parts();
+//!         assert_eq!(entity_id, "account-7");
+//!         assert_eq!(business_message, "credit".to_string());
+//!         Ok(())
+//!     }
+//! }
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let system = ActorSystem::builder("sharding-docs").build()?;
+//! let region = system.spawn("region", Props::new(|| RegionProbe))?;
+//! let account = EntityRef::new("account-7", region);
+//!
+//! account.tell("credit".to_string())?;
+//! assert_eq!(account.entity_id(), "account-7");
+//!
+//! assert_eq!(shard_id_for("account-7", 100)?, default_shard_id_for("account-7"));
+//! system.terminate(Duration::from_secs(1))?;
+//! # Ok(())
+//! # }
+//! ```
 
 mod allocation;
 mod bootstrap;
