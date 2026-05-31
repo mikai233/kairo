@@ -686,6 +686,9 @@ Implemented:
 - Distributed-data TCP peer runtime shutdown now has focused lifecycle coverage
   proving that a failed dial's pending reconnect is cleared and reported even
   when the peer never becomes reachable.
+- Distributed-data TCP peer runtime tests now live in a focused sibling test
+  module, keeping the runtime implementation file focused on routing,
+  reconnect, and shutdown behavior.
 - `kairo-distributed-data` now has an actor-backed TCP peer connector that
   subscribes to cluster snapshots/events, applies membership-derived ddata peer
   routes through `ReplicatorTcpPeerRuntime`, drives explicit and timer-based
