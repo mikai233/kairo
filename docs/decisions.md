@@ -2133,3 +2133,34 @@ Consequences:
 - Bootstrap still accepts an explicit `ClusterSystemInbound` builder, so
   membership and heartbeat handlers remain focused modules rather than hidden
   global singletons.
+
+## ADR-0076: Sharding Coordinator Discovery Starts As Pure Candidate State
+
+Status: Accepted
+
+Context:
+Pekko shard regions track likely coordinator singleton locations from cluster
+membership snapshots and member events. The logic is behavior-sensitive:
+candidate members are filtered by role/status, sorted by cluster age, and
+coordinator movement clears the region's cached coordinator before
+registration retries resume. Kairo does not yet have the final actor-ref and
+remote-target wiring for discovering coordinator singletons, and folding that
+state into `ShardRegionActor` would make the region boundary harder to test.
+
+Decision:
+Kairo adds `CoordinatorDiscoveryState` as a focused pure state module in
+`kairo-cluster-sharding`. It consumes `CurrentClusterState` and `ClusterEvent`
+member changes, keeps only `Up`, `Leaving`, and `Exiting` members matching the
+configured required roles, reports oldest-member movement, and computes the
+same likely coordinator candidate ordering as Pekko's members-by-age
+selection. Kairo starts with explicit required roles rather than a hardcoded
+data-center role; future data-center support can supply that role through the
+same settings.
+
+Consequences:
+- Cluster-event-driven coordinator discovery is testable before region actor
+  registration is wired to remote coordinator refs.
+- Sharding keeps coordinator discovery data separate from routing, buffering,
+  handoff, and remember-entity state.
+- Downed and removed members are dropped from candidate state immediately,
+  matching Kairo's explicit candidate set of statuses of interest.

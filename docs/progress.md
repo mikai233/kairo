@@ -904,6 +904,11 @@ Implemented:
   `RegionRouteTransport` targets, so known remote shard homes use the same
   structured route table as local region refs while producing stable remote
   envelopes for the transport layer.
+- `kairo-cluster-sharding` now has focused coordinator discovery state that
+  consumes cluster snapshots/events, filters coordinator candidates by
+  role/status, preserves Pekko's members-by-age movement detection, and
+  computes likely coordinator targets for future region registration without
+  folding that logic into the region actor.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -1260,8 +1265,9 @@ Not yet implemented:
   runtime, actor-backed connector, and bootstrap beyond the current localhost
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
-  orchestration, including restart backoff policy integration, transport-backed
-  remote region targets, and cluster-event-driven coordinator discovery beyond
+  orchestration, including restart backoff policy integration,
+  transport-backed remote region targets, and region/coordinator actor wiring
+  for the new cluster-event-driven coordinator discovery state beyond
   explicitly supplied local coordinator refs.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
@@ -1275,6 +1281,8 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-targets --all-features
+cargo test -p kairo-cluster-sharding coordinator_discovery
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 ```

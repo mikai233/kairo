@@ -1441,6 +1441,7 @@ src/
   region.rs
   shard.rs
   coordinator.rs
+  coordinator_discovery.rs
   allocation.rs
   handoff.rs
   passivation.rs
@@ -1530,6 +1531,10 @@ Implementation shape:
   entity id, and nested serialized business message metadata. Outbound and
   inbound adapters translate between typed `ShardRegionMsg<M>` and stable
   `RemoteEnvelope` payloads at `/system/sharding/region`.
+- Coordinator discovery state consumes `CurrentClusterState` snapshots and
+  `ClusterEvent` member changes, filters members by coordinator role/status,
+  and computes Pekko-style oldest-first likely coordinator candidates before
+  actor-ref or remote-target registration is wired into the region actor.
 
 Ordering:
 

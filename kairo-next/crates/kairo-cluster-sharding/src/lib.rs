@@ -58,6 +58,7 @@ mod bootstrap;
 mod codec;
 mod coordinator;
 mod coordinator_actor;
+mod coordinator_discovery;
 mod coordinator_handoff;
 mod coordinator_runtime;
 mod coordinator_store;
@@ -103,6 +104,9 @@ pub use codec::{
 };
 pub use coordinator::{CoordinatorEvent, CoordinatorState};
 pub use coordinator_actor::{CoordinatorStateSnapshot, ShardCoordinatorActor, ShardCoordinatorMsg};
+pub use coordinator_discovery::{
+    CoordinatorDiscoveryChange, CoordinatorDiscoverySettings, CoordinatorDiscoveryState,
+};
 pub use coordinator_handoff::CoordinatorHandoff;
 pub use coordinator_runtime::{
     CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan, RebalanceCompletionPlan,
