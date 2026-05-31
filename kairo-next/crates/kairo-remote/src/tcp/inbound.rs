@@ -15,7 +15,8 @@ use crate::{
 };
 
 use super::{
-    TcpAssociationHandshake, TcpAssociationIdentity, TcpRemoteByteSink,
+    TcpAssociationHandshake, TcpAssociationIdentity, TcpAssociationReaderFailure,
+    TcpAssociationReaderSupervisionDecision, TcpAssociationReaderSupervisor, TcpRemoteByteSink,
     read_tcp_association_handshake, validate_tcp_association_handshakes,
 };
 
@@ -178,6 +179,7 @@ impl TcpAssociationListener {
         let mut accepted_associations = 0_usize;
         let mut remote_identities = Vec::new();
         let mut reader_handles = Vec::new();
+        let mut reader_supervisor = TcpAssociationReaderSupervisor::default();
         let mut first_error = None;
 
         while !stop.load(Ordering::SeqCst) {
@@ -197,20 +199,13 @@ impl TcpAssociationListener {
             }
         }
 
-        let mut read = TcpAssociationReadReport {
-            streams: 0,
-            frames: 0,
-        };
+        let mut read = TcpAssociationReadReport::default();
+        let mut supervision = Vec::new();
         for handle in reader_handles {
-            match handle.join() {
-                Ok(report) => {
-                    read.streams += report.streams;
-                    read.frames += report.frames;
-                }
-                Err(error) => {
-                    first_error.get_or_insert(error);
-                }
-            }
+            let report = handle.join_with_supervisor(&mut reader_supervisor);
+            read.streams += report.read.streams;
+            read.frames += report.read.frames;
+            supervision.extend(report.supervision);
         }
 
         if let Some(error) = first_error {
@@ -220,6 +215,7 @@ impl TcpAssociationListener {
                 accepted_associations,
                 remote_identities,
                 read,
+                supervision,
             })
         }
     }
@@ -395,10 +391,7 @@ impl TcpAcceptedAssociation {
     }
 
     pub fn drain(self) -> Result<TcpAssociationReadReport> {
-        let mut report = TcpAssociationReadReport {
-            streams: 0,
-            frames: 0,
-        };
+        let mut report = TcpAssociationReadReport::default();
         for accepted in self.streams {
             let stream_report = self
                 .reader
@@ -415,9 +408,12 @@ impl TcpAcceptedAssociation {
             .into_iter()
             .map(|accepted| {
                 let reader = self.reader.clone();
-                thread::spawn(move || {
-                    reader.read_stream(accepted.peer.to_string(), accepted.stream)
-                })
+                TcpAssociationReaderJoin {
+                    stream_id: accepted.stream_id,
+                    join: thread::spawn(move || {
+                        reader.read_stream(accepted.peer.to_string(), accepted.stream)
+                    }),
+                }
             })
             .collect();
         TcpAssociationReaderHandle { joins }
@@ -431,7 +427,12 @@ struct TcpAcceptedStream {
 }
 
 pub struct TcpAssociationReaderHandle {
-    joins: Vec<JoinHandle<Result<TcpAssociationReadReport>>>,
+    joins: Vec<TcpAssociationReaderJoin>,
+}
+
+struct TcpAssociationReaderJoin {
+    stream_id: Option<RemoteStreamId>,
+    join: JoinHandle<Result<TcpAssociationReadReport>>,
 }
 
 impl TcpAssociationReaderHandle {
@@ -443,46 +444,90 @@ impl TcpAssociationReaderHandle {
             .into_iter()
             .map(|(peer, stream)| {
                 let reader = reader.clone();
-                thread::spawn(move || reader.read_stream(peer, stream))
+                TcpAssociationReaderJoin {
+                    stream_id: None,
+                    join: thread::spawn(move || reader.read_stream(peer, stream)),
+                }
             })
             .collect();
         Self { joins }
     }
 
     pub fn join(self) -> Result<TcpAssociationReadReport> {
-        let mut report = TcpAssociationReadReport {
-            streams: 0,
-            frames: 0,
-        };
-        let mut first_error = None;
-        for join in self.joins {
-            match join.join() {
+        let mut supervisor = TcpAssociationReaderSupervisor::default();
+        let report = self.join_with_supervisor(&mut supervisor);
+        if let Some(decision) = report.supervision.first() {
+            return Err(RemoteError::Inbound(format!(
+                "tcp association reader failed: {}",
+                reader_decision_reason(decision)
+            )));
+        }
+        Ok(report.read)
+    }
+
+    pub fn join_with_supervisor(
+        self,
+        supervisor: &mut TcpAssociationReaderSupervisor,
+    ) -> TcpAssociationSupervisedReadReport {
+        let mut report = TcpAssociationReadReport::default();
+        let mut supervision = Vec::new();
+        for reader_join in self.joins {
+            match reader_join.join.join() {
                 Ok(Ok(stream_report)) => {
                     report.streams += stream_report.streams;
                     report.frames += stream_report.frames;
                 }
                 Ok(Err(error)) => {
-                    first_error.get_or_insert(error);
+                    let reason = error.to_string();
+                    supervision.push(
+                        supervisor.record_failure(reader_failure(reader_join.stream_id, reason)),
+                    );
                 }
                 Err(_) => {
-                    first_error.get_or_insert_with(|| {
-                        RemoteError::Inbound("tcp lane reader panicked".to_string())
-                    });
+                    let reason = "tcp lane reader panicked".to_string();
+                    supervision.push(
+                        supervisor.record_failure(reader_failure(reader_join.stream_id, reason)),
+                    );
                 }
             }
         }
-        if let Some(error) = first_error {
-            Err(error)
-        } else {
-            Ok(report)
+        TcpAssociationSupervisedReadReport {
+            read: report,
+            supervision,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+fn reader_failure(
+    stream_id: Option<RemoteStreamId>,
+    reason: String,
+) -> TcpAssociationReaderFailure {
+    match stream_id {
+        Some(stream_id) => TcpAssociationReaderFailure::lane(stream_id, reason),
+        None => TcpAssociationReaderFailure::association(reason),
+    }
+}
+
+fn reader_decision_reason(decision: &TcpAssociationReaderSupervisionDecision) -> &str {
+    match decision {
+        TcpAssociationReaderSupervisionDecision::RestartInboundStreams { failure, .. }
+        | TcpAssociationReaderSupervisionDecision::StopInboundStreams { failure, .. }
+        | TcpAssociationReaderSupervisionDecision::IgnoreWhileStopped { failure } => {
+            failure.reason()
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TcpAssociationReadReport {
     pub streams: usize,
     pub frames: usize,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct TcpAssociationSupervisedReadReport {
+    pub read: TcpAssociationReadReport,
+    pub supervision: Vec<TcpAssociationReaderSupervisionDecision>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -490,6 +535,7 @@ pub struct TcpAssociationListenerReport {
     pub accepted_associations: usize,
     pub remote_identities: Vec<TcpAssociationIdentity>,
     pub read: TcpAssociationReadReport,
+    pub supervision: Vec<TcpAssociationReaderSupervisionDecision>,
 }
 
 fn tcp_inbound_failure(peer: &str, error: impl std::error::Error) -> RemoteError {

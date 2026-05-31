@@ -346,6 +346,10 @@ Implemented:
   inbound lane or association reader failures plan full inbound-stream
   restarts by default, finite restart limits can stop inbound streams, and
   late failures after stop are ignored deterministically.
+- TCP reader handles now preserve lane identity while joining reader threads,
+  expose `TcpAssociationSupervisedReadReport`, and listener lifecycle reports
+  include structured reader supervision decisions instead of reducing lane
+  failures to untyped error strings.
 - `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
   actor path, removes refs before termination is observable, and exposes local
   resolution helpers so remoting can resolve inbound recipients without making
@@ -1371,6 +1375,11 @@ cargo test -p kairo-cluster-sharding entity_ref_routes_through_sharding_envelope
 cargo test -p kairo-cluster-sharding region_actor_requests_shard_home_from_registered_coordinator_for_local_route
 cargo test -p kairo-remote reader_supervisor
 cargo test -p kairo-remote tcp_listener_accept_loop_spawns_and_joins_lane_readers
+cargo test -p kairo-remote tcp_lane_reader_supervision_records_lane_restart_decision
+cargo test -p kairo-remote tcp_listener_report_includes_reader_supervision_decisions
+cargo test -p kairo-remote tcp_
+cargo test -p kairo-remote --all-targets --all-features
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check

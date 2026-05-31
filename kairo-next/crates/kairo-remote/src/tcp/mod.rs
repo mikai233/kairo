@@ -12,7 +12,7 @@ pub use self::handshake::{
 pub use self::inbound::{
     TcpAcceptedAssociation, TcpAssociationListener, TcpAssociationListenerHandle,
     TcpAssociationListenerReport, TcpAssociationReadReport, TcpAssociationReaderHandle,
-    TcpAssociationStreamReader,
+    TcpAssociationStreamReader, TcpAssociationSupervisedReadReport,
 };
 pub use self::sink::TcpRemoteByteSink;
 pub use self::supervision::{

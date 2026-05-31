@@ -193,7 +193,8 @@ pub use tcp::{
     TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
     TcpAssociationReadReport, TcpAssociationReaderFailure, TcpAssociationReaderHandle,
     TcpAssociationReaderRestartSettings, TcpAssociationReaderSupervisionDecision,
-    TcpAssociationReaderSupervisor, TcpAssociationStreamReader, TcpRemoteByteSink,
+    TcpAssociationReaderSupervisor, TcpAssociationStreamReader, TcpAssociationSupervisedReadReport,
+    TcpRemoteByteSink,
 };
 pub use tcp_runtime::TcpRemoteActorSystem;
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};

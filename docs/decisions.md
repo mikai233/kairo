@@ -2628,12 +2628,14 @@ inbound-stream restart for every lane or association reader failure, matching
 Pekko's stateless inbound restart shape. Callers may configure a finite restart
 limit for tests or stricter runtime ownership, after which the supervisor
 returns `StopInboundStreams`. Failures observed after an explicit stop are
-ignored.
+ignored. Reader handles preserve the accepted lane id when one is known, expose
+`TcpAssociationSupervisedReadReport`, and listener reports carry collected
+supervision decisions alongside accepted identity and frame counts.
 
 Consequences:
 - TCP reader supervision is deterministic and testable without adding a broad
   async stream dependency or hiding restart counters in listener threads.
-- Later listener/runtime wiring can consume structured restart/stop decisions
-  instead of inspecting error strings.
+- Listener/runtime wiring can consume structured restart/stop decisions instead
+  of inspecting error strings.
 - This decision covers inbound lane restart policy only; outbound stream
   backoff and reconnect ownership remain separate transport/runtime concerns.

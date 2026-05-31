@@ -868,6 +868,10 @@ TCP association dialing:
   decision: by default any lane or association reader failure plans a full
   inbound-stream restart, a configured restart limit can stop the inbound
   streams, and late failures after stop are ignored,
+- `TcpAssociationReaderHandle::join_with_supervisor` folds lane reader
+  failures into `TcpAssociationSupervisedReadReport`, and
+  `TcpAssociationListenerReport` carries those structured supervision
+  decisions alongside accepted identity and frame counts,
 - these TCP pieces remain transport primitives; reconnect policy and richer
   provider lifecycle ownership remain separate integration work.
 
