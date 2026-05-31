@@ -563,20 +563,24 @@ Pekko's split-brain resolver is an actor-backed downing provider. It waits for
 stable reachability, handles indirectly connected graphs, and can use lease
 acquisition for lease-majority decisions. Kairo has the gossip, reachability,
 and downing-plan state needed for deterministic decisions, plus a local actor
-runtime with deterministic timers. It does not yet have lease-majority support
-or the full indirectly-connected graph logic.
+runtime with deterministic timers. It does not yet have lease-majority support.
 
 Decision:
 Kairo exposes synchronous
 `SplitBrainResolverHook` policies for `down-all`, `keep-majority`, and
 `keep-oldest`. These hooks implement the primary Pekko decisions over the
-current gossip snapshot and feed the existing `DowningPlan`. The actor-backed
-`DowningProviderActor` owns the stable-after timer and applies hook decisions
-only after reachability has remained stable and the local node is the reachable
-leader. Membership gossip reaches the provider through an explicit typed
-registration message rather than hidden plugin lifecycle wiring until full
-cluster bootstrap owns provider startup. Lease-majority and
-indirectly-connected graph handling remain future provider work.
+current gossip snapshot and feed the existing `DowningPlan`. They also detect
+indirectly connected nodes through Pekko's two observable signals: nodes that
+are both negative reachability observers and unreachable subjects, and nodes
+that are unreachable while still having seen the current gossip. Indirect
+decisions down those nodes and combine with the ordinary strategy decision
+after filtering reachability records between the indirectly connected nodes.
+The actor-backed `DowningProviderActor` owns the stable-after timer and applies
+hook decisions only after reachability has remained stable and the local node
+is the reachable leader. Membership gossip reaches the provider through an
+explicit typed registration message rather than hidden plugin lifecycle wiring
+until full cluster bootstrap owns provider startup. Lease-majority remains
+future provider work.
 
 Consequences:
 - Tests can cover concrete downing behavior without introducing a central
@@ -584,8 +588,8 @@ Consequences:
 - The public downing boundary remains `DowningHook` plus `DowningPlan`, while
   provider timing is a focused actor rather than being folded into gossip
   state.
-- Full split-brain resolver parity still requires indirectly-connected
-  handling, lease-majority support, and broader live-socket validation.
+- Full split-brain resolver parity still requires lease-majority support and
+  broader live-socket validation.
 
 ## ADR-0024: Remote Refs Start As Typed Recipient Boundaries
 

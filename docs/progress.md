@@ -972,7 +972,12 @@ Implemented:
   synchronous downing policies for `down-all`, `keep-majority`, and
   `keep-oldest`, including role-filtered majority decisions, tie-breaking by
   lowest address, oldest-member survival, and `down-if-alone` behavior.
-  Indirectly-connected graph handling and lease-majority remain future work.
+- `kairo-cluster::SplitBrainResolverHook` now detects Pekko-style indirectly
+  connected nodes from reachability observer/subject cycles and unreachable
+  subjects that have still seen current gossip. Indirect decisions down those
+  nodes and combine with the ordinary majority/oldest decision after filtering
+  reachability records between indirectly connected nodes.
+- Split-brain lease-majority remains future work.
 - `kairo-cluster::DowningProviderActor` now wraps the downing hook boundary in
   an actor-backed stable-after timer: it observes gossip snapshots, tracks
   relevant unreachable members, resets or cancels the timer when reachability
@@ -1351,9 +1356,8 @@ Not yet implemented:
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
 - Multi-node cluster membership socket lifecycle orchestration still needs
-  indirectly-connected split-brain handling, lease-majority support, and
-  broader automated multi-node scenarios beyond the current local two-node
-  membership/downing socket validation.
+  lease-majority support and broader automated multi-node scenarios beyond the
+  current local two-node membership/downing socket validation.
 
 ## Last Validation
 
@@ -1380,6 +1384,11 @@ cargo test -p kairo-remote tcp_listener_report_includes_reader_supervision_decis
 cargo test -p kairo-remote tcp_
 cargo test -p kairo-remote --all-targets --all-features
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster downing::tests
+cargo test -p kairo-cluster indirectly_connected
+cargo test -p kairo-cluster all_observers_reports_negative_reachability_observers
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check

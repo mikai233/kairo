@@ -1317,7 +1317,14 @@ Downing:
 
 - `ManualDowning`: only explicit `Down(address)`.
 - `AutoDownUnreachableAfter`: simple timeout strategy for development.
-- `SplitBrainResolver`: later, role-aware and data-center-aware.
+- `SplitBrainResolver`: role-aware `keep-majority` and `keep-oldest`
+  decisions run behind the actor-backed stable-after provider; indirectly
+  connected graphs are detected from reachability observer/subject cycles and
+  unreachable nodes that have still seen current gossip, then combined with
+  the ordinary strategy decision after filtering reachability records between
+  indirectly connected nodes.
+- Lease-majority and broader data-center-aware policy coverage remain later
+  work.
 
 ### Seed and Discovery
 

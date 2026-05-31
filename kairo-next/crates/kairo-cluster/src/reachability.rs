@@ -116,6 +116,19 @@ impl Reachability {
             .collect()
     }
 
+    pub fn all_observers(&self) -> HashSet<UniqueAddress> {
+        self.records
+            .iter()
+            .filter(|record| {
+                matches!(
+                    record.status,
+                    ReachabilityStatus::Unreachable | ReachabilityStatus::Terminated
+                )
+            })
+            .map(|record| record.observer.clone())
+            .collect()
+    }
+
     pub fn merge(&self, allowed: &HashSet<UniqueAddress>, other: &Self) -> Self {
         let mut records = Vec::new();
         let mut versions = self.versions.clone();
@@ -284,6 +297,21 @@ mod tests {
             reachability
                 .all_unreachable_or_terminated()
                 .contains(&subject)
+        );
+    }
+
+    #[test]
+    fn all_observers_reports_negative_reachability_observers() {
+        let observer_a = node("a", 1);
+        let observer_b = node("b", 2);
+        let subject = node("c", 3);
+        let reachability = Reachability::new()
+            .unreachable(observer_a.clone(), subject.clone())
+            .terminated(observer_b.clone(), subject);
+
+        assert_eq!(
+            reachability.all_observers(),
+            HashSet::from([observer_a, observer_b])
         );
     }
 

@@ -1,3 +1,5 @@
+mod split_brain;
+
 use crate::{Gossip, Member, MemberStatus, UniqueAddress};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -6,11 +8,16 @@ pub enum DowningDecision {
     DownReachable,
     DownUnreachable,
     DownAll,
+    DownIndirectlyConnected,
     DownSelfQuarantinedByRemote,
 }
 
 pub trait DowningHook {
     fn decide(&self, gossip: &Gossip, self_node: &UniqueAddress) -> DowningDecision;
+
+    fn plan(&self, gossip: &Gossip, self_node: &UniqueAddress) -> DowningPlan {
+        DowningPlan::from_decision(self.decide(gossip, self_node), gossip, self_node)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -83,19 +90,6 @@ impl SplitBrainResolverHook {
     }
 }
 
-impl DowningHook for SplitBrainResolverHook {
-    fn decide(&self, gossip: &Gossip, _self_node: &UniqueAddress) -> DowningDecision {
-        match &self.strategy {
-            SplitBrainStrategy::DownAll => DowningDecision::DownAll,
-            SplitBrainStrategy::KeepMajority { role } => keep_majority_decision(gossip, role),
-            SplitBrainStrategy::KeepOldest {
-                role,
-                down_if_alone,
-            } => keep_oldest_decision(gossip, role, *down_if_alone),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DowningPlan {
     decision: DowningDecision,
@@ -105,7 +99,7 @@ pub struct DowningPlan {
 
 impl DowningPlan {
     pub fn from_hook(hook: &impl DowningHook, gossip: &Gossip, self_node: &UniqueAddress) -> Self {
-        Self::from_decision(hook.decide(gossip, self_node), gossip, self_node)
+        hook.plan(gossip, self_node)
     }
 
     pub fn from_decision(
@@ -132,6 +126,9 @@ impl DowningPlan {
                     .collect()
             }
             DowningDecision::DownAll => downable_nodes(gossip),
+            DowningDecision::DownIndirectlyConnected => {
+                split_brain::nodes_to_down_for_decision(decision, gossip)
+            }
             DowningDecision::DownSelfQuarantinedByRemote => {
                 if gossip.has_member(self_node) {
                     vec![self_node.clone()]
@@ -144,6 +141,16 @@ impl DowningPlan {
         nodes_to_down.dedup();
         let down_self = nodes_to_down.iter().any(|node| node == self_node);
 
+        Self::new(decision, nodes_to_down, down_self)
+    }
+
+    fn new(
+        decision: DowningDecision,
+        mut nodes_to_down: Vec<UniqueAddress>,
+        down_self: bool,
+    ) -> Self {
+        nodes_to_down.sort_by_key(UniqueAddress::ordering_key);
+        nodes_to_down.dedup();
         Self {
             decision,
             nodes_to_down,
@@ -187,7 +194,26 @@ impl DowningPlan {
     }
 }
 
-fn downable_nodes(gossip: &Gossip) -> Vec<UniqueAddress> {
+impl DowningHook for SplitBrainResolverHook {
+    fn decide(&self, gossip: &Gossip, _self_node: &UniqueAddress) -> DowningDecision {
+        split_brain::decision(gossip, &self.strategy)
+    }
+
+    fn plan(&self, gossip: &Gossip, self_node: &UniqueAddress) -> DowningPlan {
+        let decision = self.decide(gossip, self_node);
+        if decision != DowningDecision::DownIndirectlyConnected {
+            return DowningPlan::from_decision(decision, gossip, self_node);
+        }
+
+        let nodes_to_down = split_brain::indirectly_connected_nodes_to_down(gossip, &self.strategy)
+            .into_iter()
+            .collect::<Vec<_>>();
+        let down_self = nodes_to_down.iter().any(|node| node == self_node);
+        DowningPlan::new(decision, nodes_to_down, down_self)
+    }
+}
+
+pub(super) fn downable_nodes(gossip: &Gossip) -> Vec<UniqueAddress> {
     gossip
         .members()
         .iter()
@@ -201,7 +227,7 @@ fn downable_nodes(gossip: &Gossip) -> Vec<UniqueAddress> {
         .collect()
 }
 
-fn keep_majority_decision(gossip: &Gossip, role: &Option<String>) -> DowningDecision {
+pub(super) fn keep_majority_decision(gossip: &Gossip, role: &Option<String>) -> DowningDecision {
     let members = decision_members(gossip, role);
     if members.is_empty() {
         return DowningDecision::DownAll;
@@ -240,7 +266,7 @@ fn majority_decision(
     }
 }
 
-fn keep_oldest_decision(
+pub(super) fn keep_oldest_decision(
     gossip: &Gossip,
     role: &Option<String>,
     down_if_alone: bool,
@@ -536,6 +562,77 @@ mod tests {
 
         assert_eq!(plan.decision(), DowningDecision::DownAll);
         assert_eq!(plan.nodes_to_down(), &[node_a]);
+    }
+
+    #[test]
+    fn keep_majority_downs_indirectly_connected_cycle() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let gossip = Gossip::from_members([
+            member(node_a.clone(), MemberStatus::Up),
+            member(node_b.clone(), MemberStatus::Up),
+            member(node_c, MemberStatus::Up),
+        ])
+        .with_reachability(
+            Reachability::new()
+                .unreachable(node_a.clone(), node_b.clone())
+                .unreachable(node_b.clone(), node_a.clone()),
+        );
+        let hook = SplitBrainResolverHook::keep_majority(None);
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_a);
+
+        assert_eq!(plan.decision(), DowningDecision::DownIndirectlyConnected);
+        assert_eq!(plan.nodes_to_down(), &[node_a, node_b]);
+        assert!(plan.down_self());
+    }
+
+    #[test]
+    fn keep_majority_combines_indirect_cycle_with_clean_partition_decision() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let node_d = node("d", 4);
+        let gossip = Gossip::from_members([
+            member(node_a.clone(), MemberStatus::Up),
+            member(node_b.clone(), MemberStatus::Up),
+            member(node_c, MemberStatus::Up),
+            member(node_d.clone(), MemberStatus::Up),
+        ])
+        .with_reachability(
+            Reachability::new()
+                .unreachable(node_a.clone(), node_b.clone())
+                .unreachable(node_b.clone(), node_a.clone())
+                .unreachable(node_a.clone(), node_d.clone()),
+        );
+        let hook = SplitBrainResolverHook::keep_majority(None);
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_a);
+
+        assert_eq!(plan.decision(), DowningDecision::DownIndirectlyConnected);
+        assert_eq!(plan.nodes_to_down(), &[node_a, node_b, node_d]);
+    }
+
+    #[test]
+    fn keep_oldest_treats_seen_unreachable_node_as_indirectly_connected() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let gossip = Gossip::from_members([
+            member_with_age(node_a.clone(), MemberStatus::Up, 1),
+            member_with_age(node_b.clone(), MemberStatus::Up, 2),
+            member_with_age(node_c, MemberStatus::Up, 3),
+        ])
+        .with_reachability(Reachability::new().unreachable(node_a.clone(), node_b.clone()))
+        .seen(node_b.clone());
+        let hook = SplitBrainResolverHook::keep_oldest(None, false);
+
+        let plan = DowningPlan::from_hook(&hook, &gossip, &node_a);
+
+        assert_eq!(plan.decision(), DowningDecision::DownIndirectlyConnected);
+        assert_eq!(plan.nodes_to_down(), &[node_a, node_b]);
+        assert!(plan.down_self());
     }
 
     #[test]
