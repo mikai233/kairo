@@ -76,6 +76,10 @@ Implemented:
   watching that child, while non-parent watchers still receive plain
   `Signal::Terminated` and `watch_with` continues to deliver the caller's
   custom message.
+- `Context::watch` and `Context::watch_with` reject attempts to watch the
+  actor's own ref with an explicit `InvalidWatchTarget` error, matching the
+  Rust architecture contract that self-watch is not a meaningful lifecycle
+  subscription.
 - Death-watch registration and notification state lives in a focused
   `death_watch` module.
 - `ActorSystem::schedule_once`, `Context::schedule_once`, and
@@ -1409,6 +1413,8 @@ cargo test -p kairo-actor startup_panic
 cargo test -p kairo-actor restart_supervision_rebuilds_actor_after_receive_panic
 cargo test -p kairo-actor signal_failure
 cargo test -p kairo-actor restart_supervision_rebuilds_actor_after_signal_failure
+cargo test -p kairo-actor watch_self
+cargo test -p kairo-actor watch_with_self
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding --all-targets --all-features

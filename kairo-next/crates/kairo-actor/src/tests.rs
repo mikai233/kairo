@@ -1777,6 +1777,12 @@ enum WatchProbeMsg {
         subject: ActorRef<()>,
         reply_to: mpsc::Sender<()>,
     },
+    WatchSelf {
+        reply_to: mpsc::Sender<Result<(), ActorError>>,
+    },
+    WatchWithSelf {
+        reply_to: mpsc::Sender<Result<(), ActorError>>,
+    },
     WatchFailing {
         subject: ActorRef<SupervisionMsg>,
         reply_to: mpsc::Sender<()>,
@@ -1808,6 +1814,15 @@ impl Actor for WatchProbe {
                 ctx.watch(&subject)?;
                 reply_to
                     .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::WatchSelf { reply_to } => reply_to
+                .send(ctx.watch(&ctx.myself()))
+                .map_err(|error| ActorError::Message(error.to_string()))?,
+            WatchProbeMsg::WatchWithSelf { reply_to } => {
+                let myself = ctx.myself();
+                reply_to
+                    .send(ctx.watch_with(&myself, WatchProbeMsg::Observed(myself.path().clone())))
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             WatchProbeMsg::WatchFailing { subject, reply_to } => {
@@ -2004,6 +2019,58 @@ fn watch_delivers_terminated_signal_once() {
             .recv_timeout(Duration::from_millis(100))
             .is_err()
     );
+}
+
+#[test]
+fn watch_self_returns_explicit_error() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchSelf { reply_to: reply_tx })
+        .unwrap();
+
+    assert!(matches!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Err(ActorError::InvalidWatchTarget { actor }) if actor == watcher.path().to_string()
+    ));
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
+fn watch_with_self_returns_explicit_error() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWithSelf { reply_to: reply_tx })
+        .unwrap();
+
+    assert!(matches!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Err(ActorError::InvalidWatchTarget { actor }) if actor == watcher.path().to_string()
+    ));
+    assert!(!watcher.is_stopped());
 }
 
 #[test]

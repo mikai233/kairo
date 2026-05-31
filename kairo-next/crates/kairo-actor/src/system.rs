@@ -257,7 +257,9 @@ impl ActorSystem {
         N: Send + 'static,
     {
         if watcher.path() == subject.path() {
-            return Ok(());
+            return Err(ActorError::InvalidWatchTarget {
+                actor: watcher.path().to_string(),
+            });
         }
         let subject_ref = subject.as_any();
         let subject_parent = subject.path().parent();
@@ -292,7 +294,9 @@ impl ActorSystem {
         N: Send + 'static,
     {
         if watcher.path() == subject.path() {
-            return Ok(());
+            return Err(ActorError::InvalidWatchTarget {
+                actor: watcher.path().to_string(),
+            });
         }
         let registration = DeathWatchRegistration::new(
             watcher.path().clone(),
