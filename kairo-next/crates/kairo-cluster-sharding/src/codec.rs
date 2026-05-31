@@ -5,8 +5,9 @@ use kairo_serialization::{
 };
 
 use crate::{
-    BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
-    RoutedShardEnvelope, ShardHome, ShardStarted, ShardStopped,
+    BeginHandOff, BeginHandOffAck, GetShardHome, GracefulShutdownReq, HandOff, HostShard,
+    RegionStopped, Register, RegisterAck, RoutedShardEnvelope, ShardHome, ShardStarted,
+    ShardStopped,
 };
 
 pub const REGISTER_SERIALIZER_ID: u32 = 4_000;
@@ -20,6 +21,8 @@ pub const BEGIN_HANDOFF_ACK_SERIALIZER_ID: u32 = 4_007;
 pub const HANDOFF_SERIALIZER_ID: u32 = 4_008;
 pub const SHARD_STOPPED_SERIALIZER_ID: u32 = 4_009;
 pub const ROUTED_SHARD_ENVELOPE_SERIALIZER_ID: u32 = 4_010;
+pub const GRACEFUL_SHUTDOWN_REQ_SERIALIZER_ID: u32 = 4_011;
+pub const REGION_STOPPED_SERIALIZER_ID: u32 = 4_012;
 
 pub fn register_sharding_protocol_codecs(
     registry: &mut Registry,
@@ -35,6 +38,8 @@ pub fn register_sharding_protocol_codecs(
     registry.register::<HandOff, _>(HandOffCodec)?;
     registry.register::<ShardStopped, _>(ShardStoppedCodec)?;
     registry.register::<RoutedShardEnvelope, _>(RoutedShardEnvelopeCodec)?;
+    registry.register::<GracefulShutdownReq, _>(GracefulShutdownReqCodec)?;
+    registry.register::<RegionStopped, _>(RegionStoppedCodec)?;
     Ok(())
 }
 
@@ -244,6 +249,50 @@ impl MessageCodec<ShardStopped> for ShardStoppedCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct GracefulShutdownReqCodec;
+
+impl MessageCodec<GracefulShutdownReq> for GracefulShutdownReqCodec {
+    fn serializer_id(&self) -> u32 {
+        GRACEFUL_SHUTDOWN_REQ_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &GracefulShutdownReq) -> kairo_serialization::Result<Bytes> {
+        encode_actor_ref(&message.region)
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<GracefulShutdownReq> {
+        ensure_version::<GracefulShutdownReq>(version)?;
+        Ok(GracefulShutdownReq {
+            region: decode_actor_ref(&payload)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RegionStoppedCodec;
+
+impl MessageCodec<RegionStopped> for RegionStoppedCodec {
+    fn serializer_id(&self) -> u32 {
+        REGION_STOPPED_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &RegionStopped) -> kairo_serialization::Result<Bytes> {
+        encode_actor_ref(&message.region)
+    }
+
+    fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<RegionStopped> {
+        ensure_version::<RegionStopped>(version)?;
+        Ok(RegionStopped {
+            region: decode_actor_ref(&payload)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct RoutedShardEnvelopeCodec;
 
 impl MessageCodec<RoutedShardEnvelope> for RoutedShardEnvelopeCodec {
@@ -420,6 +469,12 @@ mod tests {
         let stopped = ShardStopped {
             shard_id: "42".to_string(),
         };
+        let shutdown = GracefulShutdownReq {
+            region: ActorRefWireData::new("kairo://sys@127.0.0.1:25521/user/region#4").unwrap(),
+        };
+        let region_stopped = RegionStopped {
+            region: ActorRefWireData::new("kairo://sys@127.0.0.1:25521/user/region#4").unwrap(),
+        };
         let routed = RoutedShardEnvelope {
             shard_id: "42".to_string(),
             entity_id: "entity-1".to_string(),
@@ -466,6 +521,18 @@ mod tests {
                 .deserialize::<ShardStopped>(registry.serialize(&stopped).unwrap())
                 .unwrap(),
             stopped
+        );
+        assert_eq!(
+            registry
+                .deserialize::<GracefulShutdownReq>(registry.serialize(&shutdown).unwrap())
+                .unwrap(),
+            shutdown
+        );
+        assert_eq!(
+            registry
+                .deserialize::<RegionStopped>(registry.serialize(&region_stopped).unwrap())
+                .unwrap(),
+            region_stopped
         );
         let serialized_routed = registry.serialize(&routed).unwrap();
         assert_eq!(

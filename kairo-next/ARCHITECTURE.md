@@ -1575,6 +1575,10 @@ Implementation shape:
   discovery/retry and send pending `GetShardHome` requests after a matching
   remote `RegisterAck`, without exposing local coordinator messages on the
   wire.
+- Region remote-coordinator transport also composes a focused shutdown bridge
+  for stable `GracefulShutdownReq` and `RegionStopped` envelopes, keeping
+  region shutdown notification on the sharding wire protocol instead of
+  serializing local actor messages.
 - Region system inbound routing dispatches stable remote envelopes addressed
   to `/system/sharding/region` by manifest: routed entity envelopes enter the
   local region delivery path, while decoded `RegisterAck` and `ShardHome`
@@ -1585,6 +1589,10 @@ Implementation shape:
   with `RegisterAck`, while decoded `GetShardHome` commands enter the
   coordinator actor and reply with `ShardHome` when the runtime returns a
   known or newly allocated remote region home.
+- Coordinator system inbound routing also accepts decoded
+  `GracefulShutdownReq` and `RegionStopped` messages, maps their stable
+  region wire refs into coordinator region ids, and re-enters the same
+  shutdown and region-termination paths used by local regions.
 - Remote region control targets serialize coordinator-driven `HostShard`,
   `BeginHandOff`, and `HandOff` commands as stable remote envelopes addressed
   to `/system/sharding/region`; coordinator system inbound routing accepts
@@ -1609,6 +1617,11 @@ Implementation shape:
   as gracefully shutting down, excludes it from future allocation, starts
   handoff workers for every shard currently owned by the region, and
   reallocates completed handoffs through the existing shard-home path.
+- Remote graceful region shutdown preserves the same observable coordinator
+  state transitions through stable `GracefulShutdownReq(region)` and
+  `RegionStopped(region)` wire messages whose `region` value is
+  `ActorRefWireData`; remote messages use registered codecs and do not depend
+  on local `ShardCoordinatorMsg<M>` enum layout.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.

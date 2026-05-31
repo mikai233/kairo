@@ -64,6 +64,7 @@ mod coordinator_remote_home;
 mod coordinator_remote_regions;
 mod coordinator_remote_registration;
 mod coordinator_remote_reply;
+mod coordinator_remote_shutdown;
 mod coordinator_remote_target;
 mod coordinator_runtime;
 mod coordinator_store;
@@ -107,12 +108,13 @@ pub use allocation::{LeastShardAllocationStrategy, ShardAllocationStrategy, Shar
 pub use bootstrap::ShardCoordinatorBootstrap;
 pub use codec::{
     BEGIN_HANDOFF_ACK_SERIALIZER_ID, BEGIN_HANDOFF_SERIALIZER_ID, BeginHandOffAckCodec,
-    BeginHandOffCodec, GET_SHARD_HOME_SERIALIZER_ID, GetShardHomeCodec, HANDOFF_SERIALIZER_ID,
-    HOST_SHARD_SERIALIZER_ID, HandOffCodec, HostShardCodec, REGISTER_ACK_SERIALIZER_ID,
-    REGISTER_SERIALIZER_ID, ROUTED_SHARD_ENVELOPE_SERIALIZER_ID, RegisterAckCodec, RegisterCodec,
-    RoutedShardEnvelopeCodec, SHARD_HOME_SERIALIZER_ID, SHARD_STARTED_SERIALIZER_ID,
-    SHARD_STOPPED_SERIALIZER_ID, ShardHomeCodec, ShardStartedCodec, ShardStoppedCodec,
-    register_sharding_protocol_codecs,
+    BeginHandOffCodec, GET_SHARD_HOME_SERIALIZER_ID, GRACEFUL_SHUTDOWN_REQ_SERIALIZER_ID,
+    GetShardHomeCodec, GracefulShutdownReqCodec, HANDOFF_SERIALIZER_ID, HOST_SHARD_SERIALIZER_ID,
+    HandOffCodec, HostShardCodec, REGION_STOPPED_SERIALIZER_ID, REGISTER_ACK_SERIALIZER_ID,
+    REGISTER_SERIALIZER_ID, ROUTED_SHARD_ENVELOPE_SERIALIZER_ID, RegionStoppedCodec,
+    RegisterAckCodec, RegisterCodec, RoutedShardEnvelopeCodec, SHARD_HOME_SERIALIZER_ID,
+    SHARD_STARTED_SERIALIZER_ID, SHARD_STOPPED_SERIALIZER_ID, ShardHomeCodec, ShardStartedCodec,
+    ShardStoppedCodec, register_sharding_protocol_codecs,
 };
 pub use coordinator::{CoordinatorEvent, CoordinatorState};
 pub use coordinator_actor::{CoordinatorStateSnapshot, ShardCoordinatorActor, ShardCoordinatorMsg};
@@ -130,6 +132,9 @@ pub use coordinator_remote_registration::{
     ShardCoordinatorRemoteRegistrationInbound, ShardCoordinatorRemoteRegistrationOutbound,
 };
 pub use coordinator_remote_reply::{CoordinatorRemoteReplyError, CoordinatorRemoteReplyTarget};
+pub use coordinator_remote_shutdown::{
+    ShardCoordinatorRemoteShutdownError, ShardCoordinatorRemoteShutdownOutbound,
+};
 pub use coordinator_remote_target::{
     DEFAULT_SHARD_COORDINATOR_REMOTE_PATH, ShardCoordinatorRemoteTarget,
     ShardCoordinatorRemoteTargetError, coordinator_recipient_for_node,
@@ -159,8 +164,9 @@ pub use handoff_worker::{
 };
 pub use hashing::{DEFAULT_SHARD_COUNT, default_shard_id_for, shard_id_for, stable_hash_entity_id};
 pub use protocol::{
-    BeginHandOff, BeginHandOffAck, GetShardHome, HandOff, HostShard, Register, RegisterAck,
-    RoutedShardEnvelope, ShardHome, ShardStarted, ShardStopped,
+    BeginHandOff, BeginHandOffAck, GetShardHome, GracefulShutdownReq, HandOff, HostShard,
+    RegionStopped, Register, RegisterAck, RoutedShardEnvelope, ShardHome, ShardStarted,
+    ShardStopped,
 };
 pub use region_actor::ShardRegionActor;
 pub use region_coordinator_discovery::{

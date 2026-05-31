@@ -2548,7 +2548,34 @@ Consequences:
 - Graceful shutdown uses the same handoff, allocation, remember-store, and
   region-hosting code paths as rebalancing instead of adding a second shard
   movement mechanism.
-- The first slice is local and typed; stable remote `GracefulShutdownReq` and
-  `RegionStopped` wire messages remain a later protocol slice.
 - The coordinator's existing graceful-shutdown exclusion now has an actor
   message path that can be driven by regions and deterministic tests.
+
+## ADR-0090: Remote Graceful Sharding Shutdown Uses Stable Region Wire Refs
+
+Status: Accepted
+
+Context:
+Pekko carries graceful region shutdown across the sharding coordinator protocol
+with `GracefulShutdownReq(region)` and later region termination with
+`RegionStopped(region)`. Kairo already had local typed shutdown messages, but
+remote regions must not serialize `ShardCoordinatorMsg<M>` enum variants or
+depend on Rust type names, enum discriminants, or memory layout.
+
+Decision:
+Kairo models remote graceful region shutdown as stable sharding protocol
+messages `GracefulShutdownReq` and `RegionStopped`, each carrying
+`ActorRefWireData` for the region. Explicit codecs register serializer ids and
+manifests for those messages. A focused
+`ShardCoordinatorRemoteShutdownOutbound` bridge sends the envelopes to the
+selected remote coordinator with the region wire ref as sender metadata, and
+`ShardCoordinatorSystemInbound<M>` decodes them before re-entering normal
+coordinator actor turns.
+
+Consequences:
+- Remote and local graceful shutdown share the same coordinator runtime state
+  transitions after inbound decoding.
+- Region shutdown transport remains separate from registration and shard-home
+  lookup transport, so the crate keeps one responsibility per module.
+- Wire compatibility is tied to explicit manifests, versions, serializer ids,
+  and `ActorRefWireData`, not to local Rust actor-message representation.

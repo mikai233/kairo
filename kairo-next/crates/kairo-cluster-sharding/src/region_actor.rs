@@ -435,6 +435,10 @@ where
         self.register_with_coordinator(ctx)
     }
 
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.send_region_stopped_to_coordinator()
+    }
+
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             ShardRegionMsg::Route {
@@ -681,6 +685,17 @@ where
 
     fn send_graceful_shutdown_to_coordinator(&self) -> ActorResult {
         let Some(registration) = &self.registration else {
+            let Some(target) = self.remote_coordinator.target() else {
+                return Ok(());
+            };
+            if !self.remote_coordinator.is_registered() {
+                return Ok(());
+            }
+            if let Some(transport) = &self.remote_coordinator_transport {
+                transport
+                    .graceful_shutdown(target)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
             return Ok(());
         };
         if !registration.is_registered() {
@@ -693,6 +708,33 @@ where
                 reply_to: None,
             })
             .map_err(|error| ActorError::Message(error.reason().to_string()))
+    }
+
+    fn send_region_stopped_to_coordinator(&self) -> ActorResult {
+        if let Some(registration) = &self.registration {
+            if registration.is_registered() {
+                registration
+                    .coordinator()
+                    .tell(ShardCoordinatorMsg::RegionStopped {
+                        region: self.runtime.self_region().clone(),
+                    })
+                    .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+            }
+            return Ok(());
+        }
+
+        let Some(target) = self.remote_coordinator.target() else {
+            return Ok(());
+        };
+        if !self.remote_coordinator.is_registered() {
+            return Ok(());
+        }
+        if let Some(transport) = &self.remote_coordinator_transport {
+            transport
+                .region_stopped(target)
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
     }
 
     fn try_complete_graceful_shutdown(

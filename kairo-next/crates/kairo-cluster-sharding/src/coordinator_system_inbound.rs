@@ -8,8 +8,8 @@ use kairo_serialization::{
 };
 
 use crate::{
-    BeginHandOffAck, CoordinatorRemoteReplyTarget, GetShardHome, Register, ShardCoordinatorMsg,
-    ShardStarted, ShardStopped,
+    BeginHandOffAck, CoordinatorRemoteReplyTarget, GetShardHome, GracefulShutdownReq,
+    RegionStopped, Register, ShardCoordinatorMsg, ShardStarted, ShardStopped,
 };
 
 #[derive(Debug)]
@@ -121,6 +121,8 @@ where
         match envelope.message.manifest.as_str() {
             Register::MANIFEST => self.receive_register(envelope),
             GetShardHome::MANIFEST => self.receive_get_shard_home(envelope),
+            GracefulShutdownReq::MANIFEST => self.receive_graceful_shutdown(envelope),
+            RegionStopped::MANIFEST => self.receive_region_stopped(envelope),
             ShardStarted::MANIFEST => self.receive_shard_started(envelope),
             BeginHandOffAck::MANIFEST => self.receive_begin_handoff_ack(envelope),
             ShardStopped::MANIFEST => self.receive_shard_stopped(envelope),
@@ -158,6 +160,30 @@ where
             requester,
             shard: request.shard_id,
             reply: self.reply_target(),
+        })
+    }
+
+    fn receive_graceful_shutdown(
+        &self,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ShardCoordinatorSystemInboundError> {
+        let request = self
+            .registry
+            .deserialize::<GracefulShutdownReq>(envelope.message)?;
+        self.tell_coordinator(ShardCoordinatorMsg::RemoteGracefulShutdownReq {
+            region: request.region,
+        })
+    }
+
+    fn receive_region_stopped(
+        &self,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ShardCoordinatorSystemInboundError> {
+        let stopped = self
+            .registry
+            .deserialize::<RegionStopped>(envelope.message)?;
+        self.tell_coordinator(ShardCoordinatorMsg::RemoteRegionStopped {
+            region: stopped.region,
         })
     }
 
@@ -232,6 +258,8 @@ pub fn is_shard_coordinator_system_manifest(manifest: &str) -> bool {
         manifest,
         Register::MANIFEST
             | GetShardHome::MANIFEST
+            | GracefulShutdownReq::MANIFEST
+            | RegionStopped::MANIFEST
             | ShardStarted::MANIFEST
             | BeginHandOffAck::MANIFEST
             | ShardStopped::MANIFEST
@@ -392,6 +420,61 @@ mod tests {
                 assert_eq!(stopped.shard_id, "12");
             }
             _ => panic!("expected remote shard-stopped"),
+        }
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn coordinator_system_inbound_routes_region_shutdown_messages() {
+        let kit = ActorSystemTestKit::new("sharding-coordinator-system-shutdown").unwrap();
+        let registry = registry();
+        let outbound = kit
+            .create_probe::<RemoteEnvelope>("remote-outbound")
+            .unwrap();
+        let coordinator = kit
+            .create_probe::<ShardCoordinatorMsg<()>>("coordinator")
+            .unwrap();
+        let inbound = ShardCoordinatorSystemInbound::<()>::new(
+            coordinator.actor_ref(),
+            coordinator_wire(),
+            registry.clone(),
+            outbound.actor_ref(),
+        );
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                coordinator_wire(),
+                Some(region_wire()),
+                registry
+                    .serialize(&GracefulShutdownReq {
+                        region: region_wire(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        match coordinator.expect_msg(Duration::from_millis(500)).unwrap() {
+            ShardCoordinatorMsg::RemoteGracefulShutdownReq { region } => {
+                assert_eq!(region, region_wire());
+            }
+            _ => panic!("expected remote graceful-shutdown request"),
+        }
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                coordinator_wire(),
+                Some(region_wire()),
+                registry
+                    .serialize(&RegionStopped {
+                        region: region_wire(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        match coordinator.expect_msg(Duration::from_millis(500)).unwrap() {
+            ShardCoordinatorMsg::RemoteRegionStopped { region } => {
+                assert_eq!(region, region_wire());
+            }
+            _ => panic!("expected remote region-stopped"),
         }
         kit.shutdown(Duration::from_secs(1)).unwrap();
     }

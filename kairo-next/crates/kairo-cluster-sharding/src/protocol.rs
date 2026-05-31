@@ -102,6 +102,26 @@ impl RemoteMessage for ShardStopped {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GracefulShutdownReq {
+    pub region: ActorRefWireData,
+}
+
+impl RemoteMessage for GracefulShutdownReq {
+    const MANIFEST: &'static str = "kairo.sharding.graceful-shutdown-req";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionStopped {
+    pub region: ActorRefWireData,
+}
+
+impl RemoteMessage for RegionStopped {
+    const MANIFEST: &'static str = "kairo.sharding.region-stopped";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoutedShardEnvelope {
     pub shard_id: String,
     pub entity_id: String,
@@ -134,6 +154,11 @@ mod tests {
         );
         assert_eq!(HandOff::MANIFEST, "kairo.sharding.handoff");
         assert_eq!(ShardStopped::VERSION, 1);
+        assert_eq!(
+            GracefulShutdownReq::MANIFEST,
+            "kairo.sharding.graceful-shutdown-req"
+        );
+        assert_eq!(RegionStopped::MANIFEST, "kairo.sharding.region-stopped");
         assert_eq!(
             RoutedShardEnvelope::MANIFEST,
             "kairo.sharding.routed-envelope"

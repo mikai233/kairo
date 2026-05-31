@@ -238,6 +238,15 @@ where
         region: ActorRefWireData,
         reply: CoordinatorRemoteReplyTarget,
     },
+    RemoteGracefulShutdownReq {
+        region: ActorRefWireData,
+    },
+    RegionStopped {
+        region: RegionId,
+    },
+    RemoteRegionStopped {
+        region: ActorRefWireData,
+    },
     RequestRemoteShardHome {
         requester: ActorRefWireData,
         shard: ShardId,
@@ -368,6 +377,16 @@ where
             }
             ShardCoordinatorMsg::RegisterRemoteRegion { region, reply } => {
                 self.register_remote_region(ctx, region, reply)?;
+            }
+            ShardCoordinatorMsg::RemoteGracefulShutdownReq { region } => {
+                self.apply_remote_graceful_shutdown(ctx, region)?;
+            }
+            ShardCoordinatorMsg::RegionStopped { region } => {
+                self.apply_region_stopped(region)?;
+            }
+            ShardCoordinatorMsg::RemoteRegionStopped { region } => {
+                let region_id = self.remote_regions.register(region);
+                self.apply_region_stopped(region_id)?;
             }
             ShardCoordinatorMsg::RequestRemoteShardHome {
                 requester,
@@ -588,6 +607,27 @@ where
             .send_register_ack(region)
             .map_err(|error| ActorError::Message(error.to_string()))?;
         self.allocate_remembered_shard_homes(ctx)
+    }
+
+    fn apply_remote_graceful_shutdown(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
+        region: ActorRefWireData,
+    ) -> ActorResult {
+        let region_id = self.remote_regions.register(region);
+        let plan = self.runtime.plan_region_shutdown(region_id);
+        self.spawn_shutdown_workers(ctx, &plan)
+    }
+
+    fn apply_region_stopped(&mut self, region: RegionId) -> ActorResult {
+        self.runtime.unmark_graceful_shutdown(&region);
+        self.runtime.unmark_region_terminating(&region);
+        if !self.runtime.state().allocations().contains_region(&region) {
+            return Ok(());
+        }
+        self.runtime
+            .apply_event(CoordinatorEvent::ShardRegionTerminated { region })
+            .map_err(|error| ActorError::Message(error.to_string()))
     }
 
     fn request_remote_shard_home(

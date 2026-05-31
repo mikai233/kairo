@@ -1306,6 +1306,11 @@ Implemented:
   workers for each shard it owns, exclude it from new allocations, reallocate
   completed handoffs through the normal shard-home path, and regions stop once
   their local shards and buffers are gone.
+- `kairo-cluster-sharding` now has stable remote graceful-shutdown protocol
+  messages and codecs for `GracefulShutdownReq(region)` and
+  `RegionStopped(region)`, plus a focused region-to-coordinator shutdown
+  transport and coordinator-side inbound routing that re-enters normal
+  shutdown and region-termination actor turns.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1330,8 +1335,7 @@ Not yet implemented:
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration and broader
   multi-node validation of the discovery subscriber plus region/coordinator
-  flow. Graceful region shutdown still needs stable remote wire messages and
-  multi-node validation.
+  flow, including graceful region shutdown across nodes.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
@@ -1348,6 +1352,11 @@ cargo test -p kairo-cluster-sharding region_system_inbound_completes_hosted_remo
 cargo test -p kairo-cluster-sharding remote_control
 cargo test -p kairo-cluster-sharding region_system_inbound
 cargo test -p kairo-cluster-sharding graceful_shutdown
+cargo test -p kairo-cluster-sharding remote_shutdown
+cargo test -p kairo-cluster-sharding coordinator_system_inbound_routes_region_shutdown_messages
+cargo test -p kairo-cluster-sharding region_actor_sends_remote_graceful_shutdown_and_region_stopped
+cargo test -p kairo-cluster-sharding sharding_protocol_codecs_round_trip_handoff_messages
+cargo test -p kairo-cluster-sharding remote_coordinator_transport
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check

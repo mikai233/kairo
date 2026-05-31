@@ -7,6 +7,7 @@ use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope};
 use crate::{
     GetShardHome, ShardCoordinatorRemoteHomeError, ShardCoordinatorRemoteHomeOutbound,
     ShardCoordinatorRemoteRegistrationError, ShardCoordinatorRemoteRegistrationOutbound,
+    ShardCoordinatorRemoteShutdownError, ShardCoordinatorRemoteShutdownOutbound,
     ShardCoordinatorRemoteTarget,
 };
 
@@ -14,6 +15,7 @@ use crate::{
 pub enum RegionRemoteCoordinatorTransportError {
     Registration(ShardCoordinatorRemoteRegistrationError),
     ShardHome(ShardCoordinatorRemoteHomeError),
+    Shutdown(ShardCoordinatorRemoteShutdownError),
 }
 
 impl Display for RegionRemoteCoordinatorTransportError {
@@ -24,6 +26,9 @@ impl Display for RegionRemoteCoordinatorTransportError {
             }
             Self::ShardHome(error) => {
                 write!(f, "remote coordinator shard-home send failed: {error}")
+            }
+            Self::Shutdown(error) => {
+                write!(f, "remote coordinator shutdown send failed: {error}")
             }
         }
     }
@@ -91,6 +96,34 @@ impl RegionRemoteCoordinatorTransport {
         .send_request(request)
         .map_err(RegionRemoteCoordinatorTransportError::ShardHome)
     }
+
+    pub fn graceful_shutdown(
+        &self,
+        target: &ShardCoordinatorRemoteTarget,
+    ) -> Result<(), RegionRemoteCoordinatorTransportError> {
+        ShardCoordinatorRemoteShutdownOutbound::from_arc(
+            target.clone(),
+            self.region.clone(),
+            self.registry.clone(),
+            self.outbound.clone(),
+        )
+        .graceful_shutdown()
+        .map_err(RegionRemoteCoordinatorTransportError::Shutdown)
+    }
+
+    pub fn region_stopped(
+        &self,
+        target: &ShardCoordinatorRemoteTarget,
+    ) -> Result<(), RegionRemoteCoordinatorTransportError> {
+        ShardCoordinatorRemoteShutdownOutbound::from_arc(
+            target.clone(),
+            self.region.clone(),
+            self.registry.clone(),
+            self.outbound.clone(),
+        )
+        .region_stopped()
+        .map_err(RegionRemoteCoordinatorTransportError::Shutdown)
+    }
 }
 
 #[cfg(test)]
@@ -104,7 +137,8 @@ mod tests {
 
     use crate::{
         DEFAULT_SHARD_COORDINATOR_REMOTE_PATH, GET_SHARD_HOME_SERIALIZER_ID,
-        REGISTER_SERIALIZER_ID, Register, ShardCoordinatorRemoteTarget,
+        GRACEFUL_SHUTDOWN_REQ_SERIALIZER_ID, GracefulShutdownReq, REGION_STOPPED_SERIALIZER_ID,
+        REGISTER_SERIALIZER_ID, RegionStopped, Register, ShardCoordinatorRemoteTarget,
         register_sharding_protocol_codecs,
     };
 
@@ -134,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_coordinator_transport_sends_register_and_get_shard_home() {
+    fn remote_coordinator_transport_sends_register_home_and_shutdown() {
         let registry = registry();
         let target = target();
         let (outbound, rx) = collector::<RemoteEnvelope>();
@@ -149,6 +183,8 @@ mod tests {
                 },
             )
             .unwrap();
+        transport.graceful_shutdown(&target).unwrap();
+        transport.region_stopped(&target).unwrap();
 
         let register = rx.recv().unwrap();
         assert_eq!(register.recipient, target.recipient().clone());
@@ -161,6 +197,24 @@ mod tests {
         assert_eq!(home.sender, Some(region()));
         assert_eq!(home.message.serializer_id, GET_SHARD_HOME_SERIALIZER_ID);
         assert_eq!(home.message.manifest.as_str(), GetShardHome::MANIFEST);
+
+        let graceful = rx.recv().unwrap();
+        assert_eq!(graceful.recipient, target.recipient().clone());
+        assert_eq!(graceful.sender, Some(region()));
+        assert_eq!(
+            graceful.message.serializer_id,
+            GRACEFUL_SHUTDOWN_REQ_SERIALIZER_ID
+        );
+        assert_eq!(
+            graceful.message.manifest.as_str(),
+            GracefulShutdownReq::MANIFEST
+        );
+
+        let stopped = rx.recv().unwrap();
+        assert_eq!(stopped.recipient, target.recipient().clone());
+        assert_eq!(stopped.sender, Some(region()));
+        assert_eq!(stopped.message.serializer_id, REGION_STOPPED_SERIALIZER_ID);
+        assert_eq!(stopped.message.manifest.as_str(), RegionStopped::MANIFEST);
     }
 
     fn registry() -> Arc<Registry> {
