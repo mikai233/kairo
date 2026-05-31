@@ -1199,6 +1199,9 @@ Implemented:
   explicit initial-observation, oldest-change, member-removal, handover, and
   termination protocol messages, and replies with deterministic planned
   effects plus state snapshots for future transport and singleton-child wiring.
+- `kairo-cluster-tools` singleton manager runtime and actor boundary tests now
+  live in a focused sibling test module instead of the broad crate-level test
+  file.
 - `kairo-cluster-tools` now has a typed local singleton manager actor that
   interprets manager start/stop effects by spawning the singleton child under
   the manager, watching the child, sending the configured typed termination
@@ -1669,6 +1672,7 @@ cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_c
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster-tools bootstrap
 cargo test -p kairo-cluster-tools singleton_oldest
+cargo test -p kairo-cluster-tools singleton_manager
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor startup_failure
