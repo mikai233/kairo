@@ -75,6 +75,14 @@ pub(super) fn nodes_to_down_for_decision(
                 .cloned()
                 .collect()
         }
+        DowningDecision::ReverseDownIndirectlyConnected => {
+            let unreachable = gossip.reachability().all_unreachable_or_terminated();
+            let indirectly_connected = indirectly_connected_nodes(gossip);
+            downable_nodes(gossip)
+                .into_iter()
+                .filter(|node| indirectly_connected.contains(node) || !unreachable.contains(node))
+                .collect()
+        }
         DowningDecision::DownSelfQuarantinedByRemote => Vec::new(),
     }
 }
@@ -144,7 +152,7 @@ fn decision_without_indirect_check(
     }
 }
 
-fn has_indirectly_connected(gossip: &Gossip) -> bool {
+pub(super) fn has_indirectly_connected(gossip: &Gossip) -> bool {
     !indirectly_connected_nodes(gossip).is_empty()
 }
 

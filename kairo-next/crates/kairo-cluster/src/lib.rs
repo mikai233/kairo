@@ -100,7 +100,8 @@ pub use codec::{
 };
 pub use convergence::{Convergence, ConvergenceBlocker};
 pub use downing::{
-    DowningDecision, DowningHook, DowningPlan, NoDowning, SplitBrainResolverHook,
+    DowningDecision, DowningHook, DowningPlan, LeaseMajorityHook, LeaseMajorityLease,
+    LeaseMajoritySettings, LeaseMajoritySettingsError, NoDowning, SplitBrainResolverHook,
     SplitBrainStrategy, StaticDowningHook,
 };
 pub use downing_provider::{DowningProviderActor, DowningProviderMsg, DowningProviderSnapshot};

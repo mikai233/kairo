@@ -1,6 +1,12 @@
+mod lease_majority;
 mod split_brain;
 
 use crate::{Gossip, Member, MemberStatus, UniqueAddress};
+use std::time::Duration;
+
+pub use lease_majority::{
+    LeaseMajorityHook, LeaseMajorityLease, LeaseMajoritySettings, LeaseMajoritySettingsError,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DowningDecision {
@@ -9,11 +15,16 @@ pub enum DowningDecision {
     DownUnreachable,
     DownAll,
     DownIndirectlyConnected,
+    ReverseDownIndirectlyConnected,
     DownSelfQuarantinedByRemote,
 }
 
 pub trait DowningHook {
     fn decide(&self, gossip: &Gossip, self_node: &UniqueAddress) -> DowningDecision;
+
+    fn decision_delay(&self, _gossip: &Gossip, _self_node: &UniqueAddress) -> Duration {
+        Duration::ZERO
+    }
 
     fn plan(&self, gossip: &Gossip, self_node: &UniqueAddress) -> DowningPlan {
         DowningPlan::from_decision(self.decide(gossip, self_node), gossip, self_node)
@@ -127,6 +138,9 @@ impl DowningPlan {
             }
             DowningDecision::DownAll => downable_nodes(gossip),
             DowningDecision::DownIndirectlyConnected => {
+                split_brain::nodes_to_down_for_decision(decision, gossip)
+            }
+            DowningDecision::ReverseDownIndirectlyConnected => {
                 split_brain::nodes_to_down_for_decision(decision, gossip)
             }
             DowningDecision::DownSelfQuarantinedByRemote => {
@@ -301,7 +315,7 @@ pub(super) fn keep_oldest_decision(
     }
 }
 
-fn decision_members(gossip: &Gossip, role: &Option<String>) -> Vec<Member> {
+pub(super) fn decision_members(gossip: &Gossip, role: &Option<String>) -> Vec<Member> {
     let mut members: Vec<_> = gossip
         .members()
         .iter()

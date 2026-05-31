@@ -2670,3 +2670,33 @@ Consequences:
   adding a broad async runtime or unsafe thread termination.
 - A later async backend can replace the execution primitive while preserving
   the same generation-scoped delivery contract.
+
+## ADR-0094: Lease Majority Is A Downing Hook, Not Membership Truth
+
+Status: Accepted
+
+Context:
+Pekko's lease-majority split-brain strategy acquires a configured lease before
+downing the unreachable side, delays acquisition on the minority side, and
+reverses the decision when lease acquisition is denied. Kairo must preserve
+those observable downing transitions without introducing etcd, Kubernetes
+leases, or any other central authoritative cluster-membership store.
+
+Decision:
+Kairo models lease-majority as `LeaseMajorityHook` in the focused cluster
+downing module. The hook takes explicit `LeaseMajoritySettings` and a
+caller-provided `LeaseMajorityLease` trait implementation. The lease can grant
+or deny the downing attempt, but it cannot add, remove, or authorize cluster
+members. Majority/minority and indirectly connected calculations still come
+from gossip and reachability. `DowningProviderActor` honors the hook's
+minority-side acquisition delay through a separate deterministic timer before
+applying the hook's decision.
+
+Consequences:
+- Lease-majority behavior is testable with deterministic in-memory leases and
+  manual time, without adding a broad coordination dependency.
+- The lease is a split-brain tie-break hook only; gossip remains the source of
+  membership state and reachability remains the source of partition evidence.
+- Future concrete lease integrations can implement `LeaseMajorityLease` behind
+  crate or feature boundaries without changing the cluster membership state
+  machine.

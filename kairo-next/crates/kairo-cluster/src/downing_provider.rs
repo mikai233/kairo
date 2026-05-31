@@ -9,6 +9,7 @@ use crate::{
 };
 
 const STABLE_AFTER_TIMER: &str = "downing-stable-after";
+const DECISION_DELAY_TIMER: &str = "downing-decision-delay";
 
 pub struct DowningProviderActor<H>
 where
@@ -21,6 +22,7 @@ where
     latest_gossip: Gossip,
     relevant_unreachable: HashSet<UniqueAddress>,
     stable_timer_active: bool,
+    decision_delay_active: bool,
 }
 
 impl<H> DowningProviderActor<H>
@@ -41,6 +43,7 @@ where
             latest_gossip: Gossip::new(),
             relevant_unreachable: HashSet::new(),
             stable_timer_active: false,
+            decision_delay_active: false,
         }
     }
 
@@ -63,27 +66,60 @@ where
 
         if self.relevant_unreachable.is_empty() {
             ctx.cancel_timer(STABLE_AFTER_TIMER);
+            ctx.cancel_timer(DECISION_DELAY_TIMER);
             self.stable_timer_active = false;
+            self.decision_delay_active = false;
             return;
         }
 
         let became_responsible = !was_responsible && self.is_responsible();
-        if unreachable_changed || became_responsible || !self.stable_timer_active {
+        if unreachable_changed
+            || became_responsible
+            || (!self.stable_timer_active && !self.decision_delay_active)
+        {
+            ctx.cancel_timer(DECISION_DELAY_TIMER);
             ctx.start_single_timer(
                 STABLE_AFTER_TIMER,
                 self.stable_after,
                 DowningProviderMsg::StableAfterElapsed,
             );
             self.stable_timer_active = true;
+            self.decision_delay_active = false;
         }
     }
 
-    fn stable_after_elapsed(&mut self) {
+    fn stable_after_elapsed(&mut self, ctx: &mut Context<DowningProviderMsg>) {
         self.stable_timer_active = false;
         if !self.is_responsible() || self.relevant_unreachable.is_empty() {
             return;
         }
 
+        let decision_delay = self
+            .hook
+            .decision_delay(&self.latest_gossip, &self.self_node);
+        if !decision_delay.is_zero() {
+            ctx.start_single_timer(
+                DECISION_DELAY_TIMER,
+                decision_delay,
+                DowningProviderMsg::DecisionDelayElapsed,
+            );
+            self.decision_delay_active = true;
+            return;
+        }
+
+        self.apply_decision();
+    }
+
+    fn decision_delay_elapsed(&mut self) {
+        self.decision_delay_active = false;
+        if !self.is_responsible() || self.relevant_unreachable.is_empty() {
+            return;
+        }
+
+        self.apply_decision();
+    }
+
+    fn apply_decision(&self) {
         let decision = self.hook.decide(&self.latest_gossip, &self.self_node);
         if decision != DowningDecision::NoAction {
             let _ = self
@@ -98,6 +134,7 @@ where
         DowningProviderSnapshot {
             responsible: self.is_responsible(),
             stable_timer_active: self.stable_timer_active,
+            decision_delay_active: self.decision_delay_active,
             relevant_unreachable: unreachable,
         }
     }
@@ -112,6 +149,7 @@ where
 pub enum DowningProviderMsg {
     ObserveGossip(Gossip),
     StableAfterElapsed,
+    DecisionDelayElapsed,
     Snapshot {
         reply_to: ActorRef<DowningProviderSnapshot>,
     },
@@ -121,6 +159,7 @@ pub enum DowningProviderMsg {
 pub struct DowningProviderSnapshot {
     pub responsible: bool,
     pub stable_timer_active: bool,
+    pub decision_delay_active: bool,
     pub relevant_unreachable: Vec<UniqueAddress>,
 }
 
@@ -133,7 +172,8 @@ where
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             DowningProviderMsg::ObserveGossip(gossip) => self.observe_gossip(ctx, gossip),
-            DowningProviderMsg::StableAfterElapsed => self.stable_after_elapsed(),
+            DowningProviderMsg::StableAfterElapsed => self.stable_after_elapsed(ctx),
+            DowningProviderMsg::DecisionDelayElapsed => self.decision_delay_elapsed(),
             DowningProviderMsg::Snapshot { reply_to } => {
                 let _ = reply_to.tell(self.snapshot());
             }
@@ -164,7 +204,7 @@ mod tests {
     use std::time::Duration;
 
     use kairo_actor::Address;
-    use kairo_testkit::ActorSystemTestKit;
+    use kairo_testkit::{ActorSystemTestKit, await_assert};
 
     use super::*;
     use crate::{Member, Reachability, StaticDowningHook};
@@ -375,6 +415,108 @@ mod tests {
         kit.shutdown(Duration::from_secs(1)).unwrap();
     }
 
+    #[test]
+    fn downing_provider_honors_hook_decision_delay() {
+        let (kit, manual_time) =
+            ActorSystemTestKit::with_manual_time("downing-provider-decision-delay").unwrap();
+        let self_node = node("self", 1);
+        let peer = node("peer", 2);
+        let membership = kit
+            .create_probe::<ClusterMembershipMsg>("membership")
+            .unwrap();
+        let snapshots = kit
+            .create_probe::<DowningProviderSnapshot>("snapshots")
+            .unwrap();
+        let provider = kit
+            .system()
+            .spawn(
+                "downing-provider",
+                DowningProviderActor::props(
+                    self_node.clone(),
+                    DelayedHook {
+                        decision: DowningDecision::DownUnreachable,
+                        delay: Duration::from_secs(2),
+                    },
+                    membership.actor_ref(),
+                    Duration::from_secs(1),
+                ),
+            )
+            .unwrap();
+
+        provider
+            .tell(DowningProviderMsg::ObserveGossip(
+                reachable_gossip(&self_node, &peer)
+                    .with_reachability(Reachability::new().unreachable(self_node.clone(), peer)),
+            ))
+            .unwrap();
+        await_assert(
+            Duration::from_secs(1),
+            Duration::from_millis(10),
+            || -> Result<(), String> {
+                provider
+                    .tell(DowningProviderMsg::Snapshot {
+                        reply_to: snapshots.actor_ref(),
+                    })
+                    .map_err(|error| error.reason().to_string())?;
+                let snapshot = snapshots
+                    .expect_msg(Duration::from_millis(100))
+                    .map_err(|error| error.to_string())?;
+                if snapshot.stable_timer_active && !snapshot.decision_delay_active {
+                    Ok(())
+                } else {
+                    Err(format!("unexpected snapshot: {snapshot:?}"))
+                }
+            },
+        )
+        .unwrap();
+
+        manual_time.advance(Duration::from_secs(1));
+        membership
+            .expect_no_msg(Duration::from_millis(100))
+            .expect("decision delay must defer the downing decision");
+        await_assert(
+            Duration::from_secs(1),
+            Duration::from_millis(10),
+            || -> Result<(), String> {
+                provider
+                    .tell(DowningProviderMsg::Snapshot {
+                        reply_to: snapshots.actor_ref(),
+                    })
+                    .map_err(|error| error.reason().to_string())?;
+                let snapshot = snapshots
+                    .expect_msg(Duration::from_millis(100))
+                    .map_err(|error| error.to_string())?;
+                if !snapshot.stable_timer_active && snapshot.decision_delay_active {
+                    Ok(())
+                } else {
+                    Err(format!("unexpected snapshot: {snapshot:?}"))
+                }
+            },
+        )
+        .unwrap();
+
+        manual_time.advance(Duration::from_secs(2));
+        await_assert(
+            Duration::from_secs(1),
+            Duration::from_millis(10),
+            || -> Result<(), String> {
+                let ClusterMembershipMsg::ApplyDowningDecision(decision) = membership
+                    .expect_msg(Duration::from_millis(100))
+                    .map_err(|error| error.to_string())?
+                else {
+                    return Err("expected delayed downing decision".to_string());
+                };
+                if decision == DowningDecision::DownUnreachable {
+                    Ok(())
+                } else {
+                    Err(format!("unexpected decision: {decision:?}"))
+                }
+            },
+        )
+        .unwrap();
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
     fn reachable_gossip(self_node: &UniqueAddress, peer: &UniqueAddress) -> Gossip {
         Gossip::from_members([
             Member::new(self_node.clone(), vec![]).with_status(MemberStatus::Up),
@@ -412,5 +554,21 @@ mod tests {
             .unwrap();
         let snapshot = snapshots.expect_msg(Duration::from_secs(1)).unwrap();
         assert!(predicate(&snapshot), "unexpected snapshot: {snapshot:?}");
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct DelayedHook {
+        decision: DowningDecision,
+        delay: Duration,
+    }
+
+    impl DowningHook for DelayedHook {
+        fn decide(&self, _gossip: &Gossip, _self_node: &UniqueAddress) -> DowningDecision {
+            self.decision
+        }
+
+        fn decision_delay(&self, _gossip: &Gossip, _self_node: &UniqueAddress) -> Duration {
+            self.delay
+        }
     }
 }

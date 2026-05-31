@@ -1010,13 +1010,17 @@ Implemented:
   subjects that have still seen current gossip. Indirect decisions down those
   nodes and combine with the ordinary majority/oldest decision after filtering
   reachability records between indirectly connected nodes.
-- Split-brain lease-majority remains future work.
+- `kairo-cluster::LeaseMajorityHook` provides deterministic Pekko-style
+  lease-majority downing with explicit lease acquisition, minority-side acquire
+  delay, role-filtered majority/minority calculation, lease-denied reverse
+  decisions, and indirect-connection reversal without making the lease a source
+  of cluster membership truth.
 - `kairo-cluster::DowningProviderActor` now wraps the downing hook boundary in
   an actor-backed stable-after timer: it observes gossip snapshots, tracks
-  relevant unreachable members, resets or cancels the timer when reachability
-  changes, gates decisions to the reachable leader, and sends structured
-  `ApplyDowningDecision` commands to the membership actor after the stable
-  period.
+  relevant unreachable members, resets or cancels stable-after and hook-supplied
+  decision-delay timers when reachability changes, gates decisions to the
+  reachable leader, and sends structured `ApplyDowningDecision` commands to the
+  membership actor after the stable period.
 - `kairo-cluster::ClusterMembership` can register a typed
   `DowningProviderActor` observer, forwards each current gossip snapshot to it,
   and applies the provider's stable downing decision through the existing
@@ -1392,8 +1396,8 @@ Not yet implemented:
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
 - Multi-node cluster membership socket lifecycle orchestration still needs
-  lease-majority support and broader automated multi-node scenarios beyond the
-  current local two-node membership/downing socket validation.
+  broader automated multi-node scenarios beyond the current local two-node
+  membership/downing socket validation.
 
 ## Last Validation
 
@@ -1421,6 +1425,7 @@ cargo test -p kairo-remote tcp_
 cargo test -p kairo-remote --all-targets --all-features
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster downing::tests
+cargo test -p kairo-cluster downing
 cargo test -p kairo-cluster indirectly_connected
 cargo test -p kairo-cluster all_observers_reports_negative_reachability_observers
 cargo test -p kairo-cluster --all-targets --all-features
