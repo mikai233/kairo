@@ -1007,6 +1007,10 @@ Implemented:
   membership-derived dials are retained as deterministic pending retries with a
   configured retry interval, successful retries clear pending state, and member
   removal or local-unreachable events cancel obsolete retry attempts.
+- `kairo-cluster` crate docs now explain gossip-based membership, vector-clock
+  merge, observer-owned reachability/failure-detector observations, why
+  discovery is contact-only, and why Kairo does not use etcd or another
+  central membership authority, with a compile-checked example.
 - `kairo-cluster` now has an actor-backed TCP peer connector that subscribes
   to cluster snapshots/events, feeds the cluster TCP peer runtime, exposes
   explicit deterministic retry ticks, can schedule fixed-delay retry ticks with

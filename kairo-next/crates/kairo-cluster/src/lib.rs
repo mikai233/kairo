@@ -1,4 +1,59 @@
 //! Gossip-based cluster membership and cluster events.
+//!
+//! Cluster membership state is owned by gossip. Nodes exchange versioned
+//! [`Gossip`] views, merge concurrent membership facts with [`VectorClock`],
+//! carry observer-owned [`Reachability`] records from local failure detector
+//! observations, and derive convergence, leaders, downing decisions, and
+//! cluster events from that state. Discovery and configured seeds may provide
+//! contact addresses, but they are not an authoritative membership store.
+//!
+//! This mirrors Pekko's observable cluster model while keeping the Rust API
+//! explicit: membership data is plain structs and enums, failure detector
+//! observations are local inputs, and remoting only transports already
+//! addressed cluster protocol messages. Kairo deliberately does not use etcd,
+//! Kubernetes leases, or any other central source of cluster truth.
+//!
+//! ```
+//! use kairo_actor::Address;
+//! use kairo_cluster::{
+//!     Gossip, Member, MemberStatus, Reachability, ReachabilityStatus, UniqueAddress,
+//! };
+//!
+//! fn node(port: u16, uid: u64) -> UniqueAddress {
+//!     UniqueAddress::new(
+//!         Address::new(
+//!             "kairo",
+//!             "cluster-docs",
+//!             Some("127.0.0.1".to_string()),
+//!             Some(port),
+//!         ),
+//!         uid,
+//!     )
+//! }
+//!
+//! let node_a = node(2551, 1);
+//! let node_b = node(2552, 2);
+//!
+//! let joining_a = Member::new(node_a.clone(), vec![]).with_status(MemberStatus::Joining);
+//! let up_a = Member::new(node_a.clone(), vec![]).with_status(MemberStatus::Up);
+//! let up_b = Member::new(node_b.clone(), vec![]).with_status(MemberStatus::Up);
+//!
+//! let local = Gossip::from_members([joining_a])
+//!     .seen(node_a.clone())
+//!     .increment_version(&node_a);
+//! let remote = Gossip::from_members([up_a, up_b]).increment_version(&node_b);
+//!
+//! let merged = local.merge(&remote);
+//! assert_eq!(merged.member(&node_a).unwrap().status, MemberStatus::Up);
+//! assert!(merged.member(&node_b).is_some());
+//! assert!(merged.seen_by().is_empty());
+//!
+//! let reachability = Reachability::new().unreachable(node_a.clone(), node_b.clone());
+//! assert_eq!(
+//!     reachability.status_of(&node_b),
+//!     ReachabilityStatus::Unreachable,
+//! );
+//! ```
 
 mod association_peers;
 mod cluster;
