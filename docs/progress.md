@@ -1230,10 +1230,14 @@ Implemented:
   `local_counter`, `ask_pipe_to_self`, and `cluster_sharding_local` modules,
   validating the example crate from the same public module boundary used by
   downstream callers instead of relying only on binary entry points.
+- `kairo-examples` now includes a runnable cluster TCP peer bootstrap example
+  with reusable setup code, publishing matching cluster membership snapshots
+  and verifying two local cluster peer runtimes establish bidirectional socket
+  routes before coordinated shutdown.
 - `kairo-examples` now has localhost two-node TCP bootstrap smoke tests for
-  distributed-data and cluster-tools example modules, publishing matching
-  cluster membership snapshots and verifying each side establishes one peer
-  route before coordinated shutdown.
+  cluster, distributed-data, and cluster-tools example modules, publishing
+  matching cluster membership snapshots and verifying each side establishes
+  one peer route before coordinated shutdown.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1259,9 +1263,9 @@ Not yet implemented:
   orchestration, including restart backoff policy integration, transport-backed
   remote region targets, and cluster-event-driven coordinator discovery beyond
   explicitly supplied local coordinator refs.
-- Cluster-tools socket integration still needs broader multi-node tests around
-  the bootstrap facade beyond the current localhost two-node example smoke
-  test.
+- Cluster, distributed-data, and cluster-tools socket integration still need
+  broader multi-node tests around the bootstrap facades beyond the current
+  localhost two-node example smoke tests.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   indirectly-connected split-brain handling, lease-majority support, and
   broader automated multi-node scenarios beyond the current local two-node

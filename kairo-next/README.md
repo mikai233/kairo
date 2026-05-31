@@ -41,6 +41,7 @@ cargo run -p kairo-examples --example local_counter
 cargo run -p kairo-examples --example configured_counter
 cargo run -p kairo-examples --example ask_pipe_to_self
 cargo run -p kairo-examples --example cluster_sharding_local
+cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
 cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
 ```
@@ -63,5 +64,6 @@ shard region, stable `ShardingEnvelopeRouter`, `EntityRef<String>`, and
 entity-backed shard actor. Business messages reach a typed entity child without
 embedding the entity id in the business message.
 
-The TCP peer bootstrap examples demonstrate the current distributed-data and
-cluster-tools route setup around the shared remote association primitives.
+The TCP peer bootstrap examples demonstrate the current cluster,
+distributed-data, and cluster-tools route setup around the shared remote
+association primitives.

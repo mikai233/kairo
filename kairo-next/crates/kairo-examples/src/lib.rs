@@ -15,6 +15,8 @@
 //!   returning through mailbox messages.
 //! - `cluster_sharding_local`: local coordinator, shard region, stable shard
 //!   hash, `EntityRef`, and entity-backed shard delivery.
+//! - `cluster_tcp_peer_bootstrap`: two local cluster TCP peer runtimes using
+//!   cluster-derived route plans.
 //! - `ddata_tcp_peer_bootstrap`: two local distributed-data TCP peer runtimes
 //!   using cluster-derived route plans.
 //! - `cluster_tools_tcp_peer_bootstrap`: two local cluster-tools TCP peer
@@ -46,6 +48,7 @@
 //! # }
 //! ```
 
+pub mod cluster_tcp;
 pub mod cluster_tools_tcp;
 pub mod counter;
 pub mod ddata_tcp;
