@@ -2379,3 +2379,30 @@ Consequences:
 - A later system inbound router can feed decoded remote envelopes into the
   existing region messages and coordinator actors without changing this
   outbound state boundary.
+
+## ADR-0084: Shard Region System Inbound Routes By Stable Manifest
+
+Status: Accepted
+
+Context:
+Remote sharding traffic addressed to the region system path carries different
+stable protocol messages: user-routed entity envelopes, coordinator
+registration acknowledgements, and shard-home replies. These messages should
+enter the same typed region behavior as locally decoded messages, but the
+routing decision must remain at the stable manifest boundary rather than
+depending on Rust enum variants or type names.
+
+Decision:
+Kairo adds `ShardRegionSystemInbound<M>` as a focused region-side inbound
+router. It dispatches `RoutedShardEnvelope` to `ShardRegionRemoteInbound<M>`,
+`RegisterAck` to `ShardCoordinatorRemoteRegistrationInbound`, and `ShardHome`
+to `ShardCoordinatorRemoteHomeInbound`, then sends the decoded
+`ShardRegionMsg<M>` to the region actor. Missing handlers, unsupported
+manifests, wrong recipients, and actor-send failures are reported explicitly.
+
+Consequences:
+- Region-side remote envelope routing is now testable independently of TCP
+  listener wiring.
+- Stable manifests remain the dispatch contract for sharding system messages.
+- Coordinator-side inbound routing remains a separate slice so coordinator
+  request/reply semantics can be handled without growing the region router.

@@ -87,6 +87,7 @@ mod region_remote_coordinator;
 mod region_remote_coordinator_transport;
 mod region_runtime;
 mod region_shards;
+mod region_system_inbound;
 mod region_transport;
 mod remember;
 mod remember_actor;
@@ -179,6 +180,9 @@ pub use region_remote_coordinator_transport::{
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
     ShardRegionRuntime, ShardStartedPlan,
+};
+pub use region_system_inbound::{
+    ShardRegionSystemInbound, ShardRegionSystemInboundError, is_shard_region_system_manifest,
 };
 pub use region_transport::{RegionRouteDelivery, RegionRouteTarget, RegionRouteTransport};
 pub use remember::{

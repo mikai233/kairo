@@ -1274,6 +1274,11 @@ Implemented:
   stable `Register` envelopes after remote coordinator discovery/retry and
   sending pending `GetShardHome` envelopes after a matching remote
   `RegisterAck`.
+- `kairo-cluster-sharding` now has region-side system inbound routing that
+  dispatches stable remote envelopes addressed to `/system/sharding/region`:
+  `RoutedShardEnvelope` re-enters local region delivery, `RegisterAck` becomes
+  `RemoteCoordinatorRegistrationAck`, and `ShardHome` becomes
+  `RemoteCoordinatorShardHome`.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1297,8 +1302,8 @@ Not yet implemented:
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration,
-  transport-backed remote region targets, inbound system routing from remote
-  envelopes into region/coordinator actors, and broader
+  transport-backed remote region targets, coordinator-side inbound system
+  routing from remote envelopes into coordinator actors, and broader
   multi-node validation of the discovery subscriber plus region/coordinator
   flow.
 - Cluster, distributed-data, and cluster-tools socket integration still need
@@ -1313,6 +1318,7 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding region_system_inbound
 cargo test -p kairo-cluster-sharding remote_coordinator_transport
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_register_on_discovery_and_retry
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_shard_home_after_registration_ack
