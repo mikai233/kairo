@@ -120,6 +120,9 @@ Implemented:
 - `Context::spawn_task` starts external local work with only a typed self ref,
   and `Context::pipe_to_self` maps task success or failure back into the
   actor's protocol through the normal mailbox.
+- Actor-owned task sends are lifecycle scoped: task-originated messages through
+  `Context::spawn_task`/`pipe_to_self` are rejected once the owner stops or
+  restarts, so stale task completions cannot re-enter the restarted actor.
 - Task bridge state and handles live in a focused `tasks` module.
 - `Context::message_adapter` creates typed local adapter refs that enqueue
   adapted protocol messages into the owning actor's mailbox.
@@ -1426,6 +1429,7 @@ cargo test -p kairo-actor watch_self
 cargo test -p kairo-actor watch_with_self
 cargo test -p kairo-actor requires_unwatch_first
 cargo test -p kairo-actor --test death_watch
+cargo test -p kairo-actor --test tasks
 cargo test -p kairo-actor mailbox::tests
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings

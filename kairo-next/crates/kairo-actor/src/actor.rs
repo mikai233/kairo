@@ -11,7 +11,7 @@ use crate::signal::Signal;
 use crate::stash::StashState;
 use crate::supervision::SupervisorStrategy;
 use crate::system::ActorSystem;
-use crate::tasks::{self, TaskHandle};
+use crate::tasks::{self, TaskHandle, TaskScope};
 use crate::timers::{TimerEnvelope, TimerKey, TimerState};
 use std::sync::Arc;
 use std::time::Duration;
@@ -110,6 +110,7 @@ pub struct Context<M> {
     pub(crate) timers: TimerState,
     pub(crate) receive_timeout: ReceiveTimeoutState<M>,
     pub(crate) stash: StashState<M>,
+    pub(crate) tasks: TaskScope,
 }
 
 impl<M: Send + 'static> Context<M> {
@@ -189,7 +190,7 @@ impl<M: Send + 'static> Context<M> {
     where
         F: FnOnce(ActorRef<M>) + Send + 'static,
     {
-        tasks::spawn_task(self.myself.clone(), task)
+        tasks::spawn_task(self.tasks.scoped_ref(self.myself.clone()), task)
     }
 
     pub fn pipe_to_self<T, E, F, Map>(&self, task: F, map: Map) -> Result<TaskHandle, ActorError>
@@ -199,7 +200,7 @@ impl<M: Send + 'static> Context<M> {
         F: FnOnce() -> Result<T, E> + Send + 'static,
         Map: FnOnce(Result<T, E>) -> M + Send + 'static,
     {
-        tasks::pipe_to_self(self.myself.clone(), task, map)
+        tasks::pipe_to_self(self.tasks.scoped_ref(self.myself.clone()), task, map)
     }
 
     pub fn message_adapter<U, F>(&self, map: F) -> Result<ActorRef<U>, ActorError>
@@ -367,6 +368,10 @@ impl<M: Send + 'static> Context<M> {
 
     pub(crate) fn accept_receive_timeout(&mut self, timeout: &ReceiveTimeoutEnvelope<M>) -> bool {
         self.receive_timeout.accept(timeout)
+    }
+
+    pub(crate) fn cancel_tasks(&mut self) {
+        self.tasks.cancel_current();
     }
 
     pub fn spawn<A>(

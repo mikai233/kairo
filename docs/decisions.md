@@ -2643,3 +2643,30 @@ Consequences:
   of inspecting error strings.
 - This decision covers inbound lane restart policy only; outbound stream
   backoff and reconnect ownership remain separate transport/runtime concerns.
+
+## ADR-0093: Actor-Owned Task Cancellation Uses Scoped Self Refs
+
+Status: Accepted
+
+Context:
+Kairo's actor model keeps `Actor::receive` synchronous and lets external work
+return through `Context::spawn_task` or `pipe_to_self`. The architecture says
+actor-owned tasks are cancelled when the owner stops or restarts, but Rust
+standard threads cannot be preemptively killed safely by the actor runtime.
+
+Decision:
+Actor contexts maintain a task generation token in the focused `tasks` module.
+`spawn_task` and `pipe_to_self` hand task closures a scoped self ref that
+forwards to the real actor ref only while the generation is still current.
+Actor stop and restart increment the generation, so stale task completions are
+rejected and recorded through dead letters instead of re-entering the stopped
+or restarted actor.
+
+Consequences:
+- Task closures may still finish their external Rust thread work, but they
+  cannot mutate actor state by sending through the stale scoped self ref after
+  lifecycle cancellation.
+- The runtime keeps cancellation behavior explicit and dependency-light without
+  adding a broad async runtime or unsafe thread termination.
+- A later async backend can replace the execution primitive while preserving
+  the same generation-scoped delivery contract.

@@ -1,8 +1,49 @@
 use std::fmt::{self, Formatter};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 
 use crate::error::ActorError;
 use crate::refs::ActorRef;
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct TaskScope {
+    generation: Arc<AtomicU64>,
+}
+
+impl TaskScope {
+    pub(crate) fn cancel_current(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn scoped_ref<M>(&self, target: ActorRef<M>) -> ActorRef<M>
+    where
+        M: Send + 'static,
+    {
+        let expected_generation = self.generation.load(Ordering::Acquire);
+        let generation = Arc::clone(&self.generation);
+        let owner = target.clone();
+        let dead_letters = target.dead_letters.clone();
+        let task_path = target.path().clone();
+        ActorRef::function(
+            target.path().clone(),
+            target.dead_letters.clone(),
+            Arc::clone(&target.target.stopped),
+            Arc::clone(&target.target.terminated),
+            "actor is stopped",
+            move |message| {
+                if generation.load(Ordering::Acquire) != expected_generation {
+                    dead_letters.publish::<M>(task_path.clone(), "actor task is cancelled");
+                    return Err(crate::error::SendError {
+                        message,
+                        reason: "actor task is cancelled".to_string(),
+                    });
+                }
+                owner.tell(message)
+            },
+        )
+    }
+}
 
 pub struct TaskHandle {
     join: Option<JoinHandle<()>>,
