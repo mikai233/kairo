@@ -158,6 +158,93 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
+    let first_kit = ActorSystemTestKit::new("ddata-bootstrap-first").unwrap();
+    let second_kit = ActorSystemTestKit::new("ddata-bootstrap-second").unwrap();
+    let third_kit = ActorSystemTestKit::new("ddata-bootstrap-third").unwrap();
+    let first_runtime = bind_runtime("ddata-bootstrap-first", 1, 11, ReplicaId::new("first"));
+    let second_runtime = bind_runtime("ddata-bootstrap-second", 2, 22, ReplicaId::new("second"));
+    let third_runtime = bind_runtime("ddata-bootstrap-third", 3, 33, ReplicaId::new("third"));
+    let first_node = first_runtime.self_node().clone();
+    let second_node = second_runtime.self_node().clone();
+    let third_node = third_runtime.self_node().clone();
+    let first_publisher = spawn_publisher(&first_kit, "first-publisher", first_node.clone());
+    let second_publisher = spawn_publisher(&second_kit, "second-publisher", second_node.clone());
+    let third_publisher = spawn_publisher(&third_kit, "third-publisher", third_node.clone());
+    let first_cluster = Cluster::new(first_publisher.clone());
+    let second_cluster = Cluster::new(second_publisher.clone());
+    let third_cluster = Cluster::new(third_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
+        .with_connector_settings(
+            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        );
+
+    let first_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        first_kit.system(),
+        first_cluster,
+        first_runtime,
+        settings.clone().with_connector_name("first-ddata-peer"),
+    )
+    .unwrap();
+    let second_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        second_kit.system(),
+        second_cluster,
+        second_runtime,
+        settings.clone().with_connector_name("second-ddata-peer"),
+    )
+    .unwrap();
+    let third_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        third_kit.system(),
+        third_cluster,
+        third_runtime,
+        settings.with_connector_name("third-ddata-peer"),
+    )
+    .unwrap();
+    let first_snapshots = first_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("first-snapshots")
+        .unwrap();
+    let second_snapshots = second_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("second-snapshots")
+        .unwrap();
+    let third_snapshots = third_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("third-snapshots")
+        .unwrap();
+
+    let gossip = Gossip::from_members([
+        Member::new(first_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(second_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(third_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+    ]);
+    for publisher in [&first_publisher, &second_publisher, &third_publisher] {
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
+            .unwrap();
+    }
+
+    await_connector_routes(
+        first_bootstrap.connector(),
+        &first_snapshots,
+        &[second_node.clone(), third_node.clone()],
+    );
+    await_connector_routes(
+        second_bootstrap.connector(),
+        &second_snapshots,
+        &[first_node.clone(), third_node.clone()],
+    );
+    await_connector_routes(
+        third_bootstrap.connector(),
+        &third_snapshots,
+        &[first_node, second_node],
+    );
+
+    first_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 fn bind_runtime(
     system: &str,
     node_uid: u64,
@@ -194,6 +281,14 @@ fn await_connector_route(
     snapshots: &TestProbe<ReplicatorTcpPeerConnectorSnapshot>,
     expected_peer: &UniqueAddress,
 ) {
+    await_connector_routes(connector, snapshots, std::slice::from_ref(expected_peer));
+}
+
+fn await_connector_routes(
+    connector: &ActorRef<ReplicatorTcpPeerConnectorMsg>,
+    snapshots: &TestProbe<ReplicatorTcpPeerConnectorSnapshot>,
+    expected_peers: &[UniqueAddress],
+) {
     await_assert(
         Duration::from_secs(1),
         Duration::from_millis(10),
@@ -206,12 +301,13 @@ fn await_connector_route(
             let snapshot = snapshots
                 .expect_msg(Duration::from_millis(100))
                 .map_err(|error| error.to_string())?;
-            if snapshot.route_count == 1
-                && snapshot
+            let has_all_expected_peers = expected_peers.iter().all(|expected_peer| {
+                snapshot
                     .active_targets
                     .iter()
                     .any(|target| target.node() == expected_peer)
-            {
+            });
+            if snapshot.route_count == expected_peers.len() && has_all_expected_peers {
                 Ok(())
             } else {
                 Err(format!("unexpected connector snapshot: {snapshot:?}"))

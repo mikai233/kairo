@@ -691,9 +691,14 @@ Implemented:
   two real bound runtimes are spawned through the bootstrap facade, cluster
   membership is published to both connector actors, and each side installs a
   peer route for the other node through the actor-backed connector boundary.
+- Distributed-data TCP peer bootstrap now also has a three-node full-mesh
+  socket validation: three real bound runtimes are spawned through the
+  bootstrap facade, one shared gossip snapshot is published to all connector
+  actors, and each connector installs membership-derived routes for both
+  remote peers.
 - Distributed-data TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
-  setup and two-node validation data.
+  setup and socket validation data.
 - `kairo-examples` now includes a runnable distributed-data TCP peer bootstrap
   example, with reusable setup and one-shot reply helpers kept in focused
   example modules instead of placing route orchestration in one binary file.
@@ -1419,14 +1424,14 @@ Not yet implemented:
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
-  two-node example smoke test.
+  two-node example smoke test and three-node bootstrap route validation.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration and broader
   multi-node validation of the discovery subscriber plus region/coordinator
   flow, including graceful region shutdown across nodes.
 - Cluster, distributed-data, and cluster-tools socket integration still need
-  broader multi-node tests around the bootstrap facades beyond the current
-  localhost two-node crate and example smoke tests.
+  broader lifecycle tests around the bootstrap facades beyond the current
+  localhost crate and example smoke tests.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation.
@@ -1470,6 +1475,7 @@ cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo test -p kairo --all-targets --all-features config
 cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership
+cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-distributed-data bootstrap
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
