@@ -1792,6 +1792,14 @@ enum WatchProbeMsg {
         registered: mpsc::Sender<()>,
         observed: mpsc::Sender<ActorPath>,
     },
+    WatchThenWatchWith {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<Result<(), ActorError>>,
+    },
+    WatchWithThenWatch {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<Result<(), ActorError>>,
+    },
     Observed(ActorPath),
     Unwatch {
         subject: ActorRef<()>,
@@ -1841,6 +1849,18 @@ impl Actor for WatchProbe {
                 ctx.watch_with(&subject, WatchProbeMsg::Observed(path))?;
                 registered
                     .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::WatchThenWatchWith { subject, reply_to } => {
+                ctx.watch(&subject)?;
+                reply_to
+                    .send(ctx.watch_with(&subject, WatchProbeMsg::Observed(subject.path().clone())))
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::WatchWithThenWatch { subject, reply_to } => {
+                ctx.watch_with(&subject, WatchProbeMsg::Observed(subject.path().clone()))?;
+                reply_to
+                    .send(ctx.watch(&subject))
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             WatchProbeMsg::Observed(path) => {
@@ -2069,6 +2089,86 @@ fn watch_with_self_returns_explicit_error() {
     assert!(matches!(
         reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         Err(ActorError::InvalidWatchTarget { actor }) if actor == watcher.path().to_string()
+    ));
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
+fn watch_then_watch_with_requires_unwatch_first() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (subject_stopped_tx, _subject_stopped_rx) = mpsc::channel();
+    let subject = system
+        .spawn(
+            "subject",
+            Props::new(move || StopProbe {
+                stopped: subject_stopped_tx,
+            }),
+        )
+        .unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchThenWatchWith {
+            subject: subject.clone(),
+            reply_to: reply_tx,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Err(ActorError::AlreadyWatching { actor, watcher: current_watcher })
+            if actor == subject.path().to_string()
+                && current_watcher == watcher.path().to_string()
+    ));
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
+fn watch_with_then_watch_requires_unwatch_first() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (subject_stopped_tx, _subject_stopped_rx) = mpsc::channel();
+    let subject = system
+        .spawn(
+            "subject",
+            Props::new(move || StopProbe {
+                stopped: subject_stopped_tx,
+            }),
+        )
+        .unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWithThenWatch {
+            subject: subject.clone(),
+            reply_to: reply_tx,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Err(ActorError::AlreadyWatching { actor, watcher: current_watcher })
+            if actor == subject.path().to_string()
+                && current_watcher == watcher.path().to_string()
     ));
     assert!(!watcher.is_stopped());
 }

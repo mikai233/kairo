@@ -80,6 +80,9 @@ Implemented:
   actor's own ref with an explicit `InvalidWatchTarget` error, matching the
   Rust architecture contract that self-watch is not a meaningful lifecycle
   subscription.
+- Death-watch registrations reject switching between plain `watch` and
+  `watch_with` for the same watched actor without an intervening `unwatch`,
+  preserving the Pekko rule that termination-message changes must be explicit.
 - Death-watch registration and notification state lives in a focused
   `death_watch` module.
 - `ActorSystem::schedule_once`, `Context::schedule_once`, and
@@ -1415,6 +1418,7 @@ cargo test -p kairo-actor signal_failure
 cargo test -p kairo-actor restart_supervision_rebuilds_actor_after_signal_failure
 cargo test -p kairo-actor watch_self
 cargo test -p kairo-actor watch_with_self
+cargo test -p kairo-actor requires_unwatch_first
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding --all-targets --all-features
