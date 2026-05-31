@@ -9,8 +9,8 @@
 //! The helpers mirror Pekko-style testkit capabilities while staying
 //! Rust-first:
 //!
-//! - [`TestProbe::expect_msg`] and [`TestProbe::expect_no_msg`] assert direct
-//!   probe traffic.
+//! - [`TestProbe::expect_msg`], [`TestProbe::expect_msg_matching`], and
+//!   [`TestProbe::expect_no_msg`] assert direct probe traffic.
 //! - [`TestProbe::receive_messages`] collects a fixed batch under one shared
 //!   deadline.
 //! - [`TestProbe::fish_for_message`] classifies incoming messages with

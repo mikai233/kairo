@@ -191,6 +191,9 @@ Implemented:
 - `TestProbe<M>` can register typed death-watch messages through
   `watch_with`, and `TestProbe<AnyActorRef>` provides `watch_terminated` and
   `expect_terminated` helpers for deterministic local lifecycle assertions.
+- `TestProbe::expect_msg_matching` can now assert a typed predicate while
+  returning the original message, improving deterministic assertions for
+  structured actor, cluster, sharding, and distributed-data events.
 - `kairo-testkit::await_assert` retries result-returning test assertions until
   success or timeout and reports the final error with attempt metadata.
 - `TestProbe::receive_messages` collects a fixed number of typed messages

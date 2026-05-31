@@ -62,6 +62,22 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    pub fn expect_msg_matching<F>(&self, timeout: Duration, predicate: F) -> Result<M, ProbeError>
+    where
+        M: fmt::Debug,
+        F: FnOnce(&M) -> bool,
+    {
+        let actual = self.expect_msg(timeout)?;
+        if predicate(&actual) {
+            Ok(actual)
+        } else {
+            Err(ProbeError::UnexpectedMessage {
+                expected: "message matching predicate".to_string(),
+                actual: format!("{actual:?}"),
+            })
+        }
+    }
+
     pub fn expect_no_msg(&self, duration: Duration) -> Result<(), ProbeError> {
         match self.receiver.recv_timeout(duration) {
             Ok(_message) => Err(ProbeError::UnexpectedMessage {

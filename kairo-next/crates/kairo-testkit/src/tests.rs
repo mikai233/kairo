@@ -52,6 +52,54 @@ fn test_probe_reports_expectation_mismatch() {
 }
 
 #[test]
+fn test_probe_expect_msg_matching_returns_matching_message() {
+    let kit = ActorSystemTestKit::new("test-probe-matching").expect("system should build");
+    let probe = kit
+        .create_probe::<String>("probe")
+        .expect("probe should spawn");
+
+    probe
+        .actor_ref()
+        .tell("cluster-member-up".to_string())
+        .expect("probe tell should enqueue");
+
+    let message = probe
+        .expect_msg_matching(Duration::from_millis(50), |message| {
+            message.starts_with("cluster-")
+        })
+        .expect("probe should return matching message");
+    assert_eq!(message, "cluster-member-up");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_expect_msg_matching_reports_mismatch() {
+    let kit = ActorSystemTestKit::new("test-probe-matching-failure").expect("system should build");
+    let probe = kit
+        .create_probe::<u32>("probe")
+        .expect("probe should spawn");
+
+    probe
+        .actor_ref()
+        .tell(41)
+        .expect("probe tell should enqueue");
+
+    let error = probe
+        .expect_msg_matching(Duration::from_millis(50), |message| *message == 42)
+        .expect_err("probe should report mismatch");
+    assert_eq!(
+        error,
+        ProbeError::UnexpectedMessage {
+            expected: "message matching predicate".to_string(),
+            actual: "41".to_string(),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn test_probe_receive_messages_collects_fixed_count_under_deadline() {
     let kit = ActorSystemTestKit::new("test-probe-receive-messages").expect("system should build");
     let probe = kit.create_probe::<u8>("probe").expect("probe should spawn");
