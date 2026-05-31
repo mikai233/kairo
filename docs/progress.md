@@ -170,6 +170,8 @@ Implemented:
   `ManualTimeHandle`.
 - `ManualTime::expect_no_msg_for` advances manual time and verifies same-typed
   probes remain quiet after a short dispatcher settle window.
+- `kairo-testkit` crate docs now describe typed probes, batch/fishing
+  assertions, await assertions, manual time, and compile-checked examples.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, and `system` modules instead of living in one crate root.
 - `ActorSystemBuilder::manual_scheduler` can build actor systems backed by a
