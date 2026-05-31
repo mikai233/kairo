@@ -211,6 +211,8 @@ Implemented:
   assertions, await assertions, manual time, and compile-checked examples.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, and `system` modules instead of living in one crate root.
+- Testkit probe, await-assert, fishing, and manual-time tests now live in
+  focused sibling test modules instead of one broad crate test file.
 - `ActorSystemBuilder::manual_scheduler` can build actor systems backed by a
   manual scheduler, and `ActorSystemTestKit::with_manual_time` wires that
   scheduler into `ManualTime`.
@@ -1690,6 +1692,11 @@ cargo test -p kairo-distributed-data replicator_actor_pruning
 cargo test -p kairo-distributed-data replicator_actor_remote_receive
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo test -p kairo-testkit test_probe
+cargo test -p kairo-testkit manual_time
+cargo test -p kairo-testkit await_assert
+cargo test -p kairo-testkit --all-targets --all-features
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster-tools bootstrap
