@@ -1257,6 +1257,8 @@ Implemented:
   state with Pekko-style versioned owner buckets, present/tombstone entries,
   peer-version delta collection, delta merge, tombstone pruning, broadcast
   target planning, and deterministic one-target-per-group planning.
+- `kairo-cluster-tools` distributed pubsub registry delta, tombstone, and
+  target-planning tests now live in a focused sibling test module.
 - `kairo-cluster-tools` now has a transport-neutral pubsub delivery planner
   that converts distributed topic registrations into explicit local and remote
   delivery targets for broadcast and one-message-per-group publishes.
@@ -1683,6 +1685,7 @@ cargo test -p kairo-cluster-tools singleton_manager
 cargo test -p kairo-cluster-tools local_singleton_manager
 cargo test -p kairo-cluster-tools local_topic
 cargo test -p kairo-cluster-tools local_pubsub
+cargo test -p kairo-cluster-tools pubsub_registry
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor startup_failure
