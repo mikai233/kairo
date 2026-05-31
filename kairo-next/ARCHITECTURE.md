@@ -1442,6 +1442,7 @@ src/
   shard.rs
   coordinator.rs
   coordinator_discovery.rs
+  coordinator_remote_registration.rs
   coordinator_remote_target.rs
   region_coordinator_discovery.rs
   region_discovery_subscriber.rs
@@ -1548,6 +1549,10 @@ Implementation shape:
   `UniqueAddress` values. This keeps remote registration on the stable
   sharding wire protocol instead of pretending remote coordinators are local
   `ActorRef<ShardCoordinatorMsg<M>>` values.
+- Remote coordinator registration uses a transport-neutral bridge that
+  serializes stable `Register` envelopes to resolved coordinator recipients
+  with region sender metadata, and decodes `RegisterAck` replies addressed to
+  the region before typed region state consumes the acknowledgement.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.

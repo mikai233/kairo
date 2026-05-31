@@ -2255,3 +2255,35 @@ Consequences:
   `RegisterAck` explicitly.
 - Local registration behavior remains unchanged for current runnable sharding
   tests.
+
+## ADR-0080: Remote Sharding Coordinator Registration Uses Stable Protocol Messages
+
+Status: Accepted
+
+Context:
+Pekko shard regions repeatedly send `Register` to the discovered coordinator
+selection and treat `RegisterAck` as the point where the region has an active
+coordinator. Kairo has stable sharding system messages and wire recipients for
+remote coordinator targets, but local region code still uses typed
+`ShardCoordinatorMsg<M>` refs for same-node registration. Serializing that
+local enum would make Rust implementation details part of the remote wire
+contract.
+
+Decision:
+Kairo adds `ShardCoordinatorRemoteRegistrationOutbound` and
+`ShardCoordinatorRemoteRegistrationInbound` as a focused transport-neutral
+bridge. Outbound registration serializes the stable `Register` protocol
+message to the resolved coordinator `ActorRefWireData` recipient and includes
+the region's wire ref as sender metadata by default. Inbound registration
+validates that replies are addressed to the expected region, deserializes only
+stable `RegisterAck` payloads, and returns an explicit decoded acknowledgement
+for later region-state integration.
+
+Consequences:
+- Remote sharding registration now uses stable manifests, versions, serializer
+  ids, and registered codecs instead of local typed coordinator enums.
+- Transport concerns stay outside `ShardRegionActor`, and decoded
+  acknowledgements can be integrated into region registration state in a
+  smaller follow-up slice.
+- Remote shard-home request/reply handling remains a separate bridge with its
+  own stable protocol tests.

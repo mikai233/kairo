@@ -1256,6 +1256,10 @@ Implemented:
   cluster, distributed-data, and cluster-tools example modules, publishing
   matching cluster membership snapshots and verifying each side establishes
   one peer route before coordinated shutdown.
+- `kairo-cluster-sharding` now has a transport-neutral remote coordinator
+  registration bridge that serializes stable `Register` envelopes to resolved
+  coordinator recipients with region sender metadata and decodes
+  `RegisterAck` replies addressed to the region.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1279,9 +1283,10 @@ Not yet implemented:
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration,
-  transport-backed remote region targets, remote registration outbound/reply
-  handling for resolved coordinator targets, and broader multi-node validation
-  of the discovery subscriber plus region/coordinator flow.
+  transport-backed remote region targets, region actor integration for decoded
+  remote registration acknowledgements, remote `GetShardHome`/`ShardHome`
+  flow, and broader multi-node validation of the discovery subscriber plus
+  region/coordinator flow.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
@@ -1294,6 +1299,7 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding remote_registration
 cargo test -p kairo-cluster-sharding coordinator_remote_target
 cargo test -p kairo-cluster-sharding coordinator_discovery
 cargo test -p kairo-cluster-sharding region_coordinator_discovery
