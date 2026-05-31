@@ -178,3 +178,47 @@ impl<M> Mailbox<M> {
         drained
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dequeue_prioritizes_system_messages_over_queued_user_messages() {
+        let mailbox = Mailbox::default();
+
+        mailbox.enqueue_user("first-user").unwrap();
+        mailbox.enqueue_user("second-user").unwrap();
+        mailbox.enqueue_system(SystemMessage::Stop);
+
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::System(SystemMessage::Stop))
+        ));
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::User(UserEnvelope::Message("first-user")))
+        ));
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::User(UserEnvelope::Message("second-user")))
+        ));
+    }
+
+    #[test]
+    fn dequeue_preserves_fifo_order_within_system_lane() {
+        let mailbox: Mailbox<()> = Mailbox::default();
+
+        mailbox.enqueue_system(SystemMessage::Signal(Signal::PreRestart));
+        mailbox.enqueue_system(SystemMessage::Stop);
+
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::System(SystemMessage::Signal(Signal::PreRestart)))
+        ));
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::System(SystemMessage::Stop))
+        ));
+    }
+}

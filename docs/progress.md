@@ -27,6 +27,9 @@ Implemented:
   targets.
 - `ActorSystemBuilder::dispatcher_throughput` configures local mailbox batch
   throughput before worker yield.
+- Mailbox tests now pin the actor runtime contract that system messages are
+  dequeued before already queued user messages while preserving FIFO order
+  within the system lane.
 - Stopping a local actor recursively requests child stops and runs the parent's
   `stopped` hook after children have terminated.
 - Sends after stop are rejected and recorded as dead letters.
@@ -1419,6 +1422,7 @@ cargo test -p kairo-actor restart_supervision_rebuilds_actor_after_signal_failur
 cargo test -p kairo-actor watch_self
 cargo test -p kairo-actor watch_with_self
 cargo test -p kairo-actor requires_unwatch_first
+cargo test -p kairo-actor mailbox::tests
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding --all-targets --all-features
