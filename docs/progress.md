@@ -1440,6 +1440,8 @@ Implemented:
 - `kairo-actor` coordinated-shutdown phase ordering, one-shot run,
   later-phase registration, actor termination task, and system termination
   tests now live in a focused sibling test module.
+- `kairo-actor` stash capacity, full-stash rejection, unstash-all ordering,
+  and limited unstash tests now live in a focused sibling test module.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1499,6 +1501,7 @@ cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnin
 cargo test -p kairo-actor event_stream
 cargo test -p kairo-actor receptionist
 cargo test -p kairo-actor coordinated_shutdown
+cargo test -p kairo-actor stash
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote reader_supervisor
