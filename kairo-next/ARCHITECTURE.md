@@ -864,9 +864,12 @@ TCP association dialing:
   stopping the TCP listener, joins dialing-side lane readers after route
   shutdown, and preserves the shutdown ordering shape Pekko uses for remoting
   internals before transport shutdown,
-- these TCP pieces remain transport primitives; reconnect policy, reader
-  supervision/restart policy, and richer provider lifecycle ownership remain
-  separate integration work.
+- `TcpAssociationReaderSupervisor` models the stateless inbound lane restart
+  decision: by default any lane or association reader failure plans a full
+  inbound-stream restart, a configured restart limit can stop the inbound
+  streams, and late failures after stop are ignored,
+- these TCP pieces remain transport primitives; reconnect policy and richer
+  provider lifecycle ownership remain separate integration work.
 
 Outbound lanes:
 

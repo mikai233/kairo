@@ -1183,8 +1183,8 @@ Consequences:
   provider wiring can own later.
 - The TCP layer still does not deserialize messages, resolve actors, or make
   membership decisions; it only feeds frame handlers.
-- Reader restart/backoff policy and coordinated shutdown integration remain
-  separate work.
+- Reader restart policy and coordinated shutdown integration remain separate
+  work.
 
 ## ADR-0045: TCP Actor-System Runtime Localizes Canonical Recipients
 
@@ -2608,3 +2608,32 @@ Consequences:
   home, send `HostShard`, then answer `ShardHome`.
 - Region control transport remains modular and transport-neutral; the
   coordinator actor only sees a typed `HandoffRegionTarget<M>`.
+
+## ADR-0092: TCP Reader Supervision Models Stateless Inbound Restart
+
+Status: Accepted
+
+Context:
+Pekko Artery TCP treats inbound streams as stateless around the socket
+connection: if any inbound lane fails, it tears down the inbound kill switch
+and starts the inbound streams again after the lanes have stopped. Kairo's TCP
+listener already owns lane reader handles, but restart behavior needed an
+explicit state boundary before being folded into the listener/runtime loops.
+
+Decision:
+Kairo adds `TcpAssociationReaderSupervisor` with
+`TcpAssociationReaderRestartSettings`, `TcpAssociationReaderFailure`, and
+`TcpAssociationReaderSupervisionDecision`. The default policy plans a full
+inbound-stream restart for every lane or association reader failure, matching
+Pekko's stateless inbound restart shape. Callers may configure a finite restart
+limit for tests or stricter runtime ownership, after which the supervisor
+returns `StopInboundStreams`. Failures observed after an explicit stop are
+ignored.
+
+Consequences:
+- TCP reader supervision is deterministic and testable without adding a broad
+  async stream dependency or hiding restart counters in listener threads.
+- Later listener/runtime wiring can consume structured restart/stop decisions
+  instead of inspecting error strings.
+- This decision covers inbound lane restart policy only; outbound stream
+  backoff and reconnect ownership remain separate transport/runtime concerns.

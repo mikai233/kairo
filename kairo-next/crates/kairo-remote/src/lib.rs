@@ -191,8 +191,9 @@ pub use system_inbound::ActorSystemRemoteInbound;
 pub use tcp::{
     TcpAcceptedAssociation, TcpAssociationDialer, TcpAssociationHandshake, TcpAssociationIdentity,
     TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
-    TcpAssociationReadReport, TcpAssociationReaderHandle, TcpAssociationStreamReader,
-    TcpRemoteByteSink,
+    TcpAssociationReadReport, TcpAssociationReaderFailure, TcpAssociationReaderHandle,
+    TcpAssociationReaderRestartSettings, TcpAssociationReaderSupervisionDecision,
+    TcpAssociationReaderSupervisor, TcpAssociationStreamReader, TcpRemoteByteSink,
 };
 pub use tcp_runtime::TcpRemoteActorSystem;
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};
