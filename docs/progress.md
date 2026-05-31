@@ -1251,6 +1251,8 @@ Implemented:
   that wraps the local pubsub state in synchronous actor turns, sends typed
   subscribe acks, publish reports, and current-topic replies, watches
   subscribers, and removes terminated subscribers from all local topics.
+- `kairo-cluster-tools` local pubsub state and actor boundary tests now live
+  in a focused sibling test module.
 - `kairo-cluster-tools` now has a focused distributed pubsub registration
   state with Pekko-style versioned owner buckets, present/tombstone entries,
   peer-version delta collection, delta merge, tombstone pruning, broadcast
@@ -1680,6 +1682,7 @@ cargo test -p kairo-cluster-tools singleton_oldest
 cargo test -p kairo-cluster-tools singleton_manager
 cargo test -p kairo-cluster-tools local_singleton_manager
 cargo test -p kairo-cluster-tools local_topic
+cargo test -p kairo-cluster-tools local_pubsub
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor startup_failure
