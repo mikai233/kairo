@@ -2488,6 +2488,37 @@ Consequences:
   instead of mutating region runtime state at the remote boundary.
 - Region system inbound remains a manifest router; codec and reply construction
   live in the focused remote-control bridge.
-- Remote `HandOff` for an actually hosted local shard still needs a configured
-  region-side stop-message source before it can complete the entity stop path
-  instead of relying on coordinator timeout.
+- Hosted-shard remote `HandOff` completion is handled by the later
+  region-side stop-message factory decision.
+
+## ADR-0088: Remote Region HandOff Uses A Local Stop-Message Factory
+
+Status: Accepted
+
+Context:
+Pekko's remote coordinator sends `HandOff(shard)` without embedding an entity
+stop message. The receiving region and shard already know the configured
+`handOffStopMessage` and use it locally while replying `ShardStopped` to the
+coordinator after entity stop handling completes. Kairo's sharding wire
+contract likewise keeps `HandOff` stable and shard-id-only, while business
+messages remain local unless users explicitly register remote codecs for them.
+
+Decision:
+Kairo adds `RegionRemoteHandOff<M>` as a focused region-side handoff module.
+`ShardRegionActor<M>` can be configured with a stop-message factory and timeout
+for remote handoff commands. When stable remote `HandOff` targets a hosted
+local shard, the actor creates a fresh local stop message, forwards handoff to
+the local shard, observes the resulting `ShardHandOffPlan<M>`, asks for
+stopper completion when the shard starts an entity stopper, marks the shard
+stopped, and sends a stable `ShardStopped` reply through the existing remote
+control reply target.
+
+Consequences:
+- The remote handoff wire protocol remains independent of business message
+  serialization and Rust enum layout.
+- Stop messages stay local to the hosting region, matching Pekko's observable
+  handoff flow while using an explicit Rust factory instead of Scala actor
+  constructor state.
+- Regions that do not configure a remote handoff stop-message source do not
+  falsely acknowledge hosted remote handoff commands; callers must opt in when
+  they host shards reachable from a remote coordinator.

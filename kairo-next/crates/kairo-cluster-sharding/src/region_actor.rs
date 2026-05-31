@@ -12,6 +12,10 @@ use crate::region_protocol::{
 use crate::region_registration::{
     RegionRegistration, RegionRegistrationConfig, RegionRegistrationStatus,
 };
+use crate::region_remote_handoff::{
+    RegionRemoteHandOff, RegionRemoteHandOffAction, RegionRemoteShardHandOffAction,
+    plan_remote_handoff, plan_remote_shard_handoff,
+};
 use crate::region_shards::LocalShardSpawner;
 use crate::{
     CoordinatorEvent, CoordinatorStateSnapshot, EntityActorFactory, EntityId, GetShardHome,
@@ -34,6 +38,7 @@ where
     registration: Option<RegionRegistration<M>>,
     remote_coordinator: RegionRemoteCoordinator,
     remote_coordinator_transport: Option<RegionRemoteCoordinatorTransport>,
+    remote_handoff: Option<RegionRemoteHandOff<M>>,
     coordinator_discovery: Option<RegionCoordinatorDiscovery<M>>,
     home_requests: RegionHomeRequests<M>,
     route_transport: Option<RegionRouteTransport<M>>,
@@ -51,6 +56,7 @@ where
             registration: None,
             remote_coordinator: RegionRemoteCoordinator::new(),
             remote_coordinator_transport: None,
+            remote_handoff: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -69,6 +75,7 @@ where
             registration: None,
             remote_coordinator: RegionRemoteCoordinator::new(),
             remote_coordinator_transport: None,
+            remote_handoff: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -95,6 +102,7 @@ where
             ))),
             remote_coordinator: RegionRemoteCoordinator::new(),
             remote_coordinator_transport: None,
+            remote_handoff: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -120,6 +128,7 @@ where
             registration: None,
             remote_coordinator: RegionRemoteCoordinator::new(),
             remote_coordinator_transport: None,
+            remote_handoff: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -150,6 +159,7 @@ where
             ))),
             remote_coordinator: RegionRemoteCoordinator::new(),
             remote_coordinator_transport: None,
+            remote_handoff: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -176,6 +186,7 @@ where
             registration: None,
             remote_coordinator: RegionRemoteCoordinator::new(),
             remote_coordinator_transport: None,
+            remote_handoff: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -206,6 +217,7 @@ where
             registration: Some(RegionRegistration::new(registration)),
             remote_coordinator: RegionRemoteCoordinator::new(),
             remote_coordinator_transport: None,
+            remote_handoff: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -232,6 +244,23 @@ where
 
     pub fn with_region_route_transport(mut self, route_transport: RegionRouteTransport<M>) -> Self {
         self.route_transport = Some(route_transport);
+        self
+    }
+
+    pub fn with_remote_handoff_stop_message_factory(
+        mut self,
+        stop_message: impl Fn() -> M + Send + Sync + 'static,
+        timeout: Duration,
+    ) -> Self {
+        self.remote_handoff = Some(RegionRemoteHandOff::new(stop_message, timeout));
+        self
+    }
+
+    pub fn with_remote_handoff_stop_message(mut self, stop_message: M, timeout: Duration) -> Self
+    where
+        M: Clone + Send + Sync + 'static,
+    {
+        self.remote_handoff = Some(RegionRemoteHandOff::from_message(stop_message, timeout));
         self
     }
 
@@ -477,7 +506,21 @@ where
                 self.apply_remote_begin_handoff(shard, reply)?;
             }
             ShardRegionMsg::RemoteHandOff { shard, reply } => {
-                self.apply_remote_handoff(shard, reply)?;
+                self.apply_remote_handoff(ctx, shard, reply)?;
+            }
+            ShardRegionMsg::RemoteLocalShardHandOffObserved {
+                plan,
+                timeout,
+                reply,
+            } => {
+                self.apply_remote_local_shard_handoff_observed(ctx, plan, timeout, reply)?;
+            }
+            ShardRegionMsg::RemoteLocalShardHandOffStopperResult {
+                shard,
+                result,
+                reply,
+            } => {
+                self.apply_remote_local_shard_handoff_stopper_result(ctx, shard, result, reply)?;
             }
             ShardRegionMsg::HandOffToLocalShard {
                 shard,
@@ -621,16 +664,114 @@ where
 
     fn apply_remote_handoff(
         &mut self,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         shard: ShardId,
         reply: crate::ShardRegionRemoteControlReplyTarget,
     ) -> ActorResult {
         let plan = self.runtime.handoff(shard);
-        if let crate::HandOffPlan::ReplyShardStopped { stopped, .. } = plan {
-            reply
-                .send_shard_stopped(stopped.shard_id)
-                .map_err(|error| ActorError::Message(error.to_string()))?;
+        match plan_remote_handoff(plan, self.remote_handoff.as_ref()) {
+            RegionRemoteHandOffAction::ReplyShardStopped { stopped, .. } => {
+                reply
+                    .send_shard_stopped(stopped.shard_id)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            RegionRemoteHandOffAction::ForwardToLocalShard {
+                shard,
+                stop_message,
+                timeout,
+                ..
+            } => {
+                let Some(shard_ref) = self.local_shards.get(&shard) else {
+                    self.complete_remote_handoff(ctx, shard, reply)?;
+                    return Ok(());
+                };
+                let reply_to = ctx.message_adapter(move |plan| {
+                    ShardRegionMsg::RemoteLocalShardHandOffObserved {
+                        plan,
+                        timeout,
+                        reply: reply.clone(),
+                    }
+                })?;
+                shard_ref
+                    .tell(ShardMsg::HandOff {
+                        stop_message,
+                        reply_to,
+                    })
+                    .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+            }
+            RegionRemoteHandOffAction::MissingStopMessage { .. } => {}
         }
         Ok(())
+    }
+
+    fn apply_remote_local_shard_handoff_observed(
+        &mut self,
+        ctx: &mut Context<ShardRegionMsg<M>>,
+        plan: ShardHandOffPlan<M>,
+        timeout: Duration,
+        reply: crate::ShardRegionRemoteControlReplyTarget,
+    ) -> ActorResult {
+        match plan_remote_shard_handoff(plan, timeout) {
+            RegionRemoteShardHandOffAction::Complete { shard, .. } => {
+                self.complete_remote_handoff(ctx, shard, reply)?;
+            }
+            RegionRemoteShardHandOffAction::AskStopper { shard, timeout } => {
+                self.ask_remote_handoff_stopper(ctx, shard, timeout, reply)?;
+            }
+            RegionRemoteShardHandOffAction::AlreadyInProgress { .. } => {}
+        }
+        Ok(())
+    }
+
+    fn ask_remote_handoff_stopper(
+        &self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        shard: ShardId,
+        timeout: Duration,
+        reply: crate::ShardRegionRemoteControlReplyTarget,
+    ) -> ActorResult {
+        let Some(shard_ref) = self.local_shards.get(&shard).cloned() else {
+            return Ok(());
+        };
+        ctx.ask(
+            shard_ref,
+            timeout,
+            |reply_to| ShardMsg::HandOffStopperTerminated { reply_to },
+            move |result| ShardRegionMsg::RemoteLocalShardHandOffStopperResult {
+                shard,
+                result,
+                reply,
+            },
+        )
+    }
+
+    fn apply_remote_local_shard_handoff_stopper_result(
+        &mut self,
+        ctx: &mut Context<ShardRegionMsg<M>>,
+        shard: ShardId,
+        result: kairo_actor::AskResult<bool>,
+        reply: crate::ShardRegionRemoteControlReplyTarget,
+    ) -> ActorResult {
+        if matches!(result, Ok(true)) {
+            self.complete_remote_handoff(ctx, shard, reply)?;
+        }
+        Ok(())
+    }
+
+    fn complete_remote_handoff(
+        &mut self,
+        ctx: &mut Context<ShardRegionMsg<M>>,
+        shard: ShardId,
+        reply: crate::ShardRegionRemoteControlReplyTarget,
+    ) -> ActorResult {
+        if let Some(shard_ref) = self.local_shards.get(&shard).cloned() {
+            ctx.stop(shard_ref)?;
+        }
+        self.runtime.mark_shard_stopped(&shard);
+        self.local_shards.remove(&shard);
+        reply
+            .send_shard_stopped(shard)
+            .map_err(|error| ActorError::Message(error.to_string()))
     }
 
     fn register_with_coordinator(&mut self, ctx: &Context<ShardRegionMsg<M>>) -> ActorResult {

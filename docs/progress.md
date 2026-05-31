@@ -1295,6 +1295,11 @@ Implemented:
   region actor state transitions and emit stable `ShardStarted`,
   `BeginHandOffAck`, or immediate `ShardStopped` replies where the current
   region runtime can complete the command synchronously.
+- `ShardRegionActor<M>` can now opt into a region-side remote handoff
+  stop-message factory, so stable remote `HandOff` commands for locally hosted
+  shards forward into the local shard, observe the shard handoff plan, ask for
+  stopper completion when required, mark the shard stopped, and send stable
+  `ShardStopped` replies without putting business stop messages on the wire.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1317,10 +1322,9 @@ Not yet implemented:
   runtime, actor-backed connector, and bootstrap beyond the current localhost
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
-  orchestration, including restart backoff policy integration,
-  remote handoff stop-message integration for locally hosted remote handoff
-  commands, and broader multi-node validation of the discovery subscriber plus
-  region/coordinator flow.
+  orchestration, including restart backoff policy integration and broader
+  multi-node validation of the discovery subscriber plus region/coordinator
+  flow.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader multi-node tests around the bootstrap facades beyond the current
   localhost two-node example smoke tests.
@@ -1333,24 +1337,9 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding region_system_inbound_completes_hosted_remote_handoff_with_local_stop_message
 cargo test -p kairo-cluster-sharding remote_control
 cargo test -p kairo-cluster-sharding region_system_inbound
-cargo test -p kairo-cluster-sharding coordinator_system_inbound
-cargo test -p kairo-cluster-sharding handoff_worker_completes_from_remote_shard_stopped
-cargo test -p kairo-cluster-sharding coordinator_remote
-cargo test -p kairo-cluster-sharding remote_coordinator_transport
-cargo test -p kairo-cluster-sharding region_actor_sends_remote_register_on_discovery_and_retry
-cargo test -p kairo-cluster-sharding region_actor_sends_remote_shard_home_after_registration_ack
-cargo test -p kairo-cluster-sharding remote_coordinator
-cargo test -p kairo-cluster-sharding region_actor_marks_remote_coordinator_registered_from_decoded_ack
-cargo test -p kairo-cluster-sharding region_actor_applies_decoded_remote_shard_home_reply
-cargo test -p kairo-cluster-sharding remote_home
-cargo test -p kairo-cluster-sharding remote_registration
-cargo test -p kairo-cluster-sharding coordinator_remote_target
-cargo test -p kairo-cluster-sharding coordinator_discovery
-cargo test -p kairo-cluster-sharding region_coordinator_discovery
-cargo test -p kairo-cluster-sharding region_actor_registers_with_discovered_local_coordinator
-cargo test -p kairo-cluster-sharding region_discovery_subscriber_forwards_cluster_snapshot_to_region_registration
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check

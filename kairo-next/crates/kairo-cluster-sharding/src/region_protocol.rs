@@ -63,6 +63,16 @@ pub enum ShardRegionMsg<M> {
         shard: ShardId,
         reply: ShardRegionRemoteControlReplyTarget,
     },
+    RemoteLocalShardHandOffObserved {
+        plan: ShardHandOffPlan<M>,
+        timeout: Duration,
+        reply: ShardRegionRemoteControlReplyTarget,
+    },
+    RemoteLocalShardHandOffStopperResult {
+        shard: ShardId,
+        result: AskResult<bool>,
+        reply: ShardRegionRemoteControlReplyTarget,
+    },
     HandOffToLocalShard {
         shard: ShardId,
         stop_message: M,

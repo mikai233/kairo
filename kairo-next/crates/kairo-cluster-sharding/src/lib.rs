@@ -88,6 +88,7 @@ mod region_registration;
 mod region_remote;
 mod region_remote_coordinator;
 mod region_remote_coordinator_transport;
+mod region_remote_handoff;
 mod region_runtime;
 mod region_shards;
 mod region_system_inbound;
@@ -188,6 +189,7 @@ pub use region_remote_coordinator::{
 pub use region_remote_coordinator_transport::{
     RegionRemoteCoordinatorTransport, RegionRemoteCoordinatorTransportError,
 };
+pub use region_remote_handoff::RegionRemoteHandOff;
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
     ShardRegionRuntime, ShardStartedPlan,

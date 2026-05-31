@@ -213,7 +213,7 @@ mod tests {
     use std::time::Duration;
 
     use bytes::Bytes;
-    use kairo_actor::Address;
+    use kairo_actor::{ActorRef, Address};
     use kairo_cluster::UniqueAddress;
     use kairo_serialization::{
         ActorRefWireData, MessageCodec, Registry, SerializationRegistry, SerializedMessage,
@@ -223,9 +223,9 @@ mod tests {
     use crate::{
         BeginHandOff, BeginHandOffAck, DEFAULT_SHARD_REGION_REMOTE_PATH, HandOff, HostShard,
         RegionLocalRoutePlan, RegisterAck, RoutedShardEnvelope, ShardCoordinatorRemoteHomeInbound,
-        ShardCoordinatorRemoteRegistrationInbound, ShardDeliverPlan, ShardHome, ShardRegionActor,
-        ShardRegionRemoteControlInbound, ShardRegionRemoteInbound, ShardStarted, ShardStopped,
-        ShardingEnvelope, register_sharding_protocol_codecs,
+        ShardCoordinatorRemoteRegistrationInbound, ShardDeliverPlan, ShardHome, ShardMsg,
+        ShardRegionActor, ShardRegionRemoteControlInbound, ShardRegionRemoteInbound, ShardStarted,
+        ShardStopped, ShardingEnvelope, register_sharding_protocol_codecs,
     };
 
     use super::*;
@@ -459,6 +459,142 @@ mod tests {
         assert_eq!(stopped.recipient, coordinator);
         assert_eq!(stopped.sender, Some(region_wire));
         assert_eq!(stopped.message.manifest.as_str(), ShardStopped::MANIFEST);
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn region_system_inbound_completes_hosted_remote_handoff_with_local_stop_message() {
+        let kit = ActorSystemTestKit::new("sharding-system-inbound-hosted-handoff").unwrap();
+        let registry = registry();
+        let region_wire = region_wire();
+        let coordinator = actor_ref("kairo://remote@127.0.0.1:2552/system/sharding/coordinator");
+        let outbound = kit
+            .create_probe::<RemoteEnvelope>("remote-control-replies")
+            .unwrap();
+        let region = kit
+            .system()
+            .spawn(
+                "region",
+                kairo_actor::Props::new(|| {
+                    ShardRegionActor::<TestMessage>::new_with_local_shards("region-a", 10, 10)
+                        .with_remote_handoff_stop_message(
+                            TestMessage {
+                                value: "stop".to_string(),
+                            },
+                            Duration::from_millis(100),
+                        )
+                }),
+            )
+            .unwrap();
+        let inbound = ShardRegionSystemInbound::new(region.clone()).with_control(
+            ShardRegionRemoteControlInbound::new(
+                region_wire.clone(),
+                registry.clone(),
+                outbound.actor_ref(),
+            ),
+        );
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                region_wire.clone(),
+                Some(coordinator.clone()),
+                registry
+                    .serialize(&HostShard {
+                        shard_id: "shard-1".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        assert_eq!(
+            outbound
+                .expect_msg(Duration::from_secs(1))
+                .unwrap()
+                .message
+                .manifest
+                .as_str(),
+            ShardStarted::MANIFEST
+        );
+
+        let route_reply = kit
+            .create_probe::<RegionLocalRoutePlan<TestMessage>>("route-reply")
+            .unwrap();
+        let delivery_reply = kit
+            .create_probe::<ShardDeliverPlan<TestMessage>>("delivery-reply")
+            .unwrap();
+        region
+            .tell(ShardRegionMsg::RouteToLocalShard {
+                shard: "shard-1".to_string(),
+                message: ShardingEnvelope::new(
+                    "entity-1",
+                    TestMessage {
+                        value: "work".to_string(),
+                    },
+                ),
+                route_reply_to: route_reply.actor_ref(),
+                delivery_reply_to: delivery_reply.actor_ref(),
+            })
+            .unwrap();
+        assert!(matches!(
+            route_reply.expect_msg(Duration::from_secs(1)).unwrap(),
+            RegionLocalRoutePlan::DeliveredToLocalShard { .. }
+        ));
+        assert!(matches!(
+            delivery_reply.expect_msg(Duration::from_secs(1)).unwrap(),
+            ShardDeliverPlan::StartEntity { .. }
+        ));
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                region_wire.clone(),
+                Some(coordinator.clone()),
+                registry
+                    .serialize(&BeginHandOff {
+                        shard_id: "shard-1".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        assert_eq!(
+            outbound
+                .expect_msg(Duration::from_secs(1))
+                .unwrap()
+                .message
+                .manifest
+                .as_str(),
+            BeginHandOffAck::MANIFEST
+        );
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                region_wire.clone(),
+                Some(coordinator.clone()),
+                registry
+                    .serialize(&HandOff {
+                        shard_id: "shard-1".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        let stopped = outbound.expect_msg(Duration::from_secs(1)).unwrap();
+        assert_eq!(stopped.recipient, coordinator);
+        assert_eq!(stopped.sender, Some(region_wire));
+        assert_eq!(stopped.message.manifest.as_str(), ShardStopped::MANIFEST);
+
+        let local_shard = kit
+            .create_probe::<Option<ActorRef<ShardMsg<TestMessage>>>>("local-shard")
+            .unwrap();
+        region
+            .tell(ShardRegionMsg::GetLocalShard {
+                shard: "shard-1".to_string(),
+                reply_to: local_shard.actor_ref(),
+            })
+            .unwrap();
+        assert!(
+            local_shard
+                .expect_msg(Duration::from_secs(1))
+                .unwrap()
+                .is_none()
+        );
         kit.shutdown(Duration::from_secs(1)).unwrap();
     }
 
