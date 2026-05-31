@@ -60,6 +60,7 @@ mod cluster;
 mod codec;
 mod convergence;
 mod downing;
+mod downing_provider;
 mod event_publisher;
 mod events;
 mod failure_detector;
@@ -99,6 +100,7 @@ pub use downing::{
     DowningDecision, DowningHook, DowningPlan, NoDowning, SplitBrainResolverHook,
     SplitBrainStrategy, StaticDowningHook,
 };
+pub use downing_provider::{DowningProviderActor, DowningProviderMsg, DowningProviderSnapshot};
 pub use event_publisher::{
     ClusterEventPublisher, ClusterEventPublisherMsg, ClusterSubscriptionEvent,
     ClusterSubscriptionInitialState, CurrentClusterState, SubscriptionInitialState,

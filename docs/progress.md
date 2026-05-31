@@ -945,9 +945,14 @@ Implemented:
 - `kairo-cluster::SplitBrainResolverHook` provides the first concrete
   synchronous downing policies for `down-all`, `keep-majority`, and
   `keep-oldest`, including role-filtered majority decisions, tie-breaking by
-  lowest address, oldest-member survival, and `down-if-alone` behavior. Full
-  stable-after provider timing, indirectly-connected graph handling, and
-  lease-majority remain future work.
+  lowest address, oldest-member survival, and `down-if-alone` behavior.
+  Indirectly-connected graph handling and lease-majority remain future work.
+- `kairo-cluster::DowningProviderActor` now wraps the downing hook boundary in
+  an actor-backed stable-after timer: it observes gossip snapshots, tracks
+  relevant unreachable members, resets or cancels the timer when reachability
+  changes, gates decisions to the reachable leader, and sends structured
+  `ApplyDowningDecision` commands to the membership actor after the stable
+  period.
 - `kairo-cluster::HeartbeatNodeRing` and `HeartbeatSenderState` model
   Pekko-style heartbeat receiver selection and sender bookkeeping, including
   deterministic ring ordering, configured receiver limits, unreachable receiver
@@ -1245,8 +1250,9 @@ Not yet implemented:
   the bootstrap facade beyond the current localhost two-node example smoke
   test.
 - Multi-node cluster membership socket lifecycle orchestration still needs
-  actor-backed downing provider timing,
-  indirectly-connected split-brain handling, and lease-majority support.
+  indirectly-connected split-brain handling, lease-majority support, and
+  broader end-to-end validation of the actor-backed downing provider with live
+  membership sockets.
 
 ## Last Validation
 
