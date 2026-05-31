@@ -17,11 +17,11 @@ use crate::{
     CoordinatorEvent, CoordinatorStateSnapshot, EntityActorFactory, EntityId, GetShardHome,
     GetShardHomePlan, HandoffRegionTarget, HostShardPlan, RegionCoordinatorDiscovery,
     RegionCoordinatorDiscoveryConfig, RegionCoordinatorDiscoveryPlan, RegionId,
-    RegionRemoteCoordinator, RegionRemoteRegistrationPlan, RegionRouteDelivery, RegionRoutePlan,
-    RegionRouteTransport, ShardCoordinatorMsg, ShardCoordinatorRemoteHome,
-    ShardCoordinatorRemoteRegistrationAck, ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan,
-    ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope, ShardingError,
-    shard_home_plan_from_remote,
+    RegionRemoteCoordinator, RegionRemoteCoordinatorTransport, RegionRemoteRegistrationPlan,
+    RegionRouteDelivery, RegionRoutePlan, RegionRouteTransport, ShardCoordinatorMsg,
+    ShardCoordinatorRemoteHome, ShardCoordinatorRemoteRegistrationAck, ShardDeliverPlan,
+    ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope,
+    ShardingError, shard_home_plan_from_remote,
 };
 
 pub struct ShardRegionActor<M>
@@ -33,6 +33,7 @@ where
     local_shards: BTreeMap<ShardId, ActorRef<ShardMsg<M>>>,
     registration: Option<RegionRegistration<M>>,
     remote_coordinator: RegionRemoteCoordinator,
+    remote_coordinator_transport: Option<RegionRemoteCoordinatorTransport>,
     coordinator_discovery: Option<RegionCoordinatorDiscovery<M>>,
     home_requests: RegionHomeRequests<M>,
     route_transport: Option<RegionRouteTransport<M>>,
@@ -49,6 +50,7 @@ where
             local_shards: BTreeMap::new(),
             registration: None,
             remote_coordinator: RegionRemoteCoordinator::new(),
+            remote_coordinator_transport: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -66,6 +68,7 @@ where
             local_shards: BTreeMap::new(),
             registration: None,
             remote_coordinator: RegionRemoteCoordinator::new(),
+            remote_coordinator_transport: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -91,6 +94,7 @@ where
                 retry_interval,
             ))),
             remote_coordinator: RegionRemoteCoordinator::new(),
+            remote_coordinator_transport: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -115,6 +119,7 @@ where
             local_shards: BTreeMap::new(),
             registration: None,
             remote_coordinator: RegionRemoteCoordinator::new(),
+            remote_coordinator_transport: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -144,6 +149,7 @@ where
                 retry_interval,
             ))),
             remote_coordinator: RegionRemoteCoordinator::new(),
+            remote_coordinator_transport: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -169,6 +175,7 @@ where
             local_shards: BTreeMap::new(),
             registration: None,
             remote_coordinator: RegionRemoteCoordinator::new(),
+            remote_coordinator_transport: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -198,6 +205,7 @@ where
             local_shards: BTreeMap::new(),
             registration: Some(RegionRegistration::new(registration)),
             remote_coordinator: RegionRemoteCoordinator::new(),
+            remote_coordinator_transport: None,
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
@@ -209,8 +217,16 @@ where
         discovery: RegionCoordinatorDiscoveryConfig<M>,
     ) -> Self {
         self.registration = None;
-        self.remote_coordinator.set_target(None);
+        self.remote_coordinator.set_target(None, None);
         self.coordinator_discovery = Some(RegionCoordinatorDiscovery::new(discovery));
+        self
+    }
+
+    pub fn with_remote_coordinator_transport(
+        mut self,
+        transport: RegionRemoteCoordinatorTransport,
+    ) -> Self {
+        self.remote_coordinator_transport = Some(transport);
         self
     }
 
@@ -565,23 +581,37 @@ where
     }
 
     fn register_with_coordinator(&mut self, ctx: &Context<ShardRegionMsg<M>>) -> ActorResult {
-        let Some(registration) = &mut self.registration else {
-            return Ok(());
-        };
-        if registration.is_registered() {
+        if let Some(registration) = &mut self.registration {
+            if registration.is_registered() {
+                return Ok(());
+            }
+
+            let reply_to = ctx.message_adapter(|result| {
+                ShardRegionMsg::CoordinatorRegistrationResult { result }
+            })?;
+            let target = HandoffRegionTarget::new(self.runtime.self_region().clone(), ctx.myself());
+            let _ = registration
+                .coordinator()
+                .tell(ShardCoordinatorMsg::RegisterLocalRegion { target, reply_to });
+            ctx.schedule_once_self(
+                registration.retry_interval(),
+                ShardRegionMsg::RetryCoordinatorRegistration,
+            );
             return Ok(());
         }
 
-        let reply_to =
-            ctx.message_adapter(|result| ShardRegionMsg::CoordinatorRegistrationResult { result })?;
-        let target = HandoffRegionTarget::new(self.runtime.self_region().clone(), ctx.myself());
-        let _ = registration
-            .coordinator()
-            .tell(ShardCoordinatorMsg::RegisterLocalRegion { target, reply_to });
-        ctx.schedule_once_self(
-            registration.retry_interval(),
-            ShardRegionMsg::RetryCoordinatorRegistration,
-        );
+        if self.remote_coordinator.is_registered() {
+            return Ok(());
+        }
+        let Some(target) = self.remote_coordinator.target() else {
+            return Ok(());
+        };
+        if let Some(transport) = &self.remote_coordinator_transport {
+            let _ = transport.register(target);
+        }
+        if let Some(retry_interval) = self.remote_coordinator.retry_interval() {
+            ctx.schedule_once_self(retry_interval, ShardRegionMsg::RetryCoordinatorRegistration);
+        }
         Ok(())
     }
 
@@ -614,7 +644,8 @@ where
     ) -> ActorResult {
         if plan.registration_changed {
             self.registration = plan.registration.map(RegionRegistration::new);
-            self.remote_coordinator.set_target(plan.remote_target);
+            self.remote_coordinator
+                .set_target(plan.remote_target, plan.remote_retry_interval);
         }
         self.register_with_coordinator(ctx)
     }
@@ -639,6 +670,15 @@ where
         request: GetShardHome,
     ) -> ActorResult {
         let Some(registration) = &self.registration else {
+            let Some(target) = self.remote_coordinator.target() else {
+                return Ok(());
+            };
+            if !self.remote_coordinator.is_registered() {
+                return Ok(());
+            }
+            if let Some(transport) = &self.remote_coordinator_transport {
+                let _ = transport.request_shard_home(target, request);
+            }
             return Ok(());
         };
         if !registration.is_registered() {

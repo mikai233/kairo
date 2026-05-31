@@ -2348,3 +2348,34 @@ Consequences:
 - Outbound retry scheduling for remote registration and shard-home requests
   remains a follow-up that can build on this state module and the existing
   transport-neutral wire bridges.
+
+## ADR-0083: Region Remote Coordinator Sends Compose Stable Bridges
+
+Status: Accepted
+
+Context:
+Pekko shard regions send `Register` repeatedly to likely coordinator
+locations until an acknowledgement arrives, then send `GetShardHome` for
+buffered shards. Kairo already has transport-neutral stable bridges for
+remote coordinator registration and shard-home lookup, and region state can
+consume decoded replies. The remaining question is where outbound remote
+registration and shard-home requests should be driven from.
+
+Decision:
+Kairo adds `RegionRemoteCoordinatorTransport` as a focused sharding module
+owned by the region actor. It composes
+`ShardCoordinatorRemoteRegistrationOutbound` and
+`ShardCoordinatorRemoteHomeOutbound`, using the configured region
+`ActorRefWireData` as sender metadata. `ShardRegionActor` invokes this
+transport when discovery selects a remote coordinator, on registration retry
+ticks, and after a matching remote `RegisterAck` when pending buffered shards
+need `GetShardHome` requests.
+
+Consequences:
+- Region-driven remote coordinator sends use stable sharding protocol messages
+  and registered codecs rather than serializing local actor protocol enums.
+- The actor retains Pekko's observable retry and buffered-shard request flow,
+  while wire construction remains outside the main region actor file.
+- A later system inbound router can feed decoded remote envelopes into the
+  existing region messages and coordinator actors without changing this
+  outbound state boundary.

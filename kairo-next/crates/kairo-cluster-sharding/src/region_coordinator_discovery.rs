@@ -200,6 +200,7 @@ where
         let remote_target = registration_changed
             .then(|| selected_target.and_then(RegionCoordinatorDiscoveryTarget::remote_target))
             .flatten();
+        let remote_retry_interval = remote_target.as_ref().map(|_| self.retry_interval);
 
         RegionCoordinatorDiscoveryPlan {
             membership_change,
@@ -208,6 +209,7 @@ where
             registration_changed,
             registration,
             remote_target,
+            remote_retry_interval,
         }
     }
 
@@ -257,6 +259,7 @@ where
     pub registration_changed: bool,
     pub registration: Option<RegionRegistrationConfig<M>>,
     pub remote_target: Option<ShardCoordinatorRemoteTarget>,
+    pub remote_retry_interval: Option<Duration>,
 }
 
 #[cfg(test)]

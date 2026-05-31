@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use kairo_serialization::ActorRefWireData;
 
 use crate::{
@@ -28,6 +30,7 @@ pub struct RegionRemoteShardHomePlan {
 #[derive(Clone, Default)]
 pub struct RegionRemoteCoordinator {
     target: Option<ShardCoordinatorRemoteTarget>,
+    retry_interval: Option<Duration>,
     registered: bool,
 }
 
@@ -36,8 +39,13 @@ impl RegionRemoteCoordinator {
         Self::default()
     }
 
-    pub fn set_target(&mut self, target: Option<ShardCoordinatorRemoteTarget>) {
+    pub fn set_target(
+        &mut self,
+        target: Option<ShardCoordinatorRemoteTarget>,
+        retry_interval: Option<Duration>,
+    ) {
         self.target = target;
+        self.retry_interval = retry_interval;
         self.registered = false;
     }
 
@@ -47,6 +55,10 @@ impl RegionRemoteCoordinator {
 
     pub fn is_registered(&self) -> bool {
         self.target.is_some() && self.registered
+    }
+
+    pub fn retry_interval(&self) -> Option<Duration> {
+        self.retry_interval
     }
 
     pub fn status(&self) -> Option<RegionRegistrationStatus> {
@@ -105,7 +117,7 @@ mod tests {
     fn remote_coordinator_marks_matching_ack_registered() {
         let target = target();
         let mut coordinator = RegionRemoteCoordinator::new();
-        coordinator.set_target(Some(target.clone()));
+        coordinator.set_target(Some(target.clone()), Some(Duration::from_millis(20)));
 
         let plan = coordinator.apply_registration_ack(ShardCoordinatorRemoteRegistrationAck {
             sender: Some(target.recipient().clone()),
@@ -130,7 +142,7 @@ mod tests {
         let target = target();
         let stale = actor_ref("kairo://other@127.0.0.1:2559/system/sharding/coordinator");
         let mut coordinator = RegionRemoteCoordinator::new();
-        coordinator.set_target(Some(target.clone()));
+        coordinator.set_target(Some(target.clone()), Some(Duration::from_millis(20)));
 
         let plan = coordinator.apply_registration_ack(ShardCoordinatorRemoteRegistrationAck {
             sender: Some(stale.clone()),

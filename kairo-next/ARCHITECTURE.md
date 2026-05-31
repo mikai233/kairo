@@ -1448,6 +1448,7 @@ src/
   region_coordinator_discovery.rs
   region_discovery_subscriber.rs
   region_remote_coordinator.rs
+  region_remote_coordinator_transport.rs
   allocation.rs
   handoff.rs
   passivation.rs
@@ -1564,6 +1565,11 @@ Implementation shape:
   selected remote coordinator target, and maps remote region wire refs to
   region ids through their stable actor-ref path strings before replaying
   buffered deliveries through the existing region runtime.
+- Region remote-coordinator transport composes the stable registration and
+  shard-home bridges so a region can send `Register` on remote coordinator
+  discovery/retry and send pending `GetShardHome` requests after a matching
+  remote `RegisterAck`, without exposing local coordinator messages on the
+  wire.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.

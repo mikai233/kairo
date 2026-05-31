@@ -84,6 +84,7 @@ mod region_protocol;
 mod region_registration;
 mod region_remote;
 mod region_remote_coordinator;
+mod region_remote_coordinator_transport;
 mod region_runtime;
 mod region_shards;
 mod region_transport;
@@ -171,6 +172,9 @@ pub use region_remote::{
 pub use region_remote_coordinator::{
     RegionRemoteCoordinator, RegionRemoteRegistrationPlan, RegionRemoteShardHomePlan,
     region_id_from_wire_ref, shard_home_plan_from_remote,
+};
+pub use region_remote_coordinator_transport::{
+    RegionRemoteCoordinatorTransport, RegionRemoteCoordinatorTransportError,
 };
 pub use region_runtime::{
     BeginHandOffPlan, HandOffPlan, HostShardPlan, RegionDropReason, RegionRoutePlan, ShardHomePlan,
