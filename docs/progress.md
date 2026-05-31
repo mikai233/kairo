@@ -1446,6 +1446,9 @@ Implemented:
   in a focused sibling test module.
 - `kairo-actor` scheduler one-shot delivery, cancellation, and self-scheduling
   tests now live in a focused sibling test module.
+- `kairo-actor` timer single-shot, cancellation, replacement, fixed-delay,
+  fixed-rate, and actor-stop cleanup tests now live in a focused sibling test
+  module.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1508,6 +1511,7 @@ cargo test -p kairo-actor coordinated_shutdown
 cargo test -p kairo-actor stash
 cargo test -p kairo-actor ask
 cargo test -p kairo-actor scheduler
+cargo test -p kairo-actor timer
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote reader_supervisor
