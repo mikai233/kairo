@@ -2461,3 +2461,33 @@ Consequences:
 - Region-side inbound execution of remote `HostShard`, `BeginHandOff`, and
   `HandOff` commands remains a follow-up so replies can be generated from
   actual local region actor results.
+
+## ADR-0087: Remote Region Control Inbound Re-enters Region Actors
+
+Status: Accepted
+
+Context:
+Pekko shard regions handle coordinator control commands inside the region
+actor: `HostShard` starts or confirms a local shard and replies
+`ShardStarted`, `BeginHandOff` removes shard-home routing and replies
+`BeginHandOffAck`, and `HandOff` replies `ShardStopped` immediately when no
+local shard is active. Kairo now receives the same commands as stable remote
+envelopes at `/system/sharding/region`.
+
+Decision:
+Kairo adds `ShardRegionRemoteControlInbound` and
+`ShardRegionRemoteControlReplyTarget`. The inbound bridge validates the
+recipient, requires coordinator sender metadata, decodes stable control
+commands, and sends explicit remote-control messages into `ShardRegionActor`.
+The actor reuses the existing region runtime transitions and the reply target
+serializes stable `ShardStarted`, `BeginHandOffAck`, or immediate
+`ShardStopped` replies.
+
+Consequences:
+- Remote control commands now follow normal synchronous region actor turns
+  instead of mutating region runtime state at the remote boundary.
+- Region system inbound remains a manifest router; codec and reply construction
+  live in the focused remote-control bridge.
+- Remote `HandOff` for an actually hosted local shard still needs a configured
+  region-side stop-message source before it can complete the entity stop path
+  instead of relying on coordinator timeout.

@@ -1290,6 +1290,11 @@ Implemented:
   sends, plus coordinator-side inbound routing for stable `ShardStarted`,
   `BeginHandOffAck`, and `ShardStopped` replies back into coordinator and
   handoff-worker actor turns.
+- `kairo-cluster-sharding` now has region-side inbound handling for stable
+  remote `HostShard`, `BeginHandOff`, and `HandOff` commands; these re-enter
+  region actor state transitions and emit stable `ShardStarted`,
+  `BeginHandOffAck`, or immediate `ShardStopped` replies where the current
+  region runtime can complete the command synchronously.
 - `kairo-cluster-sharding` crate docs now explain `EntityRef<M>` and
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
@@ -1313,7 +1318,7 @@ Not yet implemented:
   two-node example smoke test.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration,
-  region-side inbound handling for remote `HostShard`/handoff control
+  remote handoff stop-message integration for locally hosted remote handoff
   commands, and broader multi-node validation of the discovery subscriber plus
   region/coordinator flow.
 - Cluster, distributed-data, and cluster-tools socket integration still need

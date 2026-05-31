@@ -8,8 +8,9 @@ use crate::{
     BeginHandOffPlan, GetShardHome, GetShardHomePlan, HandOff, HandOffPlan, HostShardPlan,
     RegionDropReason, RegionId, RegionRegistrationStatus, RegionRouteDelivery, RegionRoutePlan,
     ShardCoordinatorRemoteHome, ShardCoordinatorRemoteRegistrationAck, ShardDeliverPlan,
-    ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardStarted,
-    ShardStartedPlan, ShardStopped, ShardingEnvelope, ShardingError,
+    ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRemoteControlReplyTarget,
+    ShardRegionRuntime, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
+    ShardingError,
 };
 
 pub enum ShardRegionMsg<M> {
@@ -49,6 +50,18 @@ pub enum ShardRegionMsg<M> {
     HandOff {
         shard: ShardId,
         reply_to: ActorRef<HandOffPlan>,
+    },
+    RemoteHostShard {
+        shard: ShardId,
+        reply: ShardRegionRemoteControlReplyTarget,
+    },
+    RemoteBeginHandOff {
+        shard: ShardId,
+        reply: ShardRegionRemoteControlReplyTarget,
+    },
+    RemoteHandOff {
+        shard: ShardId,
+        reply: ShardRegionRemoteControlReplyTarget,
     },
     HandOffToLocalShard {
         shard: ShardId,

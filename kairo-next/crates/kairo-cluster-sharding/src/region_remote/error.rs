@@ -7,6 +7,7 @@ pub enum ShardRegionRemoteError {
     Serialization(SerializationError),
     InvalidRecipientPath(String),
     MissingRemoteHost { node: String },
+    MissingSender(String),
     WrongRecipient { expected: String, actual: String },
     UnsupportedLocalMessage(&'static str),
     UnsupportedManifest(String),
@@ -24,6 +25,9 @@ impl Display for ShardRegionRemoteError {
             }
             Self::MissingRemoteHost { node } => {
                 write!(f, "shard-region remote target `{node}` has no remote host")
+            }
+            Self::MissingSender(message) => {
+                write!(f, "shard-region remote `{message}` envelope has no sender")
             }
             Self::WrongRecipient { expected, actual } => {
                 write!(

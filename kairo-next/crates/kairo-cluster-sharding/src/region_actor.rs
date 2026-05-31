@@ -470,6 +470,15 @@ where
                 let plan = self.runtime.handoff(shard);
                 let _ = reply_to.tell(plan);
             }
+            ShardRegionMsg::RemoteHostShard { shard, reply } => {
+                self.apply_remote_host_shard(ctx, shard, reply)?;
+            }
+            ShardRegionMsg::RemoteBeginHandOff { shard, reply } => {
+                self.apply_remote_begin_handoff(shard, reply)?;
+            }
+            ShardRegionMsg::RemoteHandOff { shard, reply } => {
+                self.apply_remote_handoff(shard, reply)?;
+            }
             ShardRegionMsg::HandOffToLocalShard {
                 shard,
                 stop_message,
@@ -578,6 +587,50 @@ where
             started: started.started,
             buffered: started.buffered,
         })
+    }
+
+    fn apply_remote_host_shard(
+        &mut self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        shard: ShardId,
+        reply: crate::ShardRegionRemoteControlReplyTarget,
+    ) -> ActorResult {
+        let plan = self.runtime.host_shard(shard);
+        let plan = self.maybe_start_local_shard_from_host_plan(ctx, plan)?;
+        if let HostShardPlan::AlreadyStarted { started, .. } = plan {
+            reply
+                .send_shard_started(started.shard_id)
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn apply_remote_begin_handoff(
+        &mut self,
+        shard: ShardId,
+        reply: crate::ShardRegionRemoteControlReplyTarget,
+    ) -> ActorResult {
+        let plan = self.runtime.begin_handoff(shard);
+        if let crate::BeginHandOffPlan::Ack { ack, .. } = plan {
+            reply
+                .send_begin_handoff_ack(ack.shard_id)
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn apply_remote_handoff(
+        &mut self,
+        shard: ShardId,
+        reply: crate::ShardRegionRemoteControlReplyTarget,
+    ) -> ActorResult {
+        let plan = self.runtime.handoff(shard);
+        if let crate::HandOffPlan::ReplyShardStopped { stopped, .. } = plan {
+            reply
+                .send_shard_stopped(stopped.shard_id)
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
     }
 
     fn register_with_coordinator(&mut self, ctx: &Context<ShardRegionMsg<M>>) -> ActorResult {

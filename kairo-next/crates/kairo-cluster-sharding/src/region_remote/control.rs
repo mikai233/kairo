@@ -2,9 +2,14 @@ use std::sync::Arc;
 
 use kairo_actor::{Recipient, SendError};
 use kairo_cluster::UniqueAddress;
-use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
+use kairo_serialization::{
+    ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage, SerializedMessage,
+};
 
-use crate::{BeginHandOff, HandOff, HandoffRegionTarget, HostShard, RegionId, ShardRegionMsg};
+use crate::{
+    BeginHandOff, BeginHandOffAck, HandOff, HandoffRegionTarget, HostShard, RegionId,
+    ShardRegionMsg, ShardStarted, ShardStopped,
+};
 
 use super::{DEFAULT_SHARD_REGION_REMOTE_PATH, ShardRegionRemoteError, recipient_for_node};
 
@@ -20,6 +25,199 @@ where
     outbound: Arc<dyn Recipient<RemoteEnvelope> + Send + Sync>,
     _message: std::marker::PhantomData<fn(M)>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShardRegionRemoteControlCommand {
+    HostShard {
+        shard: String,
+        reply: ShardRegionRemoteControlReplyTarget,
+    },
+    BeginHandOff {
+        shard: String,
+        reply: ShardRegionRemoteControlReplyTarget,
+    },
+    HandOff {
+        shard: String,
+        reply: ShardRegionRemoteControlReplyTarget,
+    },
+}
+
+#[derive(Clone)]
+pub struct ShardRegionRemoteControlInbound {
+    region: ActorRefWireData,
+    registry: Arc<Registry>,
+    outbound: Arc<dyn Recipient<RemoteEnvelope> + Send + Sync>,
+}
+
+impl ShardRegionRemoteControlInbound {
+    pub fn new(
+        region: ActorRefWireData,
+        registry: Arc<Registry>,
+        outbound: impl Recipient<RemoteEnvelope> + Send + Sync + 'static,
+    ) -> Self {
+        Self::from_arc(region, registry, Arc::new(outbound))
+    }
+
+    pub fn from_arc(
+        region: ActorRefWireData,
+        registry: Arc<Registry>,
+        outbound: Arc<dyn Recipient<RemoteEnvelope> + Send + Sync>,
+    ) -> Self {
+        Self {
+            region,
+            registry,
+            outbound,
+        }
+    }
+
+    pub fn region(&self) -> &ActorRefWireData {
+        &self.region
+    }
+
+    pub fn receive(
+        &self,
+        envelope: RemoteEnvelope,
+    ) -> Result<ShardRegionRemoteControlCommand, ShardRegionRemoteError> {
+        if envelope.recipient != self.region {
+            return Err(ShardRegionRemoteError::WrongRecipient {
+                expected: self.region.path().to_string(),
+                actual: envelope.recipient.path().to_string(),
+            });
+        }
+        let coordinator = envelope
+            .sender
+            .ok_or(ShardRegionRemoteError::MissingSender(
+                envelope.message.manifest.as_str().to_string(),
+            ))?;
+        let reply = ShardRegionRemoteControlReplyTarget::from_arc(
+            self.region.clone(),
+            coordinator,
+            self.registry.clone(),
+            self.outbound.clone(),
+        );
+        self.receive_message(envelope.message, reply)
+    }
+
+    fn receive_message(
+        &self,
+        message: SerializedMessage,
+        reply: ShardRegionRemoteControlReplyTarget,
+    ) -> Result<ShardRegionRemoteControlCommand, ShardRegionRemoteError> {
+        match message.manifest.as_str() {
+            HostShard::MANIFEST => {
+                let command = self.registry.deserialize::<HostShard>(message)?;
+                Ok(ShardRegionRemoteControlCommand::HostShard {
+                    shard: command.shard_id,
+                    reply,
+                })
+            }
+            BeginHandOff::MANIFEST => {
+                let command = self.registry.deserialize::<BeginHandOff>(message)?;
+                Ok(ShardRegionRemoteControlCommand::BeginHandOff {
+                    shard: command.shard_id,
+                    reply,
+                })
+            }
+            HandOff::MANIFEST => {
+                let command = self.registry.deserialize::<HandOff>(message)?;
+                Ok(ShardRegionRemoteControlCommand::HandOff {
+                    shard: command.shard_id,
+                    reply,
+                })
+            }
+            manifest => Err(ShardRegionRemoteError::UnsupportedManifest(
+                manifest.to_string(),
+            )),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ShardRegionRemoteControlReplyTarget {
+    region: ActorRefWireData,
+    coordinator: ActorRefWireData,
+    registry: Arc<Registry>,
+    outbound: Arc<dyn Recipient<RemoteEnvelope> + Send + Sync>,
+}
+
+impl ShardRegionRemoteControlReplyTarget {
+    pub fn new(
+        region: ActorRefWireData,
+        coordinator: ActorRefWireData,
+        registry: Arc<Registry>,
+        outbound: impl Recipient<RemoteEnvelope> + Send + Sync + 'static,
+    ) -> Self {
+        Self::from_arc(region, coordinator, registry, Arc::new(outbound))
+    }
+
+    pub fn from_arc(
+        region: ActorRefWireData,
+        coordinator: ActorRefWireData,
+        registry: Arc<Registry>,
+        outbound: Arc<dyn Recipient<RemoteEnvelope> + Send + Sync>,
+    ) -> Self {
+        Self {
+            region,
+            coordinator,
+            registry,
+            outbound,
+        }
+    }
+
+    pub fn region(&self) -> &ActorRefWireData {
+        &self.region
+    }
+
+    pub fn coordinator(&self) -> &ActorRefWireData {
+        &self.coordinator
+    }
+
+    pub fn send_shard_started(&self, shard: String) -> Result<(), ShardRegionRemoteError> {
+        self.send_to_coordinator(&ShardStarted { shard_id: shard })
+    }
+
+    pub fn send_begin_handoff_ack(&self, shard: String) -> Result<(), ShardRegionRemoteError> {
+        self.send_to_coordinator(&BeginHandOffAck { shard_id: shard })
+    }
+
+    pub fn send_shard_stopped(&self, shard: String) -> Result<(), ShardRegionRemoteError> {
+        self.send_to_coordinator(&ShardStopped { shard_id: shard })
+    }
+
+    fn send_to_coordinator<M>(&self, message: &M) -> Result<(), ShardRegionRemoteError>
+    where
+        M: RemoteMessage,
+    {
+        let serialized = self.registry.serialize(message)?;
+        self.outbound
+            .tell(RemoteEnvelope::new(
+                self.coordinator.clone(),
+                Some(self.region.clone()),
+                serialized,
+            ))
+            .map_err(|error| ShardRegionRemoteError::Send {
+                target: self.coordinator.path().to_string(),
+                reason: error.reason().to_string(),
+            })
+    }
+}
+
+impl std::fmt::Debug for ShardRegionRemoteControlReplyTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ShardRegionRemoteControlReplyTarget")
+            .field("region", &self.region)
+            .field("coordinator", &self.coordinator)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for ShardRegionRemoteControlReplyTarget {
+    fn eq(&self, other: &Self) -> bool {
+        self.region == other.region && self.coordinator == other.coordinator
+    }
+}
+
+impl Eq for ShardRegionRemoteControlReplyTarget {}
 
 impl<M> ShardRegionRemoteControlOutbound<M>
 where
@@ -160,7 +358,8 @@ mod tests {
 
     use crate::{
         BEGIN_HANDOFF_SERIALIZER_ID, BeginHandOff, HANDOFF_SERIALIZER_ID, HOST_SHARD_SERIALIZER_ID,
-        HandOff, HandOffPlan, HostShard, HostShardPlan, register_sharding_protocol_codecs,
+        HandOff, HandOffPlan, HostShard, HostShardPlan, SHARD_STARTED_SERIALIZER_ID, ShardStarted,
+        register_sharding_protocol_codecs,
     };
 
     use super::*;
@@ -242,6 +441,88 @@ mod tests {
         assert_eq!(handoff.message.serializer_id, HANDOFF_SERIALIZER_ID);
         assert_eq!(handoff.message.manifest.as_str(), HandOff::MANIFEST);
         kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn remote_control_inbound_decodes_command_and_sends_stable_reply() {
+        let registry = registry();
+        let (outbound, rx) = collector::<RemoteEnvelope>();
+        let inbound = ShardRegionRemoteControlInbound::new(region(), registry.clone(), outbound);
+
+        let decoded = inbound
+            .receive(RemoteEnvelope::new(
+                region(),
+                Some(coordinator()),
+                registry
+                    .serialize(&HostShard {
+                        shard_id: "12".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+
+        let ShardRegionRemoteControlCommand::HostShard { shard, reply } = decoded else {
+            panic!("expected HostShard command");
+        };
+        assert_eq!(shard, "12");
+        assert_eq!(reply.region(), &region());
+        assert_eq!(reply.coordinator(), &coordinator());
+
+        reply.send_shard_started(shard).unwrap();
+        let envelope = rx.recv().unwrap();
+        assert_eq!(envelope.recipient, coordinator());
+        assert_eq!(envelope.sender, Some(region()));
+        assert_eq!(envelope.message.serializer_id, SHARD_STARTED_SERIALIZER_ID);
+        assert_eq!(envelope.message.manifest.as_str(), ShardStarted::MANIFEST);
+    }
+
+    #[test]
+    fn remote_control_inbound_rejects_wrong_recipient_sender_or_manifest() {
+        let registry = registry();
+        let (outbound, _rx) = collector::<RemoteEnvelope>();
+        let inbound = ShardRegionRemoteControlInbound::new(region(), registry.clone(), outbound);
+
+        let wrong_recipient = RemoteEnvelope::new(
+            ActorRefWireData::new("kairo://remote@127.0.0.1:2552/user/not-region").unwrap(),
+            Some(coordinator()),
+            registry
+                .serialize(&HostShard {
+                    shard_id: "12".to_string(),
+                })
+                .unwrap(),
+        );
+        assert!(matches!(
+            inbound.receive(wrong_recipient).unwrap_err(),
+            ShardRegionRemoteError::WrongRecipient { .. }
+        ));
+
+        let missing_sender = RemoteEnvelope::new(
+            region(),
+            None,
+            registry
+                .serialize(&BeginHandOff {
+                    shard_id: "12".to_string(),
+                })
+                .unwrap(),
+        );
+        assert!(matches!(
+            inbound.receive(missing_sender).unwrap_err(),
+            ShardRegionRemoteError::MissingSender(_)
+        ));
+
+        let wrong_manifest = RemoteEnvelope::new(
+            region(),
+            Some(coordinator()),
+            registry
+                .serialize(&ShardStarted {
+                    shard_id: "12".to_string(),
+                })
+                .unwrap(),
+        );
+        assert!(matches!(
+            inbound.receive(wrong_manifest).unwrap_err(),
+            ShardRegionRemoteError::UnsupportedManifest(_)
+        ));
     }
 
     fn registry() -> Arc<Registry> {

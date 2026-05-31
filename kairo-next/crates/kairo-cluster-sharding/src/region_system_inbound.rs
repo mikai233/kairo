@@ -5,10 +5,11 @@ use kairo_actor::ActorRef;
 use kairo_serialization::{RemoteEnvelope, RemoteMessage};
 
 use crate::{
-    RegisterAck, RoutedShardEnvelope, ShardCoordinatorRemoteHomeError,
-    ShardCoordinatorRemoteHomeInbound, ShardCoordinatorRemoteRegistrationError,
-    ShardCoordinatorRemoteRegistrationInbound, ShardHome, ShardRegionMsg, ShardRegionRemoteError,
-    ShardRegionRemoteInbound,
+    BeginHandOff, HandOff, HostShard, RegisterAck, RoutedShardEnvelope,
+    ShardCoordinatorRemoteHomeError, ShardCoordinatorRemoteHomeInbound,
+    ShardCoordinatorRemoteRegistrationError, ShardCoordinatorRemoteRegistrationInbound, ShardHome,
+    ShardRegionMsg, ShardRegionRemoteControlCommand, ShardRegionRemoteControlInbound,
+    ShardRegionRemoteError, ShardRegionRemoteInbound,
 };
 
 #[derive(Debug)]
@@ -72,6 +73,7 @@ where
     routes: Option<ShardRegionRemoteInbound<M>>,
     registration: Option<ShardCoordinatorRemoteRegistrationInbound>,
     shard_home: Option<ShardCoordinatorRemoteHomeInbound>,
+    control: Option<ShardRegionRemoteControlInbound>,
     _message: PhantomData<fn(M)>,
 }
 
@@ -85,6 +87,7 @@ where
             routes: None,
             registration: None,
             shard_home: None,
+            control: None,
             _message: PhantomData,
         }
     }
@@ -101,6 +104,11 @@ where
 
     pub fn with_shard_home(mut self, inbound: ShardCoordinatorRemoteHomeInbound) -> Self {
         self.shard_home = Some(inbound);
+        self
+    }
+
+    pub fn with_control(mut self, inbound: ShardRegionRemoteControlInbound) -> Self {
+        self.control = Some(inbound);
         self
     }
 
@@ -147,17 +155,55 @@ where
                         reason: error.reason().to_string(),
                     })
             }
+            HostShard::MANIFEST | BeginHandOff::MANIFEST | HandOff::MANIFEST => {
+                let command = self
+                    .control
+                    .as_ref()
+                    .ok_or(ShardRegionSystemInboundError::MissingHandler(
+                        "region control",
+                    ))?
+                    .receive(envelope)?;
+                self.tell_region_control(command)
+            }
             manifest => Err(ShardRegionSystemInboundError::UnsupportedManifest(
                 manifest.to_string(),
             )),
         }
+    }
+
+    fn tell_region_control(
+        &self,
+        command: ShardRegionRemoteControlCommand,
+    ) -> Result<(), ShardRegionSystemInboundError> {
+        let message = match command {
+            ShardRegionRemoteControlCommand::HostShard { shard, reply } => {
+                ShardRegionMsg::RemoteHostShard { shard, reply }
+            }
+            ShardRegionRemoteControlCommand::BeginHandOff { shard, reply } => {
+                ShardRegionMsg::RemoteBeginHandOff { shard, reply }
+            }
+            ShardRegionRemoteControlCommand::HandOff { shard, reply } => {
+                ShardRegionMsg::RemoteHandOff { shard, reply }
+            }
+        };
+        self.region
+            .tell(message)
+            .map_err(|error| ShardRegionSystemInboundError::Send {
+                target: self.region.path().to_string(),
+                reason: error.reason().to_string(),
+            })
     }
 }
 
 pub fn is_shard_region_system_manifest(manifest: &str) -> bool {
     matches!(
         manifest,
-        RoutedShardEnvelope::MANIFEST | RegisterAck::MANIFEST | ShardHome::MANIFEST
+        RoutedShardEnvelope::MANIFEST
+            | RegisterAck::MANIFEST
+            | ShardHome::MANIFEST
+            | HostShard::MANIFEST
+            | BeginHandOff::MANIFEST
+            | HandOff::MANIFEST
     )
 }
 
@@ -175,10 +221,11 @@ mod tests {
     use kairo_testkit::ActorSystemTestKit;
 
     use crate::{
-        DEFAULT_SHARD_REGION_REMOTE_PATH, RegionLocalRoutePlan, RegisterAck, RoutedShardEnvelope,
-        ShardCoordinatorRemoteHomeInbound, ShardCoordinatorRemoteRegistrationInbound,
-        ShardDeliverPlan, ShardHome, ShardRegionRemoteInbound, ShardingEnvelope,
-        register_sharding_protocol_codecs,
+        BeginHandOff, BeginHandOffAck, DEFAULT_SHARD_REGION_REMOTE_PATH, HandOff, HostShard,
+        RegionLocalRoutePlan, RegisterAck, RoutedShardEnvelope, ShardCoordinatorRemoteHomeInbound,
+        ShardCoordinatorRemoteRegistrationInbound, ShardDeliverPlan, ShardHome, ShardRegionActor,
+        ShardRegionRemoteControlInbound, ShardRegionRemoteInbound, ShardStarted, ShardStopped,
+        ShardingEnvelope, register_sharding_protocol_codecs,
     };
 
     use super::*;
@@ -333,6 +380,85 @@ mod tests {
             }
             _ => panic!("expected decoded ShardHome to route to region"),
         }
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn region_system_inbound_routes_remote_control_commands_and_replies() {
+        let kit = ActorSystemTestKit::new("sharding-system-inbound-control").unwrap();
+        let registry = registry();
+        let region_wire = region_wire();
+        let coordinator = actor_ref("kairo://remote@127.0.0.1:2552/system/sharding/coordinator");
+        let outbound = kit
+            .create_probe::<RemoteEnvelope>("remote-control-replies")
+            .unwrap();
+        let region = kit
+            .system()
+            .spawn(
+                "region",
+                kairo_actor::Props::new(|| {
+                    ShardRegionActor::<TestMessage>::new_with_local_shards("region-a", 10, 10)
+                }),
+            )
+            .unwrap();
+        let inbound = ShardRegionSystemInbound::new(region).with_control(
+            ShardRegionRemoteControlInbound::new(
+                region_wire.clone(),
+                registry.clone(),
+                outbound.actor_ref(),
+            ),
+        );
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                region_wire.clone(),
+                Some(coordinator.clone()),
+                registry
+                    .serialize(&HostShard {
+                        shard_id: "shard-1".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        let started = outbound.expect_msg(Duration::from_secs(1)).unwrap();
+        assert_eq!(started.recipient, coordinator);
+        assert_eq!(started.sender, Some(region_wire.clone()));
+        assert_eq!(started.message.manifest.as_str(), ShardStarted::MANIFEST);
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                region_wire.clone(),
+                Some(coordinator.clone()),
+                registry
+                    .serialize(&BeginHandOff {
+                        shard_id: "shard-1".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        let begin_ack = outbound.expect_msg(Duration::from_secs(1)).unwrap();
+        assert_eq!(begin_ack.recipient, coordinator);
+        assert_eq!(begin_ack.sender, Some(region_wire.clone()));
+        assert_eq!(
+            begin_ack.message.manifest.as_str(),
+            BeginHandOffAck::MANIFEST
+        );
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                region_wire.clone(),
+                Some(coordinator.clone()),
+                registry
+                    .serialize(&HandOff {
+                        shard_id: "missing-shard".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap();
+        let stopped = outbound.expect_msg(Duration::from_secs(1)).unwrap();
+        assert_eq!(stopped.recipient, coordinator);
+        assert_eq!(stopped.sender, Some(region_wire));
+        assert_eq!(stopped.message.manifest.as_str(), ShardStopped::MANIFEST);
         kit.shutdown(Duration::from_secs(1)).unwrap();
     }
 

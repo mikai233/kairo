@@ -6,7 +6,10 @@ mod outbound;
 use kairo_cluster::UniqueAddress;
 use kairo_serialization::ActorRefWireData;
 
-pub use self::control::ShardRegionRemoteControlOutbound;
+pub use self::control::{
+    ShardRegionRemoteControlCommand, ShardRegionRemoteControlInbound,
+    ShardRegionRemoteControlOutbound, ShardRegionRemoteControlReplyTarget,
+};
 pub use self::error::ShardRegionRemoteError;
 pub use self::inbound::ShardRegionRemoteInbound;
 pub use self::outbound::ShardRegionRemoteOutbound;

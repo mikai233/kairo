@@ -1590,6 +1590,11 @@ Implementation shape:
   to `/system/sharding/region`; coordinator system inbound routing accepts
   stable `ShardStarted`, `BeginHandOffAck`, and `ShardStopped` replies and
   forwards handoff acknowledgements back to active handoff workers.
+- Region-side remote control inbound decodes stable `HostShard`,
+  `BeginHandOff`, and `HandOff` commands, re-enters normal region actor state
+  transitions, replies with stable `ShardStarted`/`BeginHandOffAck`, and
+  replies with `ShardStopped` when a remote handoff targets a shard that is no
+  longer local.
 - `ShardRegionDiscoverySubscriber<M>` owns the cluster subscription for this
   discovery path, requests an initial cluster snapshot, forwards later cluster
   events to `ShardRegionActor<M>`, and unsubscribes when stopped.
