@@ -691,6 +691,9 @@ Implemented:
   two real bound runtimes are spawned through the bootstrap facade, cluster
   membership is published to both connector actors, and each side installs a
   peer route for the other node through the actor-backed connector boundary.
+- Distributed-data TCP peer bootstrap tests now live in a focused sibling test
+  module, keeping the production bootstrap facade separate from socket fixture
+  setup and two-node validation data.
 - `kairo-examples` now includes a runnable distributed-data TCP peer bootstrap
   example, with reusable setup and one-shot reply helpers kept in focused
   example modules instead of placing route orchestration in one binary file.
@@ -1126,6 +1129,9 @@ Implemented:
   bound runtimes are spawned through the bootstrap facade, cluster membership
   is published to both connector actors, and each side installs a peer route
   for the other node through the actor-backed connector boundary.
+- Cluster TCP peer bootstrap tests now live in a focused sibling test module,
+  keeping the production bootstrap facade separate from socket fixture setup
+  and two-node validation data.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member
@@ -1449,10 +1455,14 @@ cargo test -p kairo-cluster downing
 cargo test -p kairo-cluster indirectly_connected
 cargo test -p kairo-cluster all_observers_reports_negative_reachability_observers
 cargo test -p kairo-cluster bootstrap_two_nodes_install_peer_routes_from_cluster_membership
+cargo test -p kairo-cluster bootstrap
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo test -p kairo --all-targets --all-features config
 cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership
+cargo test -p kairo-distributed-data bootstrap
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster-tools bootstrap
 cargo test -p kairo-cluster-tools --all-targets --all-features
