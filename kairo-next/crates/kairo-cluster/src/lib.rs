@@ -79,6 +79,7 @@ mod remote_tcp;
 mod system_inbound;
 #[cfg(test)]
 mod tcp_membership_downing;
+mod tcp_peer_bootstrap;
 mod tcp_peer_connector;
 mod tcp_peer_reconnect;
 mod tcp_peer_routes;
@@ -138,6 +139,10 @@ pub use remote_tcp::{
 };
 pub use system_inbound::{
     ClusterSystemInbound, ClusterSystemInboundError, is_cluster_system_manifest,
+};
+pub use tcp_peer_bootstrap::{
+    ClusterTcpPeerBootstrap, ClusterTcpPeerBootstrapError, ClusterTcpPeerBootstrapIdentity,
+    ClusterTcpPeerBootstrapResult, ClusterTcpPeerBootstrapSettings,
 };
 pub use tcp_peer_connector::{
     ClusterTcpPeerConnector, ClusterTcpPeerConnectorMsg, ClusterTcpPeerConnectorSettings,

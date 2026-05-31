@@ -2101,3 +2101,35 @@ Consequences:
   delivery continues to use the normal runtime path.
 - Heterogeneous probe groups can call the helper once per message type without
   introducing an untyped testkit queue.
+
+## ADR-0075: Cluster TCP Peer Bootstrap Owns Connector Shutdown
+
+Status: Accepted
+
+Context:
+Cluster TCP membership routing now has separate modules for live socket
+associations, membership-derived peer planning, peer route ownership,
+reconnect state, and the actor-backed connector. Distributed-data and
+cluster-tools already expose bootstrap facades that bind their peer runtimes,
+spawn connector actors, and register coordinated-shutdown tasks. Cluster core
+needs the same lifecycle boundary so normal runtime setup does not require
+callers to manually preserve the route-owner shutdown ordering.
+
+Decision:
+Kairo adds `ClusterTcpPeerBootstrap` in a focused module. It binds a
+`ClusterTcpPeerRuntime` from explicit `RemoteSettings` and node/system UIDs,
+spawns `ClusterTcpPeerConnector` under a configurable actor name, exposes the
+connector ref, self node, and local association address, and registers an
+actor-termination task with coordinated shutdown. The default task runs in
+`PHASE_BEFORE_CLUSTER_SHUTDOWN`, stopping the connector so its `stopped` hook
+clears peer routes and shuts down the owned TCP runtime before later cluster
+shutdown phases.
+
+Consequences:
+- Cluster TCP lifecycle ownership now matches the distributed-data and
+  cluster-tools bootstrap shape.
+- Socket route cleanup continues to flow through actor stop semantics instead
+  of requiring callers to clear association caches directly.
+- Bootstrap still accepts an explicit `ClusterSystemInbound` builder, so
+  membership and heartbeat handlers remain focused modules rather than hidden
+  global singletons.

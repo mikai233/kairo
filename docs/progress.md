@@ -1046,6 +1046,10 @@ Implemented:
   explicit deterministic retry ticks, can schedule fixed-delay retry ticks with
   actor timers, reports snapshots for tests, and shuts the owned TCP runtime
   down when the connector actor stops.
+- `kairo-cluster` now has a TCP peer bootstrap facade that binds the cluster
+  TCP peer runtime, spawns the connector actor with explicit settings, exposes
+  the connector ref/self node/local association address, and registers
+  coordinated shutdown to stop the connector before cluster shutdown.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member

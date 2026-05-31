@@ -1241,6 +1241,10 @@ Membership transport:
   applies later membership events to `ClusterTcpPeerRuntime`, accepts explicit
   deterministic retry ticks, can schedule fixed-delay retry ticks through
   actor timers, and shuts the runtime down when the actor stops.
+- `ClusterTcpPeerBootstrap` binds the cluster TCP peer runtime, spawns the
+  connector under an explicit actor name, and registers coordinated shutdown to
+  stop the connector before cluster shutdown so socket routes are cleared
+  through the actor stop path.
 - The outbound may use `RemoteAssociationCache` for association routing, but
   the cache is not a membership source of truth. Cluster membership remains
   gossip plus local failure-detector observations.
