@@ -1479,6 +1479,8 @@ Implemented:
 - `kairo-cluster-sharding` handoff worker, coordinator handoff completion,
   and graceful shutdown orchestration tests now live in a focused sibling test
   module.
+- `kairo-cluster-sharding` transport-neutral handoff delivery success and
+  missing-target tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` local coordinator bootstrap, manual region
   registration, self-registration, and discovered-local coordinator
   registration tests now live in a focused sibling test module.
@@ -1572,6 +1574,7 @@ cargo test -p kairo-cluster-sharding coordinator_actor
 cargo test -p kairo-cluster-sharding coordinator_state
 cargo test -p kairo-cluster-sharding coordinator_runtime
 cargo test -p kairo-cluster-sharding handoff_orchestration
+cargo test -p kairo-cluster-sharding handoff_transport
 cargo test -p kairo-cluster-sharding region_actor_handoff
 cargo test -p kairo-cluster-sharding region_actor_local
 cargo test -p kairo-cluster-sharding region_remote_coordinator_actor
