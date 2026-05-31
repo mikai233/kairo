@@ -1490,6 +1490,9 @@ Implemented:
 - `kairo-cluster-sharding` region actor shard-home request, buffered
   post-registration replay, known remote-home forwarding, and decoded
   remote-home reply tests now live in a focused sibling test module.
+- `kairo-cluster-sharding` actor-backed shard delivery, remembered-entity
+  loading, remember-store, passivation, and handoff tests now live in a
+  focused sibling test module.
 - `kairo-cluster-sharding` basic shard runtime delivery, passivation,
   termination, and handoff tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` remember-entity shard runtime recovery, start/stop
@@ -1581,6 +1584,7 @@ cargo test -p kairo-cluster-sharding region_remote_coordinator_actor
 cargo test -p kairo-cluster-sharding region_route_resolution
 cargo test -p kairo-cluster-sharding region_registration
 cargo test -p kairo-cluster-sharding region_runtime
+cargo test -p kairo-cluster-sharding shard_actor
 cargo test -p kairo-cluster-sharding shard_runtime
 cargo test -p kairo-cluster-sharding shard_remember_runtime
 cargo test -p kairo-cluster-sharding entity_shard_actor
