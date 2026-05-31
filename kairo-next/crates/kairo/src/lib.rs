@@ -1,4 +1,67 @@
 //! Facade crate for Kairo Next.
+//!
+//! `kairo` is the user-facing entry point for the Rust-first rewrite. It keeps
+//! the implementation in focused crates and re-exports them behind feature
+//! flags, so applications can depend on one facade without collapsing actor,
+//! serialization, remote, cluster, distributed-data, sharding, tools, and
+//! testkit logic into one crate.
+//!
+//! The default feature set enables typed local actors, macros, and the
+//! format-neutral configuration model with a TOML loader. Distributed features
+//! are opt-in and preserve the lower-level crate boundaries: `remote` enables
+//! stable remote-message metadata and remoting, `cluster` builds on remoting
+//! with gossip membership, `distributed-data` builds on cluster routes,
+//! `cluster-sharding` builds on cluster and distributed data, and
+//! `cluster-tools` builds cluster singleton and pubsub utilities on top of
+//! cluster state.
+//!
+//! Local-only actor messages do not require serialization. Remote-capable
+//! messages still use stable manifests, versions, serializer ids, and
+//! registered codecs from `kairo-serialization`; wire compatibility must not
+//! depend on Rust type names, enum discriminants, or memory layout.
+//!
+//! ```
+//! use std::time::Duration;
+//!
+//! use kairo::prelude::*;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let settings = parse_toml_str(
+//!     r#"
+//! [actor.dispatchers.default]
+//! throughput = 16
+//!
+//! [remote.transport]
+//! canonical_hostname = "127.0.0.1"
+//! canonical_port = 25521
+//!
+//! [cluster.seed]
+//! nodes = ["kairo://worker@127.0.0.1:25521"]
+//!
+//! [cluster.heartbeat]
+//! monitored_by_nr_of_members = 3
+//! interval = "500ms"
+//! acceptable_pause = "2s"
+//! expected_response_after = "1s"
+//!
+//! [cluster.sharding]
+//! number_of_shards = 100
+//! rebalance_interval = "10s"
+//! "#,
+//! )?;
+//!
+//! assert_eq!(settings.actor.default_dispatcher()?.throughput, 16);
+//! assert_eq!(settings.remote.transport.canonical_port, 25521);
+//! assert_eq!(settings.cluster.seed.nodes.len(), 1);
+//! assert_eq!(settings.cluster.heartbeat.interval, Duration::from_millis(500));
+//! assert_eq!(settings.cluster.sharding.number_of_shards, 100);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! `kairo::prelude` exports the common typed actor API plus enabled facade
+//! features. For subsystem-specific protocols and lower-level test fixtures,
+//! import the focused crates or feature-gated modules directly.
 
 #[cfg(feature = "actor")]
 pub use kairo_actor as actor;
