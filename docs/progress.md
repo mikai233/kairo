@@ -732,6 +732,8 @@ Implemented:
 - `kairo-distributed-data` replicator actor gossip tick, scheduled tick,
   status response, merge, and reply tests now live in a focused sibling test
   module.
+- `kairo-distributed-data` replicator actor removed-node pruning tick and
+  pruning-readback tests now live in a focused sibling test module.
 - `kairo-examples` now includes a runnable distributed-data TCP peer bootstrap
   example, with reusable setup and one-shot reply helpers kept in focused
   example modules instead of placing route orchestration in one binary file.
@@ -1612,6 +1614,7 @@ cargo test -p kairo-distributed-data replicator_state
 cargo test -p kairo-distributed-data replicator_actor_client
 cargo test -p kairo-distributed-data replicator_actor_delta_loop
 cargo test -p kairo-distributed-data replicator_actor_gossip
+cargo test -p kairo-distributed-data replicator_actor_pruning
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership
