@@ -502,3 +502,90 @@ fn coordinator_actor_rebalance_timer_starts_and_cancels_with_shutdown_preparatio
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn coordinator_actor_allocates_remembered_shards_after_local_region_registration() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("remembered-registration-allocation").unwrap();
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state.merge_remembered_shards(["shard-1".to_string()]);
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                coordinator.clone(),
+                Duration::from_millis(20),
+            ),
+        )
+        .unwrap();
+    let coordinator_state = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+    let region_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-state")
+        .unwrap();
+
+    let mut allocated = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let state = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        allocated = state.unallocated_shards.is_empty()
+            && state
+                .allocations
+                .get("region-a")
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
+        if allocated {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        allocated,
+        "remembered shard should be allocated when region registers"
+    );
+
+    let mut hosted = false;
+    for _ in 0..20 {
+        region
+            .tell(ShardRegionMsg::GetState {
+                reply_to: region_state.actor_ref(),
+            })
+            .unwrap();
+        hosted = region_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .contains("shard-1");
+        if hosted {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        hosted,
+        "allocated remembered shard should be hosted on registered local region"
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}

@@ -1468,6 +1468,8 @@ Implemented:
   module.
 - `kairo-cluster-sharding` coordinator actor allocation, remember-store,
   rebalance, and timer tests now live in a focused sibling test module.
+- `kairo-cluster-sharding` coordinator actor remembered-shard allocation after
+  region registration now lives with the focused coordinator actor tests.
 - `kairo-cluster-sharding` region runtime buffering, shard-home, host-shard,
   handoff, and drop-plan tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` region actor local buffering, shard startup,
@@ -1487,6 +1489,8 @@ Implemented:
 - `kairo-cluster-sharding` region actor remote-coordinator registration ACK,
   remote register retry, remote shard-home request, and remote graceful
   shutdown send tests now live in a focused sibling test module.
+- `kairo-cluster-sharding` shard-region discovery subscriber cluster-snapshot
+  forwarding tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` region actor shard-home request, buffered
   post-registration replay, known remote-home forwarding, and decoded
   remote-home reply tests now live in a focused sibling test module.
@@ -1580,6 +1584,7 @@ cargo test -p kairo-cluster-sharding handoff_orchestration
 cargo test -p kairo-cluster-sharding handoff_transport
 cargo test -p kairo-cluster-sharding region_actor_handoff
 cargo test -p kairo-cluster-sharding region_actor_local
+cargo test -p kairo-cluster-sharding region_discovery_subscriber
 cargo test -p kairo-cluster-sharding region_remote_coordinator_actor
 cargo test -p kairo-cluster-sharding region_route_resolution
 cargo test -p kairo-cluster-sharding region_registration
