@@ -1433,6 +1433,8 @@ Implemented:
   update, and batching tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` entity-shard actor child delivery and handoff tests
   now live in a focused sibling test module.
+- `kairo-actor` event-stream subscription, duplicate-subscription,
+  unsubscribe, and exact-type tests now live in a focused sibling test module.
 - The repository README and `kairo-next` README now describe the active
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
@@ -1489,6 +1491,9 @@ cargo test -p kairo-cluster-sharding region_actor_requests_shard_home_from_regis
 cargo test -p kairo-cluster-sharding remember
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor event_stream
+cargo test -p kairo-actor --all-targets --all-features
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote reader_supervisor
 cargo test -p kairo-remote tcp_listener_accept_loop_spawns_and_joins_lane_readers
 cargo test -p kairo-remote tcp_lane_reader_supervision_records_lane_restart_decision
