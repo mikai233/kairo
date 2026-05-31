@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use super::error::ConfigError;
 use super::settings::{
-    ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterHeartbeatConfig,
-    ClusterShardingConfig, ClusterToolsConfig, DispatcherConfig, KairoSettings, RemoteConfig,
-    RemoteTransportConfig,
+    ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
+    ClusterHeartbeatConfig, ClusterShardingConfig, ClusterToolsConfig, DispatcherConfig,
+    KairoSettings, RemoteConfig, RemoteTransportConfig,
 };
 
 impl KairoSettings {
@@ -140,11 +140,20 @@ impl ClusterHeartbeatConfig {
 
 impl ClusterDowningConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.strategy.is_empty() {
-            return Err(ConfigError::InvalidValue {
-                path: "cluster.downing.strategy".to_string(),
-                reason: "must not be empty".to_string(),
-            });
+        reject_zero_duration(self.stable_after, "cluster.downing.stable_after")?;
+        if let ClusterDowningStrategyConfig::LeaseMajority {
+            lease_name,
+            release_after,
+            ..
+        } = &self.strategy
+        {
+            if lease_name.trim().is_empty() {
+                return Err(ConfigError::InvalidValue {
+                    path: "cluster.downing.lease_name".to_string(),
+                    reason: "must not be empty for lease-majority".to_string(),
+                });
+            }
+            reject_zero_duration(*release_after, "cluster.downing.release_after")?;
         }
         Ok(())
     }

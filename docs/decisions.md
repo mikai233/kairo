@@ -563,7 +563,8 @@ Pekko's split-brain resolver is an actor-backed downing provider. It waits for
 stable reachability, handles indirectly connected graphs, and can use lease
 acquisition for lease-majority decisions. Kairo has the gossip, reachability,
 and downing-plan state needed for deterministic decisions, plus a local actor
-runtime with deterministic timers. It does not yet have lease-majority support.
+runtime with deterministic timers. At the time of this decision,
+lease-majority support was still pending.
 
 Decision:
 Kairo exposes synchronous
@@ -579,8 +580,7 @@ The actor-backed `DowningProviderActor` owns the stable-after timer and applies
 hook decisions only after reachability has remained stable and the local node
 is the reachable leader. Membership gossip reaches the provider through an
 explicit typed registration message rather than hidden plugin lifecycle wiring
-until full cluster bootstrap owns provider startup. Lease-majority remains
-future provider work.
+until full cluster bootstrap owns provider startup.
 
 Consequences:
 - Tests can cover concrete downing behavior without introducing a central
@@ -588,8 +588,8 @@ Consequences:
 - The public downing boundary remains `DowningHook` plus `DowningPlan`, while
   provider timing is a focused actor rather than being folded into gossip
   state.
-- Full split-brain resolver parity still requires lease-majority support and
-  broader live-socket validation.
+- Full split-brain resolver parity still requires broader live-socket
+  validation beyond focused provider decisions.
 
 ## ADR-0024: Remote Refs Start As Typed Recipient Boundaries
 
@@ -2700,3 +2700,28 @@ Consequences:
 - Future concrete lease integrations can implement `LeaseMajorityLease` behind
   crate or feature boundaries without changing the cluster membership state
   machine.
+
+## ADR-0095: Downing Configuration Uses Structured Strategy Variants
+
+Status: Accepted
+
+Context:
+The TOML-first facade originally stored `cluster.downing.strategy` as a raw
+string. That was enough for early validation, but lease-majority needs
+strategy-specific data such as lease name, role, acquisition delay, and release
+timing. Keeping those as loosely related strings would make invalid
+combinations easier to construct programmatically.
+
+Decision:
+`ClusterDowningConfig` now stores `ClusterDowningStrategyConfig`, an enum with
+explicit variants for `none`, `down-all`, `keep-majority`, `keep-oldest`, and
+`lease-majority`. TOML still uses simple stable string names, but parsing maps
+them into the structured enum and validates strategy-specific fields.
+
+Consequences:
+- Programmatic settings are format-neutral and typed instead of carrying
+  unvalidated stringly state.
+- TOML stays stable and readable while the runtime facade can grow conversion
+  helpers per strategy.
+- Lease-majority settings can be validated without introducing a concrete
+  lease dependency into the `kairo` facade crate.

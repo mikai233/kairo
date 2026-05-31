@@ -87,10 +87,10 @@ pub use kairo_testkit as testkit;
 pub mod prelude {
     #[cfg(feature = "config")]
     pub use crate::config::{
-        ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterHeartbeatConfig,
-        ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig, ConfigError,
-        DispatcherConfig, KairoSettings, RemoteConfig, RemoteTransportConfig, load_toml_file,
-        parse_toml_str,
+        ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
+        ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
+        ConfigError, DispatcherConfig, KairoSettings, RemoteConfig, RemoteTransportConfig,
+        load_toml_file, parse_toml_str,
     };
     #[cfg(feature = "actor")]
     pub use kairo_actor::prelude::*;

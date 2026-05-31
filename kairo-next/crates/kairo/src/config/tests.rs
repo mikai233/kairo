@@ -3,7 +3,8 @@ use std::fs;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{
-    ActorConfig, ConfigError, DispatcherConfig, KairoSettings, load_toml_file, parse_toml_str,
+    ActorConfig, ClusterDowningStrategyConfig, ConfigError, DispatcherConfig, KairoSettings,
+    load_toml_file, parse_toml_str,
 };
 
 #[test]
@@ -35,6 +36,7 @@ expected_response_after = 750
 [cluster.downing]
 strategy = "keep-majority"
 stable_after = "15s"
+role = "backend"
 
 [cluster.sharding]
 number_of_shards = 128
@@ -65,7 +67,12 @@ max_delta_entries = 250
         settings.cluster.heartbeat.expected_response_after,
         Duration::from_millis(750)
     );
-    assert_eq!(settings.cluster.downing.strategy, "keep-majority");
+    assert_eq!(
+        settings.cluster.downing.strategy,
+        ClusterDowningStrategyConfig::KeepMajority {
+            role: Some("backend".to_string())
+        }
+    );
     assert_eq!(
         settings.cluster.downing.stable_after,
         Duration::from_secs(15)
@@ -94,6 +101,95 @@ fn toml_config_defaults_missing_sections_without_toml_specific_state() {
     assert_eq!(settings.actor.dispatchers["default"].throughput, 5);
     assert_eq!(settings.remote.transport.canonical_port, 25520);
     assert_eq!(settings.cluster.sharding.number_of_shards, 100);
+}
+
+#[test]
+fn toml_config_parses_lease_majority_downing_settings() {
+    let settings = parse_toml_str(
+        r#"
+[cluster.downing]
+strategy = "lease-majority"
+stable_after = "10s"
+role = "backend"
+lease_name = "cluster-sbr"
+acquire_lease_delay_for_minority = "3s"
+release_after = "30s"
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        settings.cluster.downing.strategy,
+        ClusterDowningStrategyConfig::LeaseMajority {
+            lease_name: "cluster-sbr".to_string(),
+            role: Some("backend".to_string()),
+            acquire_lease_delay_for_minority: Duration::from_secs(3),
+            release_after: Duration::from_secs(30),
+        }
+    );
+    assert_eq!(
+        settings.cluster.downing.stable_after,
+        Duration::from_secs(10)
+    );
+}
+
+#[test]
+fn toml_config_rejects_invalid_downing_strategy() {
+    let error = parse_toml_str(
+        r#"
+[cluster.downing]
+strategy = "split-everything"
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "cluster.downing.strategy".to_string(),
+            reason: "expected none, down-all, keep-majority, keep-oldest, or lease-majority"
+                .to_string(),
+        }
+    );
+}
+
+#[test]
+fn toml_config_rejects_lease_majority_without_lease_name() {
+    let error = parse_toml_str(
+        r#"
+[cluster.downing]
+strategy = "lease-majority"
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "cluster.downing.lease_name".to_string(),
+            reason: "must be set for lease-majority".to_string(),
+        }
+    );
+}
+
+#[test]
+fn toml_config_rejects_strategy_specific_downing_options() {
+    let error = parse_toml_str(
+        r#"
+[cluster.downing]
+strategy = "keep-majority"
+down_if_alone = true
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "cluster.downing.down_if_alone".to_string(),
+            reason: "is not valid for keep-majority".to_string(),
+        }
+    );
 }
 
 #[test]
@@ -278,7 +374,12 @@ fn config_validate_checks_all_format_neutral_sections() {
     let settings = KairoSettings {
         cluster: super::ClusterConfig {
             downing: super::ClusterDowningConfig {
-                strategy: String::new(),
+                strategy: ClusterDowningStrategyConfig::LeaseMajority {
+                    lease_name: String::new(),
+                    role: None,
+                    acquire_lease_delay_for_minority: Duration::ZERO,
+                    release_after: Duration::from_secs(1),
+                },
                 ..Default::default()
             },
             ..Default::default()
@@ -288,8 +389,8 @@ fn config_validate_checks_all_format_neutral_sections() {
     assert_eq!(
         settings.validate().unwrap_err(),
         ConfigError::InvalidValue {
-            path: "cluster.downing.strategy".to_string(),
-            reason: "must not be empty".to_string(),
+            path: "cluster.downing.lease_name".to_string(),
+            reason: "must not be empty for lease-majority".to_string(),
         }
     );
 

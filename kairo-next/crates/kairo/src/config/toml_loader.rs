@@ -7,9 +7,9 @@ use toml::Value;
 
 use super::error::ConfigError;
 use super::settings::{
-    ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterHeartbeatConfig, ClusterSeedConfig,
-    ClusterShardingConfig, ClusterToolsConfig, DispatcherConfig, KairoSettings, RemoteConfig,
-    RemoteTransportConfig,
+    ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
+    ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
+    DispatcherConfig, KairoSettings, RemoteConfig, RemoteTransportConfig,
 };
 
 pub fn load_toml_file(path: impl AsRef<Path>) -> Result<KairoSettings, ConfigError> {
@@ -197,15 +197,125 @@ fn parse_cluster_heartbeat(value: &Value) -> Result<ClusterHeartbeatConfig, Conf
 
 fn parse_cluster_downing(value: &Value) -> Result<ClusterDowningConfig, ConfigError> {
     let table = expect_table(value, "cluster.downing")?;
-    reject_unknown(table, "cluster.downing", &["strategy", "stable_after"])?;
+    reject_unknown(
+        table,
+        "cluster.downing",
+        &[
+            "strategy",
+            "stable_after",
+            "role",
+            "down_if_alone",
+            "lease_name",
+            "acquire_lease_delay_for_minority",
+            "release_after",
+        ],
+    )?;
     let mut config = ClusterDowningConfig::default();
     if let Some(strategy) = table.get("strategy") {
-        config.strategy = parse_string(strategy, "cluster.downing.strategy")?;
+        config.strategy = parse_downing_strategy(table, strategy)?;
     }
     if let Some(stable_after) = table.get("stable_after") {
         config.stable_after = parse_duration(stable_after, "cluster.downing.stable_after")?;
+        reject_zero_duration(config.stable_after, "cluster.downing.stable_after")?;
     }
     Ok(config)
+}
+
+fn parse_downing_strategy(
+    table: &toml::map::Map<String, Value>,
+    value: &Value,
+) -> Result<ClusterDowningStrategyConfig, ConfigError> {
+    let strategy = parse_string(value, "cluster.downing.strategy")?;
+    match strategy.as_str() {
+        "none" => {
+            reject_downing_strategy_options(table, "none", &[])?;
+            Ok(ClusterDowningStrategyConfig::None)
+        }
+        "down-all" => {
+            reject_downing_strategy_options(table, "down-all", &[])?;
+            Ok(ClusterDowningStrategyConfig::DownAll)
+        }
+        "keep-majority" => {
+            reject_downing_strategy_options(table, "keep-majority", &["role"])?;
+            let role = optional_non_empty_string(table, "role", "cluster.downing.role")?;
+            Ok(ClusterDowningStrategyConfig::KeepMajority { role })
+        }
+        "keep-oldest" => {
+            reject_downing_strategy_options(table, "keep-oldest", &["role", "down_if_alone"])?;
+            let role = optional_non_empty_string(table, "role", "cluster.downing.role")?;
+            Ok(ClusterDowningStrategyConfig::KeepOldest {
+                role,
+                down_if_alone: optional_bool(
+                    table,
+                    "down_if_alone",
+                    "cluster.downing.down_if_alone",
+                )?
+                .unwrap_or(false),
+            })
+        }
+        "lease-majority" => {
+            reject_downing_strategy_options(
+                table,
+                "lease-majority",
+                &[
+                    "role",
+                    "lease_name",
+                    "acquire_lease_delay_for_minority",
+                    "release_after",
+                ],
+            )?;
+            let role = optional_non_empty_string(table, "role", "cluster.downing.role")?;
+            let lease_name =
+                optional_non_empty_string(table, "lease_name", "cluster.downing.lease_name")?
+                    .ok_or_else(|| ConfigError::InvalidValue {
+                        path: "cluster.downing.lease_name".to_string(),
+                        reason: "must be set for lease-majority".to_string(),
+                    })?;
+            let acquire_lease_delay_for_minority = optional_duration(
+                table,
+                "acquire_lease_delay_for_minority",
+                "cluster.downing.acquire_lease_delay_for_minority",
+            )?
+            .unwrap_or(Duration::ZERO);
+            let release_after =
+                optional_duration(table, "release_after", "cluster.downing.release_after")?
+                    .unwrap_or(Duration::from_secs(20));
+            reject_zero_duration(release_after, "cluster.downing.release_after")?;
+            Ok(ClusterDowningStrategyConfig::LeaseMajority {
+                lease_name,
+                role,
+                acquire_lease_delay_for_minority,
+                release_after,
+            })
+        }
+        _ => Err(ConfigError::InvalidValue {
+            path: "cluster.downing.strategy".to_string(),
+            reason: "expected none, down-all, keep-majority, keep-oldest, or lease-majority"
+                .to_string(),
+        }),
+    }
+}
+
+fn reject_downing_strategy_options(
+    table: &toml::map::Map<String, Value>,
+    strategy: &str,
+    allowed: &[&str],
+) -> Result<(), ConfigError> {
+    for key in [
+        "role",
+        "down_if_alone",
+        "lease_name",
+        "acquire_lease_delay_for_minority",
+        "release_after",
+    ] {
+        if table.contains_key(key) && !allowed.contains(&key) {
+            return Err(ConfigError::InvalidValue {
+                path: format!("cluster.downing.{key}"),
+                reason: format!("is not valid for {strategy}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn parse_cluster_sharding(value: &Value) -> Result<ClusterShardingConfig, ConfigError> {
@@ -310,6 +420,48 @@ fn parse_string(value: &Value, path: &str) -> Result<String, ConfigError> {
             path: path.to_string(),
             expected: "a string".to_string(),
         })
+}
+
+fn optional_non_empty_string(
+    table: &toml::map::Map<String, Value>,
+    key: &str,
+    path: &str,
+) -> Result<Option<String>, ConfigError> {
+    table
+        .get(key)
+        .map(|value| {
+            let value = parse_string(value, path)?;
+            Ok((!value.is_empty()).then_some(value))
+        })
+        .transpose()
+        .map(Option::flatten)
+}
+
+fn optional_bool(
+    table: &toml::map::Map<String, Value>,
+    key: &str,
+    path: &str,
+) -> Result<Option<bool>, ConfigError> {
+    table
+        .get(key)
+        .map(|value| {
+            value.as_bool().ok_or_else(|| ConfigError::InvalidType {
+                path: path.to_string(),
+                expected: "a boolean".to_string(),
+            })
+        })
+        .transpose()
+}
+
+fn optional_duration(
+    table: &toml::map::Map<String, Value>,
+    key: &str,
+    path: &str,
+) -> Result<Option<Duration>, ConfigError> {
+    table
+        .get(key)
+        .map(|value| parse_duration(value, path))
+        .transpose()
 }
 
 fn parse_string_array(value: &Value, path: &str) -> Result<Vec<String>, ConfigError> {

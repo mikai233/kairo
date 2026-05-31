@@ -1277,6 +1277,11 @@ Implemented:
 - `KairoSettings::validate` now validates all format-neutral configuration
   sections, including programmatically constructed actor, remote, cluster
   heartbeat, downing, sharding, and cluster-tools settings.
+- `ClusterDowningConfig` now stores a structured
+  `ClusterDowningStrategyConfig` enum instead of a raw strategy string, and the
+  TOML loader parses `none`, `down-all`, `keep-majority`, `keep-oldest`, and
+  `lease-majority` settings with role, `down_if_alone`, lease name, acquire
+  delay, and release timing validation.
 - `kairo-examples` now provides the first runnable example crate under
   `kairo-next`, with a `local_counter` example that demonstrates spawning a
   typed actor, sending local messages without serialization, replying through
@@ -1430,6 +1435,7 @@ cargo test -p kairo-cluster indirectly_connected
 cargo test -p kairo-cluster all_observers_reports_negative_reachability_observers
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo test -p kairo --all-targets --all-features config
 cargo test -p kairo-actor startup_failure
 cargo test -p kairo-actor bounded_restart_supervision
 cargo test -p kairo-actor startup_failure_escalates_to_parent_supervision

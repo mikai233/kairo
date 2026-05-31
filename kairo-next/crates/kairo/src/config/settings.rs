@@ -87,17 +87,37 @@ impl Default for ClusterHeartbeatConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterDowningConfig {
-    pub strategy: String,
+    pub strategy: ClusterDowningStrategyConfig,
     pub stable_after: Duration,
 }
 
 impl Default for ClusterDowningConfig {
     fn default() -> Self {
         Self {
-            strategy: "none".to_string(),
+            strategy: ClusterDowningStrategyConfig::None,
             stable_after: Duration::from_secs(20),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ClusterDowningStrategyConfig {
+    #[default]
+    None,
+    DownAll,
+    KeepMajority {
+        role: Option<String>,
+    },
+    KeepOldest {
+        role: Option<String>,
+        down_if_alone: bool,
+    },
+    LeaseMajority {
+        lease_name: String,
+        role: Option<String>,
+        acquire_lease_delay_for_minority: Duration,
+        release_after: Duration,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
