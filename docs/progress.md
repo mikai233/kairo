@@ -734,6 +734,10 @@ Implemented:
 - Distributed-data TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
+- Distributed-data TCP peer bootstrap socket helpers now live in a nested
+  `tests::support` module, keeping route assertions, recording receivers,
+  registry setup, runtime binding, and coordinated-shutdown fixture code out of
+  the scenario tests.
 - Distributed-data TCP peer bootstrap socket fixtures now serialize live
   listener setup within the test module and drive explicit retry ticks when a
   route snapshot reports pending reconnects, making concurrent bootstrap
