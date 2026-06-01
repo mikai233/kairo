@@ -1,6 +1,7 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
+use kairo::cluster_sharding::PassivatePlan;
 use kairo::prelude::*;
 use kairo_examples::configured_counter::run_configured_counter;
 use kairo_examples::counter::{CounterCmd, spawn_counter};
@@ -67,6 +68,38 @@ fn cluster_sharding_local_example_smoke() -> Result<(), Box<dyn std::error::Erro
     let snapshot = sharding.wait_for_active_entity("counter-smoke", Duration::from_secs(2))?;
     assert_eq!(snapshot.entity_count, 1);
     assert_eq!(snapshot.active_entities, vec!["counter-smoke".to_string()]);
+
+    sharding.shutdown(Duration::from_secs(1))?;
+    Ok(())
+}
+
+#[test]
+fn cluster_sharding_local_example_passivates_and_restarts_entity()
+-> Result<(), Box<dyn std::error::Error>> {
+    let sharding = LocalShardingExample::start("example-smoke-sharding-passivation")?;
+    let entity = sharding.entity_ref("counter-passivate");
+
+    entity.tell("increment".to_string())?;
+    let first = sharding.wait_for_entity_value("counter-passivate", 1, Duration::from_secs(2))?;
+    assert_eq!(first.value, 1);
+
+    let passivation = sharding.passivate_entity("counter-passivate", Duration::from_secs(2))?;
+    assert!(matches!(
+        passivation,
+        PassivatePlan::SendStop { entity_id, .. } if entity_id == "counter-passivate"
+    ));
+
+    let stopped = sharding.wait_for_inactive_entity("counter-passivate", Duration::from_secs(2))?;
+    assert_eq!(stopped.entity_count, 0);
+    assert!(stopped.active_entities.is_empty());
+
+    entity.tell("increment".to_string())?;
+    let restarted =
+        sharding.wait_for_entity_value("counter-passivate", 1, Duration::from_secs(2))?;
+    assert_eq!(restarted.value, 1);
+
+    let snapshot = sharding.wait_for_active_entity("counter-passivate", Duration::from_secs(2))?;
+    assert_eq!(snapshot.entity_count, 1);
 
     sharding.shutdown(Duration::from_secs(1))?;
     Ok(())

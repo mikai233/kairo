@@ -1677,6 +1677,10 @@ Implemented:
   `EntityRef<String>` through reusable helper code and demonstrates stable
   shard-id routing into an entity-backed local shard whose typed counter
   entity receives business messages.
+- The local cluster-sharding example now exposes passivation helpers that
+  send `ShardMsg::Passivate` through the hosted local shard, wait for the
+  entity to disappear from shard state, and prove routing through the same
+  `EntityRef` starts a fresh entity instance afterward.
 - `kairo-examples` now has integration smoke tests for the reusable
   `local_counter`, `ask_pipe_to_self`, and `cluster_sharding_local` modules,
   validating the example crate from the same public module boundary used by
@@ -1915,6 +1919,9 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-examples cluster_sharding_local_example
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-examples tcp_peer_bootstrap
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check

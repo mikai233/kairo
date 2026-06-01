@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use kairo::actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context};
 use kairo::cluster_sharding::{
     CoordinatorState, DEFAULT_SHARD_COUNT, EntityActorFactory, EntityRef, HandoffTransport,
-    LeastShardAllocationStrategy, ShardCoordinatorActor, ShardMsg, ShardRegionActor,
+    LeastShardAllocationStrategy, PassivatePlan, ShardCoordinatorActor, ShardMsg, ShardRegionActor,
     ShardRegionMsg, ShardSnapshot, ShardingEnvelopeRouter, default_shard_id_for,
 };
 
@@ -94,6 +94,51 @@ impl LocalShardingExample {
             }
             thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    pub fn wait_for_inactive_entity(
+        &self,
+        entity_id: &str,
+        timeout: Duration,
+    ) -> Result<ShardSnapshot, Box<dyn Error>> {
+        let shard = default_shard_id_for(entity_id);
+        let shard_ref = self.wait_for_local_shard(&shard, timeout)?;
+        let deadline = Instant::now() + timeout;
+        loop {
+            let snapshot = self.shard_snapshot(&shard_ref, Duration::from_millis(100))?;
+            if !snapshot
+                .active_entities
+                .iter()
+                .any(|active| active == entity_id)
+            {
+                return Ok(snapshot);
+            }
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "timed out waiting for entity `{entity_id}` to leave shard `{shard}`"
+                )
+                .into());
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    pub fn passivate_entity(
+        &self,
+        entity_id: &str,
+        timeout: Duration,
+    ) -> Result<PassivatePlan<String>, Box<dyn Error>> {
+        let shard = default_shard_id_for(entity_id);
+        let shard_ref = self.wait_for_local_shard(&shard, timeout)?;
+        let id = REPLY_ID.fetch_add(1, Ordering::Relaxed);
+        let (reply_to, replies) =
+            spawn_one_shot_reply(&self.system, format!("passivate-entity-{id}"))?;
+        shard_ref.tell(ShardMsg::Passivate {
+            entity_id: entity_id.to_string(),
+            stop_message: "stop".to_string(),
+            reply_to,
+        })?;
+        Ok(replies.recv_timeout(timeout)?)
     }
 
     pub fn wait_for_entity_value(
