@@ -1,12 +1,18 @@
-use std::collections::HashMap;
 use std::fmt::{self, Formatter};
-use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Arc, Condvar, Mutex, mpsc};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
 use crate::error::{ActorError, SendError};
 use crate::refs::ActorRef;
+
+mod phase;
+mod state;
+mod task;
+
+use phase::{PhaseDefinition, default_phases, ensure_phase};
+use state::{CoordinatedShutdownInner, ShutdownState};
+pub use task::ShutdownTaskHandle;
+use task::{TaskEntry, run_phase};
 
 pub const PHASE_BEFORE_SERVICE_UNBIND: &str = "before-service-unbind";
 pub const PHASE_SERVICE_UNBIND: &str = "service-unbind";
@@ -21,12 +27,6 @@ pub const PHASE_CLUSTER_SHUTDOWN: &str = "cluster-shutdown";
 pub const PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE: &str = "before-actor-system-terminate";
 pub const PHASE_ACTOR_SYSTEM_TERMINATE: &str = "actor-system-terminate";
 
-const DEFAULT_PHASE_TIMEOUT: Duration = Duration::from_secs(30);
-const TASK_PENDING: u8 = 0;
-const TASK_CANCELLED: u8 = 1;
-const TASK_RUNNING: u8 = 2;
-const TASK_DONE: u8 = 3;
-
 #[derive(Clone)]
 pub struct CoordinatedShutdown {
     inner: Arc<CoordinatedShutdownInner>,
@@ -35,10 +35,7 @@ pub struct CoordinatedShutdown {
 impl Default for CoordinatedShutdown {
     fn default() -> Self {
         Self {
-            inner: Arc::new(CoordinatedShutdownInner {
-                state: Mutex::new(ShutdownState::new(default_phases())),
-                completed: Condvar::new(),
-            }),
+            inner: Arc::new(CoordinatedShutdownInner::new(default_phases())),
         }
     }
 }
@@ -48,36 +45,6 @@ impl fmt::Debug for CoordinatedShutdown {
         f.debug_struct("CoordinatedShutdown")
             .field("reason", &self.reason())
             .finish_non_exhaustive()
-    }
-}
-
-/// Handle for a coordinated-shutdown task registration.
-#[derive(Clone, Debug)]
-pub struct ShutdownTaskHandle {
-    state: Arc<AtomicU8>,
-}
-
-impl ShutdownTaskHandle {
-    /// Cancel the task if it has not started yet.
-    pub fn cancel(&self) -> bool {
-        self.state
-            .compare_exchange(
-                TASK_PENDING,
-                TASK_CANCELLED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_ok()
-    }
-
-    /// Returns true when this registration was cancelled before running.
-    pub fn is_cancelled(&self) -> bool {
-        self.state.load(Ordering::Acquire) == TASK_CANCELLED
-    }
-
-    /// Returns true after the task has started or completed.
-    pub fn is_running_or_done(&self) -> bool {
-        matches!(self.state.load(Ordering::Acquire), TASK_RUNNING | TASK_DONE)
     }
 }
 
@@ -258,180 +225,6 @@ impl CoordinatedShutdown {
     }
 }
 
-#[derive(Debug)]
-struct CoordinatedShutdownInner {
-    state: Mutex<ShutdownState>,
-    completed: Condvar,
-}
-
-#[derive(Debug)]
-struct ShutdownState {
-    phases: Vec<PhaseDefinition>,
-    tasks: HashMap<String, Vec<TaskEntry>>,
-    started: bool,
-    completed: bool,
-    reason: Option<String>,
-    result: Option<ActorError>,
-}
-
-impl ShutdownState {
-    fn new(phases: Vec<PhaseDefinition>) -> Self {
-        Self {
-            phases,
-            tasks: HashMap::new(),
-            started: false,
-            completed: false,
-            reason: None,
-            result: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct PhaseDefinition {
-    name: String,
-    timeout: Duration,
-    recover: bool,
-}
-
-impl PhaseDefinition {
-    fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            timeout: DEFAULT_PHASE_TIMEOUT,
-            recover: false,
-        }
-    }
-}
-
-struct TaskEntry {
-    name: String,
-    state: Arc<AtomicU8>,
-    task: Option<Box<dyn FnOnce() -> Result<(), ActorError> + Send>>,
-}
-
-impl TaskEntry {
-    fn new(name: String, task: impl FnOnce() -> Result<(), ActorError> + Send + 'static) -> Self {
-        Self {
-            name,
-            state: Arc::new(AtomicU8::new(TASK_PENDING)),
-            task: Some(Box::new(task)),
-        }
-    }
-
-    fn handle(&self) -> ShutdownTaskHandle {
-        ShutdownTaskHandle {
-            state: Arc::clone(&self.state),
-        }
-    }
-
-    fn run(mut self) -> Result<(), ActorError> {
-        match self.state.compare_exchange(
-            TASK_PENDING,
-            TASK_RUNNING,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => {}
-            Err(TASK_CANCELLED) => return Ok(()),
-            Err(_) => {
-                return Err(ActorError::ShutdownTaskFailed(format!(
-                    "task `{}` was already started",
-                    self.name
-                )));
-            }
-        }
-        let task = self
-            .task
-            .take()
-            .expect("coordinated shutdown task ran once");
-        let result = task().map_err(|error| {
-            ActorError::ShutdownTaskFailed(format!("task `{}` failed: {error}", self.name))
-        });
-        self.state.store(TASK_DONE, Ordering::Release);
-        result
-    }
-}
-
-impl fmt::Debug for TaskEntry {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TaskEntry")
-            .field("name", &self.name)
-            .finish_non_exhaustive()
-    }
-}
-
-fn run_phase(phase: &PhaseDefinition, tasks: Vec<TaskEntry>) -> Result<(), ActorError> {
-    if tasks.is_empty() {
-        return Ok(());
-    }
-
-    let task_count = tasks.len();
-    let (result_tx, result_rx) = mpsc::channel();
-    for task in tasks {
-        let result_tx = result_tx.clone();
-        thread::Builder::new()
-            .name(format!("kairo-shutdown-{}-{}", phase.name, task.name))
-            .spawn(move || {
-                let _ = result_tx.send(task.run());
-            })
-            .map_err(|error| ActorError::ShutdownTaskFailed(error.to_string()))?;
-    }
-    drop(result_tx);
-
-    let deadline = Instant::now() + phase.timeout;
-    for _ in 0..task_count {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .unwrap_or(Duration::ZERO);
-        match result_rx.recv_timeout(remaining) {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) if phase.recover => {
-                drop(error);
-            }
-            Ok(Err(error)) => return Err(error),
-            Err(mpsc::RecvTimeoutError::Timeout) if phase.recover => return Ok(()),
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                return Err(ActorError::ShutdownPhaseTimeout {
-                    phase: phase.name.clone(),
-                    timeout: phase.timeout,
-                });
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
-        }
-    }
-
-    Ok(())
-}
-
-fn ensure_phase(state: &ShutdownState, phase: &str) -> Result<(), ActorError> {
-    if state.phases.iter().any(|known| known.name == phase) {
-        Ok(())
-    } else {
-        Err(ActorError::UnknownShutdownPhase(phase.to_string()))
-    }
-}
-
 fn send_error<M>(error: SendError<M>) -> ActorError {
     ActorError::ShutdownTaskFailed(error.reason().to_string())
-}
-
-fn default_phases() -> Vec<PhaseDefinition> {
-    [
-        PHASE_BEFORE_SERVICE_UNBIND,
-        PHASE_SERVICE_UNBIND,
-        PHASE_SERVICE_REQUESTS_DONE,
-        PHASE_SERVICE_STOP,
-        PHASE_BEFORE_CLUSTER_SHUTDOWN,
-        PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION,
-        PHASE_CLUSTER_LEAVE,
-        PHASE_CLUSTER_EXITING,
-        PHASE_CLUSTER_EXITING_DONE,
-        PHASE_CLUSTER_SHUTDOWN,
-        PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE,
-        PHASE_ACTOR_SYSTEM_TERMINATE,
-    ]
-    .into_iter()
-    .map(PhaseDefinition::new)
-    .collect()
 }

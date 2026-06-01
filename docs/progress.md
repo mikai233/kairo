@@ -125,6 +125,8 @@ Implemented:
   wait-only semantics when no stop message is supplied; cluster,
   distributed-data, and cluster-tools TCP bootstrap facades register explicit
   connector stop tasks for coordinated shutdown.
+- Coordinated-shutdown phase metadata, run state, and task execution now live
+  in focused submodules instead of one mixed implementation file.
 - `ActorSystem::event_stream` and `Context::event_stream` expose a local typed
   event stream for exact Rust event types.
 - Event-stream subscription state lives in a focused `event_stream` module.
