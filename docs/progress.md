@@ -1266,6 +1266,9 @@ Implemented:
   replies to request sender metadata with stable `HeartbeatRsp` payloads, and
   `HeartbeatRemoteResponseInbound` feeds remote responses back into the local
   heartbeat sender's failure detector path.
+- Cluster heartbeat remote routing is split into focused error, path,
+  outbound-actor, receiver-inbound, response-inbound, and test modules instead
+  of concentrating remote heartbeat routing and fixtures in one file.
 - `kairo-cluster::ClusterEventPublisher` is an actor-backed cluster event
   publisher that stores the latest gossip, publishes `ClusterEvent` diffs to
   typed subscribers, supports initial state replay as events, handles explicit
