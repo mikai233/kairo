@@ -397,7 +397,31 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     await_connector_routes(
         third_bootstrap.connector(),
         &third_snapshots,
-        &[first_node, second_node],
+        &[first_node.clone(), second_node.clone()],
+    );
+
+    let reduced_gossip = Gossip::from_members([
+        Member::new(first_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(second_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+    ]);
+    first_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            reduced_gossip.clone(),
+        ))
+        .unwrap();
+    second_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(reduced_gossip))
+        .unwrap();
+
+    await_connector_routes(
+        first_bootstrap.connector(),
+        &first_snapshots,
+        std::slice::from_ref(&second_node),
+    );
+    await_connector_routes(
+        second_bootstrap.connector(),
+        &second_snapshots,
+        std::slice::from_ref(&first_node),
     );
 
     run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());

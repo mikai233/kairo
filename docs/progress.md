@@ -1392,7 +1392,9 @@ Implemented:
 - Cluster TCP peer bootstrap now also has a three-node full-mesh socket
   validation, proving each actor-backed connector installs membership-derived
   routes for both remote peers from the same published gossip snapshot before
-  coordinated shutdown stops all live-route connectors.
+  coordinated shutdown stops all live-route connectors; the same scenario now
+  publishes a reduced two-node membership view and validates the surviving
+  nodes remove the departed node's active route through the connector boundary.
 - Cluster TCP peer bootstrap tests now live in a focused sibling test module,
   keeping the production bootstrap facade separate from socket fixture setup
   and two-node validation data.
@@ -1896,6 +1898,11 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
+cargo test -p kairo-cluster bootstrap
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster events
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
