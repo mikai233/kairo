@@ -1412,6 +1412,11 @@ Implemented:
   peer route for the other node through the actor-backed connector boundary;
   the same validation now runs coordinated shutdown afterward and asserts the
   live-route connector stops through the registered bootstrap shutdown task.
+- Cluster-tools TCP peer bootstrap lifecycle coverage now validates membership
+  removal: after a two-node socket route is installed through published cluster
+  gossip, publishing sender-local membership without the remote peer removes
+  the sender's connector route and active target through the bootstrap actor
+  boundary.
 - Cluster-tools TCP peer bootstrap now also has a three-node full-mesh socket
   validation: three real bound runtimes are spawned through the bootstrap
   facade, one shared gossip snapshot is published to all connector actors, and

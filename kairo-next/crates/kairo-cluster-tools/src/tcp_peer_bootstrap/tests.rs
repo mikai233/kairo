@@ -221,6 +221,98 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
 }
 
 #[test]
+fn bootstrap_removes_peer_route_when_cluster_membership_drops_peer() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-remove-sender").unwrap();
+    let receiver_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-remove-receiver").unwrap();
+    let registry = registry();
+    let sender_runtime = bind_runtime(
+        "cluster-tools-bootstrap-remove-sender",
+        1,
+        11,
+        &sender_kit,
+        registry.clone(),
+    );
+    let receiver_runtime = bind_runtime(
+        "cluster-tools-bootstrap-remove-receiver",
+        2,
+        22,
+        &receiver_kit,
+        registry,
+    );
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = receiver_runtime.self_node().clone();
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let receiver_publisher =
+        spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let receiver_cluster = Cluster::new(receiver_publisher.clone());
+    let settings = ClusterToolsTcpPeerBootstrapSettings::new().with_connector_settings(
+        ClusterToolsTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
+
+    let sender_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings.clone().with_connector_name("sender-tools-peer"),
+    )
+    .unwrap();
+    let receiver_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        receiver_kit.system(),
+        receiver_cluster,
+        receiver_runtime,
+        settings.with_connector_name("receiver-tools-peer"),
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+    let receiver_snapshots = receiver_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("receiver-snapshots")
+        .unwrap();
+
+    let both_nodes = Gossip::from_members([
+        Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(receiver_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+    ]);
+    sender_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(both_nodes.clone()))
+        .unwrap();
+    receiver_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(both_nodes))
+        .unwrap();
+
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    await_connector_route(
+        receiver_bootstrap.connector(),
+        &receiver_snapshots,
+        &sender_node,
+    );
+
+    sender_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up)
+            ]),
+        ))
+        .unwrap();
+
+    await_connector_no_routes(sender_bootstrap.connector(), &sender_snapshots);
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
     let _guard = bootstrap_socket_test_lock();
     let first_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-first").unwrap();
@@ -351,6 +443,32 @@ fn spawn_publisher(
             Props::new(move || ClusterEventPublisher::new(self_node.clone())),
         )
         .unwrap()
+}
+
+fn await_connector_no_routes(
+    connector: &ActorRef<ClusterToolsTcpPeerConnectorMsg>,
+    snapshots: &TestProbe<ClusterToolsTcpPeerConnectorSnapshot>,
+) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            connector
+                .tell(ClusterToolsTcpPeerConnectorMsg::Snapshot {
+                    reply_to: snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            if snapshot.route_count == 0 && snapshot.active_targets.is_empty() {
+                Ok(())
+            } else {
+                Err(format!("unexpected connector snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
 }
 
 fn await_connector_route(
