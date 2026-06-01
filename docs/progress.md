@@ -62,6 +62,9 @@ Implemented:
 - The local actor mailbox run loop, callback panic boundary, supervision
   failure handling, restart helpers, and child-stop wait logic now live in a
   focused `runtime` module instead of being embedded in `system.rs`.
+- Actor runtime child-stop waiting and owner-scoped helper-ref cleanup now live
+  in a focused `runtime::lifecycle` submodule instead of the mailbox run-loop
+  file.
 - `kairo-actor` crate docs now explain typed local protocols, why
   `Actor::receive` is synchronous, why local messages do not need
   serialization, and how external work returns through mailbox messages with a

@@ -3,7 +3,9 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+
+mod lifecycle;
 
 use crate::actor::{Actor, Context, Props};
 use crate::dead_letters::DeadLetters;
@@ -18,6 +20,9 @@ use crate::stash::StashState;
 use crate::supervision::{SupervisionFailure, SupervisionState, SupervisorStrategy};
 use crate::system::{ActorSystem, ActorSystemInner};
 use crate::timers::TimerState;
+
+pub(crate) use lifecycle::stop_children_with_timeout;
+use lifecycle::{stop_adapter_refs, stop_children};
 
 pub(crate) fn run_actor<A>(
     mut props: Props<A>,
@@ -533,45 +538,5 @@ where
     }
     context.stop_requested = false;
     *actor = restarted;
-    Ok(())
-}
-
-fn stop_adapter_refs<M>(system_inner: &ActorSystemInner, context: &mut Context<M>)
-where
-    M: Send + 'static,
-{
-    for adapter_path in context.stop_adapters() {
-        system_inner
-            .death_watch
-            .notify(&adapter_path, TerminationCause::Stopped);
-    }
-}
-
-fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) {
-    let _ = stop_children_with_timeout(system_inner, parent_path, Duration::MAX);
-}
-
-pub(crate) fn stop_children_with_timeout(
-    system_inner: &ActorSystemInner,
-    parent_path: &str,
-    timeout: Duration,
-) -> Result<(), ActorError> {
-    let children = system_inner.registry.take_children(parent_path);
-
-    for child in &children {
-        child.request_stop();
-    }
-
-    let deadline = Instant::now()
-        .checked_add(timeout)
-        .unwrap_or_else(|| Instant::now() + Duration::from_secs(60 * 60 * 24 * 365));
-    for child in children {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .ok_or(ActorError::TerminationTimeout)?;
-        if !child.wait_for_stop(remaining) {
-            return Err(ActorError::TerminationTimeout);
-        }
-    }
     Ok(())
 }
