@@ -1707,6 +1707,9 @@ Implemented:
   sends, plus coordinator-side inbound routing for stable `ShardStarted`,
   `BeginHandOffAck`, and `ShardStopped` replies back into coordinator and
   handoff-worker actor turns.
+- Remote region control now lives in focused target, outbound, inbound, reply,
+  and test modules instead of concentrating coordinator-to-region control
+  routing, stable reply envelopes, and fixtures in one file.
 - `kairo-cluster-sharding` now has region-side inbound handling for stable
   remote `HostShard`, `BeginHandOff`, and `HandOff` commands; these re-enter
   region actor state transitions and emit stable `ShardStarted`,
