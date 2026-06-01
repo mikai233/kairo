@@ -807,6 +807,9 @@ Implemented:
 - `kairo-distributed-data` remote request inbound tests now live in a focused
   sibling test module, keeping sender-ref reply wiring and unsupported manifest
   coverage separate from the remote request dispatch implementation.
+- `kairo-distributed-data` remote target registration tests now live in a
+  focused sibling test module, keeping cluster-route fixture setup and
+  association-cache outbound assertions separate from target construction.
 - `ReplicatorActor<D>` construction, client get/update/subscription handling,
   cluster route application, delta propagation ticks, gossip ticks/receives,
   and removed-node pruning ticks now live in focused child modules instead of
