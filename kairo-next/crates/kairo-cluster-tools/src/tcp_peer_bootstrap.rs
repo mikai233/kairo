@@ -215,13 +215,20 @@ fn register_connector_shutdown(
     task_name: &str,
     timeout: Duration,
 ) -> Result<(), ActorError> {
-    system.coordinated_shutdown().add_actor_termination_task(
-        phase,
-        task_name,
-        connector.clone(),
-        None,
-        timeout,
-    )
+    let system = system.clone();
+    let connector = connector.clone();
+    system
+        .coordinated_shutdown()
+        .add_task(phase, task_name, move || {
+            system.stop(&connector);
+            if connector.wait_for_stop(timeout) {
+                Ok(())
+            } else {
+                Err(ActorError::ShutdownTaskFailed(
+                    "cluster-tools tcp peer connector shutdown timed out".to_string(),
+                ))
+            }
+        })
 }
 
 #[cfg(test)]

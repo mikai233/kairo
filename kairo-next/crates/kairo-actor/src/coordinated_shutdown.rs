@@ -163,8 +163,6 @@ impl CoordinatedShutdown {
         self.add_task(phase, task_name, move || {
             if let Some(message) = stop_message {
                 actor.tell(message).map_err(send_error)?;
-            } else {
-                actor.request_stop();
             }
             if actor.wait_for_stop(timeout) {
                 Ok(())

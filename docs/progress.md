@@ -121,6 +121,10 @@ Implemented:
   `ShutdownTaskHandle` that can cancel pending task registrations before their
   phase starts, while duplicate task names remain distinct registrations and
   earlier phases can cancel later-phase work.
+- `CoordinatedShutdown::add_actor_termination_task` now preserves Pekko's
+  wait-only semantics when no stop message is supplied; cluster,
+  distributed-data, and cluster-tools TCP bootstrap facades register explicit
+  connector stop tasks for coordinated shutdown.
 - `ActorSystem::event_stream` and `Context::event_stream` expose a local typed
   event stream for exact Rust event types.
 - Event-stream subscription state lives in a focused `event_stream` module.
