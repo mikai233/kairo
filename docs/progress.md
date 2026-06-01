@@ -701,7 +701,9 @@ Implemented:
 - Distributed-data TCP peer bootstrap now has a two-node socket validation:
   two real bound runtimes are spawned through the bootstrap facade, cluster
   membership is published to both connector actors, and each side installs a
-  peer route for the other node through the actor-backed connector boundary.
+  peer route for the other node through the actor-backed connector boundary;
+  the same validation now runs coordinated shutdown afterward and asserts the
+  live-route connector stops through the registered bootstrap shutdown task.
 - Distributed-data TCP peer bootstrap now also has a three-node full-mesh
   socket validation: three real bound runtimes are spawned through the
   bootstrap facade, one shared gossip snapshot is published to all connector
@@ -1188,7 +1190,9 @@ Implemented:
 - Cluster TCP peer bootstrap now has a two-node socket validation: two real
   bound runtimes are spawned through the bootstrap facade, cluster membership
   is published to both connector actors, and each side installs a peer route
-  for the other node through the actor-backed connector boundary.
+  for the other node through the actor-backed connector boundary; the same
+  validation now runs coordinated shutdown afterward and asserts the live-route
+  connector stops through the registered bootstrap shutdown task.
 - Cluster TCP peer bootstrap now also has a three-node full-mesh socket
   validation, proving each actor-backed connector installs membership-derived
   routes for both remote peers from the same published gossip snapshot.
@@ -1361,7 +1365,9 @@ Implemented:
 - Cluster-tools TCP peer bootstrap now has a two-node socket validation: two
   real bound runtimes are spawned through the bootstrap facade, cluster
   membership is published to both connector actors, and each side installs a
-  peer route for the other node through the actor-backed connector boundary.
+  peer route for the other node through the actor-backed connector boundary;
+  the same validation now runs coordinated shutdown afterward and asserts the
+  live-route connector stops through the registered bootstrap shutdown task.
 - Cluster-tools TCP peer bootstrap now also has a three-node full-mesh socket
   validation: three real bound runtimes are spawned through the bootstrap
   facade, one shared gossip snapshot is published to all connector actors, and

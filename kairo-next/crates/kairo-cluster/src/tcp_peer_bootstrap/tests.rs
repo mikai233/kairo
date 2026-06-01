@@ -118,6 +118,8 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
         &sender_node,
     );
 
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -272,4 +274,15 @@ fn await_connector_routes(
         },
     )
     .unwrap();
+}
+
+fn run_bootstrap_shutdown(
+    kit: &ActorSystemTestKit,
+    connector: &ActorRef<ClusterTcpPeerConnectorMsg>,
+) {
+    kit.system()
+        .coordinated_shutdown()
+        .run_from("test", Some(PHASE_BEFORE_CLUSTER_SHUTDOWN))
+        .unwrap();
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
 }
