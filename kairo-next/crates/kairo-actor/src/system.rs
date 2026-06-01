@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
 
+mod builder;
+
 use crate::actor::{Actor, Props};
 use crate::coordinated_shutdown::CoordinatedShutdown;
 use crate::dead_letters::DeadLetters;
@@ -20,8 +22,10 @@ use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
 use crate::registry::ActorRegistry;
 use crate::runtime::{run_actor, stop_children_with_timeout};
-use crate::scheduler::{Cancellable, ManualScheduler, Scheduler};
+use crate::scheduler::{Cancellable, Scheduler};
 use crate::signal::Signal;
+
+pub use builder::ActorSystemBuilder;
 
 #[derive(Debug, Clone)]
 pub struct ActorSystem {
@@ -49,11 +53,7 @@ pub(crate) struct ActorSystemInner {
 
 impl ActorSystem {
     pub fn builder(name: impl Into<String>) -> ActorSystemBuilder {
-        ActorSystemBuilder {
-            name: name.into(),
-            dispatcher: DispatcherSettings::default(),
-            scheduler: Scheduler::default(),
-        }
+        ActorSystemBuilder::new(name)
     }
 
     pub fn name(&self) -> &str {
@@ -492,40 +492,6 @@ impl ActorSystem {
         }
 
         Ok(actor_ref)
-    }
-}
-
-#[derive(Debug)]
-pub struct ActorSystemBuilder {
-    name: String,
-    dispatcher: DispatcherSettings,
-    scheduler: Scheduler,
-}
-
-impl ActorSystemBuilder {
-    pub fn dispatcher_throughput(mut self, throughput: usize) -> Self {
-        self.dispatcher = DispatcherSettings::new(throughput);
-        self
-    }
-
-    pub fn manual_scheduler(mut self, scheduler: ManualScheduler) -> Self {
-        self.scheduler = scheduler.into_scheduler();
-        self
-    }
-
-    pub fn build(self) -> Result<ActorSystem, ActorError> {
-        if self.dispatcher.throughput() == 0 {
-            return Err(ActorError::InvalidThroughput);
-        }
-        Ok(ActorSystem {
-            address: Address::local(self.name.clone()),
-            name: self.name,
-            inner: Arc::new(ActorSystemInner {
-                dispatcher: self.dispatcher,
-                scheduler: self.scheduler,
-                ..ActorSystemInner::default()
-            }),
-        })
     }
 }
 

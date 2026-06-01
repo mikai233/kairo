@@ -253,6 +253,7 @@ number_of_shards = 0
 }
 
 #[test]
+#[cfg(feature = "actor")]
 fn config_converts_actor_settings_to_builder() {
     let settings = parse_toml_str(
         r#"
@@ -273,6 +274,7 @@ throughput = 17
 }
 
 #[test]
+#[cfg(all(feature = "remote", feature = "cluster"))]
 fn config_converts_remote_and_cluster_settings() {
     let settings = parse_toml_str(
         r#"
@@ -319,6 +321,7 @@ expected_response_after = "750ms"
 }
 
 #[test]
+#[cfg(feature = "actor")]
 fn config_runtime_helpers_validate_directly_constructed_settings() {
     let actor = ActorConfig {
         dispatchers: BTreeMap::from([("other".to_string(), DispatcherConfig { throughput: 1 })]),

@@ -27,6 +27,9 @@ Implemented:
   targets.
 - `ActorSystemBuilder::dispatcher_throughput` configures local mailbox batch
   throughput before worker yield.
+- `ActorSystemBuilder` construction and scheduler/dispatcher wiring now live in
+  a focused `system::builder` submodule instead of the actor-system runtime
+  operations file.
 - Mailbox tests now pin the actor runtime contract that system messages are
   dequeued before already queued user messages while preserving FIFO order
   within the system lane.
