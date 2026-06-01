@@ -1506,6 +1506,9 @@ Implemented:
   lifecycle events for node removal, dropping remote mediator routes and
   registry buckets when members leave, are downed, or are removed, and it routes
   one-message-per-group publishes across local and remote mediator targets.
+- `kairo-cluster-tools` distributed pubsub mediator protocol data and local
+  delivery adapter now live in focused submodules instead of being embedded in
+  the mediator actor implementation.
 - `kairo-cluster-tools` distributed pubsub mediator actor-boundary tests now
   live in a focused sibling test module.
 - `kairo-cluster-tools` now declares stable remote metadata and explicit codecs
@@ -1891,6 +1894,10 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster-tools distributed_pubsub_mediator
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster event_publisher
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
