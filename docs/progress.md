@@ -708,7 +708,7 @@ Implemented:
   socket validation: three real bound runtimes are spawned through the
   bootstrap facade, one shared gossip snapshot is published to all connector
   actors, and each connector installs membership-derived routes for both
-  remote peers.
+  remote peers before coordinated shutdown stops all live-route connectors.
 - Distributed-data TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
@@ -1195,7 +1195,8 @@ Implemented:
   connector stops through the registered bootstrap shutdown task.
 - Cluster TCP peer bootstrap now also has a three-node full-mesh socket
   validation, proving each actor-backed connector installs membership-derived
-  routes for both remote peers from the same published gossip snapshot.
+  routes for both remote peers from the same published gossip snapshot before
+  coordinated shutdown stops all live-route connectors.
 - Cluster TCP peer bootstrap tests now live in a focused sibling test module,
   keeping the production bootstrap facade separate from socket fixture setup
   and two-node validation data.
@@ -1371,7 +1372,8 @@ Implemented:
 - Cluster-tools TCP peer bootstrap now also has a three-node full-mesh socket
   validation: three real bound runtimes are spawned through the bootstrap
   facade, one shared gossip snapshot is published to all connector actors, and
-  each connector installs membership-derived routes for both remote peers.
+  each connector installs membership-derived routes for both remote peers
+  before coordinated shutdown stops all live-route connectors.
 - Cluster-tools TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.

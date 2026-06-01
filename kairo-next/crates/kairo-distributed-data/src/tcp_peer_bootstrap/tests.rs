@@ -242,6 +242,9 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &[first_node, second_node],
     );
 
+    run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
+    run_bootstrap_shutdown(&second_kit, second_bootstrap.connector());
+    run_bootstrap_shutdown(&third_kit, third_bootstrap.connector());
     first_kit.shutdown(Duration::from_secs(1)).unwrap();
     second_kit.shutdown(Duration::from_secs(1)).unwrap();
     third_kit.shutdown(Duration::from_secs(1)).unwrap();
