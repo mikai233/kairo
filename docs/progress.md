@@ -650,6 +650,10 @@ Implemented:
   that forwards route updates to the replicator, so delta propagation and
   direct read/write aggregation sessions can discover remote-envelope targets
   from cluster membership changes.
+- The distributed-data cluster connector implementation is now split across
+  focused construction, runtime-helper, and test modules instead of keeping
+  constructor, actor-turn, route-target, pruning, and fixture logic in one
+  large source file.
 - `kairo-distributed-data` now has a focused remote-association bridge:
   `ReplicatorRemoteAssociationRoutes` holds shared per-replica
   `kairo-remote` outbound association routes, and
