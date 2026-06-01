@@ -35,6 +35,31 @@ fn cluster_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestResult {
 }
 
 #[test]
+fn cluster_tcp_peer_bootstrap_removes_route_when_membership_shrinks() -> TestResult {
+    let (node_a, node_b) = cluster_tcp::bind_two_nodes()?;
+    let result: TestResult = (|| {
+        let members = vec![node_a.self_node().clone(), node_b.self_node().clone()];
+
+        node_a.publish_up_members(members.clone())?;
+        node_b.publish_up_members(members)?;
+        node_a.wait_for_route_count(1, Duration::from_secs(2))?;
+        node_b.wait_for_route_count(1, Duration::from_secs(2))?;
+
+        node_a.publish_up_members([node_a.self_node().clone()])?;
+        node_a.wait_for_route_count(0, Duration::from_secs(2))?;
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
 fn ddata_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestResult {
     let (node_a, node_b) = ddata_tcp::bind_two_nodes()?;
     let result: TestResult = (|| {
@@ -63,6 +88,31 @@ fn ddata_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestResult {
 }
 
 #[test]
+fn ddata_tcp_peer_bootstrap_removes_route_when_membership_shrinks() -> TestResult {
+    let (node_a, node_b) = ddata_tcp::bind_two_nodes()?;
+    let result: TestResult = (|| {
+        let members = vec![node_a.self_node().clone(), node_b.self_node().clone()];
+
+        node_a.publish_up_members(members.clone())?;
+        node_b.publish_up_members(members)?;
+        node_a.wait_for_route_count(1, Duration::from_secs(2))?;
+        node_b.wait_for_route_count(1, Duration::from_secs(2))?;
+
+        node_a.publish_up_members([node_a.self_node().clone()])?;
+        node_a.wait_for_route_count(0, Duration::from_secs(2))?;
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
 fn cluster_tools_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestResult {
     let (node_a, node_b) = cluster_tools_tcp::bind_two_nodes()?;
     let result: TestResult = (|| {
@@ -78,6 +128,31 @@ fn cluster_tools_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestRe
         assert_eq!(snapshot_b.route_count, 1);
         assert!(node_a.local_address().contains("127.0.0.1"));
         assert!(node_b.local_address().contains("127.0.0.1"));
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
+fn cluster_tools_tcp_peer_bootstrap_removes_route_when_membership_shrinks() -> TestResult {
+    let (node_a, node_b) = cluster_tools_tcp::bind_two_nodes()?;
+    let result: TestResult = (|| {
+        let members = vec![node_a.self_node().clone(), node_b.self_node().clone()];
+
+        node_a.publish_up_members(members.clone())?;
+        node_b.publish_up_members(members)?;
+        node_a.wait_for_route_count(1, Duration::from_secs(2))?;
+        node_b.wait_for_route_count(1, Duration::from_secs(2))?;
+
+        node_a.publish_up_members([node_a.self_node().clone()])?;
+        node_a.wait_for_route_count(0, Duration::from_secs(2))?;
         Ok(())
     })();
 

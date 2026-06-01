@@ -1688,7 +1688,9 @@ Implemented:
 - `kairo-examples` now has localhost two-node TCP bootstrap smoke tests for
   cluster, distributed-data, and cluster-tools example modules, publishing
   matching cluster membership snapshots and verifying each side establishes
-  one peer route before coordinated shutdown.
+  one peer route before coordinated shutdown; the same example smoke suite now
+  publishes a sender-local membership shrink and verifies the sender removes
+  the departed peer route through the public reusable example module boundary.
 - `kairo-cluster-sharding` now has a transport-neutral remote coordinator
   registration bridge that serializes stable `Register` envelopes to resolved
   coordinator recipients with region sender metadata and decodes
@@ -1904,6 +1906,9 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-examples tcp_peer_bootstrap
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster-tools bootstrap
 cargo test -p kairo-cluster-tools --all-targets --all-features
