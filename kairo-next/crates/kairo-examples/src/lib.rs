@@ -50,6 +50,7 @@
 
 pub mod cluster_tcp;
 pub mod cluster_tools_tcp;
+pub mod configured_counter;
 pub mod counter;
 pub mod ddata_tcp;
 pub mod patterns;

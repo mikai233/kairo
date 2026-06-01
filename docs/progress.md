@@ -1596,6 +1596,10 @@ Implemented:
   `counter` module and includes a `configured_counter` example that loads
   `kairo.local.toml`, maps format-neutral settings into an actor-system
   builder, and runs the typed counter with configured dispatcher throughput.
+- The configured-counter example workflow now lives in a focused reusable
+  module with a structured observation result, and the examples smoke tests
+  validate the TOML facade-to-builder path instead of duplicating setup inside
+  the binary.
 - `kairo-examples` now includes an `ask_pipe_to_self` example with reusable
   calculation-service and pattern-coordinator modules, demonstrating
   `Context::ask` and `Context::pipe_to_self` without placing the actor logic
