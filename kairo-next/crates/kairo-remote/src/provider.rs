@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use kairo_actor::ActorSystem;
+use kairo_actor::{ActorSystem, LocalActorRefProvider};
 use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
 
 use crate::local_address::CanonicalLocalAddress;
@@ -11,7 +11,7 @@ use crate::{
 #[derive(Clone)]
 pub struct RemoteActorRefProvider {
     system_name: String,
-    local_system: Option<ActorSystem>,
+    local_provider: Option<LocalActorRefProvider>,
     canonical_address: Option<CanonicalLocalAddress>,
     settings: RemoteSettings,
     registry: Arc<Registry>,
@@ -27,7 +27,7 @@ impl RemoteActorRefProvider {
     ) -> Self {
         Self {
             system_name: system_name.into(),
-            local_system: None,
+            local_provider: None,
             canonical_address: None,
             settings,
             registry,
@@ -41,13 +41,23 @@ impl RemoteActorRefProvider {
         registry: Arc<Registry>,
         outbound: Arc<dyn RemoteOutbound>,
     ) -> Self {
+        Self::with_local_provider(system.provider(), settings, registry, outbound)
+    }
+
+    pub fn with_local_provider(
+        local_provider: LocalActorRefProvider,
+        settings: RemoteSettings,
+        registry: Arc<Registry>,
+        outbound: Arc<dyn RemoteOutbound>,
+    ) -> Self {
+        let system = local_provider.system();
         Self {
             system_name: system.name().to_string(),
             canonical_address: Some(CanonicalLocalAddress::from_system_settings(
-                &system,
+                system,
                 settings.clone(),
             )),
-            local_system: Some(system),
+            local_provider: Some(local_provider),
             settings,
             registry,
             outbound,
@@ -83,12 +93,12 @@ impl RemoteActorRefProvider {
         M: RemoteMessage,
     {
         if let Some(local_path) = self.local_path_for_owned_address(&wire) {
-            let system = self
-                .local_system
+            let local_provider = self
+                .local_provider
                 .as_ref()
-                .expect("owned local address requires actor system");
+                .expect("owned local address requires local provider");
             return Ok(ResolvedActorRef::Local(
-                system.resolve_local_or_missing(local_path),
+                local_provider.system().resolve_local_or_missing(local_path),
             ));
         }
 
@@ -117,7 +127,7 @@ impl RemoteActorRefProvider {
     }
 
     fn local_path_for_owned_address(&self, wire: &ActorRefWireData) -> Option<String> {
-        let system = self.local_system.as_ref()?;
+        let system = self.local_provider.as_ref()?.system();
         if wire.host().is_none()
             && wire.protocol() == system.address().protocol()
             && wire.system() == system.name()
@@ -226,10 +236,16 @@ mod tests {
     }
 
     fn provider_with_system(system: ActorSystem) -> RemoteActorRefProvider {
+        provider_with_local_provider(system.provider())
+    }
+
+    fn provider_with_local_provider(
+        local_provider: LocalActorRefProvider,
+    ) -> RemoteActorRefProvider {
         let mut registry = Registry::new();
         registry.register::<LocalCmd, _>(LocalCmdCodec).unwrap();
-        RemoteActorRefProvider::with_actor_system(
-            system,
+        RemoteActorRefProvider::with_local_provider(
+            local_provider,
             RemoteSettings::new("127.0.0.1", 25520),
             Arc::new(registry),
             Arc::new(DropOutbound),
@@ -261,7 +277,16 @@ mod tests {
     #[test]
     fn provider_resolves_local_only_path_through_actor_system() {
         let system = ActorSystem::builder("local").build().unwrap();
-        let provider = provider_with_system(system.clone());
+        let provider = RemoteActorRefProvider::with_actor_system(
+            system.clone(),
+            RemoteSettings::new("127.0.0.1", 25520),
+            Arc::new({
+                let mut registry = Registry::new();
+                registry.register::<LocalCmd, _>(LocalCmdCodec).unwrap();
+                registry
+            }),
+            Arc::new(DropOutbound),
+        );
         let (received_tx, received_rx) = mpsc::channel();
         let target = system
             .spawn(
@@ -279,6 +304,32 @@ mod tests {
         assert!(resolved.is_local());
         resolved.tell(LocalCmd { value: 7 }).unwrap();
         assert_eq!(received_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 7);
+    }
+
+    #[test]
+    fn provider_resolves_local_only_path_through_local_provider_boundary() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_local_provider(system.provider());
+        let (received_tx, received_rx) = mpsc::channel();
+        let target = system
+            .spawn(
+                "target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+
+        let resolved = provider
+            .resolve_actor_ref::<LocalCmd>(target.path().to_string())
+            .unwrap();
+
+        assert!(resolved.is_local());
+        resolved.tell(LocalCmd { value: 11 }).unwrap();
+        assert_eq!(
+            received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            11
+        );
     }
 
     #[test]

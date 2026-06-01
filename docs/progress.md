@@ -288,6 +288,9 @@ Implemented:
 - `RemoteActorRefProvider` resolves stable remote actor-ref paths with explicit
   host metadata into typed `RemoteActorRef<M>` values and rejects local-only
   paths instead of silently treating them as remote refs.
+- `RemoteActorRefProvider` can now compose with the actor crate's
+  `LocalActorRefProvider` boundary for owned local-path resolution, while
+  retaining the existing actor-system convenience constructor.
 - `RemoteAssociation` records the initial association state transitions for
   idle, handshaking, active, quarantined, and closed remoting links.
 - `kairo-remote::register_remote_protocol_codecs` registers stable explicit
