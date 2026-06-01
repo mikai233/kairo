@@ -1433,6 +1433,10 @@ Implemented:
   peer route for the other node through the actor-backed connector boundary;
   the same validation now runs coordinated shutdown afterward and asserts the
   live-route connector stops through the registered bootstrap shutdown task.
+- Cluster-tools TCP peer bootstrap now validates payload delivery over an
+  installed membership-derived peer route: a real bootstrap-owned sender
+  association cache carries a stable-codec pubsub publish envelope to the
+  remote mediator inbound handler before coordinated shutdown.
 - Cluster-tools TCP peer bootstrap lifecycle coverage now validates membership
   removal: after a two-node socket route is installed through published cluster
   gossip, publishing sender-local membership without the remote peer removes
@@ -1446,6 +1450,10 @@ Implemented:
 - Cluster-tools TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
+- Cluster-tools TCP peer bootstrap socket helpers now live in a nested
+  `tests::support` module, keeping test message codecs, inbound probes,
+  runtime binding, route assertions, and coordinated-shutdown fixture code out
+  of the scenario tests.
 - Cluster-tools TCP peer bootstrap socket fixtures now serialize live listener
   setup within the test module and drive explicit retry ticks when a route
   snapshot reports pending reconnects, making concurrent bootstrap validation
