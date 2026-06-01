@@ -1521,6 +1521,9 @@ Implemented:
 - `ShardRegionActor` local shard start, route delivery, buffered replay,
   remote-region forwarding, and local handoff helper logic now live in a
   focused `region_actor::local_routing` child module.
+- `ShardRegionActor` coordinator registration, coordinator discovery,
+  local/remote shard-home requests, and shard-home reply application now live
+  in a focused `region_actor::coordinator_flow` child module.
 - `kairo-cluster-sharding` now has a local graceful region-shutdown path:
   regions notify their registered coordinator with `GracefulShutdownReq`,
   coordinators mark that region as gracefully shutting down, start handoff
