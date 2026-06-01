@@ -823,6 +823,9 @@ Implemented:
 - `kairo-distributed-data` aggregation transport now separates target
   registry/sender-aware recipient wiring, transport reports, and publish
   orchestration into focused child modules instead of one large transport file.
+- `kairo-distributed-data` full-state gossip planning now separates error
+  handling, digest/chunk hashing, status/apply reports, status response
+  planning, and apply/create operations into focused child modules.
 - `ReplicatorActor<D>` construction, client get/update/subscription handling,
   cluster route application, delta propagation ticks, gossip ticks/receives,
   and removed-node pruning ticks now live in focused child modules instead of
