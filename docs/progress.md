@@ -717,6 +717,11 @@ Implemented:
   peer route for the other node through the actor-backed connector boundary;
   the same validation now runs coordinated shutdown afterward and asserts the
   live-route connector stops through the registered bootstrap shutdown task.
+- Distributed-data TCP peer bootstrap now validates payload delivery over an
+  installed membership-derived peer route: a real bootstrap-owned sender
+  association cache carries a stable-codec `ReplicatorRead` envelope to the
+  remote inbound request receiver, preserving addressed refs and sender
+  replica metadata before coordinated shutdown.
 - Distributed-data TCP peer bootstrap now also has a three-node full-mesh
   socket validation: three real bound runtimes are spawned through the
   bootstrap facade, one shared gossip snapshot is published to all connector

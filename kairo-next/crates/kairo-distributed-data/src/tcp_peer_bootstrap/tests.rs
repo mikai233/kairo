@@ -1,13 +1,13 @@
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
-use kairo_actor::{ActorRef, Address, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
+use kairo_actor::{ActorRef, Address, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props, Recipient};
 use kairo_cluster::{
     Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus,
     UniqueAddress,
 };
-use kairo_remote::RemoteSettings;
-use kairo_serialization::RemoteEnvelope;
+use kairo_remote::{RemoteAssociationCache, RemoteSettings};
+use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
 use super::{
@@ -15,10 +15,12 @@ use super::{
     ReplicatorTcpPeerBootstrapSettings,
 };
 use crate::{
-    ReplicaId, ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver,
-    ReplicatorRemoteRequestError, ReplicatorRemoteRequestReceiver, ReplicatorTcpPeerConnectorMsg,
-    ReplicatorTcpPeerConnectorSettings, ReplicatorTcpPeerConnectorSnapshot,
-    ReplicatorTcpPeerRuntime,
+    ReplicaId, ReplicatorRead, ReplicatorRemoteAssociationCacheOutbound,
+    ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver,
+    ReplicatorRemoteRequestError, ReplicatorRemoteRequestReceiver, ReplicatorRemoteTarget,
+    ReplicatorTcpPeerConnectorMsg, ReplicatorTcpPeerConnectorSettings,
+    ReplicatorTcpPeerConnectorSnapshot, ReplicatorTcpPeerRuntime, register_ddata_protocol_codecs,
+    replicator_actor_ref_for,
 };
 
 #[derive(Default)]
@@ -43,6 +45,48 @@ impl ReplicatorRemoteReplyReceiver for IgnoreReplies {
         _from: ReplicaId,
         _envelope: RemoteEnvelope,
     ) -> Result<(), ReplicatorRemoteReplyError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct RecordingRequests {
+    received: Mutex<Vec<(ReplicaId, RemoteEnvelope)>>,
+    changed: Condvar,
+}
+
+impl RecordingRequests {
+    fn wait_for_len(&self, len: usize, timeout: Duration) -> Vec<(ReplicaId, RemoteEnvelope)> {
+        let deadline = Instant::now() + timeout;
+        let mut received = self.received.lock().expect("requests poisoned");
+        while received.len() < len {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let (next_received, wait) = self
+                .changed
+                .wait_timeout(received, remaining)
+                .expect("requests poisoned");
+            received = next_received;
+            if wait.timed_out() {
+                break;
+            }
+        }
+        received.clone()
+    }
+}
+
+impl ReplicatorRemoteRequestReceiver for RecordingRequests {
+    fn receive_request_from(
+        &self,
+        from: ReplicaId,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ReplicatorRemoteRequestError> {
+        self.received
+            .lock()
+            .expect("requests poisoned")
+            .push((from, envelope));
+        self.changed.notify_all();
         Ok(())
     }
 }
@@ -155,6 +199,126 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
         &receiver_snapshots,
         &sender_node,
     );
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_installed_peer_route_delivers_remote_request_to_receiver() {
+    let _guard = bootstrap_socket_test_lock();
+    let registry = registry();
+    let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-deliver-sender").unwrap();
+    let receiver_kit = ActorSystemTestKit::new("ddata-bootstrap-deliver-receiver").unwrap();
+    let receiver_requests = Arc::new(RecordingRequests::default());
+    let sender_runtime = bind_runtime(
+        "ddata-bootstrap-deliver-sender",
+        1,
+        11,
+        ReplicaId::new("receiver"),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let receiver_runtime = bind_runtime_with_requests(
+        "ddata-bootstrap-deliver-receiver",
+        2,
+        22,
+        ReplicaId::new("sender"),
+        receiver_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = receiver_runtime.self_node().clone();
+    let sender_settings = sender_runtime.runtime().settings().clone();
+    let receiver_settings = receiver_runtime.runtime().settings().clone();
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let receiver_publisher =
+        spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let receiver_cluster = Cluster::new(receiver_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
+        .with_connector_settings(
+            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        );
+
+    let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings.clone().with_connector_name("sender-ddata-peer"),
+    )
+    .unwrap();
+    let receiver_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        receiver_kit.system(),
+        receiver_cluster,
+        receiver_runtime,
+        settings.with_connector_name("receiver-ddata-peer"),
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+    let receiver_snapshots = receiver_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("receiver-snapshots")
+        .unwrap();
+
+    let gossip = Gossip::from_members([
+        Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(receiver_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+    ]);
+    sender_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
+        .unwrap();
+    receiver_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
+        .unwrap();
+
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    await_connector_route(
+        receiver_bootstrap.connector(),
+        &receiver_snapshots,
+        &sender_node,
+    );
+
+    let sender_ref = replicator_actor_ref_for("ddata-bootstrap-deliver-sender", &sender_settings)
+        .expect("sender ref should be serializable");
+    let receiver_ref =
+        replicator_actor_ref_for("ddata-bootstrap-deliver-receiver", &receiver_settings)
+            .expect("receiver ref should be serializable");
+    let outbound = outbound(
+        ReplicaId::from(&receiver_node),
+        receiver_ref.clone(),
+        sender_ref.clone(),
+        registry.clone(),
+        sender_cache,
+    );
+    outbound
+        .tell(ReplicatorRead {
+            key: "counter".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        })
+        .unwrap();
+
+    let received = receiver_requests.wait_for_len(1, Duration::from_secs(1));
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].0, ReplicaId::new("sender"));
+    assert_eq!(
+        received[0].1.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    let decoded = registry
+        .deserialize::<ReplicatorRead>(received[0].1.message.clone())
+        .unwrap();
+    assert_eq!(decoded.from, Some(ReplicaId::from(&sender_node)));
+    assert_eq!(decoded.key, "counter");
+    assert_eq!(received[0].1.recipient, receiver_ref);
+    assert_eq!(received[0].1.sender, Some(sender_ref));
 
     run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
     run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
@@ -385,6 +549,46 @@ fn bind_runtime(
         Arc::new(IgnoreReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
     )
     .unwrap()
+}
+
+fn bind_runtime_with_requests(
+    system: &str,
+    node_uid: u64,
+    system_uid: u64,
+    remote_replica: ReplicaId,
+    requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
+) -> ReplicatorTcpPeerRuntime {
+    ReplicatorTcpPeerRuntime::bind(
+        system,
+        node_uid,
+        system_uid,
+        remote_replica,
+        RemoteSettings::new("127.0.0.1", 0),
+        requests,
+        Arc::new(IgnoreReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
+    )
+    .unwrap()
+}
+
+fn registry() -> Arc<Registry> {
+    let mut registry = Registry::new();
+    register_ddata_protocol_codecs(&mut registry).unwrap();
+    Arc::new(registry)
+}
+
+fn outbound(
+    target: ReplicaId,
+    recipient: kairo_serialization::ActorRefWireData,
+    sender: kairo_serialization::ActorRefWireData,
+    registry: Arc<Registry>,
+    cache: RemoteAssociationCache,
+) -> ReplicatorRemoteEnvelopeOutbound {
+    ReplicatorRemoteEnvelopeOutbound::new(
+        ReplicatorRemoteTarget::new(target, recipient),
+        Some(sender),
+        registry,
+        ReplicatorRemoteAssociationCacheOutbound::new(cache),
+    )
 }
 
 fn spawn_publisher(
