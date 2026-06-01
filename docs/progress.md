@@ -1604,7 +1604,10 @@ Implemented:
   validation: three real bound runtimes are spawned through the bootstrap
   facade, one shared gossip snapshot is published to all connector actors, and
   each connector installs membership-derived routes for both remote peers
-  before coordinated shutdown stops all live-route connectors.
+  before coordinated shutdown stops all live-route connectors; the same
+  scenario now publishes a reduced two-node membership view and validates the
+  surviving nodes remove the departed node's active route through the connector
+  boundary.
 - Cluster-tools TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
@@ -1901,6 +1904,11 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
+cargo test -p kairo-cluster-tools bootstrap
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-distributed-data bootstrap
 cargo test -p kairo-distributed-data --all-targets --all-features
