@@ -120,6 +120,7 @@ pub use coordinated_shutdown::{
     PHASE_BEFORE_CLUSTER_SHUTDOWN, PHASE_BEFORE_SERVICE_UNBIND, PHASE_CLUSTER_EXITING,
     PHASE_CLUSTER_EXITING_DONE, PHASE_CLUSTER_LEAVE, PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION,
     PHASE_CLUSTER_SHUTDOWN, PHASE_SERVICE_REQUESTS_DONE, PHASE_SERVICE_STOP, PHASE_SERVICE_UNBIND,
+    ShutdownTaskHandle,
 };
 pub use dead_letters::{DeadLetter, DeadLetters};
 pub use dispatcher::DispatcherSettings;
@@ -145,8 +146,8 @@ pub mod prelude {
         PHASE_BEFORE_CLUSTER_SHUTDOWN, PHASE_BEFORE_SERVICE_UNBIND, PHASE_CLUSTER_EXITING,
         PHASE_CLUSTER_EXITING_DONE, PHASE_CLUSTER_LEAVE, PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION,
         PHASE_CLUSTER_SHUTDOWN, PHASE_SERVICE_REQUESTS_DONE, PHASE_SERVICE_STOP,
-        PHASE_SERVICE_UNBIND, Props, Receptionist, Recipient, RestartCount, ServiceKey, Signal,
-        SupervisorStrategy, TaskHandle, TimerKey,
+        PHASE_SERVICE_UNBIND, Props, Receptionist, Recipient, RestartCount, ServiceKey,
+        ShutdownTaskHandle, Signal, SupervisorStrategy, TaskHandle, TimerKey,
     };
 }
 

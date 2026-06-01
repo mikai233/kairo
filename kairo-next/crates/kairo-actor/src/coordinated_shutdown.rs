@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::{self, Formatter};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -21,6 +22,10 @@ pub const PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE: &str = "before-actor-system-termi
 pub const PHASE_ACTOR_SYSTEM_TERMINATE: &str = "actor-system-terminate";
 
 const DEFAULT_PHASE_TIMEOUT: Duration = Duration::from_secs(30);
+const TASK_PENDING: u8 = 0;
+const TASK_CANCELLED: u8 = 1;
+const TASK_RUNNING: u8 = 2;
+const TASK_DONE: u8 = 3;
 
 #[derive(Clone)]
 pub struct CoordinatedShutdown {
@@ -43,6 +48,36 @@ impl fmt::Debug for CoordinatedShutdown {
         f.debug_struct("CoordinatedShutdown")
             .field("reason", &self.reason())
             .finish_non_exhaustive()
+    }
+}
+
+/// Handle for a coordinated-shutdown task registration.
+#[derive(Clone, Debug)]
+pub struct ShutdownTaskHandle {
+    state: Arc<AtomicU8>,
+}
+
+impl ShutdownTaskHandle {
+    /// Cancel the task if it has not started yet.
+    pub fn cancel(&self) -> bool {
+        self.state
+            .compare_exchange(
+                TASK_PENDING,
+                TASK_CANCELLED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    /// Returns true when this registration was cancelled before running.
+    pub fn is_cancelled(&self) -> bool {
+        self.state.load(Ordering::Acquire) == TASK_CANCELLED
+    }
+
+    /// Returns true after the task has started or completed.
+    pub fn is_running_or_done(&self) -> bool {
+        matches!(self.state.load(Ordering::Acquire), TASK_RUNNING | TASK_DONE)
     }
 }
 
@@ -76,10 +111,30 @@ impl CoordinatedShutdown {
     where
         F: FnOnce() -> Result<(), ActorError> + Send + 'static,
     {
+        self.add_cancellable_task(phase, task_name, task)
+            .map(|_| ())
+    }
+
+    /// Register a shutdown task and return a handle that can cancel it before
+    /// the phase starts running.
+    ///
+    /// Duplicate task names are distinct registrations, matching Pekko's
+    /// observable coordinated-shutdown behavior.
+    pub fn add_cancellable_task<F>(
+        &self,
+        phase: impl AsRef<str>,
+        task_name: impl Into<String>,
+        task: F,
+    ) -> Result<ShutdownTaskHandle, ActorError>
+    where
+        F: FnOnce() -> Result<(), ActorError> + Send + 'static,
+    {
         let task_name = task_name.into();
         if task_name.is_empty() {
             return Err(ActorError::InvalidShutdownTaskName);
         }
+        let task = TaskEntry::new(task_name, task);
+        let handle = task.handle();
         let mut state = self
             .inner
             .state
@@ -90,8 +145,8 @@ impl CoordinatedShutdown {
             .tasks
             .entry(phase.as_ref().to_string())
             .or_default()
-            .push(TaskEntry::new(task_name, task));
-        Ok(())
+            .push(task);
+        Ok(handle)
     }
 
     pub fn add_actor_termination_task<M>(
@@ -253,6 +308,7 @@ impl PhaseDefinition {
 
 struct TaskEntry {
     name: String,
+    state: Arc<AtomicU8>,
     task: Option<Box<dyn FnOnce() -> Result<(), ActorError> + Send>>,
 }
 
@@ -260,18 +316,42 @@ impl TaskEntry {
     fn new(name: String, task: impl FnOnce() -> Result<(), ActorError> + Send + 'static) -> Self {
         Self {
             name,
+            state: Arc::new(AtomicU8::new(TASK_PENDING)),
             task: Some(Box::new(task)),
         }
     }
 
+    fn handle(&self) -> ShutdownTaskHandle {
+        ShutdownTaskHandle {
+            state: Arc::clone(&self.state),
+        }
+    }
+
     fn run(mut self) -> Result<(), ActorError> {
+        match self.state.compare_exchange(
+            TASK_PENDING,
+            TASK_RUNNING,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => {}
+            Err(TASK_CANCELLED) => return Ok(()),
+            Err(_) => {
+                return Err(ActorError::ShutdownTaskFailed(format!(
+                    "task `{}` was already started",
+                    self.name
+                )));
+            }
+        }
         let task = self
             .task
             .take()
             .expect("coordinated shutdown task ran once");
-        task().map_err(|error| {
+        let result = task().map_err(|error| {
             ActorError::ShutdownTaskFailed(format!("task `{}` failed: {error}", self.name))
-        })
+        });
+        self.state.store(TASK_DONE, Ordering::Release);
+        result
     }
 }
 

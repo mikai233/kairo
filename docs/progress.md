@@ -117,6 +117,10 @@ Implemented:
 - Receive-timeout state and envelopes live in a focused `receive_timeout`
   module, and active receive-timeout tasks are cancelled when the owning actor
   stops or restarts.
+- `CoordinatedShutdown::add_cancellable_task` now returns a
+  `ShutdownTaskHandle` that can cancel pending task registrations before their
+  phase starts, while duplicate task names remain distinct registrations and
+  earlier phases can cancel later-phase work.
 - `ActorSystem::event_stream` and `Context::event_stream` expose a local typed
   event stream for exact Rust event types.
 - Event-stream subscription state lives in a focused `event_stream` module.

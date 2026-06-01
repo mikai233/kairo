@@ -96,6 +96,98 @@ fn coordinated_shutdown_task_can_add_later_phase_task() {
 }
 
 #[test]
+fn coordinated_shutdown_cancellable_task_skips_cancelled_registration() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+    let (events_tx, events_rx) = mpsc::channel();
+
+    let cancelled = shutdown
+        .add_cancellable_task(PHASE_SERVICE_STOP, "cancelled", {
+            let events = events_tx.clone();
+            move || {
+                events
+                    .send("cancelled")
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+        })
+        .unwrap();
+    shutdown
+        .add_task(PHASE_SERVICE_STOP, "active", move || {
+            events_tx
+                .send("active")
+                .map_err(|error| ActorError::Message(error.to_string()))
+        })
+        .unwrap();
+
+    assert!(cancelled.cancel());
+    assert!(cancelled.is_cancelled());
+    shutdown.run("test").unwrap();
+
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "active"
+    );
+    assert!(events_rx.recv_timeout(Duration::from_millis(50)).is_err());
+}
+
+#[test]
+fn coordinated_shutdown_duplicate_task_names_are_distinct_registrations() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+    let ran = Arc::new(AtomicU64::new(0));
+
+    for _ in 0..3 {
+        shutdown
+            .add_task(PHASE_SERVICE_STOP, "same-name", {
+                let ran = Arc::clone(&ran);
+                move || {
+                    ran.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                }
+            })
+            .unwrap();
+    }
+
+    shutdown.run("test").unwrap();
+
+    assert_eq!(ran.load(Ordering::Relaxed), 3);
+}
+
+#[test]
+fn coordinated_shutdown_earlier_phase_can_cancel_later_phase_task() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+    let (events_tx, events_rx) = mpsc::channel();
+
+    let later = shutdown
+        .add_cancellable_task(PHASE_SERVICE_STOP, "later", {
+            let events = events_tx.clone();
+            move || {
+                events
+                    .send("later")
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+        })
+        .unwrap();
+    shutdown
+        .add_task(PHASE_SERVICE_UNBIND, "cancel-later", move || {
+            assert!(later.cancel());
+            events_tx
+                .send("cancelled")
+                .map_err(|error| ActorError::Message(error.to_string()))
+        })
+        .unwrap();
+
+    shutdown.run("test").unwrap();
+
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "cancelled"
+    );
+    assert!(events_rx.recv_timeout(Duration::from_millis(50)).is_err());
+}
+
+#[test]
 fn coordinated_shutdown_actor_termination_task_stops_actor() {
     let system = ActorSystem::builder("test").build().unwrap();
     let counter = system
