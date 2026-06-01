@@ -1234,6 +1234,8 @@ Implemented:
   decision-delay timers when reachability changes, gates decisions to the
   reachable leader, and sends structured `ApplyDowningDecision` commands to the
   membership actor after the stable period.
+- `kairo-cluster` downing-provider actor tests now live in a focused sibling
+  test module instead of the production downing-provider file.
 - `kairo-cluster::ClusterMembership` can register a typed
   `DowningProviderActor` observer, forwards each current gossip snapshot to it,
   and applies the provider's stable downing decision through the existing
