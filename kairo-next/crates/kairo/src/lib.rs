@@ -102,9 +102,39 @@ pub mod prelude {
         ClusterSubscriptionInitialState, CurrentClusterState, Member, MemberEvent, MemberStatus,
         ReachabilityEvent, UniqueAddress,
     };
+    #[cfg(feature = "cluster-sharding")]
+    pub use kairo_cluster_sharding::{
+        DEFAULT_SHARD_COUNT, EntityRef, EntityTypeKey, ShardRegionActor, ShardRegionMsg,
+        ShardingEnvelope, ShardingEnvelopeRouter, ShardingError, default_shard_id_for,
+        shard_id_for, stable_hash_entity_id,
+    };
+    #[cfg(feature = "cluster-tools")]
+    pub use kairo_cluster_tools::{
+        DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg, LocalPubSub,
+        LocalSingletonManagerActor, LocalSingletonManagerMsg, SingletonProxyActor,
+        SingletonProxyMsg, SingletonScope, TopicName, TopicPublishMode,
+    };
+    #[cfg(feature = "distributed-data")]
+    pub use kairo_distributed_data::{
+        DeltaReplicatedData, GCounter, GSet, GetResponse, ORSet, PNCounter, ReadConsistency,
+        ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg,
+        ReplicatorKey, ReplicatorState, UpdateResponse, WriteConsistency,
+    };
+    #[cfg(feature = "remote")]
+    pub use kairo_remote::{
+        RemoteActorRef, RemoteActorRefProvider, RemoteError, RemoteOutbound, RemoteSettings,
+        TcpRemoteActorSystem,
+    };
     #[cfg(feature = "serialization")]
     pub use kairo_serialization::{
         DynCodec, Manifest, MessageCodec, RemoteMessage, SerializationError, SerializationRegistry,
         SerializedMessage, SerializerId,
     };
+    #[cfg(feature = "testkit")]
+    pub use kairo_testkit::{
+        ActorSystemTestKit, FishingOutcome, ManualTime, ManualTimeHandle, TestProbe, await_assert,
+    };
 }
+
+#[cfg(test)]
+mod tests;

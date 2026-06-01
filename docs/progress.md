@@ -1568,6 +1568,10 @@ Implemented:
 - The `kairo` facade crate docs now describe feature-gated module boundaries,
   the prelude, local-vs-remote serialization requirements, TOML-first
   configuration, and a compile-checked settings parse example.
+- The `kairo` facade prelude now re-exports common remote, distributed-data,
+  sharding, cluster-tools, and testkit entry points behind their feature flags,
+  with facade compile coverage that keeps the user entrypoint structured while
+  preserving the focused implementation crates.
 - `KairoSettings` now exposes feature-gated runtime conversion helpers for
   actor-system dispatcher configuration, remote transport settings, cluster
   failure-detector/heartbeat settings, sharding shard counts, and cluster-tools
