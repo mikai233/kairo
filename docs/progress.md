@@ -694,6 +694,9 @@ Implemented:
   routes through `ReplicatorTcpPeerRuntime`, drives explicit and timer-based
   retry turns, exposes typed snapshots for deterministic tests, and shuts down
   the owned runtime when the connector actor stops.
+- Distributed-data TCP peer connector socket tests now live in a focused
+  sibling test module with serialized live listener fixtures, keeping the
+  production connector module focused on actor/runtime behavior.
 - `kairo-distributed-data` now has a TCP peer bootstrap facade that binds the
   distributed-data peer runtime, spawns the connector actor with explicit
   settings, and registers coordinated shutdown to stop the connector before
