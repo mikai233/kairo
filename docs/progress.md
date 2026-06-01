@@ -1392,6 +1392,10 @@ Implemented:
   publishing sender-local membership without the remote peer removes the
   sender's connector route and active target through the bootstrap actor
   boundary.
+- Cluster TCP peer bootstrap lifecycle coverage now also validates replacement
+  peer routing: after removing a departed peer's route, publishing a new
+  `UniqueAddress` for a replacement receiver installs a fresh membership-
+  derived socket route through the same bootstrap connector.
 - Cluster TCP peer bootstrap now also has a three-node full-mesh socket
   validation, proving each actor-backed connector installs membership-derived
   routes for both remote peers from the same published gossip snapshot before
@@ -2031,6 +2035,7 @@ cargo test -p kairo-cluster all_observers_reports_negative_reachability_observer
 cargo test -p kairo-cluster membership_actor
 cargo test -p kairo-cluster bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
+cargo test -p kairo-cluster bootstrap_reinstalls_peer_route_for_replacement_unique_address
 cargo test -p kairo-cluster bootstrap
 cargo test -p kairo-cluster peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial
 cargo test -p kairo-cluster tcp_peer_runtime

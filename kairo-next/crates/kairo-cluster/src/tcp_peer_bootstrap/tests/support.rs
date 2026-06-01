@@ -10,9 +10,9 @@ use crate::{
     ClusterEventPublisher, ClusterEventPublisherMsg, ClusterMembershipMsg,
     ClusterMembershipWireInbound, ClusterSystemInbound, ClusterTcpPeerConnectorMsg,
     ClusterTcpPeerConnectorSnapshot, ClusterTcpPeerRuntime,
-    DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH,
-    HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound, HeartbeatSenderMsg,
-    UniqueAddress, register_cluster_protocol_codecs,
+    DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, Gossip,
+    HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Member,
+    MemberStatus, UniqueAddress, register_cluster_protocol_codecs,
 };
 
 pub(super) struct ClusterInboundProbes {
@@ -98,6 +98,20 @@ pub(super) fn spawn_publisher(
             Props::new(move || ClusterEventPublisher::new(self_node.clone())),
         )
         .unwrap()
+}
+
+pub(super) fn up_gossip(nodes: impl IntoIterator<Item = UniqueAddress>) -> Gossip {
+    Gossip::from_members(
+        nodes
+            .into_iter()
+            .map(|node| Member::new(node, Vec::new()).with_status(MemberStatus::Up)),
+    )
+}
+
+pub(super) fn publish_gossip(publisher: &ActorRef<ClusterEventPublisherMsg>, gossip: Gossip) {
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
+        .unwrap();
 }
 
 pub(super) fn await_connector_no_routes(
