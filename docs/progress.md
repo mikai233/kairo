@@ -1109,6 +1109,8 @@ Implemented:
   subjects that have still seen current gossip. Indirect decisions down those
   nodes and combine with the ordinary majority/oldest decision after filtering
   reachability records between indirectly connected nodes.
+- `kairo-cluster` downing plan and split-brain resolver tests now live in a
+  focused sibling test module instead of the production downing decision file.
 - `kairo-cluster::LeaseMajorityHook` provides deterministic Pekko-style
   lease-majority downing with explicit lease acquisition, minority-side acquire
   delay, role-filtered majority/minority calculation, lease-denied reverse
