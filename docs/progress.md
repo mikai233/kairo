@@ -1691,6 +1691,12 @@ Implemented:
   one peer route before coordinated shutdown; the same example smoke suite now
   publishes a sender-local membership shrink and verifies the sender removes
   the departed peer route through the public reusable example module boundary.
+- The TCP bootstrap example modules now expose reusable three-node binding
+  helpers, and the localhost smoke suite validates cluster, distributed-data,
+  and cluster-tools full-mesh route installation followed by a membership
+  shrink to the two surviving nodes. The live socket smoke module is serialized
+  with a local mutex so coordinated shutdown validation is deterministic under
+  the default parallel test runner.
 - `kairo-cluster-sharding` now has a transport-neutral remote coordinator
   registration bridge that serializes stable `Register` envelopes to resolved
   coordinator recipients with region sender metadata and decodes

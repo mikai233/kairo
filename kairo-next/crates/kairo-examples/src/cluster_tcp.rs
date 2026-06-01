@@ -123,6 +123,21 @@ pub fn bind_two_nodes() -> Result<(ClusterTcpExampleNode, ClusterTcpExampleNode)
     ))
 }
 
+pub fn bind_three_nodes() -> Result<
+    (
+        ClusterTcpExampleNode,
+        ClusterTcpExampleNode,
+        ClusterTcpExampleNode,
+    ),
+    Box<dyn Error>,
+> {
+    Ok((
+        ClusterTcpExampleNode::bind("cluster-three-node-a", 1, 11, "cluster-three-node-a-peers")?,
+        ClusterTcpExampleNode::bind("cluster-three-node-b", 2, 22, "cluster-three-node-b-peers")?,
+        ClusterTcpExampleNode::bind("cluster-three-node-c", 3, 33, "cluster-three-node-c-peers")?,
+    ))
+}
+
 fn up_member(node: UniqueAddress) -> Member {
     Member::new(node, vec![]).with_status(MemberStatus::Up)
 }

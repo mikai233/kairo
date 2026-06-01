@@ -137,6 +137,21 @@ pub fn bind_two_nodes()
     ))
 }
 
+pub fn bind_three_nodes() -> Result<
+    (
+        ClusterToolsTcpExampleNode,
+        ClusterToolsTcpExampleNode,
+        ClusterToolsTcpExampleNode,
+    ),
+    Box<dyn Error>,
+> {
+    Ok((
+        ClusterToolsTcpExampleNode::bind("tools-three-node-a", 1, 11, "tools-three-node-a-peers")?,
+        ClusterToolsTcpExampleNode::bind("tools-three-node-b", 2, 22, "tools-three-node-b-peers")?,
+        ClusterToolsTcpExampleNode::bind("tools-three-node-c", 3, 33, "tools-three-node-c-peers")?,
+    ))
+}
+
 fn cluster_tools_registry() -> Result<Arc<Registry>, Box<dyn Error>> {
     let mut registry = Registry::new();
     register_cluster_tools_protocol_codecs(&mut registry)?;

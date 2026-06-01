@@ -162,6 +162,21 @@ pub fn bind_two_nodes() -> Result<(DDataTcpExampleNode, DDataTcpExampleNode), Bo
     ))
 }
 
+pub fn bind_three_nodes() -> Result<
+    (
+        DDataTcpExampleNode,
+        DDataTcpExampleNode,
+        DDataTcpExampleNode,
+    ),
+    Box<dyn Error>,
+> {
+    Ok((
+        DDataTcpExampleNode::bind("ddata-three-node-a", 1, 11, "ddata-three-node-a-peers")?,
+        DDataTcpExampleNode::bind("ddata-three-node-b", 2, 22, "ddata-three-node-b-peers")?,
+        DDataTcpExampleNode::bind("ddata-three-node-c", 3, 33, "ddata-three-node-c-peers")?,
+    ))
+}
+
 fn up_member(node: UniqueAddress) -> Member {
     Member::new(node, vec![]).with_status(MemberStatus::Up)
 }
