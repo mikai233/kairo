@@ -385,6 +385,9 @@ Implemented:
   expose `TcpAssociationSupervisedReadReport`, and listener lifecycle reports
   include structured reader supervision decisions instead of reducing lane
   failures to untyped error strings.
+- `kairo-remote` TCP socket tests now live in focused child modules for
+  sink/dialer, association/handshake, and reader supervision, leaving the
+  parent TCP test module for shared fixtures.
 - `kairo-actor` now keeps a typed local actor-ref registry keyed by exact
   actor path, removes refs before termination is observable, and exposes local
   resolution helpers so remoting can resolve inbound recipients without making
