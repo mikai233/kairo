@@ -1210,6 +1210,8 @@ Implemented:
   old and new gossip snapshots, including member status events, removed-member
   events, reachability events, leader and role-leader changes, seen changes,
   reachability summaries, and tombstone changes in publication order.
+- Cluster domain event model types, gossip diff logic, and diff tests now live
+  in focused `events` submodules instead of one mixed event file.
 - `kairo-cluster::DeadlineFailureDetector` and `FailureDetectorRegistry`
   provide deterministic heartbeat monitoring with Pekko-style semantics:
   unmonitored resources are available, first heartbeat starts monitoring,
@@ -1894,6 +1896,10 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster events
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-tools distributed_pubsub_mediator
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
