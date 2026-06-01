@@ -770,6 +770,10 @@ Implemented:
   pruning-readback tests now live in a focused sibling test module.
 - `kairo-distributed-data` replicator actor remote direct read/write receive
   tests now live in a focused sibling test module.
+- `ReplicatorActor<D>` construction, client get/update/subscription handling,
+  cluster route application, delta propagation ticks, gossip ticks/receives,
+  and removed-node pruning ticks now live in focused child modules instead of
+  one large actor implementation file.
 - `kairo-examples` now includes a runnable distributed-data TCP peer bootstrap
   example, with reusable setup and one-shot reply helpers kept in focused
   example modules instead of placing route orchestration in one binary file.
