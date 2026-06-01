@@ -157,6 +157,11 @@ fn ask_late_reply_is_rejected_after_timeout() {
         })
         .unwrap();
     let reply_ref = captured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        reply_ref.path().parent().unwrap().as_str(),
+        "kairo://test/temp"
+    );
+    assert!(reply_ref.path().name().unwrap().starts_with("ask$"));
     assert!(
         reply_rx
             .recv_timeout(Duration::from_secs(1))

@@ -34,6 +34,7 @@ pub struct ActorSystem {
 pub(crate) struct ActorSystemInner {
     pub(crate) next_uid: AtomicU64,
     pub(crate) next_anonymous: AtomicU64,
+    pub(crate) next_temp: AtomicU64,
     pub(crate) terminating: AtomicBool,
     pub(crate) terminated: AtomicBool,
     pub(crate) registry: ActorRegistry,
@@ -244,12 +245,21 @@ impl ActorSystem {
         Ok(owner_path.child(format!("$adapter-{id}"), Some(id)))
     }
 
-    pub(crate) fn next_ask_path(&self, owner_path: &ActorPath) -> Result<ActorPath, ActorError> {
+    pub(crate) fn next_ask_path(&self) -> Result<ActorPath, ActorError> {
         if self.is_terminating() {
             return Err(ActorError::SystemTerminating);
         }
-        let id = self.inner.next_anonymous.fetch_add(1, Ordering::Relaxed);
-        Ok(owner_path.child(format!("$ask-{id}"), Some(id)))
+        Ok(self.next_temp_path("ask"))
+    }
+
+    pub(crate) fn next_temp_path(&self, prefix: &str) -> ActorPath {
+        let id = self.inner.next_temp.fetch_add(1, Ordering::Relaxed);
+        let name = if prefix.is_empty() {
+            format!("${id}")
+        } else {
+            format!("{prefix}${id}")
+        };
+        self.temp_root_path().child(name, Some(id))
     }
 
     pub(crate) fn watch<M, N>(
@@ -364,6 +374,10 @@ impl ActorSystem {
 
     pub(crate) fn system_root_path(&self) -> ActorPath {
         ActorPath::root(self.address.clone(), "system")
+    }
+
+    pub(crate) fn temp_root_path(&self) -> ActorPath {
+        ActorPath::root(self.address.clone(), "temp")
     }
 
     pub(crate) fn dead_letters_path(&self) -> ActorPath {

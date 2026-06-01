@@ -77,6 +77,9 @@ Implemented:
   provider that reports root, user, system, and dead-letter guardian refs and
   distinguishes local, missing-local, and non-local paths for later remote
   provider composition.
+- The local actor provider now exposes `/temp` and allocates unique temporary
+  paths under it; `Context::ask` reply refs use those temp paths instead of
+  owner-local helper paths.
 - Local death watch is available through `Context::watch`,
   `Context::watch_with`, and `Context::unwatch`.
 - `Signal::Terminated` is delivered once to local watchers after the watched

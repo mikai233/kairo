@@ -11,7 +11,9 @@ pub trait ActorRefProvider: Send + Sync {
     fn root_guardian(&self) -> AnyActorRef;
     fn user_guardian(&self) -> AnyActorRef;
     fn system_guardian(&self) -> AnyActorRef;
+    fn temp_guardian(&self) -> AnyActorRef;
     fn dead_letters(&self) -> AnyActorRef;
+    fn temp_path(&self, prefix: impl AsRef<str>) -> ActorPath;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,8 +84,16 @@ impl ActorRefProvider for LocalActorRefProvider {
         AnyActorRef::from_path(self.system.system_root_path())
     }
 
+    fn temp_guardian(&self) -> AnyActorRef {
+        AnyActorRef::from_path(self.system.temp_root_path())
+    }
+
     fn dead_letters(&self) -> AnyActorRef {
         AnyActorRef::from_path(self.system.dead_letters_path())
+    }
+
+    fn temp_path(&self, prefix: impl AsRef<str>) -> ActorPath {
+        self.system.next_temp_path(prefix.as_ref())
     }
 }
 
@@ -92,6 +102,7 @@ impl LocalActorRefProvider {
         path == &self.system.root_path()
             || path == &self.system.user_root_path()
             || path == &self.system.system_root_path()
+            || path == &self.system.temp_root_path()
             || path == &self.system.dead_letters_path()
     }
 }

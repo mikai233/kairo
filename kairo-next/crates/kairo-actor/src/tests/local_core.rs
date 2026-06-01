@@ -309,6 +309,10 @@ fn actor_system_provider_exposes_guardian_refs_and_resolves_local_paths() {
         "kairo://test/system"
     );
     assert_eq!(
+        provider.temp_guardian().path().as_str(),
+        "kairo://test/temp"
+    );
+    assert_eq!(
         provider.dead_letters().path().as_str(),
         "kairo://test/deadLetters"
     );
@@ -316,6 +320,27 @@ fn actor_system_provider_exposes_guardian_refs_and_resolves_local_paths() {
     let resolved = provider.resolve(actor.path());
     assert!(resolved.is_local());
     assert_eq!(resolved.path(), actor.path());
+}
+
+#[test]
+fn local_actor_ref_provider_allocates_unique_temp_paths_under_temp_root() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let provider = system.provider();
+
+    let first = provider.temp_path("ask");
+    let second = provider.temp_path("ask");
+
+    assert_eq!(
+        first.parent(),
+        Some(provider.temp_guardian().path().clone())
+    );
+    assert_eq!(
+        second.parent(),
+        Some(provider.temp_guardian().path().clone())
+    );
+    assert_ne!(first, second);
+    assert_eq!(first.name(), Some("ask$0"));
+    assert_eq!(second.name(), Some("ask$1"));
 }
 
 #[test]

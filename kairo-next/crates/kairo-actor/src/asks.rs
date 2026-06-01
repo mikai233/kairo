@@ -40,7 +40,7 @@ where
     Create: FnOnce(ActorRef<Res>) -> Req,
     Map: FnOnce(AskResult<Res>) -> M + Send + 'static,
 {
-    let path = system.next_ask_path(owner.path())?;
+    let path = system.next_ask_path()?;
     let owner_mailbox = owner
         .target
         .mailbox
