@@ -826,6 +826,9 @@ Implemented:
 - `kairo-distributed-data` full-state gossip planning now separates error
   handling, digest/chunk hashing, status/apply reports, status response
   planning, and apply/create operations into focused child modules.
+- `kairo-distributed-data` aggregation operation actors now separate write
+  operation handling, read operation handling, shared response mapping, and
+  operation tests into focused child modules.
 - `ReplicatorActor<D>` construction, client get/update/subscription handling,
   cluster route application, delta propagation ticks, gossip ticks/receives,
   and removed-node pruning ticks now live in focused child modules instead of
