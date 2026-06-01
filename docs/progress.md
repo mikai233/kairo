@@ -777,6 +777,9 @@ Implemented:
 - `kairo-distributed-data` aggregation session actor tests now live in a
   focused sibling test module, with the delta-NACK retry scenario asserting
   that the session republishes the manifest-tagged full-state write payload.
+- `kairo-distributed-data` read/write aggregation actor scenario tests now
+  live in a focused sibling test module, keeping actor receive logic separate
+  from probe fixtures and quorum scenario data.
 - `kairo-distributed-data` direct read/write receive tests now live in a
   focused sibling test module.
 - `kairo-distributed-data` replicator state get, update, merge, delta, and
