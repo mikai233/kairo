@@ -801,6 +801,9 @@ Implemented:
   pruning-readback tests now live in a focused sibling test module.
 - `kairo-distributed-data` replicator actor remote direct read/write receive
   tests now live in a focused sibling test module.
+- `kairo-distributed-data` remote reply outbound/inbound tests now live in a
+  focused sibling test module, keeping stable reply-manifest routing coverage
+  separate from the remote reply boundary implementation.
 - `ReplicatorActor<D>` construction, client get/update/subscription handling,
   cluster route application, delta propagation ticks, gossip ticks/receives,
   and removed-node pruning ticks now live in focused child modules instead of
