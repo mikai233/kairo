@@ -49,6 +49,7 @@ where
     let owner_path = owner.path().clone();
     let owner_stopped = Arc::clone(&owner.target.stopped);
     let dead_letters = owner.dead_letters.clone();
+    let temp_registry = system.clone();
     let state = Arc::new(AskState::default());
     let stopped = Arc::new(AtomicBool::new(false));
     let terminated = Arc::new(TerminationLatch::default());
@@ -63,6 +64,7 @@ where
         let mapper = Arc::clone(&map_response);
         let mailbox = owner_mailbox.clone();
         let owner_stopped = Arc::clone(&owner_stopped);
+        let temp_registry = temp_registry.clone();
         ActorRef::function(
             path,
             dead_letters.clone(),
@@ -88,6 +90,7 @@ where
 
                 reply_stopped.store(true, Ordering::Release);
                 reply_terminated.mark_stopped();
+                temp_registry.unregister_temp_ref(&ask_path);
                 enqueue_ask_result(
                     &mailbox,
                     AskResult::Ok(reply),
@@ -107,6 +110,7 @@ where
             },
         )
     };
+    system.register_temp_ref(reply_ref.clone());
 
     spawn_timeout(TimeoutTask {
         timeout,
@@ -117,16 +121,19 @@ where
         state: Arc::clone(&state),
         stopped: Arc::clone(&stopped),
         terminated: Arc::clone(&terminated),
+        temp_registry: system.clone(),
+        temp_path: reply_ref.path().clone(),
         map_response,
         _response: std::marker::PhantomData,
     })?;
 
-    match target.tell(create_request(reply_ref)) {
+    match target.tell(create_request(reply_ref.clone())) {
         Ok(()) => Ok(()),
         Err(error) => {
             state.complete();
             stopped.store(true, Ordering::Release);
             terminated.mark_stopped();
+            system.unregister_temp_ref(reply_ref.path());
             Err(ActorError::AskSend(error.reason().to_string()))
         }
     }
@@ -141,6 +148,8 @@ struct TimeoutTask<M, Res, Map> {
     state: Arc<AskState>,
     stopped: Arc<AtomicBool>,
     terminated: Arc<TerminationLatch>,
+    temp_registry: ActorSystem,
+    temp_path: crate::path::ActorPath,
     map_response: Arc<Mutex<Option<Map>>>,
     _response: std::marker::PhantomData<fn(Res)>,
 }
@@ -161,6 +170,7 @@ where
 
             task.stopped.store(true, Ordering::Release);
             task.terminated.mark_stopped();
+            task.temp_registry.unregister_temp_ref(&task.temp_path);
             if task.owner_stopped.load(Ordering::Acquire) {
                 return;
             }

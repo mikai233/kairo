@@ -80,6 +80,9 @@ Implemented:
 - The local actor provider now exposes `/temp` and allocates unique temporary
   paths under it; `Context::ask` reply refs use those temp paths instead of
   owner-local helper paths.
+- Pending ask reply refs are registered under `/temp` for typed local
+  resolution and are removed when the ask completes, times out, or fails to
+  send the initial request.
 - Local death watch is available through `Context::watch`,
   `Context::watch_with`, and `Context::unwatch`.
 - `Signal::Terminated` is delivered once to local watchers after the watched

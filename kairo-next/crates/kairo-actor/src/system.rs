@@ -219,7 +219,18 @@ impl ActorSystem {
     }
 
     pub(crate) fn has_local_actor(&self, path: &ActorPath) -> bool {
-        self.inner.registry.handle_of(path).is_some()
+        self.inner.registry.handle_of(path).is_some() || self.inner.registry.contains_ref(path)
+    }
+
+    pub(crate) fn register_temp_ref<M>(&self, actor: ActorRef<M>)
+    where
+        M: Send + 'static,
+    {
+        self.inner.registry.add_ref(actor);
+    }
+
+    pub(crate) fn unregister_temp_ref(&self, path: &ActorPath) {
+        self.inner.registry.remove_ref(path);
     }
 
     pub(crate) fn children_of(&self, parent_path: &ActorPath) -> Vec<AnyActorRef> {

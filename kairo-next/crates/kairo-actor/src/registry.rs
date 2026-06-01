@@ -84,6 +84,13 @@ impl ActorRegistry {
             .remove(path.as_str());
     }
 
+    pub(crate) fn contains_ref(&self, path: &ActorPath) -> bool {
+        self.refs
+            .lock()
+            .expect("actor ref registry poisoned")
+            .contains_key(path.as_str())
+    }
+
     pub(crate) fn resolve_ref<M>(&self, path: &str) -> Option<ActorRef<M>>
     where
         M: Send + 'static,

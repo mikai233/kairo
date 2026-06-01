@@ -163,6 +163,11 @@ fn ask_late_reply_is_rejected_after_timeout() {
     );
     assert!(reply_ref.path().name().unwrap().starts_with("ask$"));
     assert!(
+        system
+            .resolve_local::<AskReply>(reply_ref.path().as_str())
+            .is_some()
+    );
+    assert!(
         reply_rx
             .recv_timeout(Duration::from_secs(1))
             .unwrap()
@@ -172,6 +177,11 @@ fn ask_late_reply_is_rejected_after_timeout() {
     let error = reply_ref.tell(AskReply(100)).unwrap_err();
 
     assert_eq!(error.reason(), "ask is completed");
+    assert!(
+        system
+            .resolve_local::<AskReply>(reply_ref.path().as_str())
+            .is_none()
+    );
     assert!(
         system
             .dead_letters()
