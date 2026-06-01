@@ -83,6 +83,9 @@ Implemented:
 - Pending ask reply refs are registered under `/temp` for typed local
   resolution and are removed when the ask completes, times out, or fails to
   send the initial request.
+- Actor-owned pending asks are lifecycle scoped: actor stop or restart
+  completes the temp reply ref, unregisters it from `/temp`, and rejects stale
+  replies instead of delivering them into the stopped or restarted owner.
 - Local death watch is available through `Context::watch`,
   `Context::watch_with`, and `Context::unwatch`.
 - `Signal::Terminated` is delivered once to local watchers after the watched

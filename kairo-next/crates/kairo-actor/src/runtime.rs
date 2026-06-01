@@ -41,6 +41,7 @@ pub(crate) fn run_actor<A>(
         receive_timeout: ReceiveTimeoutState::default(),
         stash: StashState::new(props.stash_capacity()),
         tasks: Default::default(),
+        asks: Default::default(),
         adapters: Default::default(),
     };
     let mut run_state = ActorRunState::default();
@@ -101,6 +102,7 @@ pub(crate) fn run_actor<A>(
     context.cancel_all_timers();
     context.cancel_receive_timeout();
     context.cancel_tasks();
+    context.cancel_asks();
     for adapter_path in context.stop_adapters() {
         system_inner
             .death_watch
@@ -493,6 +495,7 @@ where
     context.cancel_all_timers();
     context.cancel_receive_timeout();
     context.cancel_tasks();
+    context.cancel_asks();
     if stop_children_on_restart {
         stop_children(system_inner, actor_ref.path.as_str());
     }
@@ -523,6 +526,7 @@ where
     context.cancel_all_timers();
     context.cancel_receive_timeout();
     context.cancel_tasks();
+    context.cancel_asks();
     if stop_children_on_restart {
         stop_children(system_inner, actor_ref.path.as_str());
     }

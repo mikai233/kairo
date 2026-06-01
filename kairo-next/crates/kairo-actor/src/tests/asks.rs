@@ -46,13 +46,26 @@ enum AskProbeMsg {
         captured: mpsc::Sender<ActorRef<AskReply>>,
         reply_to: mpsc::Sender<Result<i32, String>>,
     },
+    AskAndStop {
+        target: ActorRef<AskTargetMsg>,
+        captured: mpsc::Sender<ActorRef<AskReply>>,
+        reply_to: mpsc::Sender<Result<i32, String>>,
+    },
+    AskAndFail {
+        target: ActorRef<AskTargetMsg>,
+        captured: mpsc::Sender<ActorRef<AskReply>>,
+        reply_to: mpsc::Sender<Result<i32, String>>,
+    },
     Asked {
         result: AskResult<AskReply>,
         reply_to: mpsc::Sender<Result<i32, String>>,
     },
+    Ping(mpsc::Sender<()>),
 }
 
-struct AskProbe;
+struct AskProbe {
+    pre_restart: Option<mpsc::Sender<()>>,
+}
 
 impl Actor for AskProbe {
     type Msg = AskProbeMsg;
@@ -82,6 +95,32 @@ impl Actor for AskProbe {
                     move |result| AskProbeMsg::Asked { result, reply_to },
                 )?;
             }
+            AskProbeMsg::AskAndStop {
+                target,
+                captured,
+                reply_to,
+            } => {
+                ctx.ask(
+                    target,
+                    Duration::from_secs(1),
+                    |reply_to| AskTargetMsg::CaptureOnly { reply_to, captured },
+                    move |result| AskProbeMsg::Asked { result, reply_to },
+                )?;
+                ctx.stop(ctx.myself())?;
+            }
+            AskProbeMsg::AskAndFail {
+                target,
+                captured,
+                reply_to,
+            } => {
+                ctx.ask(
+                    target,
+                    Duration::from_secs(1),
+                    |reply_to| AskTargetMsg::CaptureOnly { reply_to, captured },
+                    move |result| AskProbeMsg::Asked { result, reply_to },
+                )?;
+                return Err(ActorError::Message("boom".to_string()));
+            }
             AskProbeMsg::Asked { result, reply_to } => {
                 let observed = result
                     .map(|reply| reply.0)
@@ -90,6 +129,20 @@ impl Actor for AskProbe {
                     .send(observed)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
+            AskProbeMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))?,
+        }
+        Ok(())
+    }
+
+    fn signal(&mut self, _ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        if let Signal::PreRestart = signal
+            && let Some(pre_restart) = &self.pre_restart
+        {
+            pre_restart
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))?;
         }
         Ok(())
     }
@@ -101,7 +154,9 @@ fn ask_sends_request_and_maps_reply_through_owner_mailbox() {
     let target = system
         .spawn("ask-target", Props::new(|| AskTarget))
         .unwrap();
-    let probe = system.spawn("ask-probe", Props::new(|| AskProbe)).unwrap();
+    let probe = system
+        .spawn("ask-probe", Props::new(|| AskProbe { pre_restart: None }))
+        .unwrap();
     let (reply_tx, reply_rx) = mpsc::channel();
 
     probe
@@ -123,7 +178,9 @@ fn ask_timeout_maps_failure_through_owner_mailbox() {
     let target = system
         .spawn("ask-target", Props::new(|| AskTarget))
         .unwrap();
-    let probe = system.spawn("ask-probe", Props::new(|| AskProbe)).unwrap();
+    let probe = system
+        .spawn("ask-probe", Props::new(|| AskProbe { pre_restart: None }))
+        .unwrap();
     let (reply_tx, reply_rx) = mpsc::channel();
     let (captured_tx, _captured_rx) = mpsc::channel();
 
@@ -145,7 +202,9 @@ fn ask_late_reply_is_rejected_after_timeout() {
     let target = system
         .spawn("ask-target", Props::new(|| AskTarget))
         .unwrap();
-    let probe = system.spawn("ask-probe", Props::new(|| AskProbe)).unwrap();
+    let probe = system
+        .spawn("ask-probe", Props::new(|| AskProbe { pre_restart: None }))
+        .unwrap();
     let (reply_tx, reply_rx) = mpsc::channel();
     let (captured_tx, captured_rx) = mpsc::channel();
 
@@ -191,4 +250,79 @@ fn ask_late_reply_is_rejected_after_timeout() {
         system.dead_letters().records()[0].recipient(),
         reply_ref.path()
     );
+}
+
+#[test]
+fn ask_reply_is_rejected_after_owner_stops() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let target = system
+        .spawn("ask-target", Props::new(|| AskTarget))
+        .unwrap();
+    let probe = system
+        .spawn("ask-probe", Props::new(|| AskProbe { pre_restart: None }))
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (captured_tx, captured_rx) = mpsc::channel();
+
+    probe
+        .tell(AskProbeMsg::AskAndStop {
+            target,
+            captured: captured_tx,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+    let reply_ref = captured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(probe.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        system
+            .resolve_local::<AskReply>(reply_ref.path().as_str())
+            .is_none()
+    );
+
+    let error = reply_ref.tell(AskReply(100)).unwrap_err();
+
+    assert_eq!(error.reason(), "ask is completed");
+    assert!(reply_rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn ask_reply_is_rejected_after_owner_restart() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let target = system
+        .spawn("ask-target", Props::new(|| AskTarget))
+        .unwrap();
+    let (pre_restart_tx, pre_restart_rx) = mpsc::channel();
+    let probe = system
+        .spawn(
+            "ask-probe",
+            Props::restartable(move || AskProbe {
+                pre_restart: Some(pre_restart_tx.clone()),
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (captured_tx, captured_rx) = mpsc::channel();
+
+    probe
+        .tell(AskProbeMsg::AskAndFail {
+            target,
+            captured: captured_tx,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+    let reply_ref = captured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    pre_restart_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        system
+            .resolve_local::<AskReply>(reply_ref.path().as_str())
+            .is_none()
+    );
+
+    let error = reply_ref.tell(AskReply(100)).unwrap_err();
+
+    assert_eq!(error.reason(), "ask is completed");
+    assert!(reply_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    let (ping_tx, ping_rx) = mpsc::channel();
+    probe.tell(AskProbeMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 }

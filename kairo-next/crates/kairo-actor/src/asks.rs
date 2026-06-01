@@ -25,8 +25,58 @@ impl Display for AskError {
 
 impl std::error::Error for AskError {}
 
+#[derive(Clone, Default)]
+pub(crate) struct AskScope {
+    registrations: Arc<Mutex<Vec<AskRegistration>>>,
+}
+
+impl fmt::Debug for AskScope {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let pending = self.registrations.lock().expect("ask scope poisoned").len();
+        f.debug_struct("AskScope")
+            .field("registrations", &pending)
+            .finish_non_exhaustive()
+    }
+}
+
+impl AskScope {
+    pub(crate) fn register(&self, registration: AskRegistration) {
+        self.registrations
+            .lock()
+            .expect("ask scope poisoned")
+            .push(registration);
+    }
+
+    pub(crate) fn cancel_current(&self) {
+        let registrations =
+            std::mem::take(&mut *self.registrations.lock().expect("ask scope poisoned"));
+        for registration in registrations {
+            registration.cancel();
+        }
+    }
+}
+
+pub(crate) struct AskRegistration {
+    system: ActorSystem,
+    path: crate::path::ActorPath,
+    state: Arc<AskState>,
+    stopped: Arc<AtomicBool>,
+    terminated: Arc<TerminationLatch>,
+}
+
+impl AskRegistration {
+    fn cancel(self) {
+        if self.state.complete() {
+            self.stopped.store(true, Ordering::Release);
+            self.terminated.mark_stopped();
+            self.system.unregister_temp_ref(&self.path);
+        }
+    }
+}
+
 pub(crate) fn ask<M, Req, Res, Create, Map>(
     system: &ActorSystem,
+    scope: &AskScope,
     owner: ActorRef<M>,
     target: ActorRef<Req>,
     timeout: Duration,
@@ -111,6 +161,13 @@ where
         )
     };
     system.register_temp_ref(reply_ref.clone());
+    scope.register(AskRegistration {
+        system: system.clone(),
+        path: reply_ref.path().clone(),
+        state: Arc::clone(&state),
+        stopped: Arc::clone(&stopped),
+        terminated: Arc::clone(&terminated),
+    });
 
     spawn_timeout(TimeoutTask {
         timeout,

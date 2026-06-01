@@ -1,5 +1,5 @@
 use crate::adapters::{self, AdapterScope};
-use crate::asks::{self, AskError};
+use crate::asks::{self, AskError, AskScope};
 use crate::error::{ActorError, ActorResult};
 use crate::event_stream::EventStream;
 use crate::path::ActorPath;
@@ -111,6 +111,7 @@ pub struct Context<M> {
     pub(crate) receive_timeout: ReceiveTimeoutState<M>,
     pub(crate) stash: StashState<M>,
     pub(crate) tasks: TaskScope,
+    pub(crate) asks: AskScope,
     pub(crate) adapters: AdapterScope,
 }
 
@@ -227,6 +228,7 @@ impl<M: Send + 'static> Context<M> {
     {
         asks::ask(
             &self.system,
+            &self.asks,
             self.myself.clone(),
             target,
             timeout,
@@ -373,6 +375,10 @@ impl<M: Send + 'static> Context<M> {
 
     pub(crate) fn cancel_tasks(&mut self) {
         self.tasks.cancel_current();
+    }
+
+    pub(crate) fn cancel_asks(&mut self) {
+        self.asks.cancel_current();
     }
 
     pub(crate) fn stop_adapters(&mut self) -> Vec<ActorPath> {
