@@ -172,3 +172,70 @@ fn region_actor_sends_remote_graceful_shutdown_and_region_stopped() {
     assert_eq!(stopped.region, fixture.region_wire().clone());
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn region_actor_delays_remote_region_stopped_until_hosted_shard_handoff() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-remote-graceful-handoff").unwrap();
+    let fixture =
+        RemoteCoordinatorFixture::new(&kit, "region-remote-graceful-handoff", 2675, 11, 5_000);
+    let region = fixture.spawn_region_with_remote_handoff_stop_message(
+        &kit,
+        "region-a",
+        "stop",
+        Duration::from_millis(100),
+    );
+    let host = kit
+        .create_probe::<HostShardPlan<String>>("host-shard")
+        .unwrap();
+
+    fixture.publish_discovery(&region);
+    let register = fixture.expect_remote_message::<Register>();
+    assert_eq!(register.region, fixture.region_wire().clone());
+    region
+        .tell(ShardRegionMsg::RemoteCoordinatorRegistrationAck {
+            ack: ShardCoordinatorRemoteRegistrationAck {
+                sender: Some(fixture.target().recipient().clone()),
+                coordinator: fixture.target().recipient().clone(),
+            },
+        })
+        .unwrap();
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        host.expect_msg(Duration::from_millis(500)).unwrap(),
+        HostShardPlan::AlreadyStarted { ref shard, .. } if shard == "shard-1"
+    ));
+
+    region
+        .tell(ShardRegionMsg::GracefulShutdown { reply_to: None })
+        .unwrap();
+    let graceful = fixture.expect_remote_message::<GracefulShutdownReq>();
+    assert_eq!(graceful.region, fixture.region_wire().clone());
+    fixture.expect_no_remote_message(Duration::from_millis(50));
+
+    let reply = fixture.remote_control_reply_target();
+    region
+        .tell(ShardRegionMsg::RemoteBeginHandOff {
+            shard: "shard-1".to_string(),
+            reply: reply.clone(),
+        })
+        .unwrap();
+    let ack = fixture.expect_remote_message::<BeginHandOffAck>();
+    assert_eq!(ack.shard_id, "shard-1");
+
+    region
+        .tell(ShardRegionMsg::RemoteHandOff {
+            shard: "shard-1".to_string(),
+            reply,
+        })
+        .unwrap();
+    let stopped = fixture.expect_remote_message::<ShardStopped>();
+    assert_eq!(stopped.shard_id, "shard-1");
+    let region_stopped = fixture.expect_remote_message::<RegionStopped>();
+    assert_eq!(region_stopped.region, fixture.region_wire().clone());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}

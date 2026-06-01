@@ -1837,6 +1837,11 @@ Implemented:
 - `kairo-cluster-sharding` region actor remote-coordinator registration ACK,
   remote register retry, remote shard-home request, and remote graceful
   shutdown send tests now live in a focused sibling test module.
+- `kairo-cluster-sharding` now also pins the remote graceful-shutdown
+  hosted-shard sequence: a region registered with a remote coordinator sends
+  `GracefulShutdownReq`, withholds `RegionStopped` while it still owns a
+  hosted shard, then emits remote handoff acknowledgements and `RegionStopped`
+  only after the remote handoff stops the local shard.
 - `kairo-cluster-sharding` shard-region discovery subscriber cluster-snapshot
   forwarding tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` region actor shard-home request, buffered
@@ -1981,6 +1986,7 @@ cargo test -p kairo-cluster-sharding shard_remember_runtime
 cargo test -p kairo-cluster-sharding entity_shard_actor
 cargo test -p kairo-cluster-sharding coordinator_system_inbound_routes_region_shutdown_messages
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_graceful_shutdown_and_region_stopped
+cargo test -p kairo-cluster-sharding region_actor_delays_remote_region_stopped_until_hosted_shard_handoff
 cargo test -p kairo-cluster-sharding sharding_protocol_codecs_round_trip_handoff_messages
 cargo test -p kairo-cluster-sharding remote_coordinator_transport
 cargo test -p kairo-cluster-sharding coordinator_actor_dispatches_host_shard_on_new_allocation

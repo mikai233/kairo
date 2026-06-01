@@ -9,7 +9,7 @@ use kairo_testkit::{ActorSystemTestKit, TestProbe};
 use crate::{
     CoordinatorDiscoverySettings, RegionCoordinatorDiscoveryConfig,
     RegionRemoteCoordinatorTransport, ShardCoordinatorRemoteTarget, ShardRegionActor,
-    ShardRegionMsg, register_sharding_protocol_codecs,
+    ShardRegionMsg, ShardRegionRemoteControlReplyTarget, register_sharding_protocol_codecs,
 };
 
 use super::super::{cluster_member, cluster_state, remote_unique_node};
@@ -83,6 +83,29 @@ impl RemoteCoordinatorFixture {
             .unwrap()
     }
 
+    pub(super) fn spawn_region_with_remote_handoff_stop_message(
+        &self,
+        kit: &ActorSystemTestKit,
+        name: &'static str,
+        stop_message: impl Into<String>,
+        timeout: Duration,
+    ) -> ActorRef<ShardRegionMsg<String>> {
+        let discovery = self.discovery();
+        let transport = self.transport();
+        let stop_message = stop_message.into();
+        kit.system()
+            .spawn(
+                name,
+                Props::new(move || {
+                    ShardRegionActor::<String>::new_with_local_shards(name, 10, 10)
+                        .with_coordinator_discovery(discovery.clone())
+                        .with_remote_coordinator_transport(transport.clone())
+                        .with_remote_handoff_stop_message(stop_message.clone(), timeout)
+                }),
+            )
+            .unwrap()
+    }
+
     pub(super) fn publish_discovery(&self, region: &ActorRef<ShardRegionMsg<String>>) {
         region
             .tell(ShardRegionMsg::CoordinatorDiscoverySnapshot {
@@ -108,6 +131,19 @@ impl RemoteCoordinatorFixture {
         assert_eq!(envelope.sender, Some(self.region_wire.clone()));
         assert_eq!(envelope.message.manifest.as_str(), M::MANIFEST);
         self.registry.deserialize::<M>(envelope.message).unwrap()
+    }
+
+    pub(super) fn expect_no_remote_message(&self, duration: Duration) {
+        self.remote_envelopes.expect_no_msg(duration).unwrap();
+    }
+
+    pub(super) fn remote_control_reply_target(&self) -> ShardRegionRemoteControlReplyTarget {
+        ShardRegionRemoteControlReplyTarget::new(
+            self.region_wire.clone(),
+            self.target.recipient().clone(),
+            self.registry.clone(),
+            self.remote_envelopes.actor_ref(),
+        )
     }
 
     fn discovery(&self) -> RegionCoordinatorDiscoveryConfig<String> {
