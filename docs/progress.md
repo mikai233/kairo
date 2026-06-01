@@ -1054,6 +1054,10 @@ Implemented:
   subscriber that owns the cluster subscription, requests an initial cluster
   snapshot, forwards snapshots/events into the region's coordinator-discovery
   messages, and unsubscribes during actor stop.
+- Shard-region discovery subscriber coverage now validates coordinator
+  movement: a region registers with the first discovered local coordinator and
+  re-registers with a newly selected local coordinator after cluster membership
+  removes the previous coordinator.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
