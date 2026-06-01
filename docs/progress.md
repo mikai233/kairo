@@ -1347,6 +1347,9 @@ Implemented:
   planner, peer-route table, and dedicated reconnect state module. It applies
   snapshots/events to live pubsub/singleton routes, retries failed dials on
   explicit ticks, and clears routes plus pending retries before shutdown.
+- Cluster-tools TCP peer runtime shutdown now has focused lifecycle coverage
+  proving failed-dial pending reconnects are cleared and reported, and its
+  runtime tests live in a sibling test module instead of the production file.
 - `kairo-cluster-tools` now has an actor-backed TCP peer connector that
   subscribes to cluster snapshots/events, feeds the cluster-tools TCP peer
   runtime, exposes route/reconnect snapshots, supports explicit deterministic
@@ -1713,6 +1716,8 @@ cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster-tools bootstrap
+cargo test -p kairo-cluster-tools peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial
+cargo test -p kairo-cluster-tools tcp_peer_runtime
 cargo test -p kairo-cluster-tools singleton_oldest
 cargo test -p kairo-cluster-tools singleton_manager
 cargo test -p kairo-cluster-tools singleton_proxy
