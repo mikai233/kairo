@@ -1282,6 +1282,10 @@ Implemented:
   codecs and serializer ids for heartbeat, heartbeat response, join, welcome,
   and gossip envelope messages, including member lists, seen state,
   reachability versions/records, vector clocks, and tombstones.
+- Cluster protocol codec implementation is split into focused registration,
+  control-message codec, gossip-message codec, wire-helper, and codec-test
+  modules instead of concentrating stable membership wire logic and fixtures in
+  one file.
 - `kairo-cluster` now has a focused transport-neutral membership wire bridge
   that maps typed join, welcome, and gossip membership messages to serialized
   stable cluster protocol payloads with target-node routing metadata, routes
