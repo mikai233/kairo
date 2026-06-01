@@ -1340,6 +1340,10 @@ Implemented:
   for the other node through the actor-backed connector boundary; the same
   validation now runs coordinated shutdown afterward and asserts the live-route
   connector stops through the registered bootstrap shutdown task.
+- The two-node cluster TCP peer bootstrap validation now uses
+  `kairo-testkit::MultiNodeTestKit` to own named node systems and create
+  per-node snapshot probes, exercising the structured local multi-node harness
+  in an existing live socket route test.
 - Cluster TCP peer bootstrap now validates payload delivery over an installed
   membership-derived peer route: a real bootstrap-owned sender association
   cache carries a stable-codec `Join` membership message to the remote
