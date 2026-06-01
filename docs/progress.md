@@ -1604,6 +1604,9 @@ Implemented:
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
   sections, including explicit type/value validation and unknown-key rejection.
+- The TOML loader now separates file/root parsing, section-to-settings
+  projection, and primitive value validation into focused modules instead of
+  concentrating all configuration parsing logic in one file.
 - The `kairo` facade crate docs now describe feature-gated module boundaries,
   the prelude, local-vs-remote serialization requirements, TOML-first
   configuration, and a compile-checked settings parse example.
