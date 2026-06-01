@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -13,7 +12,7 @@ use kairo::cluster_sharding::{
 
 use crate::reply::spawn_one_shot_reply;
 
-static REPLY_ID: AtomicU64 = AtomicU64::new(0);
+use super::next_reply_id;
 
 pub struct LocalShardingExample {
     system: ActorSystem,
@@ -130,7 +129,7 @@ impl LocalShardingExample {
     ) -> Result<PassivatePlan<String>, Box<dyn Error>> {
         let shard = default_shard_id_for(entity_id);
         let shard_ref = self.wait_for_local_shard(&shard, timeout)?;
-        let id = REPLY_ID.fetch_add(1, Ordering::Relaxed);
+        let id = next_reply_id();
         let (reply_to, replies) =
             spawn_one_shot_reply(&self.system, format!("passivate-entity-{id}"))?;
         shard_ref.tell(ShardMsg::Passivate {
@@ -179,7 +178,7 @@ impl LocalShardingExample {
     ) -> Result<ActorRef<ShardMsg<String>>, Box<dyn Error>> {
         let deadline = Instant::now() + timeout;
         loop {
-            let id = REPLY_ID.fetch_add(1, Ordering::Relaxed);
+            let id = next_reply_id();
             let (reply_to, replies) =
                 spawn_one_shot_reply(&self.system, format!("local-shard-{id}"))?;
             self.region.tell(ShardRegionMsg::GetLocalShard {
@@ -201,7 +200,7 @@ impl LocalShardingExample {
         shard: &ActorRef<ShardMsg<String>>,
         timeout: Duration,
     ) -> Result<ShardSnapshot, Box<dyn Error>> {
-        let id = REPLY_ID.fetch_add(1, Ordering::Relaxed);
+        let id = next_reply_id();
         let (reply_to, replies) =
             spawn_one_shot_reply(&self.system, format!("shard-snapshot-{id}"))?;
         shard.tell(ShardMsg::GetState { reply_to })?;

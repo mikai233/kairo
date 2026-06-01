@@ -6,7 +6,7 @@ use kairo::prelude::*;
 use kairo_examples::configured_counter::run_configured_counter;
 use kairo_examples::counter::{CounterCmd, spawn_counter};
 use kairo_examples::patterns::{PatternObservation, run_ask_pipe_to_self};
-use kairo_examples::sharding_local::LocalShardingExample;
+use kairo_examples::sharding_local::{LocalShardingExample, run_local_graceful_region_shutdown};
 
 #[test]
 fn local_counter_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
@@ -102,6 +102,21 @@ fn cluster_sharding_local_example_passivates_and_restarts_entity()
     assert_eq!(snapshot.entity_count, 1);
 
     sharding.shutdown(Duration::from_secs(1))?;
+    Ok(())
+}
+
+#[test]
+fn cluster_sharding_local_example_gracefully_moves_region_shard()
+-> Result<(), Box<dyn std::error::Error>> {
+    let observation =
+        run_local_graceful_region_shutdown("example-smoke-sharding-graceful-shutdown")?;
+
+    assert_eq!(observation.shard, "shard-1");
+    assert_eq!(observation.from_region, "region-a");
+    assert_eq!(observation.to_region, "region-b");
+    assert!(observation.shutdown_started);
+    assert!(!observation.old_owner_has_shard);
+    assert!(observation.new_owner_has_shard);
     Ok(())
 }
 
