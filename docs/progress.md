@@ -1187,6 +1187,9 @@ Implemented:
   explicit deterministic retry ticks, can schedule fixed-delay retry ticks with
   actor timers, reports snapshots for tests, and shuts the owned TCP runtime
   down when the connector actor stops.
+- Cluster TCP peer connector socket tests now live in a focused sibling test
+  module with serialized live listener fixtures, keeping the production
+  connector module focused on actor/runtime behavior.
 - `kairo-cluster` now has a TCP peer bootstrap facade that binds the cluster
   TCP peer runtime, spawns the connector actor with explicit settings, exposes
   the connector ref/self node/local association address, and registers
