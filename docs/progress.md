@@ -1585,6 +1585,10 @@ Implemented:
   region actor state transitions and emit stable `ShardStarted`,
   `BeginHandOffAck`, or immediate `ShardStopped` replies where the current
   region runtime can complete the command synchronously.
+- Shard-region system inbound coverage now lives in a focused sibling test
+  module and decodes the emitted `ShardStarted`, `BeginHandOffAck`, and
+  `ShardStopped` reply payloads through registered codecs instead of asserting
+  only stable manifests.
 - `ShardRegionActor<M>` can now opt into a region-side remote handoff
   stop-message factory, so stable remote `HandOff` commands for locally hosted
   shards forward into the local shard, observe the shard handoff plan, ask for
