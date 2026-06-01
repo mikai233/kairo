@@ -1124,6 +1124,9 @@ Implemented:
   `DowningProviderActor` observer, forwards each current gossip snapshot to it,
   and applies the provider's stable downing decision through the existing
   membership state machine.
+- `kairo-cluster` membership actor join, welcome, gossip, downing, and
+  reachability tests now live in a focused sibling test module instead of the
+  production membership actor file.
 - `kairo-cluster` now has a focused live-socket membership/downing validation:
   a remote `Join` crosses a real TCP association into an actor-backed
   membership node, the registered downing provider observes the resulting
@@ -1752,6 +1755,7 @@ cargo test -p kairo-cluster downing::tests
 cargo test -p kairo-cluster downing
 cargo test -p kairo-cluster indirectly_connected
 cargo test -p kairo-cluster all_observers_reports_negative_reachability_observers
+cargo test -p kairo-cluster membership_actor
 cargo test -p kairo-cluster bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster bootstrap
