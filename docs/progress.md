@@ -1145,6 +1145,8 @@ Implemented:
   response messages with stable remote manifests, expected-first-heartbeat
   monitoring, cluster membership/reachability event updates, and
   failure-detector cleanup on stop.
+- `kairo-cluster` heartbeat sender/receiver actor tests now live in a focused
+  sibling test module instead of the production heartbeat actor file.
 - `kairo-cluster` now has focused remote-envelope heartbeat routing:
   `HeartbeatRemoteReceiverOutbound` can be registered as a typed heartbeat
   receiver route and sends stable `Heartbeat` payloads to
