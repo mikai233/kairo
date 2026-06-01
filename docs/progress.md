@@ -1511,6 +1511,9 @@ Implemented:
   shards forward into the local shard, observe the shard handoff plan, ask for
   stopper completion when required, mark the shard stopped, and send stable
   `ShardStopped` replies without putting business stop messages on the wire.
+- `ShardRegionActor` remote host-shard, remote handoff, and graceful shutdown
+  lifecycle helpers now live in a focused `region_actor::remote_lifecycle`
+  child module instead of growing the main region actor file.
 - `kairo-cluster-sharding` now has a local graceful region-shutdown path:
   regions notify their registered coordinator with `GracefulShutdownReq`,
   coordinators mark that region as gracefully shutting down, start handoff
