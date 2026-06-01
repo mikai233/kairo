@@ -1,8 +1,10 @@
 use std::fmt::{self, Formatter};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+mod lifecycle;
 
 use crate::dead_letters::DeadLetters;
 use crate::error::SendError;
@@ -12,6 +14,8 @@ use crate::receive_timeout::ReceiveTimeoutEnvelope;
 use crate::signal::Signal;
 use crate::supervision::SupervisionFailure;
 use crate::timers::TimerEnvelope;
+
+pub(crate) use lifecycle::{LocalActorHandle, TerminationLatch};
 
 pub trait Recipient<M: Send + 'static> {
     fn tell(&self, message: M) -> Result<(), SendError<M>>;
@@ -403,76 +407,5 @@ impl<M> Default for IgnoreRef<M> {
 impl<M: Send + 'static> Recipient<M> for IgnoreRef<M> {
     fn tell(&self, _message: M) -> Result<(), SendError<M>> {
         Ok(())
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct LocalActorHandle {
-    path: ActorPath,
-    terminated: Arc<TerminationLatch>,
-    stop: Arc<dyn Fn() + Send + Sync>,
-    supervise: Arc<dyn Fn(SupervisionFailure) + Send + Sync>,
-}
-
-impl fmt::Debug for LocalActorHandle {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LocalActorHandle")
-            .field("path", &self.path)
-            .finish_non_exhaustive()
-    }
-}
-
-impl LocalActorHandle {
-    pub(crate) fn path(&self) -> &ActorPath {
-        &self.path
-    }
-
-    pub(crate) fn request_stop(&self) {
-        (self.stop)();
-    }
-
-    pub(crate) fn request_supervision(&self, failure: SupervisionFailure) {
-        (self.supervise)(failure);
-    }
-
-    pub(crate) fn wait_for_stop(&self, timeout: Duration) -> bool {
-        self.terminated.wait(timeout)
-    }
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct TerminationLatch {
-    stopped: Mutex<bool>,
-    changed: Condvar,
-}
-
-impl TerminationLatch {
-    pub(crate) fn mark_stopped(&self) {
-        let mut stopped = self.stopped.lock().expect("termination latch poisoned");
-        *stopped = true;
-        self.changed.notify_all();
-    }
-
-    fn is_stopped(&self) -> bool {
-        *self.stopped.lock().expect("termination latch poisoned")
-    }
-
-    fn wait(&self, timeout: Duration) -> bool {
-        let deadline = Instant::now() + timeout;
-        let mut stopped = self.stopped.lock().expect("termination latch poisoned");
-        while !*stopped {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return false;
-            };
-            let (next_stopped, wait) = self
-                .changed
-                .wait_timeout(stopped, remaining)
-                .expect("termination latch poisoned");
-            stopped = next_stopped;
-            if wait.timed_out() && !*stopped {
-                return false;
-            }
-        }
-        true
     }
 }

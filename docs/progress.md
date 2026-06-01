@@ -71,6 +71,9 @@ Implemented:
   compile-checked example.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
   module instead of being embedded in the system runtime loop.
+- Actor reference lifecycle handles and termination latches now live in a
+  focused `refs::lifecycle` submodule instead of being mixed into the typed
+  send-path implementation.
 - `ActorPath` now stores structured address, path segments, and incarnation UID
   metadata while preserving the stable display string.
 - `Address` exposes explicit construction plus protocol, system, host, and
