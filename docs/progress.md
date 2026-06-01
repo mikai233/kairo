@@ -1284,6 +1284,10 @@ Implemented:
   publisher that stores the latest gossip, publishes `ClusterEvent` diffs to
   typed subscribers, supports initial state replay as events, handles explicit
   event publication, unsubscribe, and current-state snapshot requests.
+- Cluster event-publisher subscription and current-state snapshot data now live
+  in a focused submodule instead of being embedded in the actor implementation.
+- Cluster event-publisher tests now live in a focused sibling test module
+  instead of the production event-publisher actor file.
 - `kairo-cluster::Cluster` provides the first public cluster subscription
   facade over the event publisher, including snapshot-first typed subscriptions
   through `ClusterSubscriptionEvent`, replay-as-events subscriptions,
@@ -1887,6 +1891,10 @@ Not yet implemented:
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p kairo-cluster event_publisher
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding region_system_inbound_completes_hosted_remote_handoff_with_local_stop_message
 cargo test -p kairo-cluster-sharding remote_control
 cargo test -p kairo-cluster-sharding region_system_inbound
