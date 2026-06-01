@@ -931,6 +931,10 @@ Implemented:
   explicit codecs and serializer ids for the initial region/coordinator
   registration, shard-home, host-shard, start, handoff, stopped, and routed
   shard-envelope protocol messages.
+- Cluster-sharding protocol codec implementation is split into focused
+  registration, coordinator-message codec, shard-control codec,
+  routed-envelope codec, graceful-shutdown codec, wire-helper, and codec-test
+  modules instead of concentrating stable sharding wire logic in one file.
 - Serialization tests cover rolling-version decode behavior by proving codecs
   receive the wire `version` and can decode older payload shapes under the same
   stable manifest.
