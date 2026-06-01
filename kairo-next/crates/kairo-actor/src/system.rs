@@ -14,6 +14,7 @@ use crate::error::ActorError;
 use crate::event_stream::EventStream;
 use crate::mailbox::Mailbox;
 use crate::path::{ActorPath, Address};
+use crate::provider::LocalActorRefProvider;
 use crate::receive_timeout::ReceiveTimeoutEnvelope;
 use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef, TerminationLatch};
@@ -80,6 +81,10 @@ impl ActorSystem {
 
     pub fn coordinated_shutdown(&self) -> CoordinatedShutdown {
         self.inner.coordinated_shutdown.clone()
+    }
+
+    pub fn provider(&self) -> LocalActorRefProvider {
+        LocalActorRefProvider::new(self.clone())
     }
 
     pub fn run_coordinated_shutdown(
@@ -210,6 +215,10 @@ impl ActorSystem {
         let path = path.into();
         self.resolve_local(&path)
             .unwrap_or_else(|| self.missing_ref(path))
+    }
+
+    pub(crate) fn has_local_actor(&self, path: &ActorPath) -> bool {
+        self.inner.registry.handle_of(path).is_some()
     }
 
     pub(crate) fn children_of(&self, parent_path: &ActorPath) -> Vec<AnyActorRef> {
@@ -345,8 +354,20 @@ impl ActorSystem {
         self.spawn_under_with_name(parent_path, &name, props, true)
     }
 
-    fn user_root_path(&self) -> ActorPath {
+    pub(crate) fn root_path(&self) -> ActorPath {
+        ActorPath::new(self.address.to_string())
+    }
+
+    pub(crate) fn user_root_path(&self) -> ActorPath {
         ActorPath::root(self.address.clone(), "user")
+    }
+
+    pub(crate) fn system_root_path(&self) -> ActorPath {
+        ActorPath::root(self.address.clone(), "system")
+    }
+
+    pub(crate) fn dead_letters_path(&self) -> ActorPath {
+        ActorPath::root(self.address.clone(), "deadLetters")
     }
 
     fn watch_registered<N>(

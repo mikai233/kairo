@@ -73,6 +73,10 @@ Implemented:
 - `Address` exposes explicit construction plus protocol, system, host, and
   port accessors so remote and cluster codecs can round-trip structured node
   addresses without relying on path string parsing as their primary API.
+- `kairo-actor` now exposes an `ActorRefProvider` boundary plus a local
+  provider that reports root, user, system, and dead-letter guardian refs and
+  distinguishes local, missing-local, and non-local paths for later remote
+  provider composition.
 - Local death watch is available through `Context::watch`,
   `Context::watch_with`, and `Context::unwatch`.
 - `Signal::Terminated` is delivered once to local watchers after the watched

@@ -292,6 +292,50 @@ fn actor_system_terminate_stops_top_level_actors() {
 }
 
 #[test]
+fn actor_system_provider_exposes_guardian_refs_and_resolves_local_paths() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let provider = system.provider();
+    let actor = system
+        .spawn("counter", Props::new(|| Counter { value: 0 }))
+        .unwrap();
+
+    assert_eq!(provider.root_guardian().path().as_str(), "kairo://test");
+    assert_eq!(
+        provider.user_guardian().path().as_str(),
+        "kairo://test/user"
+    );
+    assert_eq!(
+        provider.system_guardian().path().as_str(),
+        "kairo://test/system"
+    );
+    assert_eq!(
+        provider.dead_letters().path().as_str(),
+        "kairo://test/deadLetters"
+    );
+
+    let resolved = provider.resolve(actor.path());
+    assert!(resolved.is_local());
+    assert_eq!(resolved.path(), actor.path());
+}
+
+#[test]
+fn local_actor_ref_provider_distinguishes_missing_and_non_local_paths() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let provider = system.provider();
+
+    let missing = ActorPath::new("kairo://test/user/missing#9");
+    let foreign = ActorPath::new("kairo://other@127.0.0.1:2552/user/worker#1");
+
+    let missing_result = provider.resolve(&missing);
+    assert!(missing_result.is_missing());
+    assert_eq!(missing_result.path(), &missing);
+
+    let foreign_result = provider.resolve(&foreign);
+    assert!(foreign_result.is_non_local());
+    assert_eq!(foreign_result.path(), &foreign);
+}
+
+#[test]
 fn actor_system_terminate_rejects_later_spawns() {
     let system = ActorSystem::builder("test").build().unwrap();
 

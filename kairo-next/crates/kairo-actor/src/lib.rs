@@ -96,6 +96,7 @@ mod error;
 mod event_stream;
 mod mailbox;
 mod path;
+mod provider;
 mod receive_timeout;
 mod receptionist;
 mod refs;
@@ -127,6 +128,7 @@ pub use dispatcher::DispatcherSettings;
 pub use error::{ActorError, ActorResult, SendError};
 pub use event_stream::EventStream;
 pub use path::{ActorPath, Address};
+pub use provider::{ActorRefProvider, ActorRefResolveResult, LocalActorRefProvider};
 pub use receptionist::{Listing, Receptionist, ServiceKey};
 pub use refs::{ActorRef, AnyActorRef, IgnoreRef, Recipient};
 pub use scheduler::{Cancellable, ManualScheduler};
@@ -138,11 +140,12 @@ pub use timers::TimerKey;
 
 pub mod prelude {
     pub use crate::{
-        Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, AskError, AskResult,
-        BackoffReset, BackoffSettingsError, BackoffSupervisor, BackoffSupervisorMsg,
-        BackoffSupervisorSettings, Cancellable, Context, CoordinatedShutdown, CurrentChild,
-        DeadLetter, DeadLetters, DispatcherSettings, EventStream, IgnoreRef, Listing,
-        ManualScheduler, PHASE_ACTOR_SYSTEM_TERMINATE, PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE,
+        Actor, ActorError, ActorPath, ActorRef, ActorRefProvider, ActorRefResolveResult,
+        ActorResult, ActorSystem, AskError, AskResult, BackoffReset, BackoffSettingsError,
+        BackoffSupervisor, BackoffSupervisorMsg, BackoffSupervisorSettings, Cancellable, Context,
+        CoordinatedShutdown, CurrentChild, DeadLetter, DeadLetters, DispatcherSettings,
+        EventStream, IgnoreRef, Listing, LocalActorRefProvider, ManualScheduler,
+        PHASE_ACTOR_SYSTEM_TERMINATE, PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE,
         PHASE_BEFORE_CLUSTER_SHUTDOWN, PHASE_BEFORE_SERVICE_UNBIND, PHASE_CLUSTER_EXITING,
         PHASE_CLUSTER_EXITING_DONE, PHASE_CLUSTER_LEAVE, PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION,
         PHASE_CLUSTER_SHUTDOWN, PHASE_SERVICE_REQUESTS_DONE, PHASE_SERVICE_STOP,
