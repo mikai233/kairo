@@ -1260,6 +1260,8 @@ Implemented:
   deterministic ring ordering, configured receiver limits, unreachable receiver
   inclusion, and continued monitoring of removed-but-unavailable receivers until
   recovery.
+- Cluster heartbeat ring and sender-state tests now live in a focused sibling
+  test module instead of the production heartbeat state file.
 - `kairo-cluster::HeartbeatReceiver` and `HeartbeatSender` provide the first
   actor-backed heartbeat I/O slice: current-state initialization, typed
   receiver route registration, periodic tick scheduling, heartbeat request and
