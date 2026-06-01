@@ -1001,6 +1001,10 @@ Implemented:
   turn, treats duplicate registrations idempotently like Pekko's `Register`
   path, and allows registered local regions to participate in subsequent
   coordinator-driven handoff workers.
+- `ShardCoordinatorActor` constructors, `Props` builders, handoff construction,
+  remember-store startup/loading, remembered-shard allocation, and allocated
+  shard persistence now live in focused child modules instead of the main
+  coordinator actor message-dispatch file.
 - `kairo-cluster-sharding` shard region actors can now self-register with a
   local typed coordinator during actor startup, retry registration until the
   coordinator acknowledges it, expose registration status in region snapshots,

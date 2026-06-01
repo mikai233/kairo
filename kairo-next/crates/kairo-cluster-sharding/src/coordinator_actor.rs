@@ -17,6 +17,9 @@ use crate::{
 
 pub const REBALANCE_TIMER_KEY: &str = "sharding-coordinator-rebalance";
 
+mod construction;
+mod remember_store;
+
 pub struct ShardCoordinatorActor<M = ()>
 where
     M: Send + 'static,
@@ -29,169 +32,6 @@ where
     waiting_for_remember_store_load: bool,
     handoff: Option<CoordinatorHandoff<M>>,
     remote_regions: CoordinatorRemoteRegions,
-}
-
-impl ShardCoordinatorActor<()> {
-    pub fn new(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-    ) -> Self {
-        Self {
-            runtime: CoordinatorRuntime::new(state),
-            strategy: Box::new(strategy),
-            rebalance_interval: None,
-            remember_store: None,
-            local_remember_store_provider: None,
-            waiting_for_remember_store_load: false,
-            handoff: None,
-            remote_regions: CoordinatorRemoteRegions::new(),
-        }
-    }
-
-    pub fn with_rebalance_interval(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-        interval: Duration,
-    ) -> Self {
-        Self {
-            runtime: CoordinatorRuntime::new(state),
-            strategy: Box::new(strategy),
-            rebalance_interval: Some(interval),
-            remember_store: None,
-            local_remember_store_provider: None,
-            waiting_for_remember_store_load: false,
-            handoff: None,
-            remote_regions: CoordinatorRemoteRegions::new(),
-        }
-    }
-
-    pub fn with_remember_store(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-        remember_store: ActorRef<RememberCoordinatorStoreMsg>,
-        timeout: Duration,
-    ) -> Self {
-        Self {
-            runtime: CoordinatorRuntime::new(state.with_remember_entities(true)),
-            strategy: Box::new(strategy),
-            rebalance_interval: None,
-            remember_store: Some(CoordinatorRememberStore::new(remember_store, timeout)),
-            local_remember_store_provider: None,
-            waiting_for_remember_store_load: true,
-            handoff: None,
-            remote_regions: CoordinatorRemoteRegions::new(),
-        }
-    }
-
-    pub fn with_local_remember_store(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-        store_state: RememberCoordinatorStoreState,
-        timeout: Duration,
-    ) -> Self {
-        Self {
-            runtime: CoordinatorRuntime::new(state.with_remember_entities(true)),
-            strategy: Box::new(strategy),
-            rebalance_interval: None,
-            remember_store: None,
-            local_remember_store_provider: Some(LocalCoordinatorRememberStoreProvider::new(
-                store_state,
-                timeout,
-            )),
-            waiting_for_remember_store_load: true,
-            handoff: None,
-            remote_regions: CoordinatorRemoteRegions::new(),
-        }
-    }
-
-    pub fn with_least_shard_strategy(state: CoordinatorState) -> Self {
-        Self::new(state, LeastShardAllocationStrategy::default())
-    }
-
-    pub fn props(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-    ) -> Props<Self> {
-        Props::new(move || Self::new(state, strategy))
-    }
-
-    pub fn props_with_rebalance_interval(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-        interval: Duration,
-    ) -> Props<Self> {
-        Props::new(move || Self::with_rebalance_interval(state, strategy, interval))
-    }
-
-    pub fn props_with_least_shard_strategy(state: CoordinatorState) -> Props<Self> {
-        Props::new(move || Self::with_least_shard_strategy(state))
-    }
-
-    pub fn props_with_remember_store(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-        remember_store: ActorRef<RememberCoordinatorStoreMsg>,
-        timeout: Duration,
-        stash_capacity: usize,
-    ) -> Props<Self> {
-        Props::new(move || Self::with_remember_store(state, strategy, remember_store, timeout))
-            .with_stash_capacity(stash_capacity)
-    }
-
-    pub fn props_with_local_remember_store(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-        store_state: RememberCoordinatorStoreState,
-        timeout: Duration,
-        stash_capacity: usize,
-    ) -> Props<Self> {
-        Props::new(move || Self::with_local_remember_store(state, strategy, store_state, timeout))
-            .with_stash_capacity(stash_capacity)
-    }
-}
-
-impl<M> ShardCoordinatorActor<M>
-where
-    M: Clone + Send + 'static,
-{
-    pub fn with_handoff(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-        stop_message: M,
-        handoff_timeout: Duration,
-        transport: HandoffTransport<M>,
-    ) -> Self {
-        Self {
-            runtime: CoordinatorRuntime::new(state),
-            strategy: Box::new(strategy),
-            rebalance_interval: None,
-            remember_store: None,
-            local_remember_store_provider: None,
-            waiting_for_remember_store_load: false,
-            handoff: Some(CoordinatorHandoff::new(
-                stop_message,
-                handoff_timeout,
-                transport,
-            )),
-            remote_regions: CoordinatorRemoteRegions::new(),
-        }
-    }
-
-    pub fn props_with_handoff(
-        state: CoordinatorState,
-        strategy: impl ShardAllocationStrategy + Send + 'static,
-        stop_message: M,
-        handoff_timeout: Duration,
-        transport: HandoffTransport<M>,
-    ) -> Props<Self> {
-        Props::new(move || {
-            Self::with_handoff(state, strategy, stop_message, handoff_timeout, transport)
-        })
-    }
-
-    pub fn runtime(&self) -> &CoordinatorRuntime {
-        &self.runtime
-    }
 }
 
 #[derive(Clone)]
@@ -465,87 +305,6 @@ impl<M> ShardCoordinatorActor<M>
 where
     M: Clone + Send + 'static,
 {
-    fn receive_loading(
-        &mut self,
-        ctx: &mut Context<ShardCoordinatorMsg<M>>,
-        msg: ShardCoordinatorMsg<M>,
-    ) -> ActorResult {
-        match msg {
-            ShardCoordinatorMsg::RememberStoreLoadResult { result } => {
-                self.apply_remember_store_load(ctx, result)?;
-                ctx.unstash_all()
-            }
-            other => ctx.stash(other),
-        }
-    }
-
-    fn spawn_local_remember_store_if_needed(
-        &mut self,
-        ctx: &Context<ShardCoordinatorMsg<M>>,
-    ) -> ActorResult {
-        if self.remember_store.is_some() {
-            return Ok(());
-        }
-        let Some(provider) = &mut self.local_remember_store_provider else {
-            return Ok(());
-        };
-        self.remember_store = Some(provider.spawn(ctx)?);
-        Ok(())
-    }
-
-    fn request_remember_store_load(&self, ctx: &Context<ShardCoordinatorMsg<M>>) -> ActorResult {
-        if let Some(store) = &self.remember_store {
-            store.load(ctx)?;
-        }
-        Ok(())
-    }
-
-    fn apply_remember_store_load(
-        &mut self,
-        ctx: &mut Context<ShardCoordinatorMsg<M>>,
-        result: Result<RememberedShards, AskError>,
-    ) -> ActorResult {
-        let remembered = match result {
-            Ok(remembered) => remembered,
-            Err(_) => return self.stop_for_remember_store_failure(ctx),
-        };
-        self.runtime.merge_remembered_shards(remembered.shards);
-        self.waiting_for_remember_store_load = false;
-        self.allocate_remembered_shard_homes(ctx)?;
-        Ok(())
-    }
-
-    fn persist_allocated_shard(
-        &self,
-        ctx: &Context<ShardCoordinatorMsg<M>>,
-        result: &Result<GetShardHomePlan, ShardingError>,
-    ) -> ActorResult {
-        let Ok(plan) = result else {
-            return Ok(());
-        };
-        self.persist_allocated_shard_plan(ctx, plan)
-    }
-
-    fn persist_allocated_shard_plan(
-        &self,
-        ctx: &Context<ShardCoordinatorMsg<M>>,
-        plan: &GetShardHomePlan,
-    ) -> ActorResult {
-        let GetShardHomePlan::Allocated {
-            event: CoordinatorEvent::ShardHomeAllocated { shard, region: _ },
-            host_region: _,
-            host_shard: _,
-        } = plan
-        else {
-            return Ok(());
-        };
-
-        if let Some(store) = &self.remember_store {
-            store.add_shard(ctx, shard.clone())?;
-        }
-        Ok(())
-    }
-
     fn spawn_handoff_workers(
         &mut self,
         ctx: &Context<ShardCoordinatorMsg<M>>,
@@ -685,23 +444,6 @@ where
             .map_err(|error| ActorError::Message(error.to_string()))
     }
 
-    fn allocate_remembered_shard_homes(
-        &mut self,
-        ctx: &Context<ShardCoordinatorMsg<M>>,
-    ) -> ActorResult {
-        let plans = self
-            .runtime
-            .allocate_remembered_shard_homes("coordinator", self.strategy.as_ref())
-            .map_err(|error| ActorError::Message(error.to_string()))?;
-        for plan in &plans {
-            self.persist_allocated_shard_plan(ctx, plan)?;
-            if let Some(handoff) = &self.handoff {
-                handoff.dispatch_host_shard(ctx, plan)?;
-            }
-        }
-        Ok(())
-    }
-
     fn apply_handoff_worker_done(
         &mut self,
         ctx: &Context<ShardCoordinatorMsg<M>>,
@@ -770,13 +512,6 @@ where
             handoff.dispatch_host_shard(ctx, &plan)?;
         }
         Ok(())
-    }
-
-    fn stop_for_remember_store_failure(
-        &mut self,
-        ctx: &mut Context<ShardCoordinatorMsg<M>>,
-    ) -> ActorResult {
-        ctx.stop(ctx.myself())
     }
 }
 
