@@ -59,6 +59,9 @@ Implemented:
   suppression, exact event-type matching, publishing, and unsubscribe.
 - `kairo-actor` runtime code is split by responsibility across modules instead
   of living in a single `lib.rs`.
+- The local actor mailbox run loop, callback panic boundary, supervision
+  failure handling, restart helpers, and child-stop wait logic now live in a
+  focused `runtime` module instead of being embedded in `system.rs`.
 - `kairo-actor` crate docs now explain typed local protocols, why
   `Actor::receive` is synchronous, why local messages do not need
   serialization, and how external work returns through mailbox messages with a

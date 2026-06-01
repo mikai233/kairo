@@ -100,6 +100,7 @@ mod receive_timeout;
 mod receptionist;
 mod refs;
 mod registry;
+mod runtime;
 mod scheduler;
 mod signal;
 mod stash;
