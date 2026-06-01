@@ -1697,6 +1697,9 @@ Implemented:
   shrink to the two surviving nodes. The live socket smoke module is serialized
   with a local mutex so coordinated shutdown validation is deterministic under
   the default parallel test runner.
+- TCP bootstrap example smoke-test support now lives in a focused sibling
+  module, keeping shared live-socket locking, node adapters, membership
+  publication, and route-count assertions separate from the scenario tests.
 - `kairo-cluster-sharding` now has a transport-neutral remote coordinator
   registration bridge that serializes stable `Register` envelopes to resolved
   coordinator recipients with region sender metadata and decodes
