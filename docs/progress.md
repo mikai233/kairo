@@ -422,6 +422,10 @@ Implemented:
   heartbeat ticks, heartbeat acks, unreachable observations, watch/unwatch
   commands, inbound remote watch/unwatch registrations, and reports
   deterministic watch statistics for tests and future diagnostics.
+- Remote death-watch actor coverage now lives in a focused sibling test module
+  and validates inbound remote unwatch cleanup at the actor boundary, proving
+  decoded inbound `UnwatchRemote` commands remove remote watchers without
+  producing outbound watch or heartbeat effects.
 - `kairo-remote` now has a focused remote death-watch outbound effect sink
   that serializes watch, unwatch, heartbeat, and re-watch effects through the
   registered remote protocol codecs to the stable `/system/remote-watch`
