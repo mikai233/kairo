@@ -154,8 +154,10 @@ Implemented:
 - Task bridge state and handles live in a focused `tasks` module.
 - `Context::message_adapter` creates typed local adapter refs that enqueue
   adapted protocol messages into the owning actor's mailbox.
-- Message adapter refs now terminate with their owning actor and notify local
-  death-watch subscribers for the adapter path when the owner stops.
+- Message adapter refs now terminate with their owning actor, notify local
+  death-watch subscribers for the adapter path when the owner stops or
+  restarts, and discard already queued stale adapter messages after lifecycle
+  cancellation.
 - Adapted user-message envelopes live in the mailbox runtime, and adapter ref
   construction lives in a focused `adapters` module.
 - `Props::with_stash_capacity` enables opt-in typed stash support, and

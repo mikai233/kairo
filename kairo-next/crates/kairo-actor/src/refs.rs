@@ -95,8 +95,9 @@ impl<M> ActorRef<M> {
         let adapter_path = path.clone();
         let dead_letters = owner.dead_letters.clone();
         let adapter_dead_letters = dead_letters.clone();
+        let adapter_stopped = Arc::clone(&stopped);
         let adapter = Arc::new(move |message: M| {
-            if owner_stopped.load(Ordering::Acquire) {
+            if owner_stopped.load(Ordering::Acquire) || adapter_stopped.load(Ordering::Acquire) {
                 adapter_dead_letters.publish::<M>(adapter_path.clone(), "actor is stopped");
                 return Err(SendError {
                     message,
@@ -105,10 +106,14 @@ impl<M> ActorRef<M> {
             }
 
             let map = Arc::clone(&map);
+            let stopped = Arc::clone(&adapter_stopped);
             mailbox
                 .enqueue_adapted(message, move |message| {
+                    if stopped.load(Ordering::Acquire) {
+                        return None;
+                    }
                     let mut map = map.lock().expect("message adapter poisoned");
-                    (map)(message)
+                    Some((map)(message))
                 })
                 .map_err(|message| {
                     adapter_dead_letters

@@ -8,6 +8,11 @@ struct ExternalProbeMsg {
 enum AdapterProbeMsg {
     CreateAdapter(mpsc::Sender<ActorRef<ExternalProbeMsg>>),
     Adapted(ExternalProbeMsg),
+    BlockAndFail {
+        entered: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+    },
+    Ping(mpsc::Sender<usize>),
 }
 
 struct AdapterProbe {
@@ -32,6 +37,18 @@ impl Actor for AdapterProbe {
                     .send((message.label, self.adapted_count))
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
+            AdapterProbeMsg::BlockAndFail { entered, release } => {
+                entered
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                release
+                    .recv()
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                return Err(ActorError::Message("boom".to_string()));
+            }
+            AdapterProbeMsg::Ping(reply_to) => reply_to
+                .send(self.adapted_count)
+                .map_err(|error| ActorError::Message(error.to_string()))?,
         }
         Ok(())
     }
@@ -102,4 +119,53 @@ fn message_adapter_rejects_after_owner_stops() {
         system.dead_letters().records()[0].recipient(),
         adapter.path()
     );
+}
+
+#[test]
+fn message_adapter_rejects_and_drops_stale_messages_after_owner_restart() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "adapter",
+            Props::restartable(|| AdapterProbe { adapted_count: 0 })
+                .with_supervisor(SupervisorStrategy::Restart),
+        )
+        .unwrap();
+    let (adapter_tx, adapter_rx) = mpsc::channel();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (stale_tx, stale_rx) = mpsc::channel();
+
+    actor
+        .tell(AdapterProbeMsg::CreateAdapter(adapter_tx))
+        .unwrap();
+    let adapter = adapter_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    actor
+        .tell(AdapterProbeMsg::BlockAndFail {
+            entered: entered_tx,
+            release: release_rx,
+        })
+        .unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    adapter
+        .tell(ExternalProbeMsg {
+            label: "stale",
+            reply_to: stale_tx,
+        })
+        .unwrap();
+    release_tx.send(()).unwrap();
+
+    let (ping_tx, ping_rx) = mpsc::channel();
+    actor.tell(AdapterProbeMsg::Ping(ping_tx)).unwrap();
+    assert_eq!(ping_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 0);
+    assert!(stale_rx.recv_timeout(Duration::from_millis(100)).is_err());
+
+    let (late_tx, _late_rx) = mpsc::channel();
+    let error = adapter
+        .tell(ExternalProbeMsg {
+            label: "late",
+            reply_to: late_tx,
+        })
+        .unwrap_err();
+    assert_eq!(error.reason(), "actor is stopped");
 }

@@ -103,11 +103,7 @@ pub(crate) fn run_actor<A>(
     context.cancel_receive_timeout();
     context.cancel_tasks();
     context.cancel_asks();
-    for adapter_path in context.stop_adapters() {
-        system_inner
-            .death_watch
-            .notify(&adapter_path, TerminationCause::Stopped);
-    }
+    stop_adapter_refs(&system_inner, &mut context);
     for _ in 0..mailbox.close_and_drain_user() {
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
     }
@@ -220,9 +216,12 @@ where
             true
         }
         Dequeued::User(UserEnvelope::Adapted(adapt)) => {
+            let Some(message) = adapt() else {
+                return false;
+            };
             context.before_influencing_message();
             let stop_reason = apply_receive_result(
-                invoke_receive(actor, context, adapt()),
+                invoke_receive(actor, context, message),
                 actor_ref,
                 actor,
                 context,
@@ -496,6 +495,7 @@ where
     context.cancel_receive_timeout();
     context.cancel_tasks();
     context.cancel_asks();
+    stop_adapter_refs(system_inner, context);
     if stop_children_on_restart {
         stop_children(system_inner, actor_ref.path.as_str());
     }
@@ -527,12 +527,24 @@ where
     context.cancel_receive_timeout();
     context.cancel_tasks();
     context.cancel_asks();
+    stop_adapter_refs(system_inner, context);
     if stop_children_on_restart {
         stop_children(system_inner, actor_ref.path.as_str());
     }
     context.stop_requested = false;
     *actor = restarted;
     Ok(())
+}
+
+fn stop_adapter_refs<M>(system_inner: &ActorSystemInner, context: &mut Context<M>)
+where
+    M: Send + 'static,
+{
+    for adapter_path in context.stop_adapters() {
+        system_inner
+            .death_watch
+            .notify(&adapter_path, TerminationCause::Stopped);
+    }
 }
 
 fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) {

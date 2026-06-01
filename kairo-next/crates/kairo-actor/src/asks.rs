@@ -265,7 +265,7 @@ where
                 .expect("ask response mapper poisoned")
                 .take()
                 .expect("ask response mapper must run at most once");
-            map_response(result)
+            Some(map_response(result))
         })
         .inspect_err(|_result| {
             dead_letters.publish::<M>(owner_path.clone(), "actor mailbox is closed");

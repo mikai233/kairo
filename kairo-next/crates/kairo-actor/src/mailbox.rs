@@ -25,7 +25,7 @@ pub(crate) enum UserEnvelope<M> {
     Message(M),
     Timer(TimerEnvelope<M>),
     ReceiveTimeout(ReceiveTimeoutEnvelope<M>),
-    Adapted(Box<dyn FnOnce() -> M + Send>),
+    Adapted(Box<dyn FnOnce() -> Option<M> + Send>),
 }
 
 impl<M: fmt::Debug> fmt::Debug for UserEnvelope<M> {
@@ -116,7 +116,7 @@ impl<M> Mailbox<M> {
     pub(crate) fn enqueue_adapted<U, F>(&self, message: U, adapt: F) -> Result<(), U>
     where
         U: Send + 'static,
-        F: FnOnce(U) -> M + Send + 'static,
+        F: FnOnce(U) -> Option<M> + Send + 'static,
     {
         let mut state = self.state.lock().expect("mailbox poisoned");
         if state.closed {
