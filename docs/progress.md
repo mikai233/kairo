@@ -1514,6 +1514,10 @@ Implemented:
 - `ShardRegionActor` remote host-shard, remote handoff, and graceful shutdown
   lifecycle helpers now live in a focused `region_actor::remote_lifecycle`
   child module instead of growing the main region actor file.
+- `ShardRegionActor` construction, builder-style configuration, `Props`
+  helpers, and runtime accessor now live in a focused
+  `region_actor::construction` child module, leaving the main region actor file
+  for message dispatch and routing orchestration.
 - `kairo-cluster-sharding` now has a local graceful region-shutdown path:
   regions notify their registered coordinator with `GracefulShutdownReq`,
   coordinators mark that region as gracefully shutting down, start handoff
