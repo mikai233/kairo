@@ -1571,6 +1571,10 @@ Implemented:
   actor and reply with `RegisterAck`, while decoded `GetShardHome` commands
   re-enter coordinator allocation state and reply with `ShardHome` for known
   or newly allocated remote homes.
+- Shard-coordinator system inbound coverage now lives in a focused sibling
+  test module and decodes `RegisterAck`, `HostShard`, and `ShardHome` reply
+  payloads through registered codecs instead of relying on manifest-only
+  assertions.
 - Remote coordinator registration now also attaches a remote region control
   target to the coordinator handoff transport, and newly allocated shard homes
   dispatch `HostShard` before replying `ShardHome`, matching Pekko's
