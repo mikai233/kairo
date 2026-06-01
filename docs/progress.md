@@ -1543,6 +1543,11 @@ Implemented:
   stable `Register` envelopes after remote coordinator discovery/retry and
   sending pending `GetShardHome` envelopes after a matching remote
   `RegisterAck`.
+- Shard-region remote coordinator actor tests now decode outbound stable
+  `Register`, `GetShardHome`, `GracefulShutdownReq`, and `RegionStopped`
+  payloads and keep repeated registry, target, transport, and discovery setup
+  in a nested support module instead of embedding fixture data in the scenario
+  tests.
 - `kairo-cluster-sharding` now has region-side system inbound routing that
   dispatches stable remote envelopes addressed to `/system/sharding/region`:
   `RoutedShardEnvelope` re-enters local region delivery, `RegisterAck` becomes
