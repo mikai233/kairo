@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -93,6 +93,7 @@ fn inbound_for(
 
 #[test]
 fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
+    let _guard = bootstrap_socket_test_lock();
     let kit = ActorSystemTestKit::new("cluster-tools-peer-bootstrap").unwrap();
     let registry = registry();
     let publisher_node = UniqueAddress::new(Address::local("cluster-tools-peer-bootstrap"), 1);
@@ -139,6 +140,7 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
 
 #[test]
 fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
+    let _guard = bootstrap_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-sender").unwrap();
     let receiver_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-receiver").unwrap();
     let registry = registry();
@@ -220,6 +222,7 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
 
 #[test]
 fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
+    let _guard = bootstrap_socket_test_lock();
     let first_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-first").unwrap();
     let second_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-second").unwrap();
     let third_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-third").unwrap();
@@ -384,11 +387,29 @@ fn await_connector_routes(
             if snapshot.route_count == expected_peers.len() && has_all_expected_peers {
                 Ok(())
             } else {
+                retry_pending_connector_routes(connector, &snapshot)?;
                 Err(format!("unexpected connector snapshot: {snapshot:?}"))
             }
         },
     )
     .unwrap();
+}
+
+fn retry_pending_connector_routes(
+    connector: &ActorRef<ClusterToolsTcpPeerConnectorMsg>,
+    snapshot: &ClusterToolsTcpPeerConnectorSnapshot,
+) -> Result<(), String> {
+    if let Some(now) = snapshot
+        .pending_reconnects
+        .iter()
+        .map(|pending| pending.next_retry_at)
+        .max()
+    {
+        connector
+            .tell(ClusterToolsTcpPeerConnectorMsg::RetryDuePeerRoutes { now })
+            .map_err(|error| error.reason().to_string())?;
+    }
+    Ok(())
 }
 
 fn run_bootstrap_shutdown(
@@ -400,4 +421,9 @@ fn run_bootstrap_shutdown(
         .run_from("test", Some(PHASE_BEFORE_CLUSTER_SHUTDOWN))
         .unwrap();
     assert!(connector.wait_for_stop(Duration::from_secs(1)));
+}
+
+fn bootstrap_socket_test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap()
 }

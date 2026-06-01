@@ -712,6 +712,10 @@ Implemented:
 - Distributed-data TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
+- Distributed-data TCP peer bootstrap socket fixtures now serialize live
+  listener setup within the test module and drive explicit retry ticks when a
+  route snapshot reports pending reconnects, making concurrent bootstrap
+  validation deterministic under load.
 - `kairo-distributed-data` CRDT foundation tests for replica ids, GSet, ORSet,
   GCounter, PNCounter, deltas, pruning, and overflow now live in a focused
   sibling test module.
@@ -1200,6 +1204,10 @@ Implemented:
 - Cluster TCP peer bootstrap tests now live in a focused sibling test module,
   keeping the production bootstrap facade separate from socket fixture setup
   and two-node validation data.
+- Cluster TCP peer bootstrap socket fixtures now serialize live listener setup
+  within the test module and drive explicit retry ticks when a route snapshot
+  reports pending reconnects, making concurrent bootstrap validation
+  deterministic under load.
 - `kairo-cluster-tools` is split into focused topic and singleton modules, and
   now has Pekko-style singleton oldest-member tracking that filters by role,
   sorts eligible UP members by cluster age, reports oldest changes from member
@@ -1377,6 +1385,10 @@ Implemented:
 - Cluster-tools TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
+- Cluster-tools TCP peer bootstrap socket fixtures now serialize live listener
+  setup within the test module and drive explicit retry ticks when a route
+  snapshot reports pending reconnects, making concurrent bootstrap validation
+  deterministic under load.
 - Cluster-tools singleton oldest-tracker tests now live in a focused child
   test module instead of the broad cluster-tools crate test file.
 - Cluster-tools singleton proxy buffering, remote target, re-identification,

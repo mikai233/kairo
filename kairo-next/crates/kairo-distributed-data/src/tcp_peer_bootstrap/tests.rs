@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use kairo_actor::{ActorRef, Address, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
@@ -49,6 +49,7 @@ impl ReplicatorRemoteReplyReceiver for IgnoreReplies {
 
 #[test]
 fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
+    let _guard = bootstrap_socket_test_lock();
     let kit = ActorSystemTestKit::new("ddata-peer-bootstrap").unwrap();
     let publisher_node = UniqueAddress::new(Address::local("ddata-peer-bootstrap"), 1);
     let publisher = kit
@@ -92,6 +93,7 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
 
 #[test]
 fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
+    let _guard = bootstrap_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-sender").unwrap();
     let receiver_kit = ActorSystemTestKit::new("ddata-bootstrap-receiver").unwrap();
     let sender_runtime = bind_runtime("ddata-bootstrap-sender", 1, 11, ReplicaId::new("receiver"));
@@ -162,6 +164,7 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
 
 #[test]
 fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
+    let _guard = bootstrap_socket_test_lock();
     let first_kit = ActorSystemTestKit::new("ddata-bootstrap-first").unwrap();
     let second_kit = ActorSystemTestKit::new("ddata-bootstrap-second").unwrap();
     let third_kit = ActorSystemTestKit::new("ddata-bootstrap-third").unwrap();
@@ -315,11 +318,29 @@ fn await_connector_routes(
             if snapshot.route_count == expected_peers.len() && has_all_expected_peers {
                 Ok(())
             } else {
+                retry_pending_connector_routes(connector, &snapshot)?;
                 Err(format!("unexpected connector snapshot: {snapshot:?}"))
             }
         },
     )
     .unwrap();
+}
+
+fn retry_pending_connector_routes(
+    connector: &ActorRef<ReplicatorTcpPeerConnectorMsg>,
+    snapshot: &ReplicatorTcpPeerConnectorSnapshot,
+) -> Result<(), String> {
+    if let Some(now) = snapshot
+        .pending_reconnects
+        .iter()
+        .map(|pending| pending.next_retry_at)
+        .max()
+    {
+        connector
+            .tell(ReplicatorTcpPeerConnectorMsg::RetryDuePeerRoutes { now })
+            .map_err(|error| error.reason().to_string())?;
+    }
+    Ok(())
 }
 
 fn run_bootstrap_shutdown(
@@ -331,4 +352,9 @@ fn run_bootstrap_shutdown(
         .run_from("test", Some(PHASE_BEFORE_CLUSTER_SHUTDOWN))
         .unwrap();
     assert!(connector.wait_for_stop(Duration::from_secs(1)));
+}
+
+fn bootstrap_socket_test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap()
 }
