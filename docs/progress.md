@@ -813,6 +813,9 @@ Implemented:
 - `kairo-distributed-data` serialized wire outbound/inbound tests now live in
   a focused sibling test module, keeping stable serializer-id and manifest
   dispatch coverage separate from the wire boundary implementation.
+- `kairo-distributed-data` serialized reply wire tests now live in a focused
+  sibling test module, keeping reply target validation, serializer-id, and
+  source-replica decode coverage separate from the reply wire implementation.
 - `ReplicatorActor<D>` construction, client get/update/subscription handling,
   cluster route application, delta propagation ticks, gossip ticks/receives,
   and removed-node pruning ticks now live in focused child modules instead of
