@@ -1301,6 +1301,10 @@ Implemented:
   inbound serialized payloads into the actor-backed membership state machine,
   and uses an actor-backed outbound adapter for welcome/gossip talkback replies
   without adding socket transport or a central membership authority.
+- Cluster membership wire bridge tests now live in a focused sibling test
+  module, keeping the production bridge file scoped to routing and
+  serialization boundaries while preserving the existing join, welcome, gossip,
+  and rejection coverage.
 - `kairo-cluster` now has focused remote-envelope wiring for membership
   traffic: `ClusterMembershipRemoteEnvelopeOutbound` addresses serialized
   join, welcome, and gossip payloads to `/system/cluster/core/daemon` on the
