@@ -1373,6 +1373,9 @@ Implemented:
   subscribes to cluster snapshots/events, feeds the cluster-tools TCP peer
   runtime, exposes route/reconnect snapshots, supports explicit deterministic
   retry ticks, and can schedule fixed-delay retry ticks with actor timers.
+- Cluster-tools TCP peer connector socket tests now live in a focused sibling
+  test module with serialized live listener fixtures, keeping the production
+  connector module focused on actor/runtime behavior.
 - `kairo-cluster-tools` now has a TCP peer bootstrap facade that binds the
   tools TCP peer runtime from remote transport settings, spawns the connector,
   exposes its connector ref/self node/local association address, and registers
