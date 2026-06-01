@@ -465,6 +465,9 @@ Implemented:
   start/stop/send effects, re-watches after remote UID changes, emits
   address-terminated effects for unreachable addresses, and resets failure
   detection when watching resumes after an unreachable observation.
+- Remote death-watch state tests now live in a focused sibling test module
+  instead of the production state-machine file, preserving coverage for watch,
+  unwatch, heartbeat, remote UID, inbound watch, and unreachable transitions.
 - Remote death-watch state now keeps inbound remote watch registrations
   separate from outbound watch intent, so decoded wire watch/unwatch messages
   record the remote watcher of a local watchee without starting local outbound
