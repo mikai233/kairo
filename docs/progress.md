@@ -431,6 +431,10 @@ Implemented:
   registered remote protocol codecs to the stable `/system/remote-watch`
   recipient path on the target address, observes local timer/failure-detector
   effects explicitly, and propagates missing-codec or outbound failures.
+- Remote death-watch outbound sink coverage now lives in a focused sibling
+  test module and decodes the emitted `WatchRemote`, `RemoteHeartbeat`,
+  `UnwatchRemote`, and `RemoteHeartbeatAck` payloads to prove the effect sink
+  uses stable registered codecs rather than manifest-only assertions.
 - `kairo-remote` now has a focused remote death-watch inbound protocol
   delivery adapter that maps decoded remote watch/unwatch/heartbeat/heartbeat
   ack messages into the actor-backed remote watcher, derives remote addresses
