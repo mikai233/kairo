@@ -74,6 +74,9 @@ Implemented:
   compile-checked example.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
   module instead of being embedded in the system runtime loop.
+- Local actor spawning, reserved-name validation, worker-thread launch, and
+  failed-spawn registry cleanup now live in a focused `system::spawn`
+  submodule instead of the actor-system operations file.
 - Actor reference lifecycle handles and termination latches now live in a
   focused `refs::lifecycle` submodule instead of being mixed into the typed
   send-path implementation.
