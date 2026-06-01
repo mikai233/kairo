@@ -1483,6 +1483,9 @@ Implemented:
   `UniqueAddress`, bucket versions, topic/group registry entries, tombstones,
   and known-version maps without relying on Rust type names, discriminants, or
   memory layout.
+- Cluster-tools protocol codec implementation is split into focused
+  registration, pubsub codec, singleton codec, wire-helper, and codec-test
+  modules instead of concentrating stable wire logic and fixtures in one file.
 - `kairo-cluster-tools` now has a focused transport-neutral pubsub gossip wire
   bridge that maps actor-local status/delta gossip messages to serialized
   stable pubsub wire messages, carries target-node routing metadata for future
