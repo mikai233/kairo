@@ -1169,6 +1169,9 @@ Implemented:
   membership-derived dials are retained as deterministic pending retries with a
   configured retry interval, successful retries clear pending state, and member
   removal or local-unreachable events cancel obsolete retry attempts.
+- Cluster TCP peer runtime shutdown now has focused lifecycle coverage proving
+  that pending reconnects are cleared and reported after failed dials, and the
+  runtime tests live in a sibling test module instead of the production file.
 - `kairo-cluster` crate docs now explain gossip-based membership, vector-clock
   merge, observer-owned reachability/failure-detector observations, why
   discovery is contact-only, and why Kairo does not use etcd or another
@@ -1671,6 +1674,8 @@ cargo test -p kairo-cluster all_observers_reports_negative_reachability_observer
 cargo test -p kairo-cluster bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-cluster bootstrap
+cargo test -p kairo-cluster peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial
+cargo test -p kairo-cluster tcp_peer_runtime
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo test -p kairo --all-targets --all-features config
