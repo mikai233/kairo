@@ -10,7 +10,7 @@ use kairo_cluster::{
 };
 use kairo_remote::RemoteSettings;
 use kairo_serialization::RemoteMessage;
-use kairo_testkit::ActorSystemTestKit;
+use kairo_testkit::{ActorSystemTestKit, MultiNodeTestKit};
 
 use super::{
     ReplicatorTcpPeerBootstrap, ReplicatorTcpPeerBootstrapIdentity,
@@ -66,16 +66,18 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
 #[test]
 fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
     let _guard = bootstrap_socket_test_lock();
-    let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-sender").unwrap();
-    let receiver_kit = ActorSystemTestKit::new("ddata-bootstrap-receiver").unwrap();
+    let nodes =
+        MultiNodeTestKit::new(["ddata-bootstrap-sender", "ddata-bootstrap-receiver"]).unwrap();
+    let sender_kit = nodes.kit("ddata-bootstrap-sender").unwrap();
+    let receiver_kit = nodes.kit("ddata-bootstrap-receiver").unwrap();
     let sender_runtime = bind_runtime("ddata-bootstrap-sender", 1, 11, ReplicaId::new("receiver"));
     let receiver_runtime =
         bind_runtime("ddata-bootstrap-receiver", 2, 22, ReplicaId::new("sender"));
     let sender_node = sender_runtime.self_node().clone();
     let receiver_node = receiver_runtime.self_node().clone();
-    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_publisher = spawn_publisher(sender_kit, "sender-publisher", sender_node.clone());
     let receiver_publisher =
-        spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+        spawn_publisher(receiver_kit, "receiver-publisher", receiver_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
     let receiver_cluster = Cluster::new(receiver_publisher.clone());
     let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
@@ -99,11 +101,17 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
         settings.with_connector_name("receiver-ddata-peer"),
     )
     .unwrap();
-    let sender_snapshots = sender_kit
-        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("sender-snapshots")
+    let sender_snapshots = nodes
+        .create_probe_on::<ReplicatorTcpPeerConnectorSnapshot>(
+            "ddata-bootstrap-sender",
+            "sender-snapshots",
+        )
         .unwrap();
-    let receiver_snapshots = receiver_kit
-        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("receiver-snapshots")
+    let receiver_snapshots = nodes
+        .create_probe_on::<ReplicatorTcpPeerConnectorSnapshot>(
+            "ddata-bootstrap-receiver",
+            "receiver-snapshots",
+        )
         .unwrap();
 
     let gossip = Gossip::from_members([
@@ -128,10 +136,9 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
         &sender_node,
     );
 
-    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
-    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
-    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
-    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

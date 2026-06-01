@@ -9,7 +9,7 @@ use kairo_cluster::{
     UniqueAddress,
 };
 use kairo_remote::{RemoteOutbound, RemoteSettings};
-use kairo_testkit::ActorSystemTestKit;
+use kairo_testkit::{ActorSystemTestKit, MultiNodeTestKit};
 
 use super::{
     ClusterToolsTcpPeerBootstrap, ClusterToolsTcpPeerBootstrapSettings,
@@ -67,28 +67,33 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
 #[test]
 fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
     let _guard = bootstrap_socket_test_lock();
-    let sender_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-sender").unwrap();
-    let receiver_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-receiver").unwrap();
+    let nodes = MultiNodeTestKit::new([
+        "cluster-tools-bootstrap-sender",
+        "cluster-tools-bootstrap-receiver",
+    ])
+    .unwrap();
+    let sender_kit = nodes.kit("cluster-tools-bootstrap-sender").unwrap();
+    let receiver_kit = nodes.kit("cluster-tools-bootstrap-receiver").unwrap();
     let registry = registry();
     let sender_runtime = bind_runtime(
         "cluster-tools-bootstrap-sender",
         1,
         11,
-        &sender_kit,
+        sender_kit,
         registry.clone(),
     );
     let receiver_runtime = bind_runtime(
         "cluster-tools-bootstrap-receiver",
         2,
         22,
-        &receiver_kit,
+        receiver_kit,
         registry,
     );
     let sender_node = sender_runtime.self_node().clone();
     let receiver_node = receiver_runtime.self_node().clone();
-    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_publisher = spawn_publisher(sender_kit, "sender-publisher", sender_node.clone());
     let receiver_publisher =
-        spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+        spawn_publisher(receiver_kit, "receiver-publisher", receiver_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
     let receiver_cluster = Cluster::new(receiver_publisher.clone());
     let settings = ClusterToolsTcpPeerBootstrapSettings::new().with_connector_settings(
@@ -111,11 +116,17 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
         settings.with_connector_name("receiver-tools-peer"),
     )
     .unwrap();
-    let sender_snapshots = sender_kit
-        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("sender-snapshots")
+    let sender_snapshots = nodes
+        .create_probe_on::<ClusterToolsTcpPeerConnectorSnapshot>(
+            "cluster-tools-bootstrap-sender",
+            "sender-snapshots",
+        )
         .unwrap();
-    let receiver_snapshots = receiver_kit
-        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("receiver-snapshots")
+    let receiver_snapshots = nodes
+        .create_probe_on::<ClusterToolsTcpPeerConnectorSnapshot>(
+            "cluster-tools-bootstrap-receiver",
+            "receiver-snapshots",
+        )
         .unwrap();
 
     let gossip = Gossip::from_members([
@@ -140,10 +151,9 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
         &sender_node,
     );
 
-    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
-    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
-    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
-    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

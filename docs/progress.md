@@ -778,6 +778,10 @@ Implemented:
   peer route for the other node through the actor-backed connector boundary;
   the same validation now runs coordinated shutdown afterward and asserts the
   live-route connector stops through the registered bootstrap shutdown task.
+- The two-node distributed-data TCP peer bootstrap validation now uses
+  `kairo-testkit::MultiNodeTestKit` to own named node systems and create
+  per-node connector snapshot probes through the structured local multi-node
+  harness.
 - Distributed-data TCP peer bootstrap now validates payload delivery over an
   installed membership-derived peer route: a real bootstrap-owned sender
   association cache carries a stable-codec `ReplicatorRead` envelope to the
@@ -1540,6 +1544,10 @@ Implemented:
   peer route for the other node through the actor-backed connector boundary;
   the same validation now runs coordinated shutdown afterward and asserts the
   live-route connector stops through the registered bootstrap shutdown task.
+- The two-node cluster-tools TCP peer bootstrap validation now uses
+  `kairo-testkit::MultiNodeTestKit` to own named node systems and create
+  per-node connector snapshot probes through the structured local multi-node
+  harness.
 - Cluster-tools TCP peer bootstrap now validates payload delivery over an
   installed membership-derived peer route: a real bootstrap-owned sender
   association cache carries a stable-codec pubsub publish envelope to the
