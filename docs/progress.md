@@ -441,6 +441,10 @@ Implemented:
   from stable sender actor-ref wire data, replies to inbound heartbeats with
   local UID heartbeat acknowledgements, and drives re-watch effects from
   heartbeat acks with new remote UIDs.
+- Remote death-watch inbound protocol delivery coverage now lives in a focused
+  sibling test module and validates that inbound `UnwatchRemote` removes the
+  recorded remote watcher without producing outbound watch or heartbeat
+  effects.
 - `kairo-remote` now has a focused remote death-watch system inbound boundary
   that dispatches remote envelopes by stable manifest, deserializes
   watch/unwatch/heartbeat/heartbeat-ack protocol messages through the
