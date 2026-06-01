@@ -722,6 +722,10 @@ Implemented:
   bootstrap facade, one shared gossip snapshot is published to all connector
   actors, and each connector installs membership-derived routes for both
   remote peers before coordinated shutdown stops all live-route connectors.
+- Distributed-data TCP peer bootstrap lifecycle coverage now validates
+  membership removal: after two bound runtimes install socket routes from a
+  shared gossip snapshot, publishing a sender-side snapshot without the peer
+  removes that peer route from the actor-backed connector before shutdown.
 - Distributed-data TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
