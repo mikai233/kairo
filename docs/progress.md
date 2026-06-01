@@ -388,6 +388,10 @@ Implemented:
   inbound modules. `TcpAssociationListener` accepts the lane streams for one
   association, and `TcpAssociationStreamReader` drains accepted TCP streams
   through the existing remote stream decoder and `RemoteFrameHandler` boundary.
+- Remote TCP inbound support now has focused listener, accepted-association,
+  stream-reader, report, and error modules instead of concentrating accept-loop
+  ownership, lane-reader joins, stream decoding, reverse-route setup, and
+  report types in one file.
 - Accepted TCP associations can now spawn one reader thread per accepted lane
   stream and join them through `TcpAssociationReaderHandle`, so ordinary,
   control, and large lanes can be drained independently while sibling lane
