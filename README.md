@@ -20,7 +20,8 @@ The rewrite is intentionally typed and modular:
 See [`docs/goal.md`](docs/goal.md) for the product roadmap,
 [`kairo-next/ARCHITECTURE.md`](kairo-next/ARCHITECTURE.md) for the technical
 contract, and [`docs/progress.md`](docs/progress.md) for current
-implementation status.
+implementation status. Migration guidance from the old reference crates to the
+new facade lives in [`docs/migration.md`](docs/migration.md).
 
 ## Current Workspace
 

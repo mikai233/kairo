@@ -1801,6 +1801,11 @@ Implemented:
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
   sharding APIs, and the current runnable examples.
+- `docs/migration.md` now documents the current migration path from the old
+  reference crates to the `kairo` facade, including typed actor protocols,
+  TOML configuration, remote-message wire metadata, sharding routing, cluster
+  membership constraints, and validation commands. `docs/blocked.md` now
+  records that there are no current external blockers.
 
 Not yet implemented:
 

@@ -31,6 +31,8 @@ workspace split.
   multi-node test helpers.
 
 See `ARCHITECTURE.md` for the planned public model and implementation order.
+For migration guidance from the old reference crates, see
+`../docs/migration.md`.
 
 ## Examples
 
