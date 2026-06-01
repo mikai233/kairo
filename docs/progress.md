@@ -127,6 +127,8 @@ Implemented:
   connector stop tasks for coordinated shutdown.
 - Coordinated-shutdown phase metadata, run state, and task execution now live
   in focused submodules instead of one mixed implementation file.
+- Focused coordinated-shutdown tests now pin `run_from` phase selection and
+  explicit unknown-phase errors.
 - `ActorSystem::event_stream` and `Context::event_stream` expose a local typed
   event stream for exact Rust event types.
 - Event-stream subscription state lives in a focused `event_stream` module.

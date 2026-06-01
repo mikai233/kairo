@@ -38,6 +38,54 @@ fn coordinated_shutdown_runs_tasks_in_phase_order() {
 }
 
 #[test]
+fn coordinated_shutdown_run_from_starts_at_requested_phase() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+    let (events_tx, events_rx) = mpsc::channel();
+
+    shutdown
+        .add_task(PHASE_SERVICE_UNBIND, "unbind", {
+            let events = events_tx.clone();
+            move || {
+                events
+                    .send("unbind")
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+        })
+        .unwrap();
+    shutdown
+        .add_task(PHASE_SERVICE_STOP, "stop", move || {
+            events_tx
+                .send("stop")
+                .map_err(|error| ActorError::Message(error.to_string()))
+        })
+        .unwrap();
+
+    shutdown.run_from("test", Some(PHASE_SERVICE_STOP)).unwrap();
+
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "stop"
+    );
+    assert!(events_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    assert_eq!(shutdown.reason().as_deref(), Some("test"));
+}
+
+#[test]
+fn coordinated_shutdown_run_from_rejects_unknown_phase() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+
+    let result = shutdown.run_from("test", Some("missing-phase"));
+
+    assert!(matches!(
+        result,
+        Err(ActorError::UnknownShutdownPhase(phase)) if phase == "missing-phase"
+    ));
+    assert_eq!(shutdown.reason(), None);
+}
+
+#[test]
 fn coordinated_shutdown_runs_only_once() {
     let system = ActorSystem::builder("test").build().unwrap();
     let shutdown = system.coordinated_shutdown();
