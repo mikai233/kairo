@@ -1,18 +1,23 @@
-use std::sync::{Mutex, MutexGuard};
+mod support;
+
+use std::sync::Arc;
 use std::time::Duration;
 
-use kairo_actor::{ActorRef, Address, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
-use kairo_remote::RemoteSettings;
-use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
+use kairo_actor::{Address, Props};
+use kairo_remote::{RemoteOutbound, RemoteSettings};
+use kairo_testkit::ActorSystemTestKit;
 
 use super::{
     ClusterTcpPeerBootstrap, ClusterTcpPeerBootstrapIdentity, ClusterTcpPeerBootstrapSettings,
 };
 use crate::{
-    Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, ClusterSystemInbound,
-    ClusterTcpPeerConnectorMsg, ClusterTcpPeerConnectorSettings, ClusterTcpPeerConnectorSnapshot,
-    ClusterTcpPeerRuntime, Gossip, Member, MemberStatus, UniqueAddress,
+    Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, ClusterMembershipMsg,
+    ClusterMembershipRemoteEnvelopeOutbound, ClusterMembershipWireOutbound,
+    ClusterTcpPeerConnectorSettings, ClusterTcpPeerConnectorSnapshot, Gossip, Join, Member,
+    MemberStatus, UniqueAddress,
 };
+
+use support::*;
 
 #[test]
 fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
@@ -40,7 +45,7 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
         cluster,
         identity,
         settings,
-        |self_node, _cache| ClusterSystemInbound::new(self_node),
+        |self_node, _cache| crate::ClusterSystemInbound::new(self_node),
     )
     .unwrap();
 
@@ -48,12 +53,7 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
     assert_eq!(bootstrap.local_address().system(), "cluster-peer-bootstrap");
     assert!(!bootstrap.connector().is_stopped());
 
-    kit.system()
-        .coordinated_shutdown()
-        .run_from("test", Some(PHASE_BEFORE_CLUSTER_SHUTDOWN))
-        .unwrap();
-
-    assert!(bootstrap.connector().wait_for_stop(Duration::from_secs(1)));
+    run_bootstrap_shutdown(&kit, bootstrap.connector());
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
@@ -62,8 +62,8 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
     let _guard = bootstrap_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-bootstrap-sender").unwrap();
     let receiver_kit = ActorSystemTestKit::new("cluster-bootstrap-receiver").unwrap();
-    let sender_runtime = bind_runtime("cluster-bootstrap-sender", 1, 11);
-    let receiver_runtime = bind_runtime("cluster-bootstrap-receiver", 2, 22);
+    let sender_runtime = bind_runtime("cluster-bootstrap-sender", 1, 11, &sender_kit);
+    let receiver_runtime = bind_runtime("cluster-bootstrap-receiver", 2, 22, &receiver_kit);
     let sender_node = sender_runtime.self_node().clone();
     let receiver_node = receiver_runtime.self_node().clone();
     let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
@@ -128,12 +128,115 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
 }
 
 #[test]
+fn bootstrap_installed_peer_route_delivers_membership_join_to_receiver() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-bootstrap-deliver-sender").unwrap();
+    let receiver_kit = ActorSystemTestKit::new("cluster-bootstrap-deliver-receiver").unwrap();
+    let registry = registry();
+    let sender_runtime = bind_runtime("cluster-bootstrap-deliver-sender", 1, 11, &sender_kit);
+    let sender_cache = sender_runtime.association_cache().clone();
+    let (receiver_runtime, receiver_probes) =
+        bind_runtime_with_probes("cluster-bootstrap-deliver-receiver", 2, 22, &receiver_kit);
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = receiver_runtime.self_node().clone();
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let receiver_publisher =
+        spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let receiver_cluster = Cluster::new(receiver_publisher.clone());
+    let settings = ClusterTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
+        .with_connector_settings(
+            ClusterTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        );
+
+    let sender_bootstrap = ClusterTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings.clone().with_connector_name("sender-cluster-peer"),
+    )
+    .unwrap();
+    let receiver_bootstrap = ClusterTcpPeerBootstrap::spawn_with_runtime(
+        receiver_kit.system(),
+        receiver_cluster,
+        receiver_runtime,
+        settings.with_connector_name("receiver-cluster-peer"),
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+    let receiver_snapshots = receiver_kit
+        .create_probe::<ClusterTcpPeerConnectorSnapshot>("receiver-snapshots")
+        .unwrap();
+
+    let gossip = Gossip::from_members([
+        Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(receiver_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+    ]);
+    sender_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
+        .unwrap();
+    receiver_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
+        .unwrap();
+
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    await_connector_route(
+        receiver_bootstrap.connector(),
+        &receiver_snapshots,
+        &sender_node,
+    );
+
+    let membership_outbound = ClusterMembershipWireOutbound::new(
+        receiver_node,
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(
+            Arc::new(sender_cache) as Arc<dyn RemoteOutbound>
+        ),
+    );
+    membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: sender_node.clone(),
+                roles: vec!["backend".to_string()],
+            },
+            reply_to: None,
+        })
+        .unwrap();
+
+    match receiver_probes
+        .membership
+        .expect_msg(Duration::from_secs(1))
+        .unwrap()
+    {
+        ClusterMembershipMsg::Join { join, reply_to } => {
+            assert_eq!(join.node, sender_node);
+            assert_eq!(join.roles, vec!["backend".to_string()]);
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected cluster join"),
+    }
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_removes_peer_route_when_cluster_membership_drops_peer() {
     let _guard = bootstrap_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-bootstrap-remove-sender").unwrap();
     let receiver_kit = ActorSystemTestKit::new("cluster-bootstrap-remove-receiver").unwrap();
-    let sender_runtime = bind_runtime("cluster-bootstrap-remove-sender", 1, 11);
-    let receiver_runtime = bind_runtime("cluster-bootstrap-remove-receiver", 2, 22);
+    let sender_runtime = bind_runtime("cluster-bootstrap-remove-sender", 1, 11, &sender_kit);
+    let receiver_runtime = bind_runtime("cluster-bootstrap-remove-receiver", 2, 22, &receiver_kit);
     let sender_node = sender_runtime.self_node().clone();
     let receiver_node = receiver_runtime.self_node().clone();
     let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
@@ -213,9 +316,9 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let first_kit = ActorSystemTestKit::new("cluster-bootstrap-first").unwrap();
     let second_kit = ActorSystemTestKit::new("cluster-bootstrap-second").unwrap();
     let third_kit = ActorSystemTestKit::new("cluster-bootstrap-third").unwrap();
-    let first_runtime = bind_runtime("cluster-bootstrap-first", 1, 11);
-    let second_runtime = bind_runtime("cluster-bootstrap-second", 2, 22);
-    let third_runtime = bind_runtime("cluster-bootstrap-third", 3, 33);
+    let first_runtime = bind_runtime("cluster-bootstrap-first", 1, 11, &first_kit);
+    let second_runtime = bind_runtime("cluster-bootstrap-second", 2, 22, &second_kit);
+    let third_runtime = bind_runtime("cluster-bootstrap-third", 3, 33, &third_kit);
     let first_node = first_runtime.self_node().clone();
     let second_node = second_runtime.self_node().clone();
     let third_node = third_runtime.self_node().clone();
@@ -296,129 +399,4 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     first_kit.shutdown(Duration::from_secs(1)).unwrap();
     second_kit.shutdown(Duration::from_secs(1)).unwrap();
     third_kit.shutdown(Duration::from_secs(1)).unwrap();
-}
-
-fn bind_runtime(system: &str, node_uid: u64, system_uid: u64) -> ClusterTcpPeerRuntime {
-    ClusterTcpPeerRuntime::bind(
-        system,
-        node_uid,
-        system_uid,
-        RemoteSettings::new("127.0.0.1", 0),
-        |self_node, _cache| ClusterSystemInbound::new(self_node),
-    )
-    .unwrap()
-}
-
-fn spawn_publisher(
-    kit: &ActorSystemTestKit,
-    name: &str,
-    self_node: UniqueAddress,
-) -> ActorRef<ClusterEventPublisherMsg> {
-    kit.system()
-        .spawn(
-            name,
-            Props::new(move || ClusterEventPublisher::new(self_node.clone())),
-        )
-        .unwrap()
-}
-
-fn await_connector_no_routes(
-    connector: &ActorRef<ClusterTcpPeerConnectorMsg>,
-    snapshots: &TestProbe<ClusterTcpPeerConnectorSnapshot>,
-) {
-    await_assert(
-        Duration::from_secs(1),
-        Duration::from_millis(10),
-        || -> Result<(), String> {
-            connector
-                .tell(ClusterTcpPeerConnectorMsg::Snapshot {
-                    reply_to: snapshots.actor_ref(),
-                })
-                .map_err(|error| error.reason().to_string())?;
-            let snapshot = snapshots
-                .expect_msg(Duration::from_millis(100))
-                .map_err(|error| error.to_string())?;
-            if snapshot.route_count == 0 && snapshot.active_targets.is_empty() {
-                Ok(())
-            } else {
-                Err(format!("unexpected connector snapshot: {snapshot:?}"))
-            }
-        },
-    )
-    .unwrap();
-}
-
-fn await_connector_route(
-    connector: &ActorRef<ClusterTcpPeerConnectorMsg>,
-    snapshots: &TestProbe<ClusterTcpPeerConnectorSnapshot>,
-    expected_peer: &UniqueAddress,
-) {
-    await_connector_routes(connector, snapshots, std::slice::from_ref(expected_peer));
-}
-
-fn await_connector_routes(
-    connector: &ActorRef<ClusterTcpPeerConnectorMsg>,
-    snapshots: &TestProbe<ClusterTcpPeerConnectorSnapshot>,
-    expected_peers: &[UniqueAddress],
-) {
-    await_assert(
-        Duration::from_secs(1),
-        Duration::from_millis(10),
-        || -> Result<(), String> {
-            connector
-                .tell(ClusterTcpPeerConnectorMsg::Snapshot {
-                    reply_to: snapshots.actor_ref(),
-                })
-                .map_err(|error| error.reason().to_string())?;
-            let snapshot = snapshots
-                .expect_msg(Duration::from_millis(100))
-                .map_err(|error| error.to_string())?;
-            let has_all_expected_peers = expected_peers.iter().all(|expected_peer| {
-                snapshot
-                    .active_targets
-                    .iter()
-                    .any(|target| target.node() == expected_peer)
-            });
-            if snapshot.route_count == expected_peers.len() && has_all_expected_peers {
-                Ok(())
-            } else {
-                retry_pending_connector_routes(connector, &snapshot)?;
-                Err(format!("unexpected connector snapshot: {snapshot:?}"))
-            }
-        },
-    )
-    .unwrap();
-}
-
-fn retry_pending_connector_routes(
-    connector: &ActorRef<ClusterTcpPeerConnectorMsg>,
-    snapshot: &ClusterTcpPeerConnectorSnapshot,
-) -> Result<(), String> {
-    if let Some(now) = snapshot
-        .pending_reconnects
-        .iter()
-        .map(|pending| pending.next_retry_at)
-        .max()
-    {
-        connector
-            .tell(ClusterTcpPeerConnectorMsg::RetryDuePeerRoutes { now })
-            .map_err(|error| error.reason().to_string())?;
-    }
-    Ok(())
-}
-
-fn run_bootstrap_shutdown(
-    kit: &ActorSystemTestKit,
-    connector: &ActorRef<ClusterTcpPeerConnectorMsg>,
-) {
-    kit.system()
-        .coordinated_shutdown()
-        .run_from("test", Some(PHASE_BEFORE_CLUSTER_SHUTDOWN))
-        .unwrap();
-    assert!(connector.wait_for_stop(Duration::from_secs(1)));
-}
-
-fn bootstrap_socket_test_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap()
 }

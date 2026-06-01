@@ -1245,6 +1245,10 @@ Implemented:
   for the other node through the actor-backed connector boundary; the same
   validation now runs coordinated shutdown afterward and asserts the live-route
   connector stops through the registered bootstrap shutdown task.
+- Cluster TCP peer bootstrap now validates payload delivery over an installed
+  membership-derived peer route: a real bootstrap-owned sender association
+  cache carries a stable-codec `Join` membership message to the remote
+  membership inbound handler before coordinated shutdown.
 - Cluster TCP peer bootstrap lifecycle coverage now validates membership
   removal: after a two-node socket route is installed through published gossip,
   publishing sender-local membership without the remote peer removes the
@@ -1257,6 +1261,10 @@ Implemented:
 - Cluster TCP peer bootstrap tests now live in a focused sibling test module,
   keeping the production bootstrap facade separate from socket fixture setup
   and two-node validation data.
+- Cluster TCP peer bootstrap socket helpers now live in a nested
+  `tests::support` module, keeping registry setup, inbound membership probes,
+  runtime binding, route assertions, and coordinated-shutdown fixture code out
+  of the scenario tests.
 - Cluster TCP peer bootstrap socket fixtures now serialize live listener setup
   within the test module and drive explicit retry ticks when a route snapshot
   reports pending reconnects, making concurrent bootstrap validation
