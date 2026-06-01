@@ -117,6 +117,14 @@ fn prelude_exposes_testkit_entry_points() -> Result<(), Box<dyn std::error::Erro
     assert!(handle.cancel());
     let _ = std::mem::size_of::<Option<ManualTimeHandle>>();
     let _ = std::mem::size_of::<Option<ActorSystemTestKit>>();
+    let _ = std::mem::size_of::<Option<MultiNode>>();
+    let _ = std::mem::size_of::<Option<MultiNodeError>>();
+    let _ = std::mem::size_of::<Option<MultiNodeResult<()>>>();
+    let multi_node = MultiNodeTestKit::new(["facade-node-a", "facade-node-b"])?;
+    assert_eq!(
+        multi_node.node_names().collect::<Vec<_>>(),
+        vec!["facade-node-a", "facade-node-b"]
+    );
     let _ = std::mem::size_of::<Option<TestProbe<String>>>();
     let _ = std::mem::size_of::<Option<FishingOutcome>>();
     let _ = await_assert(
@@ -124,6 +132,7 @@ fn prelude_exposes_testkit_entry_points() -> Result<(), Box<dyn std::error::Erro
         std::time::Duration::from_millis(1),
         || Ok::<_, &'static str>(()),
     );
+    multi_node.shutdown(std::time::Duration::from_secs(1))?;
     kit.shutdown(std::time::Duration::from_secs(1))?;
     Ok(())
 }

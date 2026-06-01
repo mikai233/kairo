@@ -18,6 +18,8 @@
 //! - [`await_assert`] retries result-returning assertions without relying on
 //!   panic recovery.
 //! - [`ManualTime`] drives systems built with the manual scheduler backend.
+//! - [`MultiNodeTestKit`] owns named actor systems for local multi-node
+//!   integration tests without making cluster membership part of the testkit.
 //!
 //! ## Probe-backed actor test
 //!
@@ -86,12 +88,14 @@
 mod assertions;
 mod fishing;
 mod manual_time;
+mod multi_node;
 mod probe;
 mod system;
 
 pub use assertions::{AwaitAssertError, await_assert};
 pub use fishing::FishingOutcome;
 pub use manual_time::{ManualTime, ManualTimeHandle};
+pub use multi_node::{MultiNode, MultiNodeError, MultiNodeResult, MultiNodeTestKit};
 pub use probe::{ProbeError, TestProbe};
 pub use system::ActorSystemTestKit;
 

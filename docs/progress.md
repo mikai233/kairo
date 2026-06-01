@@ -249,12 +249,19 @@ Implemented:
   `ManualTimeHandle`.
 - `ManualTime::expect_no_msg_for` advances manual time and verifies same-typed
   probes remain quiet after a short dispatcher settle window.
+- `kairo-testkit::MultiNodeTestKit` now owns multiple named local actor systems
+  for deterministic integration tests, can create typed probes on specific
+  nodes, wires optional manual time per node, and reports empty, duplicate,
+  unknown, or non-manual node errors explicitly without making cluster
+  membership part of the testkit.
 - `kairo-testkit` crate docs now describe typed probes, batch/fishing
-  assertions, await assertions, manual time, and compile-checked examples.
+  assertions, await assertions, manual time, multi-node local harnesses, and
+  compile-checked examples.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
-  `manual_time`, and `system` modules instead of living in one crate root.
-- Testkit probe, await-assert, fishing, and manual-time tests now live in
-  focused sibling test modules instead of one broad crate test file.
+  `manual_time`, `multi_node`, and `system` modules instead of living in one
+  crate root.
+- Testkit probe, await-assert, fishing, manual-time, and multi-node tests now
+  live in focused sibling test modules instead of one broad crate test file.
 - `ActorSystemBuilder::manual_scheduler` can build actor systems backed by a
   manual scheduler, and `ActorSystemTestKit::with_manual_time` wires that
   scheduler into `ManualTime`.

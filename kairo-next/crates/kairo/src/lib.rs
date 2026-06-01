@@ -132,7 +132,8 @@ pub mod prelude {
     };
     #[cfg(feature = "testkit")]
     pub use kairo_testkit::{
-        ActorSystemTestKit, FishingOutcome, ManualTime, ManualTimeHandle, TestProbe, await_assert,
+        ActorSystemTestKit, FishingOutcome, ManualTime, ManualTimeHandle, MultiNode,
+        MultiNodeError, MultiNodeResult, MultiNodeTestKit, TestProbe, await_assert,
     };
 }
 
