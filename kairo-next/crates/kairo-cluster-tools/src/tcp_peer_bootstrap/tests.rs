@@ -365,6 +365,87 @@ fn bootstrap_removes_peer_route_when_cluster_membership_drops_peer() {
 }
 
 #[test]
+fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-replace-sender").unwrap();
+    let old_receiver_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-replace-old").unwrap();
+    let new_receiver_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-replace-new").unwrap();
+    let registry = registry();
+    let sender_runtime = bind_runtime(
+        "cluster-tools-bootstrap-replace-sender",
+        1,
+        11,
+        &sender_kit,
+        registry.clone(),
+    );
+    let old_receiver_runtime = bind_runtime(
+        "cluster-tools-bootstrap-replace-old",
+        2,
+        22,
+        &old_receiver_kit,
+        registry.clone(),
+    );
+    let new_receiver_runtime = bind_runtime(
+        "cluster-tools-bootstrap-replace-new",
+        3,
+        33,
+        &new_receiver_kit,
+        registry,
+    );
+    let sender_node = sender_runtime.self_node().clone();
+    let old_receiver_node = old_receiver_runtime.self_node().clone();
+    let new_receiver_node = new_receiver_runtime.self_node().clone();
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ClusterToolsTcpPeerBootstrapSettings::new().with_connector_settings(
+        ClusterToolsTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
+
+    let sender_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings.with_connector_name("sender-tools-peer"),
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), old_receiver_node.clone()]),
+    );
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &old_receiver_node,
+    );
+
+    publish_gossip(&sender_publisher, up_gossip([sender_node.clone()]));
+    await_connector_no_routes(sender_bootstrap.connector(), &sender_snapshots);
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), new_receiver_node.clone()]),
+    );
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &new_receiver_node,
+    );
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    old_receiver_runtime.shutdown().unwrap();
+    new_receiver_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    old_receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    new_receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
     let _guard = bootstrap_socket_test_lock();
     let first_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-first").unwrap();

@@ -3,7 +3,9 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use kairo_actor::{ActorRef, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
-use kairo_cluster::{ClusterEventPublisher, ClusterEventPublisherMsg, UniqueAddress};
+use kairo_cluster::{
+    ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus, UniqueAddress,
+};
 use kairo_remote::RemoteSettings;
 use kairo_serialization::{MessageCodec, Registry, RemoteMessage, SerializationRegistry};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
@@ -158,6 +160,20 @@ pub(super) fn spawn_publisher(
             Props::new(move || ClusterEventPublisher::new(self_node.clone())),
         )
         .unwrap()
+}
+
+pub(super) fn up_gossip(nodes: impl IntoIterator<Item = UniqueAddress>) -> Gossip {
+    Gossip::from_members(
+        nodes
+            .into_iter()
+            .map(|node| Member::new(node, Vec::new()).with_status(MemberStatus::Up)),
+    )
+}
+
+pub(super) fn publish_gossip(publisher: &ActorRef<ClusterEventPublisherMsg>, gossip: Gossip) {
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
+        .unwrap();
 }
 
 pub(super) fn await_connector_no_routes(

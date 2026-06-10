@@ -1608,6 +1608,10 @@ Implemented:
   gossip, publishing sender-local membership without the remote peer removes
   the sender's connector route and active target through the bootstrap actor
   boundary.
+- Cluster-tools TCP peer bootstrap lifecycle coverage now also validates
+  replacement peer routing: after removing a departed peer's route, publishing
+  a new `UniqueAddress` for a replacement receiver installs a fresh
+  membership-derived cluster-tools socket route through the same connector.
 - Cluster-tools TCP peer bootstrap now also has a three-node full-mesh socket
   validation: three real bound runtimes are spawned through the bootstrap
   facade, one shared gossip snapshot is published to all connector actors, and
@@ -1944,6 +1948,7 @@ cargo test -p kairo-examples tcp_peer_bootstrap
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
+cargo test -p kairo-cluster-tools bootstrap_reinstalls_peer_route_for_replacement_unique_address
 cargo test -p kairo-cluster-tools bootstrap
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
