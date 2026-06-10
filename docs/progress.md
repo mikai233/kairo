@@ -1718,6 +1718,11 @@ Implemented:
   shrink to the two surviving nodes. The live socket smoke module is serialized
   with a local mutex so coordinated shutdown validation is deterministic under
   the default parallel test runner.
+- The TCP bootstrap example smoke suite now also validates replacement peer
+  routing for cluster, distributed-data, and cluster-tools: after a sender
+  removes a departed peer route, publishing a new `UniqueAddress` installs a
+  route to the replacement peer through the public reusable example module
+  boundary.
 - TCP bootstrap example smoke-test support now lives in a focused sibling
   module, keeping shared live-socket locking, node adapters, membership
   publication, and route-count assertions separate from the scenario tests.
@@ -1945,6 +1950,9 @@ cargo test -p kairo-examples cluster_sharding_local_example
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-examples tcp_peer_bootstrap
+cargo test -p kairo-examples cluster_tcp_peer_bootstrap_reinstalls_route_for_replacement_peer
+cargo test -p kairo-examples ddata_tcp_peer_bootstrap_reinstalls_route_for_replacement_peer
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_reinstalls_route_for_replacement_peer
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership

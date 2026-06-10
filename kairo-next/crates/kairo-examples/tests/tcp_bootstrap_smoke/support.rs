@@ -23,6 +23,8 @@ pub trait TcpSmokeNode {
     fn publish_up_members(&self, members: Vec<UniqueAddress>) -> TestResult;
 
     fn wait_for_route_count(&self, route_count: usize, timeout: Duration) -> TestResult;
+
+    fn wait_for_route_to(&self, peer: &UniqueAddress, timeout: Duration) -> TestResult;
 }
 
 impl TcpSmokeNode for cluster_tcp::ClusterTcpExampleNode {
@@ -43,6 +45,19 @@ impl TcpSmokeNode for cluster_tcp::ClusterTcpExampleNode {
         cluster_tcp::ClusterTcpExampleNode::wait_for_route_count(self, route_count, timeout)?;
         Ok(())
     }
+
+    fn wait_for_route_to(&self, peer: &UniqueAddress, timeout: Duration) -> TestResult {
+        let snapshot = cluster_tcp::ClusterTcpExampleNode::wait_for_route_count(self, 1, timeout)?;
+        if snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == peer)
+        {
+            Ok(())
+        } else {
+            Err(format!("cluster peer route to {peer:?} was not installed: {snapshot:?}").into())
+        }
+    }
 }
 
 impl TcpSmokeNode for ddata_tcp::DDataTcpExampleNode {
@@ -62,6 +77,22 @@ impl TcpSmokeNode for ddata_tcp::DDataTcpExampleNode {
     fn wait_for_route_count(&self, route_count: usize, timeout: Duration) -> TestResult {
         ddata_tcp::DDataTcpExampleNode::wait_for_route_count(self, route_count, timeout)?;
         Ok(())
+    }
+
+    fn wait_for_route_to(&self, peer: &UniqueAddress, timeout: Duration) -> TestResult {
+        let snapshot = ddata_tcp::DDataTcpExampleNode::wait_for_route_count(self, 1, timeout)?;
+        if snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == peer)
+        {
+            Ok(())
+        } else {
+            Err(
+                format!("distributed-data peer route to {peer:?} was not installed: {snapshot:?}")
+                    .into(),
+            )
+        }
     }
 }
 
@@ -86,6 +117,23 @@ impl TcpSmokeNode for cluster_tools_tcp::ClusterToolsTcpExampleNode {
             timeout,
         )?;
         Ok(())
+    }
+
+    fn wait_for_route_to(&self, peer: &UniqueAddress, timeout: Duration) -> TestResult {
+        let snapshot =
+            cluster_tools_tcp::ClusterToolsTcpExampleNode::wait_for_route_count(self, 1, timeout)?;
+        if snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == peer)
+        {
+            Ok(())
+        } else {
+            Err(
+                format!("cluster-tools peer route to {peer:?} was not installed: {snapshot:?}")
+                    .into(),
+            )
+        }
     }
 }
 
@@ -119,6 +167,28 @@ pub fn assert_three_node_full_mesh_then_shrink<N: TcpSmokeNode>(
         vec![node_a.self_node().clone(), node_b.self_node().clone()],
     )?;
     wait_for_route_count(&[node_a, node_b], 1, Duration::from_secs(2))?;
+    Ok(())
+}
+
+pub fn assert_replacement_peer_route<N: TcpSmokeNode>(
+    sender: &N,
+    old_receiver: &N,
+    new_receiver: &N,
+) -> TestResult {
+    sender.publish_up_members(vec![
+        sender.self_node().clone(),
+        old_receiver.self_node().clone(),
+    ])?;
+    sender.wait_for_route_to(old_receiver.self_node(), Duration::from_secs(2))?;
+
+    sender.publish_up_members(vec![sender.self_node().clone()])?;
+    sender.wait_for_route_count(0, Duration::from_secs(2))?;
+
+    sender.publish_up_members(vec![
+        sender.self_node().clone(),
+        new_receiver.self_node().clone(),
+    ])?;
+    sender.wait_for_route_to(new_receiver.self_node(), Duration::from_secs(2))?;
     Ok(())
 }
 
