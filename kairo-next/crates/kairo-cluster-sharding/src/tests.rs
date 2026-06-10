@@ -1,5 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -17,18 +17,18 @@ use kairo_serialization::{
 };
 
 use crate::{
-    BeginHandOffAck, BeginHandOffPlan, CoordinatorDiscoverySettings, CoordinatorEvent,
-    CoordinatorRuntime, CoordinatorState, CoordinatorStateSnapshot, DEFAULT_SHARD_COUNT,
-    EntityActorFactory, EntityDelivery, EntityRef, EntityShardActor, GetShardHome,
-    GetShardHomeIgnoreReason, GetShardHomePlan, GracefulShutdownReq, HandOff, HandOffPlan,
-    HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget, HandoffTransport,
-    HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg, HostShard, HostShardPlan,
-    LeastShardAllocationStrategy, PassivatePlan, RebalanceCompletionPlan, RebalancePlan,
-    RebalanceSkipReason, RegionBufferedReplayPlan, RegionCoordinatorDiscoveryConfig,
+    BeginHandOff, BeginHandOffAck, BeginHandOffPlan, CoordinatorDiscoverySettings,
+    CoordinatorEvent, CoordinatorRuntime, CoordinatorState, CoordinatorStateSnapshot,
+    DEFAULT_SHARD_COUNT, EntityActorFactory, EntityDelivery, EntityRef, EntityShardActor,
+    GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan, GracefulShutdownReq, HandOff,
+    HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget,
+    HandoffTransport, HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg, HostShard,
+    HostShardPlan, LeastShardAllocationStrategy, PassivatePlan, RebalanceCompletionPlan,
+    RebalancePlan, RebalanceSkipReason, RegionBufferedReplayPlan, RegionCoordinatorDiscoveryConfig,
     RegionDropReason, RegionLocalHandOffCompletionPlan, RegionLocalHandOffPlan,
     RegionLocalRoutePlan, RegionRegistrationConfig, RegionRegistrationStatus, RegionRouteDelivery,
     RegionRoutePlan, RegionRouteTarget, RegionRouteTransport, RegionShutdownPlan, RegionStopped,
-    Register, RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
+    Register, RegisterAck, RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
     RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorStoreActor,
     RememberCoordinatorStoreMsg, RememberCoordinatorStoreSnapshot, RememberCoordinatorStoreState,
     RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,
@@ -37,16 +37,16 @@ use crate::{
     RememberedEntitiesPlan, ShardActor, ShardAllocationStrategy, ShardAllocations,
     ShardCoordinatorActor, ShardCoordinatorBootstrap, ShardCoordinatorMsg,
     ShardCoordinatorRemoteHome, ShardCoordinatorRemoteRegistrationAck,
-    ShardCoordinatorRemoteTarget, ShardDeliverPlan, ShardDropReason, ShardEntityState,
-    ShardHandOffPlan, ShardHomePlan, ShardMsg, ShardRebalancePlan, ShardRegionActor,
-    ShardRegionDiscoverySubscriber, ShardRegionDiscoverySubscriberMsg,
+    ShardCoordinatorRemoteTarget, ShardCoordinatorSystemInbound, ShardDeliverPlan, ShardDropReason,
+    ShardEntityState, ShardHandOffPlan, ShardHomePlan, ShardMsg, ShardRebalancePlan,
+    ShardRegionActor, ShardRegionDiscoverySubscriber, ShardRegionDiscoverySubscriberMsg,
     ShardRegionDiscoverySubscriberSnapshot, ShardRegionMsg, ShardRegionRemoteInbound,
     ShardRegionRemoteOutbound, ShardRegionRuntime, ShardRegionSnapshot, ShardRuntime,
     ShardSnapshot, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
     ShardingEnvelopeRouter, ShardingError, default_shard_id_for, register_sharding_protocol_codecs,
     remember_coordinator_shards_key, remember_entity_key_index, remember_entity_key_index_for,
-    remember_entity_shard_key, remember_entity_shard_replicator_key, shard_id_for,
-    stable_hash_entity_id,
+    remember_entity_shard_key, remember_entity_shard_replicator_key, remote_region_id,
+    shard_id_for, stable_hash_entity_id,
 };
 
 mod allocation;

@@ -340,6 +340,197 @@ fn coordinator_actor_graceful_shutdown_rebalances_region_shards() {
 }
 
 #[test]
+fn coordinator_system_inbound_remote_graceful_shutdown_rebalances_to_local_region() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("coordinator-remote-graceful-shutdown").unwrap();
+    let mut registry = Registry::new();
+    register_sharding_protocol_codecs(&mut registry).unwrap();
+    let registry = Arc::new(registry);
+    let coordinator_wire =
+        ActorRefWireData::new("kairo://local@127.0.0.1:2551/system/sharding/coordinator").unwrap();
+    let remote_region =
+        ActorRefWireData::new("kairo://remote@127.0.0.1:2552/system/sharding/region").unwrap();
+    let remote_region_id = remote_region_id(&remote_region);
+    let remote_outbound = kit
+        .create_probe::<RemoteEnvelope>("remote-region-outbound")
+        .unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_shards("region-b", 10, 10),
+        )
+        .unwrap();
+    let mut state = CoordinatorState::new();
+    state
+        .apply(CoordinatorEvent::ShardRegionRegistered {
+            region: remote_region_id.clone(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardRegionRegistered {
+            region: "region-b".to_string(),
+        })
+        .unwrap();
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "shard-1".to_string(),
+            region: remote_region_id.clone(),
+        })
+        .unwrap();
+    let mut transport = HandoffTransport::new();
+    transport.insert_target(HandoffRegionTarget::new("region-b", region_b.clone()));
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                RebalanceThenAllocateStrategy::new(["shard-1"], "region-b"),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                transport,
+            ),
+        )
+        .unwrap();
+    let inbound = ShardCoordinatorSystemInbound::<String>::new(
+        coordinator.clone(),
+        coordinator_wire.clone(),
+        registry.clone(),
+        remote_outbound.actor_ref(),
+    );
+
+    inbound
+        .receive(RemoteEnvelope::new(
+            coordinator_wire.clone(),
+            Some(remote_region.clone()),
+            registry
+                .serialize(&Register {
+                    region: remote_region.clone(),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+    let register_ack = remote_outbound
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert_eq!(register_ack.recipient, remote_region);
+    assert_eq!(register_ack.sender, Some(coordinator_wire.clone()));
+    assert_eq!(
+        registry
+            .deserialize::<RegisterAck>(register_ack.message)
+            .unwrap(),
+        RegisterAck {
+            coordinator: coordinator_wire.clone()
+        }
+    );
+
+    inbound
+        .receive(RemoteEnvelope::new(
+            coordinator_wire.clone(),
+            Some(remote_region.clone()),
+            registry
+                .serialize(&GracefulShutdownReq {
+                    region: remote_region.clone(),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+    let begin = remote_outbound
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert_eq!(begin.recipient, remote_region);
+    assert_eq!(begin.sender, Some(coordinator_wire.clone()));
+    assert_eq!(
+        registry.deserialize::<BeginHandOff>(begin.message).unwrap(),
+        BeginHandOff {
+            shard_id: "shard-1".to_string()
+        }
+    );
+
+    inbound
+        .receive(RemoteEnvelope::new(
+            coordinator_wire.clone(),
+            Some(remote_region.clone()),
+            registry
+                .serialize(&BeginHandOffAck {
+                    shard_id: "shard-1".to_string(),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+    let handoff = remote_outbound
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert_eq!(handoff.recipient, remote_region.clone());
+    assert_eq!(handoff.sender, Some(coordinator_wire.clone()));
+    assert_eq!(
+        registry.deserialize::<HandOff>(handoff.message).unwrap(),
+        HandOff {
+            shard_id: "shard-1".to_string()
+        }
+    );
+
+    inbound
+        .receive(RemoteEnvelope::new(
+            coordinator_wire,
+            Some(remote_region),
+            registry
+                .serialize(&ShardStopped {
+                    shard_id: "shard-1".to_string(),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+
+    let snapshot = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+    let region_b_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-b-state")
+        .unwrap();
+    let mut completed = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: snapshot.actor_ref(),
+            })
+            .unwrap();
+        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
+        completed = !state.rebalance_in_progress.contains_key("shard-1")
+            && !state
+                .allocations
+                .get(&remote_region_id)
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
+            && state
+                .allocations
+                .get("region-b")
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
+        if completed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        completed,
+        "remote graceful shutdown should hand off and reallocate shard to region-b"
+    );
+    region_b
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_b_state.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        region_b_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .contains("shard-1")
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_graceful_shutdown_notifies_registered_coordinator() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-graceful-shutdown").unwrap();
     let coordinator = kit

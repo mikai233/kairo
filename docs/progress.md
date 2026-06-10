@@ -1859,6 +1859,12 @@ Implemented:
   `GracefulShutdownReq`, withholds `RegionStopped` while it still owns a
   hosted shard, then emits remote handoff acknowledgements and `RegionStopped`
   only after the remote handoff stops the local shard.
+- `kairo-cluster-sharding` coordinator-side remote graceful-shutdown
+  orchestration now has actor-boundary coverage: a stable decoded
+  `GracefulShutdownReq` from a remote region starts a handoff worker, sends
+  stable remote `BeginHandOff` and `HandOff` commands, consumes decoded
+  remote acknowledgements, and reallocates the stopped shard to a surviving
+  local region.
 - `kairo-cluster-sharding` shard-region discovery subscriber cluster-snapshot
   forwarding tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` region actor shard-home request, buffered
@@ -2006,6 +2012,7 @@ cargo test -p kairo-cluster-sharding shard_runtime
 cargo test -p kairo-cluster-sharding shard_remember_runtime
 cargo test -p kairo-cluster-sharding entity_shard_actor
 cargo test -p kairo-cluster-sharding coordinator_system_inbound_routes_region_shutdown_messages
+cargo test -p kairo-cluster-sharding coordinator_system_inbound_remote_graceful_shutdown_rebalances_to_local_region
 cargo test -p kairo-cluster-sharding region_actor_sends_remote_graceful_shutdown_and_region_stopped
 cargo test -p kairo-cluster-sharding region_actor_delays_remote_region_stopped_until_hosted_shard_handoff
 cargo test -p kairo-cluster-sharding sharding_protocol_codecs_round_trip_handoff_messages
