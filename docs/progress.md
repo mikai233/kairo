@@ -806,6 +806,10 @@ Implemented:
   membership removal: after two bound runtimes install socket routes from a
   shared gossip snapshot, publishing a sender-side snapshot without the peer
   removes that peer route from the actor-backed connector before shutdown.
+- Distributed-data TCP peer bootstrap lifecycle coverage now also validates
+  replacement peer routing: after removing a departed peer's route, publishing
+  a new `UniqueAddress` for a replacement receiver installs a fresh
+  membership-derived replicator socket route through the same connector.
 - Distributed-data TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
@@ -2044,6 +2048,7 @@ cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo test -p kairo --all-targets --all-features config
 cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
+cargo test -p kairo-distributed-data bootstrap_reinstalls_peer_route_for_replacement_unique_address
 cargo test -p kairo-distributed-data bootstrap
 cargo test -p kairo-distributed-data peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial
 cargo test -p kairo-distributed-data tcp_peer_runtime
