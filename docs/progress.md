@@ -455,6 +455,9 @@ Implemented:
   death-watch actor, and inbound router composition, and clears outbound
   association routes during shutdown so typed remote refs cannot keep socket
   lanes open after the runtime stops.
+- `TcpRemoteActorSystem::resolver::<M>()` now exposes the same typed
+  `ActorRefResolver` adapter as `RemoteActorRefProvider`, with runtime-level
+  coverage for owned canonical local refs and foreign remote refs.
 - The TCP actor-system runtime now spawns its remote death-watch actor under
   `/system/remote-watch`, aligning the local actor path with the stable system
   watcher path used by remote death-watch wire metadata.
@@ -2095,6 +2098,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-remote tcp_remote_actor_system_resolver_trait_resolves_local_and_remote_refs
 cargo test -p kairo-cluster-sharding multi_node_passivated_entity_is_not_recovered_after_rehost
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check

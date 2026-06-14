@@ -8,12 +8,12 @@ use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
 
 use crate::{
     ActorSystemRemoteInbound, AssociationOutboundPipeline, RemoteActorRef, RemoteActorRefProvider,
-    RemoteAssociationAddress, RemoteAssociationCache, RemoteAssociationRegistry,
-    RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration, RemoteDeathWatchCommand,
-    RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound,
-    RemoteSettings, ResolvedActorRef, Result, TcpAssociationDialer, TcpAssociationListener,
-    TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReaderHandle,
-    TcpAssociationStreamReader,
+    RemoteActorRefResolver, RemoteAssociationAddress, RemoteAssociationCache,
+    RemoteAssociationRegistry, RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration,
+    RemoteDeathWatchCommand, RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink,
+    RemoteError, RemoteOutbound, RemoteSettings, ResolvedActorRef, Result, TcpAssociationDialer,
+    TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
+    TcpAssociationReaderHandle, TcpAssociationStreamReader,
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -200,6 +200,13 @@ where
         N: RemoteMessage,
     {
         self.provider.resolve_actor_ref(path)
+    }
+
+    pub fn resolver<N>(&self) -> RemoteActorRefResolver<N>
+    where
+        N: RemoteMessage,
+    {
+        self.provider.resolver()
     }
 
     pub fn shutdown(self) -> Result<TcpAssociationListenerReport> {

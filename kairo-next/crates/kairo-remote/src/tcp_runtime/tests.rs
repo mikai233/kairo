@@ -6,7 +6,8 @@ use kairo_actor::{
     Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, PHASE_SERVICE_UNBIND, Props,
 };
 use kairo_serialization::{
-    ActorRefWireData, MessageCodec, Registry, RemoteMessage, SerializationRegistry,
+    ActorRefResolver, ActorRefWireData, MessageCodec, Registry, RemoteMessage,
+    SerializationRegistry,
 };
 
 use super::TcpRemoteActorSystem;
@@ -159,6 +160,54 @@ fn wait_for_receiver_inbound_watch(
             "timed out waiting for inbound remote-watch registration"
         );
     }
+}
+
+#[test]
+fn tcp_remote_actor_system_resolver_trait_resolves_local_and_remote_refs() {
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let registry = registry();
+    let (received_tx, received_rx) = mpsc::channel();
+    let target = receiver
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
+    let receiver_remote = TcpRemoteActorSystem::<Ping>::bind(
+        receiver,
+        registry,
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    )
+    .unwrap();
+    let resolver = receiver_remote.resolver::<Ping>();
+    let local_wire = ActorRefWireData::new(remote_path_for(
+        target.path().as_str(),
+        receiver_remote.settings(),
+    ))
+    .unwrap();
+
+    let local_resolved = resolver.resolve_actor_ref(&local_wire).unwrap();
+
+    assert!(local_resolved.is_local());
+    local_resolved.tell(Ping { value: 31 }).unwrap();
+    assert_eq!(
+        received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        31
+    );
+
+    let remote_wire = ActorRefWireData::new("kairo://sender@127.0.0.1:25521/user/target").unwrap();
+    let remote_resolved = resolver.resolve_actor_ref(&remote_wire).unwrap();
+
+    assert!(remote_resolved.is_remote());
+    assert_eq!(
+        remote_resolved.path().as_str(),
+        "kairo://sender@127.0.0.1:25521/user/target"
+    );
+
+    receiver_remote.shutdown().unwrap();
 }
 
 #[test]
