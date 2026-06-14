@@ -43,9 +43,10 @@ Implemented:
 - System stop drains queued user messages to dead letters before delivery.
 - Duplicate live names under `/user` are rejected; stopped names can be reused
   with a new path incarnation.
-- Local actor refs, child links, and reserved names are removed before
-  `PostStop`-side completion is observable, so name reuse is deterministic
-  once the stopped hook has run.
+- Local actor refs, child links, and reserved names remain present through
+  `PostStop`; stopping children keep their logical names reserved until
+  termination completes, and the names can be reused only after the stopped
+  hook has run.
 - User actor names follow stable actor path element validation; `$`-prefixed
   names are reserved for internal actors such as anonymous children.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop
@@ -1991,8 +1992,8 @@ Implemented:
 
 Not yet implemented:
 
-- Full actor tree lifecycle semantics beyond recursive local stop and
-  restart-time child handling.
+- Full actor tree lifecycle semantics beyond recursive local stop,
+  restart-time child handling, and terminating-child name reservation.
 - Full actor-system local/remote provider integration, optional codec helper
   crates, richer actor-system lifecycle wiring around the existing TCP
   association primitives, and broader cross-crate compatibility fixtures.

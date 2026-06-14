@@ -190,8 +190,16 @@ enum ChildStopMsg {
         stopped: mpsc::Sender<()>,
         reply_to: mpsc::Sender<ActorPath>,
     },
+    SpawnBlockingChild {
+        entered_stop: mpsc::Sender<()>,
+        release_stop: mpsc::Receiver<()>,
+        reply_to: mpsc::Sender<ActorPath>,
+    },
     StopChild {
         reply_to: mpsc::Sender<()>,
+    },
+    SpawnReplacement {
+        reply_to: mpsc::Sender<Result<ActorPath, String>>,
     },
     StopOther {
         other: ActorRef<()>,
@@ -217,12 +225,38 @@ impl Actor for ChildStoppingParent {
                     .map_err(|error| ActorError::Message(error.to_string()))?;
                 self.child = Some(child);
             }
+            ChildStopMsg::SpawnBlockingChild {
+                entered_stop,
+                release_stop,
+                reply_to,
+            } => {
+                let child = ctx.spawn(
+                    "child",
+                    Props::new(move || BlockingStopChild {
+                        entered_stop,
+                        release_stop,
+                    }),
+                )?;
+                reply_to
+                    .send(child.path().clone())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                self.child = Some(child);
+            }
             ChildStopMsg::StopChild { reply_to } => {
                 if let Some(child) = self.child.clone() {
                     ctx.stop(child)?;
                 }
                 reply_to
                     .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ChildStopMsg::SpawnReplacement { reply_to } => {
+                let result = ctx
+                    .spawn("child", Props::new(|| Noop))
+                    .map(|child| child.path().clone())
+                    .map_err(|error| error.to_string());
+                reply_to
+                    .send(result)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             ChildStopMsg::StopOther { other, reply_to } => {
@@ -243,6 +277,29 @@ impl Actor for ChildStoppingParent {
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
         }
+        Ok(())
+    }
+}
+
+struct BlockingStopChild {
+    entered_stop: mpsc::Sender<()>,
+    release_stop: mpsc::Receiver<()>,
+}
+
+impl Actor for BlockingStopChild {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.entered_stop
+            .send(())
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        self.release_stop
+            .recv_timeout(Duration::from_secs(1))
+            .map_err(|error| ActorError::Message(error.to_string()))?;
         Ok(())
     }
 }
@@ -295,6 +352,71 @@ fn context_stop_can_stop_direct_child_without_stopping_parent() {
             .as_str()
             .starts_with(&format!("{}/child#", parent.path()))
     );
+}
+
+#[test]
+fn stopping_child_name_is_reserved_until_termination_completes() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (stop_tx, stop_rx) = mpsc::channel();
+    let (blocked_replacement_tx, blocked_replacement_rx) = mpsc::channel();
+    let (replacement_tx, replacement_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+
+    parent
+        .tell(ChildStopMsg::StopChild { reply_to: stop_tx })
+        .unwrap();
+    stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    parent
+        .tell(ChildStopMsg::SpawnReplacement {
+            reply_to: blocked_replacement_tx,
+        })
+        .unwrap();
+    assert_eq!(
+        blocked_replacement_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .expect_err("stopping child must still reserve its name"),
+        "actor `child` already exists"
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.resolve_local::<()>(child_path.as_str()).is_none());
+
+    parent
+        .tell(ChildStopMsg::SpawnReplacement {
+            reply_to: replacement_tx,
+        })
+        .unwrap();
+    let replacement = replacement_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    assert!(
+        replacement
+            .as_str()
+            .starts_with(&format!("{}/child#", parent.path()))
+    );
+    assert_ne!(replacement, child_path);
 }
 
 #[test]
