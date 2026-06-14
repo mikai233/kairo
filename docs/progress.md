@@ -1918,6 +1918,10 @@ Implemented:
 - `kairo-actor` context spawn, parent/child introspection, direct-child stop,
   parent-before-child shutdown, actor-path metadata, and post-stop signal tests
   now live in a focused sibling test module.
+- `kairo-actor` tree-lifecycle tests now pin startup-failed child cleanup:
+  failed-start children are removed from the parent's child registry and their
+  child name reservation is released so the parent can spawn a replacement
+  under the same logical child name.
 - `kairo-actor` local core spawn/tell, builder, recipient, name validation,
   dead-letter, local resolution, stop, name-reuse, and termination tests now
   live in a focused sibling test module, leaving the parent test module for
@@ -1957,6 +1961,10 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor child_startup_failure_cleans_parent_registry_and_releases_name
+cargo fmt --all -- --check
+cargo test -p kairo-actor --all-targets --all-features
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 cargo test -p kairo-cluster-sharding region_actor_repeats_graceful_shutdown_when_host_shard_arrives_during_shutdown
 cargo test -p kairo-cluster-sharding region_actor_repeats_remote_graceful_shutdown_when_host_shard_arrives_during_shutdown

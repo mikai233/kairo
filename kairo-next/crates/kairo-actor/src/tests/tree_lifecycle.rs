@@ -323,6 +323,120 @@ fn context_stop_rejects_actor_that_is_not_self_or_direct_child() {
     );
 }
 
+enum StartupChildMsg {
+    SpawnFailing {
+        reply_to: mpsc::Sender<ActorRef<()>>,
+    },
+    SpawnHealthy {
+        reply_to: mpsc::Sender<Result<ActorPath, String>>,
+    },
+    ChildPath(mpsc::Sender<Option<ActorPath>>),
+    Ping(mpsc::Sender<&'static str>),
+}
+
+struct StartupChildParent;
+
+impl Actor for StartupChildParent {
+    type Msg = StartupChildMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            StartupChildMsg::SpawnFailing { reply_to } => {
+                let child = ctx.spawn("child", Props::new(|| StartupFailingChild))?;
+                reply_to
+                    .send(child)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            StartupChildMsg::SpawnHealthy { reply_to } => {
+                let result = ctx
+                    .spawn("child", Props::new(|| Noop))
+                    .map(|child| child.path().clone())
+                    .map_err(|error| error.to_string());
+                reply_to
+                    .send(result)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            StartupChildMsg::ChildPath(reply_to) => {
+                let path = ctx.child("child").map(|child| child.path().clone());
+                reply_to
+                    .send(path)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            StartupChildMsg::Ping(reply_to) => {
+                reply_to
+                    .send("alive")
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct StartupFailingChild;
+
+impl Actor for StartupFailingChild {
+    type Msg = ();
+
+    fn started(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        Err(ActorError::Message("startup failed".to_string()))
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
+#[test]
+fn child_startup_failure_cleans_parent_registry_and_releases_name() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| StartupChildParent))
+        .unwrap();
+    let (failing_tx, failing_rx) = mpsc::channel();
+    let (child_lookup_tx, child_lookup_rx) = mpsc::channel();
+    let (healthy_tx, healthy_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    parent
+        .tell(StartupChildMsg::SpawnFailing {
+            reply_to: failing_tx,
+        })
+        .unwrap();
+    let failed_child = failing_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(failed_child.wait_for_stop(Duration::from_secs(1)));
+
+    parent
+        .tell(StartupChildMsg::ChildPath(child_lookup_tx))
+        .unwrap();
+    assert_eq!(
+        child_lookup_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        None
+    );
+
+    parent
+        .tell(StartupChildMsg::SpawnHealthy {
+            reply_to: healthy_tx,
+        })
+        .unwrap();
+    let healthy_child = healthy_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    assert!(
+        healthy_child
+            .as_str()
+            .starts_with(&format!("{}/child#", parent.path()))
+    );
+
+    parent.tell(StartupChildMsg::Ping(ping_tx)).unwrap();
+    assert_eq!(
+        ping_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "alive"
+    );
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum StopEvent {
     Child,
