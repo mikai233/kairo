@@ -644,5 +644,29 @@ fn region_actor_repeats_graceful_shutdown_when_host_shard_arrives_during_shutdow
         coordinator.expect_msg(Duration::from_millis(500)).unwrap(),
         ShardCoordinatorMsg::GracefulShutdownReq { region, .. } if region == "region-a"
     ));
+
+    let buffered = kit
+        .create_probe::<RegionBufferedReplayPlan>("buffered-host")
+        .unwrap();
+    let delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("buffered-delivery")
+        .unwrap();
+    region
+        .tell(ShardRegionMsg::HostShardAndReplayBuffered {
+            shard: "shard-3".to_string(),
+            reply_to: buffered.actor_ref(),
+            delivery_reply_to: delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        buffered.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionBufferedReplayPlan::IgnoredGracefulShutdown {
+            shard: "shard-3".to_string(),
+        }
+    );
+    assert!(matches!(
+        coordinator.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardCoordinatorMsg::GracefulShutdownReq { region, .. } if region == "region-a"
+    ));
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }

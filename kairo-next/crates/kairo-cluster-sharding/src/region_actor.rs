@@ -105,6 +105,12 @@ where
                 delivery_reply_to,
             } => {
                 let plan = self.host_shard_and_replay_buffered(ctx, shard, delivery_reply_to)?;
+                if matches!(
+                    plan,
+                    RegionBufferedReplayPlan::IgnoredGracefulShutdown { .. }
+                ) {
+                    self.send_graceful_shutdown_to_coordinator()?;
+                }
                 let _ = reply_to.tell(plan);
             }
             ShardRegionMsg::RecordShardHome {
