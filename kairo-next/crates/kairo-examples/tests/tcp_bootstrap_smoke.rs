@@ -1,5 +1,7 @@
+use std::collections::BTreeMap;
 use std::time::Duration;
 
+use kairo::cluster_tools::PubSubStatus;
 use kairo::distributed_data::ReplicaId;
 use kairo_examples::cluster_tcp;
 use kairo_examples::cluster_tools_tcp;
@@ -171,6 +173,32 @@ fn cluster_tools_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestRe
     let _lock = lock_tcp_smoke();
     let (node_a, node_b) = cluster_tools_tcp::bind_two_nodes()?;
     let result = assert_two_node_bidirectional_routes(&node_a, &node_b);
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
+fn cluster_tools_tcp_peer_bootstrap_delivers_remote_pubsub_publish() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b) = cluster_tools_tcp::bind_two_nodes()?;
+    let result = (|| -> TestResult {
+        assert_two_node_bidirectional_routes(&node_a, &node_b)?;
+        let message = PubSubStatus {
+            from: node_a.self_node().clone(),
+            versions: BTreeMap::from([(cluster_tools_tcp::EXAMPLE_PUBSUB_TOPIC.to_string(), 1)]),
+            reply: false,
+        };
+        node_a.send_status_to(&node_b, message.clone())?;
+        let received = node_b.wait_for_status_count(1, Duration::from_secs(2));
+        assert_eq!(received, vec![message]);
+        Ok(())
+    })();
 
     let shutdown_a = node_a.shutdown(Duration::from_secs(1));
     let shutdown_b = node_b.shutdown(Duration::from_secs(1));

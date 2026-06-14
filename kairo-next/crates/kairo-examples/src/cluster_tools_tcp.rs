@@ -1,10 +1,13 @@
 use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use kairo::actor::{ActorError, ActorRef, ActorSystem, Address, Props};
+use kairo::actor::{
+    Actor, ActorError, ActorRef, ActorResult, ActorSystem, Address, Props, Recipient,
+};
 use kairo::cluster::{
     Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus,
     UniqueAddress,
@@ -12,22 +15,83 @@ use kairo::cluster::{
 use kairo::cluster_tools::{
     ClusterToolsSystemInbound, ClusterToolsTcpPeerBootstrap, ClusterToolsTcpPeerBootstrapSettings,
     ClusterToolsTcpPeerConnectorMsg, ClusterToolsTcpPeerConnectorSettings,
-    ClusterToolsTcpPeerConnectorSnapshot, DistributedPubSubMediatorActor,
-    DistributedPubSubMediatorMsg, PubSubGossipActor, PubSubGossipMsg, PubSubGossipWireInbound,
-    PubSubRemoteDeliveryInbound, PubSubStatus, SingletonManagerActor, SingletonManagerMsg,
-    SingletonManagerRemoteInbound, register_cluster_tools_protocol_codecs,
+    ClusterToolsTcpPeerConnectorSnapshot, ClusterToolsTcpPeerRuntime,
+    DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg, LocalPubSubMsg,
+    PubSubGossipActor, PubSubGossipMsg, PubSubGossipWireInbound, PubSubRemoteDeliveryInbound,
+    PubSubRemoteDeliveryOutbound, PubSubStatus, PubSubSubscribeAck, SingletonManagerActor,
+    SingletonManagerMsg, SingletonManagerRemoteInbound, TopicName, TopicPublishMode,
+    register_cluster_tools_protocol_codecs,
 };
-use kairo::remote::RemoteSettings;
+use kairo::remote::{RemoteAssociationCache, RemoteOutbound, RemoteSettings};
 use kairo::serialization::Registry;
 
 use crate::reply::spawn_one_shot_reply;
 
 static SNAPSHOT_ID: AtomicU64 = AtomicU64::new(0);
+pub const EXAMPLE_PUBSUB_TOPIC: &str = "example-status";
+
+#[derive(Default)]
+pub struct RecordingPubSubStatuses {
+    received: Mutex<Vec<PubSubStatus>>,
+    changed: Condvar,
+}
+
+impl RecordingPubSubStatuses {
+    pub fn wait_for_len(&self, len: usize, timeout: Duration) -> Vec<PubSubStatus> {
+        let deadline = Instant::now() + timeout;
+        let mut received = self.received.lock().expect("pubsub statuses poisoned");
+        while received.len() < len {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let (next_received, wait) = self
+                .changed
+                .wait_timeout(received, remaining)
+                .expect("pubsub statuses poisoned");
+            received = next_received;
+            if wait.timed_out() {
+                break;
+            }
+        }
+        received.clone()
+    }
+}
+
+struct RecordingPubSubStatusActor {
+    recorder: Arc<RecordingPubSubStatuses>,
+}
+
+impl RecordingPubSubStatusActor {
+    fn new(recorder: Arc<RecordingPubSubStatuses>) -> Self {
+        Self { recorder }
+    }
+}
+
+impl Actor for RecordingPubSubStatusActor {
+    type Msg = PubSubStatus;
+
+    fn receive(
+        &mut self,
+        _ctx: &mut kairo::actor::Context<Self::Msg>,
+        msg: Self::Msg,
+    ) -> ActorResult {
+        self.recorder
+            .received
+            .lock()
+            .expect("pubsub statuses poisoned")
+            .push(msg);
+        self.recorder.changed.notify_all();
+        Ok(())
+    }
+}
 
 pub struct ClusterToolsTcpExampleNode {
     system: ActorSystem,
     publisher: ActorRef<ClusterEventPublisherMsg>,
     bootstrap: ClusterToolsTcpPeerBootstrap<PubSubStatus>,
+    registry: Arc<Registry>,
+    association_cache: RemoteAssociationCache,
+    status_recorder: Arc<RecordingPubSubStatuses>,
 }
 
 impl ClusterToolsTcpExampleNode {
@@ -46,6 +110,17 @@ impl ClusterToolsTcpExampleNode {
         let cluster = Cluster::new(publisher.clone());
         let registry = cluster_tools_registry()?;
         let inbound_system = system.clone();
+        let inbound_registry = registry.clone();
+        let status_recorder = Arc::new(RecordingPubSubStatuses::default());
+        let status_recorder_actor = system.spawn(
+            "pubsub-status-recorder",
+            Props::new({
+                let status_recorder = status_recorder.clone();
+                move || RecordingPubSubStatusActor::new(status_recorder.clone())
+            }),
+        )?;
+        let mediator_slot = Arc::new(Mutex::new(None));
+        let inbound_mediator_slot = mediator_slot.clone();
         let settings = ClusterToolsTcpPeerBootstrapSettings::new()
             .with_connector_name(connector_name)
             .with_connector_settings(
@@ -53,20 +128,32 @@ impl ClusterToolsTcpExampleNode {
                     .with_automatic_retry_ticks(false),
             )
             .with_shutdown_timeout(Duration::from_secs(1));
-        let bootstrap = ClusterToolsTcpPeerBootstrap::bind_and_spawn(
-            &system,
-            cluster,
+        let runtime = ClusterToolsTcpPeerRuntime::bind(
+            system_name,
             node_uid,
             system_uid,
             RemoteSettings::new("127.0.0.1", 0),
-            settings,
-            move |self_node| inbound_for(&inbound_system, registry, self_node),
+            move |self_node| {
+                inbound_for(
+                    &inbound_system,
+                    inbound_registry,
+                    self_node,
+                    inbound_mediator_slot,
+                )
+            },
         )?;
+        let association_cache = runtime.association_cache().clone();
+        subscribe_status_recorder(&system, &mediator_slot, status_recorder_actor)?;
+        let bootstrap =
+            ClusterToolsTcpPeerBootstrap::spawn_with_runtime(&system, cluster, runtime, settings)?;
 
         Ok(Self {
             system,
             publisher,
             bootstrap,
+            registry,
+            association_cache,
+            status_recorder,
         })
     }
 
@@ -123,6 +210,29 @@ impl ClusterToolsTcpExampleNode {
         }
     }
 
+    pub fn send_status_to(
+        &self,
+        target: &ClusterToolsTcpExampleNode,
+        message: PubSubStatus,
+    ) -> Result<(), Box<dyn Error>> {
+        let outbound = PubSubRemoteDeliveryOutbound::<PubSubStatus>::from_arc(
+            target.self_node().clone(),
+            self.registry.clone(),
+            Arc::new(self.association_cache.clone()) as Arc<dyn RemoteOutbound>,
+        );
+        outbound.tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new(EXAMPLE_PUBSUB_TOPIC),
+            message,
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })?;
+        Ok(())
+    }
+
+    pub fn wait_for_status_count(&self, len: usize, timeout: Duration) -> Vec<PubSubStatus> {
+        self.status_recorder.wait_for_len(len, timeout)
+    }
+
     pub fn shutdown(self, timeout: Duration) -> Result<(), ActorError> {
         self.system
             .run_coordinated_shutdown("cluster-tools tcp example complete", timeout)
@@ -162,6 +272,7 @@ fn inbound_for(
     system: &ActorSystem,
     registry: Arc<Registry>,
     self_node: UniqueAddress,
+    mediator_slot: Arc<Mutex<Option<ActorRef<DistributedPubSubMediatorMsg<PubSubStatus>>>>>,
 ) -> ClusterToolsSystemInbound<PubSubStatus> {
     let gossip_node = self_node.clone();
     let gossip = system
@@ -179,6 +290,9 @@ fn inbound_for(
             }),
         )
         .expect("cluster-tools example pubsub mediator actor should spawn");
+    *mediator_slot
+        .lock()
+        .expect("cluster-tools example mediator slot poisoned") = Some(mediator.clone());
     let singleton_node = self_node.clone();
     let singleton = system
         .spawn(
@@ -203,6 +317,30 @@ fn inbound_for(
             registry,
             singleton as ActorRef<SingletonManagerMsg>,
         ))
+}
+
+fn subscribe_status_recorder(
+    system: &ActorSystem,
+    mediator_slot: &Arc<Mutex<Option<ActorRef<DistributedPubSubMediatorMsg<PubSubStatus>>>>>,
+    subscriber: ActorRef<PubSubStatus>,
+) -> Result<(), Box<dyn Error>> {
+    let mediator = mediator_slot
+        .lock()
+        .expect("cluster-tools example mediator slot poisoned")
+        .clone()
+        .ok_or("cluster-tools example mediator was not installed")?;
+    let id = SNAPSHOT_ID.fetch_add(1, Ordering::Relaxed);
+    let (reply_to, replies) = spawn_one_shot_reply::<PubSubSubscribeAck>(
+        system,
+        format!("pubsub-status-subscribe-{id}"),
+    )?;
+    mediator.tell(DistributedPubSubMediatorMsg::Subscribe {
+        topic: TopicName::new(EXAMPLE_PUBSUB_TOPIC),
+        subscriber,
+        reply_to: Some(reply_to),
+    })?;
+    replies.recv_timeout(Duration::from_secs(1))?;
+    Ok(())
 }
 
 fn up_member(node: UniqueAddress) -> Member {

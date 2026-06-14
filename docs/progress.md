@@ -2004,6 +2004,11 @@ Implemented:
   `ReplicatorRead` across the bootstrapped socket route, decodes it on the
   receiver side, and validates both configured peer identity and payload
   sender metadata.
+- The cluster-tools TCP bootstrap example now keeps its public reusable node
+  boundary wired to the real distributed pubsub mediator plus an example
+  subscriber, and the smoke suite sends a stable-codec `PubSubStatus` publish
+  across the bootstrapped socket route before validating delivery through the
+  receiver mediator.
 - TCP bootstrap example smoke-test support now lives in a focused sibling
   module, keeping shared live-socket locking, node adapters, membership
   publication, and route-count assertions separate from the scenario tests.
@@ -2767,4 +2772,10 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_delivers_remote_pubsub_publish --all-targets --all-features
+cargo fmt --all -- --check
+cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
 ```
