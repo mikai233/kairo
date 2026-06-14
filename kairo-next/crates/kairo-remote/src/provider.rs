@@ -252,6 +252,15 @@ mod tests {
         )
     }
 
+    fn provider_with_empty_registry(system: ActorSystem) -> RemoteActorRefProvider {
+        RemoteActorRefProvider::with_actor_system(
+            system,
+            RemoteSettings::new("127.0.0.1", 25520),
+            Arc::new(Registry::new()),
+            Arc::new(DropOutbound),
+        )
+    }
+
     #[test]
     fn provider_resolves_remote_path_to_typed_remote_ref() {
         let remote_ref = provider()
@@ -304,6 +313,32 @@ mod tests {
         assert!(resolved.is_local());
         resolved.tell(LocalCmd { value: 7 }).unwrap();
         assert_eq!(received_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 7);
+    }
+
+    #[test]
+    fn provider_local_resolution_does_not_require_registered_codec() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_empty_registry(system.clone());
+        let (received_tx, received_rx) = mpsc::channel();
+        let target = system
+            .spawn(
+                "target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+
+        let resolved = provider
+            .resolve_actor_ref::<LocalCmd>(target.path().to_string())
+            .unwrap();
+
+        assert!(resolved.is_local());
+        resolved.tell(LocalCmd { value: 13 }).unwrap();
+        assert_eq!(
+            received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            13
+        );
     }
 
     #[test]

@@ -460,6 +460,10 @@ Implemented:
   `ActorSystem` resolves local-only paths and owned canonical remote paths
   through the local actor registry, returns missing local refs for unknown
   owned paths, and preserves remote refs for foreign addresses.
+- `RemoteActorRefProvider` tests now pin that local `ResolvedActorRef<M>`
+  delivery does not require a registered codec even when the ref was resolved
+  through the remote provider, preserving the local-message/no-serialization
+  boundary while keeping remote sends codec-backed.
 - `kairo-remote` now has a focused remote death-watch state module that tracks
   watched remote actor pairs and watched addresses, plans heartbeat
   start/stop/send effects, re-watches after remote UID changes, emits
@@ -1965,6 +1969,10 @@ cargo test -p kairo-actor child_startup_failure_cleans_parent_registry_and_relea
 cargo fmt --all -- --check
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo test -p kairo-remote provider_local_resolution_does_not_require_registered_codec
+cargo fmt --all -- --check
+cargo test -p kairo-remote --all-targets --all-features
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 cargo test -p kairo-cluster-sharding region_actor_repeats_graceful_shutdown_when_host_shard_arrives_during_shutdown
 cargo test -p kairo-cluster-sharding region_actor_repeats_remote_graceful_shutdown_when_host_shard_arrives_during_shutdown
