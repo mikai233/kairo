@@ -36,6 +36,28 @@ fn cluster_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestResult {
 }
 
 #[test]
+fn cluster_tcp_peer_bootstrap_shutdown_stops_connector_after_live_route() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b) = cluster_tcp::bind_two_nodes()?;
+    if let Err(error) = assert_two_node_bidirectional_routes(&node_a, &node_b) {
+        let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+        let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+        shutdown_a?;
+        shutdown_b?;
+        return Err(error);
+    }
+
+    let observation_a = node_a.shutdown_with_observation(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    let observation = observation_a?;
+    assert_eq!(observation.route_count_before_shutdown, 1);
+    assert!(observation.connector_stopped);
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
 fn cluster_tcp_peer_bootstrap_delivers_remote_join() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b) = cluster_tcp::bind_two_nodes()?;
@@ -233,6 +255,28 @@ fn ddata_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestResult {
 
     result?;
     shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
+fn ddata_tcp_peer_bootstrap_shutdown_stops_connector_after_live_route() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b) = ddata_tcp::bind_two_nodes()?;
+    if let Err(error) = assert_two_node_bidirectional_routes(&node_a, &node_b) {
+        let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+        let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+        shutdown_a?;
+        shutdown_b?;
+        return Err(error);
+    }
+
+    let observation_a = node_a.shutdown_with_observation(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    let observation = observation_a?;
+    assert_eq!(observation.route_count_before_shutdown, 1);
+    assert!(observation.connector_stopped);
     shutdown_b?;
     Ok(())
 }
@@ -441,6 +485,28 @@ fn cluster_tools_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestRe
 
     result?;
     shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
+fn cluster_tools_tcp_peer_bootstrap_shutdown_stops_connector_after_live_route() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b) = cluster_tools_tcp::bind_two_nodes()?;
+    if let Err(error) = assert_two_node_bidirectional_routes(&node_a, &node_b) {
+        let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+        let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+        shutdown_a?;
+        shutdown_b?;
+        return Err(error);
+    }
+
+    let observation_a = node_a.shutdown_with_observation(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    let observation = observation_a?;
+    assert_eq!(observation.route_count_before_shutdown, 1);
+    assert!(observation.connector_stopped);
     shutdown_b?;
     Ok(())
 }

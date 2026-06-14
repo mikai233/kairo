@@ -94,6 +94,12 @@ pub struct ClusterToolsTcpExampleNode {
     status_recorder: Arc<RecordingPubSubStatuses>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClusterToolsTcpShutdownObservation {
+    pub route_count_before_shutdown: usize,
+    pub connector_stopped: bool,
+}
+
 impl ClusterToolsTcpExampleNode {
     pub fn bind(
         system_name: &str,
@@ -236,6 +242,23 @@ impl ClusterToolsTcpExampleNode {
     pub fn shutdown(self, timeout: Duration) -> Result<(), ActorError> {
         self.system
             .run_coordinated_shutdown("cluster-tools tcp example complete", timeout)
+    }
+
+    pub fn shutdown_with_observation(
+        self,
+        timeout: Duration,
+    ) -> Result<ClusterToolsTcpShutdownObservation, ActorError> {
+        let connector = self.bootstrap.connector().clone();
+        let route_count_before_shutdown = self
+            .connector_snapshot(timeout)
+            .map_err(|error| ActorError::Message(error.to_string()))?
+            .route_count;
+        self.system
+            .run_coordinated_shutdown("cluster-tools tcp example complete", timeout)?;
+        Ok(ClusterToolsTcpShutdownObservation {
+            route_count_before_shutdown,
+            connector_stopped: connector.wait_for_stop(timeout),
+        })
     }
 }
 

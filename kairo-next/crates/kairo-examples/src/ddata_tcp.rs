@@ -103,6 +103,12 @@ pub struct DDataTcpExampleNode {
     request_recorder: Arc<RecordingReplicatorRequests>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DDataTcpShutdownObservation {
+    pub route_count_before_shutdown: usize,
+    pub connector_stopped: bool,
+}
+
 impl DDataTcpExampleNode {
     pub fn bind(
         system_name: &str,
@@ -274,6 +280,23 @@ impl DDataTcpExampleNode {
     pub fn shutdown(self, timeout: Duration) -> Result<(), ActorError> {
         self.system
             .run_coordinated_shutdown("ddata tcp example complete", timeout)
+    }
+
+    pub fn shutdown_with_observation(
+        self,
+        timeout: Duration,
+    ) -> Result<DDataTcpShutdownObservation, ActorError> {
+        let connector = self.bootstrap.connector().clone();
+        let route_count_before_shutdown = self
+            .connector_snapshot(timeout)
+            .map_err(|error| ActorError::Message(error.to_string()))?
+            .route_count;
+        self.system
+            .run_coordinated_shutdown("ddata tcp example complete", timeout)?;
+        Ok(DDataTcpShutdownObservation {
+            route_count_before_shutdown,
+            connector_stopped: connector.wait_for_stop(timeout),
+        })
     }
 }
 

@@ -1989,6 +1989,11 @@ Implemented:
   one peer route before coordinated shutdown; the same example smoke suite now
   publishes a sender-local membership shrink and verifies the sender removes
   the departed peer route through the public reusable example module boundary.
+- The TCP bootstrap example modules now expose routeful coordinated-shutdown
+  observations, and the localhost smoke suite validates that cluster,
+  distributed-data, and cluster-tools bootstrap-owned connector actors stop
+  through coordinated shutdown after installing a live peer route through the
+  public reusable example node boundary.
 - The TCP bootstrap example modules now expose reusable three-node binding
   helpers, and the localhost smoke suite validates cluster, distributed-data,
   and cluster-tools full-mesh route installation followed by a membership
@@ -2369,7 +2374,7 @@ Not yet implemented:
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader lifecycle tests around the bootstrap facades beyond the current
   localhost crate, focused sender-side route-reduction delivery coverage, and
-  example smoke tests.
+  example routeful coordinated-shutdown smoke tests.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation and focused three-node
@@ -2861,6 +2866,12 @@ cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-examples cluster_tcp_peer_bootstrap_delivers_join_to_replacement_peer --all-targets --all-features
 cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_delivers_pubsub_to_replacement_peer --all-targets --all-features
+cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples shutdown_stops_connector_after_live_route --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features
 cargo fmt --all -- --check
