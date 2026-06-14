@@ -22,10 +22,10 @@ use crate::{
     GetShardHomePlan, HandoffRegionTarget, HostShardPlan, RegionCoordinatorDiscovery,
     RegionCoordinatorDiscoveryConfig, RegionCoordinatorDiscoveryPlan, RegionId,
     RegionRemoteCoordinator, RegionRemoteCoordinatorTransport, RegionRemoteRegistrationPlan,
-    RegionRouteDelivery, RegionRoutePlan, RegionRouteTransport, ShardCoordinatorMsg,
-    ShardCoordinatorRemoteHome, ShardCoordinatorRemoteRegistrationAck, ShardDeliverPlan,
-    ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime, ShardingEnvelope,
-    ShardingError, shard_home_plan_from_remote,
+    RegionRouteDelivery, RegionRoutePlan, RegionRouteTransport, RememberShardStoreMsg,
+    ShardCoordinatorMsg, ShardCoordinatorRemoteHome, ShardCoordinatorRemoteRegistrationAck,
+    ShardDeliverPlan, ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRuntime,
+    ShardingEnvelope, ShardingError, shard_home_plan_from_remote,
 };
 
 mod construction;

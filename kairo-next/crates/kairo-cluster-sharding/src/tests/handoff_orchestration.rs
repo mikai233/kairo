@@ -350,19 +350,26 @@ fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
     let coordinator_kit = nodes.kit("sharding-graceful-coordinator").unwrap();
     let region_a_kit = nodes.kit("sharding-graceful-region-a").unwrap();
     let region_b_kit = nodes.kit("sharding-graceful-region-b").unwrap();
+    let remember_store = coordinator_kit
+        .system()
+        .spawn(
+            "remember-store-shard-1",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
     let region_a = region_a_kit
         .system()
         .spawn(
             "region-a",
-            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+            ShardRegionActor::<String>::props_with_remember_store_shards(
                 "region-a",
-                "orders",
                 10,
                 10,
-                BTreeMap::from([(
-                    "shard-1".to_string(),
-                    BTreeSet::from(["entity-1".to_string()]),
-                )]),
+                BTreeMap::from([("shard-1".to_string(), remember_store.clone())]),
                 Duration::from_millis(500),
             ),
         )
@@ -371,12 +378,11 @@ fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
         .system()
         .spawn(
             "region-b",
-            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+            ShardRegionActor::<String>::props_with_remember_store_shards(
                 "region-b",
-                "orders",
                 10,
                 10,
-                BTreeMap::new(),
+                BTreeMap::from([("shard-1".to_string(), remember_store)]),
                 Duration::from_millis(500),
             ),
         )
@@ -431,6 +437,18 @@ fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
         .unwrap();
     let region_b_state = nodes
         .create_probe_on::<ShardRegionSnapshot>("sharding-graceful-region-b", "region-b-state")
+        .unwrap();
+    let region_b_local_shard = nodes
+        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
+            "sharding-graceful-region-b",
+            "region-b-local-shard",
+        )
+        .unwrap();
+    let region_b_delivery = nodes
+        .create_probe_on::<ShardDeliverPlan<String>>(
+            "sharding-graceful-region-b",
+            "region-b-delivery",
+        )
         .unwrap();
 
     coordinator
@@ -494,6 +512,30 @@ fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
             .unwrap()
             .local_shards
             .contains("shard-1")
+    );
+    region_b
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: region_b_local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = region_b_local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("region-b should host shard-1 after graceful shutdown");
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-handoff".to_string()),
+            reply_to: region_b_delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        region_b_delivery
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-handoff".to_string()),
+        }
     );
     nodes.shutdown(Duration::from_secs(1)).unwrap();
 }

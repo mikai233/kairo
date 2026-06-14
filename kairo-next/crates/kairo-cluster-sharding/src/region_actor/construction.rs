@@ -180,6 +180,31 @@ where
         }
     }
 
+    pub fn new_with_remember_store_shards(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        remember_stores_by_shard: BTreeMap<ShardId, ActorRef<RememberShardStoreMsg>>,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
+            local_shard_spawner: Some(LocalShardSpawner::with_remember_store_refs(
+                shard_buffer_capacity,
+                remember_stores_by_shard,
+                timeout,
+            )),
+            local_shards: BTreeMap::new(),
+            registration: None,
+            remote_coordinator: RegionRemoteCoordinator::new(),
+            remote_coordinator_transport: None,
+            remote_handoff: None,
+            coordinator_discovery: None,
+            home_requests: RegionHomeRequests::new(),
+            route_transport: None,
+        }
+    }
+
     pub fn with_coordinator_discovery(
         mut self,
         discovery: RegionCoordinatorDiscoveryConfig<M>,
@@ -379,6 +404,28 @@ where
                 remembered_entities_by_shard.clone(),
                 timeout,
                 registration.clone(),
+            )
+        })
+    }
+
+    pub fn props_with_remember_store_shards(
+        self_region: impl Into<RegionId>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        remember_stores_by_shard: BTreeMap<ShardId, ActorRef<RememberShardStoreMsg>>,
+        timeout: Duration,
+    ) -> Props<Self>
+    where
+        M: Send + 'static,
+    {
+        let self_region = self_region.into();
+        Props::new(move || {
+            Self::new_with_remember_store_shards(
+                self_region,
+                region_buffer_capacity,
+                shard_buffer_capacity,
+                remember_stores_by_shard.clone(),
+                timeout,
             )
         })
     }

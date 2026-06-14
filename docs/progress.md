@@ -1130,6 +1130,10 @@ Implemented:
   `ShardActor`, mark the shard started, expose the typed child ref for local
   delivery orchestration, and recover remembered entities before child shard
   delivery.
+- `kairo-cluster-sharding` shard region actors can now host child shards from
+  explicit remember-store actor refs, allowing multiple regions to share the
+  same remembered entity store during handoff and rebalance orchestration
+  tests instead of creating isolated per-region local stores.
 - `kairo-cluster-sharding` shard region actors can now explicitly route local
   sharding envelopes into spawned child shard actors while preserving the
   route outcome separately from the child `ShardDeliverPlan`, so remembered
@@ -1918,7 +1922,9 @@ Implemented:
 - `kairo-cluster-sharding` now has multi-node graceful region-shutdown
   validation: a coordinator node hands off a store-backed shard from one
   region node to another through the typed handoff transport, clears the
-  shutting-down region, and starts the shard on the replacement region.
+  shutting-down region, starts the shard on the replacement region, and proves
+  the replacement shard recovers remembered entities from the shared store
+  before subsequent delivery.
 - `kairo-cluster-sharding` transport-neutral handoff delivery success and
   missing-target tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` local coordinator bootstrap, manual region
@@ -2050,9 +2056,9 @@ Not yet implemented:
   runtime, actor-backed connector, and bootstrap beyond the current localhost
   two-node example smoke test and three-node bootstrap route validation.
 - Sharding remember-entity stores still need broader automatic region/shard
-  orchestration and broader multi-node graceful-shutdown validation beyond the
-  current local typed handoff-transport scenario and focused remembered-shard
-  restart coverage.
+  orchestration beyond the current focused actor-level coverage and the
+  multi-node graceful-shutdown validation that now proves remembered entity
+  recovery after handoff through a shared remember store.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader lifecycle tests around the bootstrap facades beyond the current
   localhost crate and example smoke tests.
@@ -2063,6 +2069,10 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding multi_node_graceful_shutdown_rebalances_region_shard_across_nodes
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster tcp_runtime_routes_membership_and_heartbeat_over_bidirectional_association
 cargo test -p kairo-distributed-data tcp_runtime_routes_replicator_requests_and_replies_over_bidirectional_association
 cargo test -p kairo-cluster-tools tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally

@@ -5,8 +5,8 @@ use std::time::Duration;
 use kairo_actor::{ActorError, ActorRef, Context};
 
 use crate::{
-    EntityActorFactory, EntityId, EntityShardActor, RememberShardStoreState, ShardActor, ShardId,
-    ShardMsg, ShardRegionMsg,
+    EntityActorFactory, EntityId, EntityShardActor, RememberShardStoreMsg, RememberShardStoreState,
+    ShardActor, ShardId, ShardMsg, ShardRegionMsg,
 };
 
 const DEFAULT_REMEMBER_SHARD_FAILURE_BACKOFF: Duration = Duration::from_secs(10);
@@ -88,6 +88,38 @@ where
                         remember_store.timeout,
                     ),
                 )
+            }),
+        }
+    }
+
+    pub(crate) fn with_remember_store_refs(
+        shard_buffer_capacity: usize,
+        remember_stores_by_shard: BTreeMap<ShardId, ActorRef<RememberShardStoreMsg>>,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            shard_buffer_capacity,
+            failure_backoff: Some(DEFAULT_REMEMBER_SHARD_FAILURE_BACKOFF),
+            spawn: Arc::new(move |ctx, shard, shard_buffer_capacity| {
+                if let Some(store) = remember_stores_by_shard.get(shard).cloned() {
+                    ctx.spawn(
+                        shard_actor_name(shard),
+                        ShardActor::props_with_remember_store(
+                            shard.clone(),
+                            shard_buffer_capacity,
+                            store,
+                            timeout,
+                        ),
+                    )
+                } else {
+                    ctx.spawn(
+                        shard_actor_name(shard),
+                        ShardActor::props_with_remember_entities(
+                            shard.clone(),
+                            shard_buffer_capacity,
+                        ),
+                    )
+                }
             }),
         }
     }
