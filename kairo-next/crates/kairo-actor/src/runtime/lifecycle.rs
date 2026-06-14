@@ -23,7 +23,7 @@ pub(super) fn stop_children(system_inner: &ActorSystemInner, parent_path: &str) 
 }
 
 pub(super) fn stop_children_for_restart(system_inner: &ActorSystemInner, parent_path: &ActorPath) {
-    let children = system_inner.registry.take_children(parent_path.as_str());
+    let children = system_inner.registry.child_handles(parent_path.as_str());
 
     for child in &children {
         system_inner.death_watch.unwatch(child.path(), parent_path);
@@ -37,7 +37,7 @@ pub(crate) fn stop_children_with_timeout(
     parent_path: &str,
     timeout: Duration,
 ) -> Result<(), ActorError> {
-    let children = system_inner.registry.take_children(parent_path);
+    let children = system_inner.registry.child_handles(parent_path);
     stop_child_handles_with_timeout(children, timeout)
 }
 

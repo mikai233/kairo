@@ -151,11 +151,12 @@ impl ActorRegistry {
             .unwrap_or(false)
     }
 
-    pub(crate) fn take_children(&self, parent_path: &str) -> Vec<LocalActorHandle> {
+    pub(crate) fn child_handles(&self, parent_path: &str) -> Vec<LocalActorHandle> {
         self.children
             .lock()
             .expect("actor children registry poisoned")
-            .remove(parent_path)
+            .get(parent_path)
+            .cloned()
             .unwrap_or_default()
     }
 }

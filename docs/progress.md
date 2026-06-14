@@ -54,6 +54,9 @@ Implemented:
 - Actor-system termination now has focused coverage that top-level actor stop
   waits recursively for descendant child termination before the system reports
   `terminated`.
+- Actor-system termination retries now keep timed-out child handles visible,
+  so a later `terminate` attempt cannot report `terminated` while a
+  previously requested child stop is still blocked.
 - Sends after stop are rejected and recorded as dead letters.
 - Missing local actor refs reject user messages and record dead letters.
 - Dead letters are now also published to the local typed event stream as
@@ -2697,4 +2700,8 @@ cargo test -p kairo-remote local_delivery_maps_owned_canonical_missing_recipient
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor actor_system_terminate_retry_still_waits_for_timed_out_child --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 ```

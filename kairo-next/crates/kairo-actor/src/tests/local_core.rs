@@ -546,3 +546,36 @@ fn actor_system_terminate_times_out_waiting_for_blocked_actor_start() {
     assert!(system.is_terminating());
     assert!(!system.is_terminated());
 }
+
+#[test]
+fn actor_system_terminate_retry_still_waits_for_timed_out_child() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (release_tx, release_rx) = mpsc::channel();
+    let received = Arc::new(AtomicU64::new(0));
+    let actor = system
+        .spawn(
+            "blocked",
+            Props::new({
+                let received = Arc::clone(&received);
+                move || BlockingStart {
+                    release: release_rx,
+                    received,
+                }
+            }),
+        )
+        .unwrap();
+
+    let first = system.terminate(Duration::from_millis(10)).unwrap_err();
+    let second = system.terminate(Duration::from_millis(10)).unwrap_err();
+
+    assert!(matches!(first, ActorError::TerminationTimeout));
+    assert!(matches!(second, ActorError::TerminationTimeout));
+    assert!(system.is_terminating());
+    assert!(!system.is_terminated());
+    assert!(!actor.wait_for_stop(Duration::from_millis(10)));
+
+    release_tx.send(()).unwrap();
+    system.terminate(Duration::from_secs(1)).unwrap();
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
