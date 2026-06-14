@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 

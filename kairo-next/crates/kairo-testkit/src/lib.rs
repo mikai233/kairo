@@ -24,6 +24,8 @@
 //!   integration tests without making cluster membership part of the testkit.
 //! - [`MultiNodeTestKit::enter_barrier`] coordinates named local multi-node
 //!   phases with explicit waiting/passed status and ordering errors.
+//! - [`MultiNodeTestKit::await_barrier`] blocks a node at a named local
+//!   multi-node phase until all participants arrive or a timeout expires.
 //!
 //! ## Probe-backed actor test
 //!

@@ -224,6 +224,87 @@ fn multi_node_testkit_coordinates_named_barriers() {
 }
 
 #[test]
+fn multi_node_testkit_await_barrier_blocks_until_all_nodes_arrive() {
+    let kit = Arc::new(MultiNodeTestKit::new(["await-a", "await-b"]).expect("nodes should build"));
+    let waiting_kit = Arc::clone(&kit);
+    let waiter = thread::spawn(move || {
+        waiting_kit.await_barrier("ready", "await-a", Duration::from_secs(1))
+    });
+
+    thread::sleep(Duration::from_millis(20));
+    let main_status = kit
+        .await_barrier("ready", "await-b", Duration::from_secs(1))
+        .expect("second node should pass barrier");
+    assert_eq!(
+        main_status,
+        MultiNodeBarrierStatus::Passed {
+            name: "ready".to_string(),
+            participants: BTreeSet::from(["await-a".to_string(), "await-b".to_string()]),
+        }
+    );
+
+    let waiter_status = waiter
+        .join()
+        .expect("waiting thread should not panic")
+        .expect("waiting node should pass after second arrival");
+    assert_eq!(waiter_status, main_status);
+
+    let kit = Arc::try_unwrap(kit).expect("test should release shared kit refs");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_await_barrier_times_out_with_arrivals() {
+    let kit = MultiNodeTestKit::new(["timeout-a", "timeout-b"]).expect("nodes should build");
+
+    let error = kit
+        .await_barrier("never", "timeout-a", Duration::from_millis(10))
+        .expect_err("barrier should time out when another node never arrives");
+    assert!(matches!(
+        error,
+        MultiNodeError::BarrierTimeout {
+            name,
+            node,
+            timeout,
+            arrived,
+            remaining,
+        } if name == "never"
+            && node == "timeout-a"
+            && timeout == Duration::from_millis(10)
+            && arrived == BTreeSet::from(["timeout-a".to_string()])
+            && remaining == BTreeSet::from(["timeout-b".to_string()])
+    ));
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_await_barrier_rejects_wrong_barrier_order() {
+    let kit =
+        MultiNodeTestKit::new(["await-order-a", "await-order-b"]).expect("nodes should build");
+
+    kit.enter_barrier("phase-one", "await-order-a")
+        .expect("first node should enter phase one");
+
+    let wrong = kit
+        .await_barrier("phase-two", "await-order-b", Duration::from_millis(10))
+        .expect_err("different barrier should be rejected while phase one is active");
+    assert!(matches!(
+        wrong,
+        MultiNodeError::WrongBarrier {
+            expected,
+            actual,
+            node,
+        } if expected == "phase-one" && actual == "phase-two" && node == "await-order-b"
+    ));
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
 fn multi_node_testkit_rejects_wrong_barrier_order_and_duplicate_arrivals() {
     let kit = MultiNodeTestKit::new(["order-a", "order-b"]).expect("nodes should build");
 

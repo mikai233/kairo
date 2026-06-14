@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::fmt::{self, Display, Formatter};
-use std::sync::Mutex;
-use std::time::Duration;
+use std::sync::{Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use kairo_actor::{ActorError, ActorSystem};
 
@@ -23,6 +23,13 @@ pub enum MultiNodeError {
     DuplicateBarrierArrival {
         name: String,
         node: String,
+    },
+    BarrierTimeout {
+        name: String,
+        node: String,
+        timeout: Duration,
+        arrived: BTreeSet<String>,
+        remaining: BTreeSet<String>,
     },
     PoisonedBarrier,
     Actor(ActorError),
@@ -56,6 +63,18 @@ impl Display for MultiNodeError {
                     "multi-node testkit node `{node}` entered barrier `{name}` more than once"
                 )
             }
+            Self::BarrierTimeout {
+                name,
+                node,
+                timeout,
+                arrived,
+                remaining,
+            } => {
+                write!(
+                    f,
+                    "multi-node testkit node `{node}` timed out after {timeout:?} waiting for barrier `{name}`; arrived: {arrived:?}, remaining: {remaining:?}"
+                )
+            }
             Self::PoisonedBarrier => write!(f, "multi-node testkit barrier state is poisoned"),
             Self::Actor(error) => Display::fmt(error, f),
         }
@@ -74,6 +93,7 @@ impl From<ActorError> for MultiNodeError {
 pub struct MultiNodeTestKit {
     nodes: Vec<MultiNode>,
     barriers: Mutex<BarrierState>,
+    barrier_changed: Condvar,
 }
 
 impl MultiNodeTestKit {
@@ -154,7 +174,72 @@ impl MultiNodeTestKit {
             .barriers
             .lock()
             .map_err(|_| MultiNodeError::PoisonedBarrier)?;
-        barriers.enter(name, node_name, self.expected_barrier_nodes())
+        let entered = barriers.enter(name, node_name, self.expected_barrier_nodes())?;
+        if entered.status.passed() {
+            self.barrier_changed.notify_all();
+        }
+        Ok(entered.status)
+    }
+
+    pub fn await_barrier(
+        &self,
+        name: impl Into<String>,
+        node_name: impl AsRef<str>,
+        timeout: Duration,
+    ) -> MultiNodeResult<MultiNodeBarrierStatus> {
+        let name = name.into();
+        let node_name = node_name.as_ref().to_string();
+        self.node(&node_name)?;
+
+        let deadline = Instant::now() + timeout;
+        let mut barriers = self
+            .barriers
+            .lock()
+            .map_err(|_| MultiNodeError::PoisonedBarrier)?;
+        let entered = barriers.enter(name.clone(), &node_name, self.expected_barrier_nodes())?;
+        let barrier_id = entered.id;
+        if entered.status.passed() {
+            self.barrier_changed.notify_all();
+            return Ok(entered.status);
+        }
+
+        loop {
+            if let Some(status) = barriers.completed_status(barrier_id) {
+                return Ok(status);
+            }
+
+            let remaining_timeout = deadline.saturating_duration_since(Instant::now());
+            if remaining_timeout.is_zero() {
+                let (arrived, remaining) = barriers.waiting_snapshot(barrier_id);
+                return Err(MultiNodeError::BarrierTimeout {
+                    name,
+                    node: node_name,
+                    timeout,
+                    arrived,
+                    remaining,
+                });
+            }
+
+            let (next_barriers, wait_result) = self
+                .barrier_changed
+                .wait_timeout(barriers, remaining_timeout)
+                .map_err(|_| MultiNodeError::PoisonedBarrier)?;
+            barriers = next_barriers;
+
+            if wait_result.timed_out() {
+                if let Some(status) = barriers.completed_status(barrier_id) {
+                    return Ok(status);
+                }
+                let (arrived, remaining) = barriers.waiting_snapshot(barrier_id);
+                return Err(MultiNodeError::BarrierTimeout {
+                    name,
+                    node: node_name,
+                    timeout,
+                    arrived,
+                    remaining,
+                });
+            }
+        }
     }
 
     pub fn create_probe_on<M>(
@@ -203,6 +288,7 @@ impl MultiNodeTestKit {
         Ok(Self {
             nodes,
             barriers: Mutex::new(BarrierState::default()),
+            barrier_changed: Condvar::new(),
         })
     }
 
@@ -277,6 +363,8 @@ impl MultiNodeBarrierStatus {
 #[derive(Debug, Default)]
 struct BarrierState {
     active: Option<ActiveBarrier>,
+    completed: Vec<CompletedBarrier>,
+    next_id: u64,
 }
 
 impl BarrierState {
@@ -285,7 +373,7 @@ impl BarrierState {
         name: String,
         node: &str,
         participants: BTreeSet<String>,
-    ) -> MultiNodeResult<MultiNodeBarrierStatus> {
+    ) -> MultiNodeResult<EnteredBarrier> {
         let active = match &mut self.active {
             Some(active) => {
                 if active.name != name {
@@ -297,12 +385,18 @@ impl BarrierState {
                 }
                 active
             }
-            None => self.active.insert(ActiveBarrier {
-                name: name.clone(),
-                participants,
-                arrived: BTreeSet::new(),
-            }),
+            None => {
+                let id = self.next_id;
+                self.next_id += 1;
+                self.active.insert(ActiveBarrier {
+                    id,
+                    name: name.clone(),
+                    participants,
+                    arrived: BTreeSet::new(),
+                })
+            }
         };
+        let id = active.id;
 
         if !active.arrived.insert(node.to_string()) {
             return Err(MultiNodeError::DuplicateBarrierArrival {
@@ -316,9 +410,17 @@ impl BarrierState {
                 .active
                 .take()
                 .expect("active barrier must exist when completing");
-            Ok(MultiNodeBarrierStatus::Passed {
-                name: completed.name,
-                participants: completed.participants,
+            self.completed.push(CompletedBarrier {
+                id: completed.id,
+                name: completed.name.clone(),
+                participants: completed.participants.clone(),
+            });
+            Ok(EnteredBarrier {
+                id,
+                status: MultiNodeBarrierStatus::Passed {
+                    name: completed.name,
+                    participants: completed.participants,
+                },
             })
         } else {
             let remaining = active
@@ -326,20 +428,62 @@ impl BarrierState {
                 .difference(&active.arrived)
                 .cloned()
                 .collect();
-            Ok(MultiNodeBarrierStatus::Waiting {
-                name: active.name.clone(),
-                arrived: active.arrived.clone(),
-                remaining,
+            Ok(EnteredBarrier {
+                id,
+                status: MultiNodeBarrierStatus::Waiting {
+                    name: active.name.clone(),
+                    arrived: active.arrived.clone(),
+                    remaining,
+                },
             })
         }
+    }
+
+    fn completed_status(&self, id: u64) -> Option<MultiNodeBarrierStatus> {
+        self.completed
+            .iter()
+            .find(|completed| completed.id == id)
+            .map(|completed| MultiNodeBarrierStatus::Passed {
+                name: completed.name.clone(),
+                participants: completed.participants.clone(),
+            })
+    }
+
+    fn waiting_snapshot(&self, id: u64) -> (BTreeSet<String>, BTreeSet<String>) {
+        let Some(active) = &self.active else {
+            return (BTreeSet::new(), BTreeSet::new());
+        };
+        if active.id != id {
+            return (BTreeSet::new(), BTreeSet::new());
+        }
+        let remaining = active
+            .participants
+            .difference(&active.arrived)
+            .cloned()
+            .collect();
+        (active.arrived.clone(), remaining)
     }
 }
 
 #[derive(Debug)]
 struct ActiveBarrier {
+    id: u64,
     name: String,
     participants: BTreeSet<String>,
     arrived: BTreeSet<String>,
+}
+
+#[derive(Debug)]
+struct CompletedBarrier {
+    id: u64,
+    name: String,
+    participants: BTreeSet<String>,
+}
+
+#[derive(Debug)]
+struct EnteredBarrier {
+    id: u64,
+    status: MultiNodeBarrierStatus,
 }
 
 fn validate_node_names(names: &[String]) -> MultiNodeResult<()> {
