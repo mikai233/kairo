@@ -5,6 +5,7 @@ use kairo::cluster_sharding::PassivatePlan;
 use kairo::prelude::*;
 use kairo_examples::configured_counter::run_configured_counter;
 use kairo_examples::counter::{CounterCmd, spawn_counter};
+use kairo_examples::ddata_counter::run_ddata_counter;
 use kairo_examples::patterns::{PatternObservation, run_ask_pipe_to_self};
 use kairo_examples::remote_ping_pong::run_remote_ping_pong;
 use kairo_examples::sharding_local::{LocalShardingExample, run_local_graceful_region_shutdown};
@@ -71,6 +72,19 @@ fn remote_ping_pong_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
             .reply_path
             .starts_with("kairo://example-smoke-remote-ping-pong-sender@127.0.0.1:")
     );
+    Ok(())
+}
+
+#[test]
+fn ddata_counter_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
+    let observation = run_ddata_counter("example-smoke-ddata-counter", 5)?;
+
+    assert_eq!(observation.key, "counters.requests");
+    assert_eq!(observation.replica, "node-a");
+    assert!(observation.initial_not_found);
+    assert!(observation.update_changed);
+    assert_eq!(observation.change_value, 5);
+    assert_eq!(observation.read_value, 5);
     Ok(())
 }
 

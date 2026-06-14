@@ -17,6 +17,8 @@
 //!   hash, `EntityRef`, and entity-backed shard delivery.
 //! - `remote_ping_pong`: two TCP remoting actor systems exchanging a typed
 //!   ping and pong through registered stable message codecs.
+//! - `ddata_counter`: local distributed-data `GCounter` updates through a
+//!   `ReplicatorActor` with change subscription delivery.
 //! - `cluster_tcp_peer_bootstrap`: two local cluster TCP peer runtimes using
 //!   cluster-derived route plans.
 //! - `ddata_tcp_peer_bootstrap`: two local distributed-data TCP peer runtimes
@@ -54,6 +56,7 @@ pub mod cluster_tcp;
 pub mod cluster_tools_tcp;
 pub mod configured_counter;
 pub mod counter;
+pub mod ddata_counter;
 pub mod ddata_tcp;
 pub mod patterns;
 pub mod remote_ping_pong;

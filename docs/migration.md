@@ -198,6 +198,14 @@ end to end with a registered codec and two loopback TCP remoting actor systems:
 cargo run -p kairo-examples --example remote_ping_pong
 ```
 
+The runnable `ddata_counter` example shows local distributed-data usage with a
+`ReplicatorActor<GCounter>`, key subscription, update, change notification, and
+readback:
+
+```bash
+cargo run -p kairo-examples --example ddata_counter
+```
+
 Remote associations can report quarantine transitions through the same
 backend-neutral observer style:
 

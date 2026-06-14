@@ -1907,6 +1907,10 @@ Implemented:
   binds two TCP remoting actor systems, registers an explicit stable codec for
   a typed ping/pong protocol, sends a remote ping, and routes a remote pong
   back to the sender's canonical actor ref over the accepted association.
+- `kairo-examples` now includes a runnable `ddata_counter` example that starts
+  a local `ReplicatorActor<GCounter>`, observes initial not-found state,
+  subscribes to the key, applies a local increment, flushes the change
+  notification, and reads the CRDT value back.
 - `kairo-examples` now includes a runnable local cluster-sharding example that
   wires a shard coordinator, local shard region, `ShardingEnvelopeRouter`, and
   `EntityRef<String>` through reusable helper code and demonstrates stable

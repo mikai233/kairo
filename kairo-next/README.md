@@ -43,6 +43,7 @@ cargo run -p kairo-examples --example local_counter
 cargo run -p kairo-examples --example configured_counter
 cargo run -p kairo-examples --example ask_pipe_to_self
 cargo run -p kairo-examples --example remote_ping_pong
+cargo run -p kairo-examples --example ddata_counter
 cargo run -p kairo-examples --example cluster_sharding_local
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
@@ -65,6 +66,10 @@ coordinator in focused modules while demonstrating `Context::ask` and
 The `remote_ping_pong` example binds two TCP remoting actor systems, registers
 an explicit stable codec for a typed ping/pong protocol, sends a remote ping,
 and returns a remote pong through the sender's canonical actor ref.
+
+The `ddata_counter` example runs a local distributed-data
+`ReplicatorActor<GCounter>`, subscribes to a key, applies a local increment,
+flushes the change notification, and reads the CRDT value back.
 
 The `cluster_sharding_local` example wires a local shard coordinator, typed
 shard region, stable `ShardingEnvelopeRouter`, `EntityRef<String>`, and
