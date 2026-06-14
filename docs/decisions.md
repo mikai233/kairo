@@ -334,9 +334,10 @@ drops the failing message and continues with the same actor value. `Restart`
 requires `Props::restartable`, which stores a reusable Rust factory; on failure
 the runtime cancels actor-owned timers, tasks, asks, and adapters, sends
 `Signal::PreRestart` to the old actor value while existing children are still
-visible, stops children for the default restart strategy, builds a fresh actor
-value, and invokes `started` on the new value while preserving the actor ref
-path and incarnation.
+visible, removes the restarting actor's death-watch registrations for children
+that the default restart strategy is about to stop, stops those children, builds
+a fresh actor value, and invokes `started` on the new value while preserving the
+actor ref path and incarnation.
 
 Consequences:
 - Existing one-shot actor factories keep their previous stop-on-failure

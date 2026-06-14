@@ -22,7 +22,7 @@ use crate::system::{ActorSystem, ActorSystemInner};
 use crate::timers::TimerState;
 
 pub(crate) use lifecycle::stop_children_with_timeout;
-use lifecycle::{stop_adapter_refs, stop_children};
+use lifecycle::{stop_adapter_refs, stop_children, stop_children_for_restart};
 
 pub(crate) fn run_actor<A>(
     mut props: Props<A>,
@@ -503,7 +503,7 @@ where
     stop_adapter_refs(system_inner, context);
     let _ = invoke_signal(actor, context, Signal::PreRestart);
     if stop_children_on_restart {
-        stop_children(system_inner, actor_ref.path.as_str());
+        stop_children_for_restart(system_inner, actor_ref.path());
     }
     context.stop_requested = false;
     invoke_started(&mut restarted, context)?;
@@ -534,7 +534,7 @@ where
     context.cancel_asks();
     stop_adapter_refs(system_inner, context);
     if stop_children_on_restart {
-        stop_children(system_inner, actor_ref.path.as_str());
+        stop_children_for_restart(system_inner, actor_ref.path());
     }
     context.stop_requested = false;
     *actor = restarted;

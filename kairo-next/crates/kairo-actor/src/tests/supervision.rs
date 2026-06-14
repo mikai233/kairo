@@ -561,6 +561,105 @@ fn restart_supervision_sends_pre_restart_before_stopping_children() {
     );
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum RestartWatchEvent {
+    ChildStopped,
+    WatchDelivered,
+}
+
+struct RestartWatchedChild {
+    events: mpsc::Sender<RestartWatchEvent>,
+}
+
+impl Actor for RestartWatchedChild {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.events
+            .send(RestartWatchEvent::ChildStopped)
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+enum RestartWatchMsg {
+    SpawnAndWatchChild(mpsc::Sender<()>),
+    Fail,
+    ChildTerminated,
+    Ping(mpsc::Sender<()>),
+}
+
+struct RestartWatchParent {
+    events: mpsc::Sender<RestartWatchEvent>,
+}
+
+impl Actor for RestartWatchParent {
+    type Msg = RestartWatchMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RestartWatchMsg::SpawnAndWatchChild(reply_to) => {
+                let events = self.events.clone();
+                let child = ctx.spawn(
+                    "child",
+                    Props::new(move || RestartWatchedChild {
+                        events: events.clone(),
+                    }),
+                )?;
+                ctx.watch_with(&child, RestartWatchMsg::ChildTerminated)?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartWatchMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            RestartWatchMsg::ChildTerminated => self
+                .events
+                .send(RestartWatchEvent::WatchDelivered)
+                .map_err(|error| ActorError::Message(error.to_string())),
+            RestartWatchMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
+#[test]
+fn restart_supervision_unwatches_children_before_restart_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (events_tx, events_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(move || RestartWatchParent {
+                events: events_tx.clone(),
+            }),
+        )
+        .unwrap();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartWatchMsg::SpawnAndWatchChild(spawned_tx))
+        .unwrap();
+    spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(RestartWatchMsg::Fail).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent.tell(RestartWatchMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (drain_tx, drain_rx) = mpsc::channel();
+    parent.tell(RestartWatchMsg::Ping(drain_tx)).unwrap();
+    drain_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RestartWatchEvent::ChildStopped
+    );
+    assert_eq!(events_rx.try_recv().unwrap_err(), mpsc::TryRecvError::Empty);
+}
+
 #[test]
 fn restart_supervision_can_preserve_children() {
     let system = ActorSystem::builder("test").build().unwrap();
