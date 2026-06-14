@@ -2009,6 +2009,10 @@ Implemented:
   route-preservation delivery: after a three-node sender removes one peer from
   its membership view, the remaining route still carries a stable-manifest
   `Join` to the surviving peer.
+- The cluster TCP bootstrap example smoke suite now also validates replacement
+  peer delivery: after a sender removes an old peer route and installs a route
+  to a replacement peer, a stable-manifest `Join` reaches the replacement
+  membership inbound actor and does not arrive at the removed peer.
 - The cluster TCP bootstrap example smoke suite now validates failed-dial
   lifecycle cleanup through the public example boundary: when an unreachable
   peer enters membership, the connector reports a pending reconnect, and when
@@ -2043,6 +2047,11 @@ Implemented:
   sender-side route-preservation delivery: after a three-node sender removes
   one peer from its membership view, the remaining route still carries a
   stable-codec `PubSubStatus` publish to the surviving peer.
+- The cluster-tools TCP bootstrap example smoke suite now also validates
+  replacement peer delivery: after a sender removes an old peer route and
+  installs a route to a replacement peer, a stable-codec `PubSubStatus`
+  publish reaches the replacement mediator subscriber and does not arrive at
+  the removed peer.
 - The cluster-tools TCP bootstrap example smoke suite now validates
   failed-dial lifecycle cleanup through the public example boundary: an
   unreachable peer produces a pending reconnect snapshot, and removing that
@@ -2845,6 +2854,13 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-examples ddata_tcp_peer_bootstrap_delivers_read_to_replacement_peer --all-targets --all-features
+cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples cluster_tcp_peer_bootstrap_delivers_join_to_replacement_peer --all-targets --all-features
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_delivers_pubsub_to_replacement_peer --all-targets --all-features
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features
 cargo fmt --all -- --check

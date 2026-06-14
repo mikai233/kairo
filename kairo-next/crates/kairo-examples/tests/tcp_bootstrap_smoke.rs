@@ -191,6 +191,38 @@ fn cluster_tcp_peer_bootstrap_reinstalls_route_for_replacement_peer() -> TestRes
 }
 
 #[test]
+fn cluster_tcp_peer_bootstrap_delivers_join_to_replacement_peer() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b, node_c) = cluster_tcp::bind_three_nodes()?;
+    let result = (|| -> TestResult {
+        assert_replacement_peer_route(&node_a, &node_b, &node_c)?;
+
+        node_a.send_join_to(&node_c, ["replacement"])?;
+        let received = node_c.wait_for_join_count(1, Duration::from_secs(2));
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].node, node_a.self_node().clone());
+        assert_eq!(received[0].roles, vec!["replacement".to_string()]);
+
+        assert!(
+            node_b
+                .wait_for_join_count(1, Duration::from_millis(100))
+                .is_empty()
+        );
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+    let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    shutdown_c?;
+    Ok(())
+}
+
+#[test]
 fn ddata_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b) = ddata_tcp::bind_two_nodes()?;
@@ -567,6 +599,41 @@ fn cluster_tools_tcp_peer_bootstrap_reinstalls_route_for_replacement_peer() -> T
     let _lock = lock_tcp_smoke();
     let (node_a, node_b, node_c) = cluster_tools_tcp::bind_three_nodes()?;
     let result = assert_replacement_peer_route(&node_a, &node_b, &node_c);
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+    let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    shutdown_c?;
+    Ok(())
+}
+
+#[test]
+fn cluster_tools_tcp_peer_bootstrap_delivers_pubsub_to_replacement_peer() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b, node_c) = cluster_tools_tcp::bind_three_nodes()?;
+    let result = (|| -> TestResult {
+        assert_replacement_peer_route(&node_a, &node_b, &node_c)?;
+
+        let status = PubSubStatus {
+            from: node_a.self_node().clone(),
+            versions: BTreeMap::from([(cluster_tools_tcp::EXAMPLE_PUBSUB_TOPIC.to_string(), 33)]),
+            reply: false,
+        };
+        node_a.send_status_to(&node_c, status.clone())?;
+        let received = node_c.wait_for_status_count(1, Duration::from_secs(2));
+        assert_eq!(received, vec![status]);
+
+        assert!(
+            node_b
+                .wait_for_status_count(1, Duration::from_millis(100))
+                .is_empty()
+        );
+        Ok(())
+    })();
 
     let shutdown_a = node_a.shutdown(Duration::from_secs(1));
     let shutdown_b = node_b.shutdown(Duration::from_secs(1));
