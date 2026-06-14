@@ -46,6 +46,11 @@ enum AskProbeMsg {
         captured: mpsc::Sender<ActorRef<AskReply>>,
         reply_to: mpsc::Sender<Result<i32, String>>,
     },
+    AskPending {
+        target: ActorRef<AskTargetMsg>,
+        captured: mpsc::Sender<ActorRef<AskReply>>,
+        reply_to: mpsc::Sender<Result<i32, String>>,
+    },
     AskAndStop {
         target: ActorRef<AskTargetMsg>,
         captured: mpsc::Sender<ActorRef<AskReply>>,
@@ -91,6 +96,18 @@ impl Actor for AskProbe {
                 ctx.ask(
                     target,
                     Duration::from_millis(20),
+                    |reply_to| AskTargetMsg::CaptureOnly { reply_to, captured },
+                    move |result| AskProbeMsg::Asked { result, reply_to },
+                )?;
+            }
+            AskProbeMsg::AskPending {
+                target,
+                captured,
+                reply_to,
+            } => {
+                ctx.ask(
+                    target,
+                    Duration::from_secs(60),
                     |reply_to| AskTargetMsg::CaptureOnly { reply_to, captured },
                     move |result| AskProbeMsg::Asked { result, reply_to },
                 )?;
@@ -146,6 +163,48 @@ impl Actor for AskProbe {
         }
         Ok(())
     }
+}
+
+#[test]
+fn ask_temp_ref_is_unregistered_when_actor_system_terminates() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let target = system
+        .spawn("ask-target", Props::new(|| AskTarget))
+        .unwrap();
+    let probe = system
+        .spawn("ask-probe", Props::new(|| AskProbe { pre_restart: None }))
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (captured_tx, captured_rx) = mpsc::channel();
+
+    probe
+        .tell(AskProbeMsg::AskPending {
+            target,
+            captured: captured_tx,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+    let reply_ref = captured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let reply_path = reply_ref.path().clone();
+    assert_eq!(reply_path.parent().unwrap().as_str(), "kairo://test/temp");
+    assert!(
+        system
+            .resolve_local::<AskReply>(reply_path.as_str())
+            .is_some()
+    );
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+
+    assert!(probe.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+    assert!(
+        system
+            .resolve_local::<AskReply>(reply_path.as_str())
+            .is_none()
+    );
+    let error = reply_ref.tell(AskReply(100)).unwrap_err();
+    assert_eq!(error.reason(), "ask is completed");
+    assert!(reply_rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 
 #[test]

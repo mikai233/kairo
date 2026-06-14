@@ -105,6 +105,9 @@ Implemented:
 - Actor-owned pending asks are lifecycle scoped: actor stop or restart
   completes the temp reply ref, unregisters it from `/temp`, and rejects stale
   replies instead of delivering them into the stopped or restarted owner.
+- Actor-system termination now has focused coverage that outstanding
+  actor-owned ask temp refs under `/temp` are cancelled and unregistered when
+  their owner stops, and stale replies are rejected.
 - Local death watch is available through `Context::watch`,
   `Context::watch_with`, and `Context::unwatch`.
 - `Signal::Terminated` is delivered once to local watchers after the watched
@@ -2037,6 +2040,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor ask_temp_ref_is_unregistered_when_actor_system_terminates
+cargo fmt --all -- --check
+cargo test -p kairo-actor --all-targets --all-features
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster bootstrap_binds_connector_and_registers_coordinated_shutdown_stop
 cargo test -p kairo-distributed-data bootstrap_binds_connector_and_registers_coordinated_shutdown_stop
 cargo test -p kairo-cluster-tools bootstrap_binds_connector_and_registers_coordinated_shutdown_stop
