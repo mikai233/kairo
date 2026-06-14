@@ -92,6 +92,66 @@ fn receptionist_removes_registered_service_on_actor_stop() {
     );
 }
 
+#[test]
+fn receptionist_removes_service_from_all_keys_on_actor_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let key_a = ServiceKey::<()>::new("svc-a");
+    let key_b = ServiceKey::<()>::new("svc-b");
+    let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
+    let (listing_a_tx, listing_a_rx) = mpsc::channel();
+    let subscriber_a = system
+        .spawn(
+            "listing-probe-a",
+            Props::new(move || ListingProbe {
+                observed: listing_a_tx,
+            }),
+        )
+        .unwrap();
+    let (listing_b_tx, listing_b_rx) = mpsc::channel();
+    let subscriber_b = system
+        .spawn(
+            "listing-probe-b",
+            Props::new(move || ListingProbe {
+                observed: listing_b_tx,
+            }),
+        )
+        .unwrap();
+
+    assert!(system.receptionist().subscribe(key_a.clone(), subscriber_a));
+    assert!(system.receptionist().subscribe(key_b.clone(), subscriber_b));
+    assert_eq!(
+        listing_a_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Vec::<ActorPath>::new()
+    );
+    assert_eq!(
+        listing_b_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Vec::<ActorPath>::new()
+    );
+
+    assert!(system.receptionist().register(key_a, service.clone()));
+    assert!(system.receptionist().register(key_b, service.clone()));
+    assert_eq!(
+        listing_a_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        vec![service.path().clone()]
+    );
+    assert_eq!(
+        listing_b_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        vec![service.path().clone()]
+    );
+
+    system.stop(&service);
+    assert!(service.wait_for_stop(Duration::from_secs(1)));
+
+    assert_eq!(
+        listing_a_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Vec::<ActorPath>::new()
+    );
+    assert_eq!(
+        listing_b_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Vec::<ActorPath>::new()
+    );
+}
+
 enum ContextReceptionistMsg {
     RegisterSelf {
         key: ServiceKey<ContextReceptionistMsg>,
