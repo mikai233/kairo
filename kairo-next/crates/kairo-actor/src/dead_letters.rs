@@ -40,9 +40,17 @@ pub struct DeadLetters {
 
 impl DeadLetters {
     pub(crate) fn new(event_stream: EventStream) -> Self {
+        Self::with_event_stream(Some(event_stream))
+    }
+
+    pub(crate) fn without_event_stream() -> Self {
+        Self::with_event_stream(None)
+    }
+
+    fn with_event_stream(event_stream: Option<EventStream>) -> Self {
         Self {
             inner: Arc::default(),
-            event_stream: Some(event_stream),
+            event_stream,
         }
     }
 

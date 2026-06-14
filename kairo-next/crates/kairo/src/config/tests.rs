@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
+#[cfg(feature = "actor")]
+use std::sync::mpsc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{
@@ -429,6 +431,69 @@ capacity = 3
 
     assert_eq!(system.dispatcher_settings().throughput(), 17);
     assert_eq!(system.mailbox_settings().user_capacity(), Some(3));
+}
+
+#[test]
+#[cfg(feature = "actor")]
+fn settings_actor_system_builder_applies_dead_letter_diagnostics() {
+    use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, DeadLetter, Props};
+
+    struct DeadLetterForwarder {
+        observed: mpsc::Sender<DeadLetter>,
+    }
+
+    impl Actor for DeadLetterForwarder {
+        type Msg = DeadLetter;
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+            self.observed
+                .send(msg)
+                .map_err(|error| ActorError::Message(error.to_string()))
+        }
+    }
+
+    let settings = parse_toml_str(
+        r#"
+[observability.diagnostics]
+dead_letters = false
+"#,
+    )
+    .unwrap();
+    let system = settings
+        .actor_system_builder("configured-dead-letter-diagnostics")
+        .unwrap()
+        .build()
+        .unwrap();
+    let (dead_letter_tx, dead_letter_rx) = mpsc::channel();
+    let subscriber = system
+        .spawn(
+            "dead-letter-subscriber",
+            Props::new(move || DeadLetterForwarder {
+                observed: dead_letter_tx,
+            }),
+        )
+        .unwrap();
+    assert!(system.event_stream().subscribe(subscriber));
+    let missing: ActorRef<u8> =
+        system.missing_ref("kairo://configured-dead-letter-diagnostics/user/missing#404");
+
+    missing.tell(7).unwrap_err();
+
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    assert_eq!(
+        system.dead_letters().records()[0].recipient(),
+        missing.path()
+    );
+    assert!(
+        dead_letter_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+    system.terminate(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

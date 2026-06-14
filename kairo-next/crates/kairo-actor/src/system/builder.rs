@@ -16,6 +16,7 @@ pub struct ActorSystemBuilder {
     dispatcher: DispatcherSettings,
     mailbox: MailboxSettings,
     scheduler: Scheduler,
+    publish_dead_letters_to_event_stream: bool,
 }
 
 impl ActorSystemBuilder {
@@ -25,6 +26,7 @@ impl ActorSystemBuilder {
             dispatcher: DispatcherSettings::default(),
             mailbox: MailboxSettings::default(),
             scheduler: Scheduler::default(),
+            publish_dead_letters_to_event_stream: true,
         }
     }
 
@@ -43,6 +45,11 @@ impl ActorSystemBuilder {
         self
     }
 
+    pub fn publish_dead_letters_to_event_stream(mut self, enabled: bool) -> Self {
+        self.publish_dead_letters_to_event_stream = enabled;
+        self
+    }
+
     pub fn build(self) -> Result<ActorSystem, ActorError> {
         if self.dispatcher.throughput() == 0 {
             return Err(ActorError::InvalidThroughput);
@@ -51,7 +58,11 @@ impl ActorSystemBuilder {
             return Err(ActorError::InvalidMailboxCapacity);
         }
         let event_stream = EventStream::default();
-        let dead_letters = DeadLetters::new(event_stream.clone());
+        let dead_letters = if self.publish_dead_letters_to_event_stream {
+            DeadLetters::new(event_stream.clone())
+        } else {
+            DeadLetters::without_event_stream()
+        };
         Ok(ActorSystem {
             address: Address::local(self.name.clone()),
             name: self.name,

@@ -1813,6 +1813,10 @@ Implemented:
   `[observability.diagnostics]` into backend-neutral diagnostic category flags
   for dead letters, remote delivery failures, serialization failures,
   quarantine events, and gossip state changes.
+- `KairoSettings::actor_system_builder` now maps the dead-letter diagnostic
+  flag into `ActorSystemBuilder::publish_dead_letters_to_event_stream`, so
+  applications can disable dead-letter event-stream publication while retaining
+  the deterministic `DeadLetters` record buffer.
 - The TOML loader now parses `[actor.mailboxes.*]` capacity settings into
   format-neutral `MailboxConfig` values, rejects zero capacities, and maps the
   default mailbox capacity into `ActorSystemBuilder::mailbox_capacity`.

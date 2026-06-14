@@ -191,6 +191,45 @@ fn dead_letters_are_published_to_event_stream() {
 }
 
 #[test]
+fn dead_letter_event_stream_publication_can_be_disabled() {
+    let system = ActorSystem::builder("test")
+        .publish_dead_letters_to_event_stream(false)
+        .build()
+        .unwrap();
+    let (dead_letter_tx, dead_letter_rx) = mpsc::channel::<DeadLetter>();
+    let subscriber = system
+        .spawn(
+            "dead-letter-subscriber",
+            Props::new(move || ChannelProbe {
+                observed: dead_letter_tx,
+            }),
+        )
+        .unwrap();
+    assert!(system.event_stream().subscribe(subscriber));
+    let missing: ActorRef<CounterMsg> = system.missing_ref("kairo://test/user/missing#404");
+
+    missing.tell(CounterMsg::Increment).unwrap_err();
+
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert_eq!(records[0].recipient(), missing.path());
+    assert_eq!(records[0].reason(), "actor does not exist");
+    assert_eq!(
+        records[0].message_type(),
+        std::any::type_name::<CounterMsg>()
+    );
+    assert!(
+        dead_letter_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+}
+
+#[test]
 fn event_stream_prunes_failed_dead_letter_subscribers() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (stopped_tx, stopped_rx) = mpsc::channel();

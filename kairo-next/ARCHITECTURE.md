@@ -165,6 +165,8 @@ Suggested top-level sections:
 [cluster.sharding]
 [cluster.tools.singleton]
 [cluster.tools.pubsub]
+
+[observability.diagnostics]
 ```
 
 ## Public API Shape

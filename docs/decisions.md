@@ -2781,3 +2781,29 @@ Consequences:
   streams and failure paths in focused follow-up slices.
 - The TOML schema remains stable while preserving the constraint against broad
   third-party dependencies before implementing code needs them.
+
+## ADR-0098: Dead-Letter Diagnostics Separate Recording From Event Publication
+
+Status: Accepted
+
+Context:
+Pekko publishes dead letters to the actor-system event stream and separately
+configures dead-letter logging through settings such as `log-dead-letters`.
+Kairo keeps a deterministic in-memory `DeadLetters` buffer for tests and
+operator diagnostics, while M11 observability settings need a way to control
+which diagnostic categories are surfaced through runtime publication.
+
+Decision:
+`ActorSystemBuilder::publish_dead_letters_to_event_stream` controls whether
+recorded `DeadLetter` values are also published to the local `EventStream`.
+The default remains enabled. The `kairo` facade maps
+`observability.diagnostics.dead_letters` through `KairoSettings::actor_system_builder`.
+Disabling the flag suppresses event-stream publication only; the local
+`DeadLetters` record buffer still records rejected or undeliverable messages.
+
+Consequences:
+- Existing Pekko-like event-stream behavior remains the default.
+- Tests and diagnostics can still inspect dead-letter records even when an
+  application disables event-stream publication.
+- Logging and metrics backends can be added later as subscribers or adapters
+  without changing the actor send path.

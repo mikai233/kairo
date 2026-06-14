@@ -59,6 +59,17 @@ impl KairoSettings {
         self.observability.validate()?;
         Ok(())
     }
+
+    #[cfg(feature = "actor")]
+    pub fn actor_system_builder(
+        &self,
+        name: impl Into<String>,
+    ) -> Result<kairo_actor::ActorSystemBuilder, ConfigError> {
+        Ok(self
+            .actor
+            .actor_system_builder(name)?
+            .publish_dead_letters_to_event_stream(self.observability.diagnostics.dead_letters))
+    }
 }
 
 impl ActorConfig {

@@ -94,7 +94,7 @@ Load it through the facade and map the format-neutral settings into builders:
 
 ```rust
 let settings = kairo::prelude::load_toml_file("kairo.local.toml")?;
-let system = settings.actor.actor_system_builder("app")?.build()?;
+let system = settings.actor_system_builder("app")?.build()?;
 ```
 
 Seed nodes are contact addresses only, not membership truth. When remoting is
@@ -130,7 +130,8 @@ let gossip_every = settings.cluster.tools.to_pubsub_gossip_interval()?;
 
 Observability settings are backend-neutral. Use
 `settings.observability.diagnostics` to decide which diagnostic categories an
-application or runtime integration should publish:
+application or runtime integration should publish. `KairoSettings` applies the
+dead-letter diagnostic flag when building an actor system:
 
 ```rust
 let diagnostics = &settings.observability.diagnostics;
