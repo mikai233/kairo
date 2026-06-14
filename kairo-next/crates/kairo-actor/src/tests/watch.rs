@@ -188,6 +188,55 @@ impl Actor for StoppingWatchWithProbe {
     }
 }
 
+enum RestartingWatchMsg {
+    WatchWith {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<()>,
+    },
+    Fail,
+    SubjectTerminated(ActorPath),
+}
+
+struct RestartingWatchProbe {
+    observed: mpsc::Sender<ActorPath>,
+    pre_restart: mpsc::Sender<()>,
+}
+
+impl Actor for RestartingWatchProbe {
+    type Msg = RestartingWatchMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RestartingWatchMsg::WatchWith { subject, reply_to } => {
+                let subject_path = subject.path().clone();
+                ctx.watch_with(
+                    &subject,
+                    RestartingWatchMsg::SubjectTerminated(subject_path),
+                )?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartingWatchMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            RestartingWatchMsg::SubjectTerminated(path) => self
+                .observed
+                .send(path)
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PreRestart => self
+                .pre_restart
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+            Signal::PostStop => self.stopped(ctx),
+            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
+        }
+    }
+}
+
 enum SignalFailureWatcherMsg {
     Watch {
         subject: ActorRef<()>,
@@ -568,6 +617,41 @@ fn watch_with_delivers_custom_message_after_termination() {
         })
         .unwrap();
     registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&subject);
+
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject.path().clone()
+    );
+}
+
+#[test]
+fn watch_with_survives_unrelated_actor_restart() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let (pre_restart_tx, pre_restart_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::restartable(move || RestartingWatchProbe {
+                observed: observed_tx.clone(),
+                pre_restart: pre_restart_tx.clone(),
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(RestartingWatchMsg::WatchWith {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    watcher.tell(RestartingWatchMsg::Fail).unwrap();
+    pre_restart_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
     system.stop(&subject);
 

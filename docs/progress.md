@@ -126,6 +126,10 @@ Implemented:
   its subjects before child-stop waiting can block and preventing stale
   `watch_with` termination messages from reaching dead letters during that
   window.
+- Local death-watch restart coverage now pins that a `watch_with`
+  registration survives an unrelated actor restart and still delivers the
+  custom termination message to the rebuilt actor instance, matching Pekko's
+  cell-owned death-watch state.
 - Watching an already stopped local actor now has focused integration coverage:
   plain `watch` immediately delivers `Signal::Terminated`, while `watch_with`
   immediately delivers the caller's typed custom message.
@@ -2498,6 +2502,10 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor stopping_watcher_is_removed_before_waiting_for_children -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor watch_with_survives_unrelated_actor_restart -- --nocapture
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
