@@ -438,13 +438,25 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
         Duration::from_millis(20),
     )
     .with_local_coordinator(coordinator_node.clone(), coordinator.clone());
+    let remembered_entities_by_shard = BTreeMap::from([(
+        "shard-1".to_string(),
+        BTreeSet::from(["entity-1".to_string()]),
+    )]);
     let region = region_kit
         .system()
         .spawn(
             "region-a",
-            ShardRegionActor::<String>::props_with_local_shards_and_coordinator_discovery(
-                "region-a", 10, 10, discovery,
-            ),
+            Props::new(move || {
+                ShardRegionActor::<String>::new_with_local_remember_store_shards(
+                    "region-a",
+                    "orders",
+                    10,
+                    10,
+                    remembered_entities_by_shard.clone(),
+                    Duration::from_millis(500),
+                )
+                .with_coordinator_discovery(discovery.clone())
+            }),
         )
         .unwrap();
     let _subscriber = region_kit
@@ -464,6 +476,18 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
         .create_probe_on::<ShardRegionSnapshot>(
             "sharding-remembered-discovery-region",
             "region-state",
+        )
+        .unwrap();
+    let local_shard = nodes
+        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
+            "sharding-remembered-discovery-region",
+            "local-shard",
+        )
+        .unwrap();
+    let deliveries = nodes
+        .create_probe_on::<ShardDeliverPlan<String>>(
+            "sharding-remembered-discovery-region",
+            "deliveries",
         )
         .unwrap();
 
@@ -523,6 +547,29 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
     assert!(
         hosted,
         "remembered shard should be hosted by the registered region node"
+    );
+
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("remembered shard should have a local child after registration");
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-discovery".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-discovery".to_string()),
+        }
     );
     nodes.shutdown(Duration::from_secs(1)).unwrap();
 }

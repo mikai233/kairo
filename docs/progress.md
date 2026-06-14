@@ -1323,7 +1323,10 @@ Implemented:
   through the multi-node region-discovery harness: a coordinator node starts
   with remembered unallocated shard state, a separate region node discovers and
   registers with that coordinator from cluster membership, and the coordinator
-  allocation is observed as an actually hosted region shard.
+  allocation is observed as an actually hosted region shard. The same scenario
+  now hosts the shard through a local remember-entity store and verifies that
+  first delivery to the pre-remembered entity is routed as recovered entity
+  delivery rather than a fresh start.
 - `kairo-cluster-sharding` shard region actors can now request shard homes
   from their registered local coordinator when local delivery buffers the first
   message for an unknown shard. Coordinator replies are applied through the
