@@ -1939,6 +1939,11 @@ Implemented:
 - Sharding TOML and direct `ClusterShardingConfig` validation now reject a
   zero `rebalance_interval`, keeping periodic rebalance configuration from
   starting an immediate timer loop in the coordinator runtime.
+- `ClusterShardingConfig` now also carries format-neutral
+  `remember_entities`, retry interval, handoff timeout, shard failure backoff,
+  and shard-region query timeout settings, with TOML parsing, direct
+  validation, runtime helper accessors, and facade docs coverage for the
+  Pekko-aligned sharding timing knobs Kairo already models.
 - `ClusterDowningConfig` now stores a structured
   `ClusterDowningStrategyConfig` enum instead of a raw strategy string, and the
   TOML loader parses `none`, `down-all`, `keep-majority`, `keep-oldest`, and
@@ -2945,5 +2950,10 @@ cargo test -p kairo-remote tcp_remote_actor_system_routes_address_terminated_to_
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo config --all-targets --all-features
+cargo test -p kairo --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```

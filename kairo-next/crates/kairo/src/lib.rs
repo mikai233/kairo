@@ -49,7 +49,12 @@
 //!
 //! [cluster.sharding]
 //! number_of_shards = 100
+//! remember_entities = false
+//! retry_interval = "2s"
+//! handoff_timeout = "60s"
+//! shard_failure_backoff = "10s"
 //! rebalance_interval = "10s"
+//! shard_region_query_timeout = "3s"
 //!
 //! [observability.diagnostics]
 //! dead_letters = true
@@ -63,6 +68,7 @@
 //! assert_eq!(settings.cluster.seed.nodes.len(), 1);
 //! assert_eq!(settings.cluster.heartbeat.interval, Duration::from_millis(500));
 //! assert_eq!(settings.cluster.sharding.number_of_shards, 100);
+//! assert_eq!(settings.cluster.sharding.handoff_timeout, Duration::from_secs(60));
 //! assert!(settings.observability.diagnostics.dead_letters);
 //! # Ok(())
 //! # }

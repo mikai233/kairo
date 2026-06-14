@@ -364,9 +364,19 @@ impl ClusterDowningConfig {
 impl ClusterShardingConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.validated_shard_count()?;
+        reject_zero_duration(self.retry_interval, "cluster.sharding.retry_interval")?;
+        reject_zero_duration(self.handoff_timeout, "cluster.sharding.handoff_timeout")?;
+        reject_zero_duration(
+            self.shard_failure_backoff,
+            "cluster.sharding.shard_failure_backoff",
+        )?;
         reject_zero_duration(
             self.rebalance_interval,
             "cluster.sharding.rebalance_interval",
+        )?;
+        reject_zero_duration(
+            self.shard_region_query_timeout,
+            "cluster.sharding.shard_region_query_timeout",
         )?;
         Ok(())
     }
@@ -387,12 +397,42 @@ impl ClusterShardingConfig {
         self.validated_shard_count()
     }
 
+    pub fn to_retry_interval(&self) -> Result<Duration, ConfigError> {
+        reject_zero_duration(self.retry_interval, "cluster.sharding.retry_interval")?;
+        Ok(self.retry_interval)
+    }
+
+    pub fn to_handoff_timeout(&self) -> Result<Duration, ConfigError> {
+        reject_zero_duration(self.handoff_timeout, "cluster.sharding.handoff_timeout")?;
+        Ok(self.handoff_timeout)
+    }
+
+    pub fn to_shard_failure_backoff(&self) -> Result<Duration, ConfigError> {
+        reject_zero_duration(
+            self.shard_failure_backoff,
+            "cluster.sharding.shard_failure_backoff",
+        )?;
+        Ok(self.shard_failure_backoff)
+    }
+
     pub fn to_rebalance_interval(&self) -> Result<Duration, ConfigError> {
         reject_zero_duration(
             self.rebalance_interval,
             "cluster.sharding.rebalance_interval",
         )?;
         Ok(self.rebalance_interval)
+    }
+
+    pub fn to_shard_region_query_timeout(&self) -> Result<Duration, ConfigError> {
+        reject_zero_duration(
+            self.shard_region_query_timeout,
+            "cluster.sharding.shard_region_query_timeout",
+        )?;
+        Ok(self.shard_region_query_timeout)
+    }
+
+    pub fn remember_entities_enabled(&self) -> bool {
+        self.remember_entities
     }
 
     #[cfg(feature = "cluster-sharding")]

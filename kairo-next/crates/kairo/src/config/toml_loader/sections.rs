@@ -328,7 +328,15 @@ fn parse_cluster_sharding(value: &Value) -> Result<ClusterShardingConfig, Config
     reject_unknown(
         table,
         "cluster.sharding",
-        &["number_of_shards", "rebalance_interval"],
+        &[
+            "number_of_shards",
+            "remember_entities",
+            "retry_interval",
+            "handoff_timeout",
+            "shard_failure_backoff",
+            "rebalance_interval",
+            "shard_region_query_timeout",
+        ],
     )?;
     let mut config = ClusterShardingConfig::default();
     if let Some(shards) = table.get("number_of_shards") {
@@ -340,12 +348,43 @@ fn parse_cluster_sharding(value: &Value) -> Result<ClusterShardingConfig, Config
             });
         }
     }
+    if let Some(remember_entities) = optional_bool(
+        table,
+        "remember_entities",
+        "cluster.sharding.remember_entities",
+    )? {
+        config.remember_entities = remember_entities;
+    }
+    if let Some(interval) = table.get("retry_interval") {
+        config.retry_interval = parse_duration(interval, "cluster.sharding.retry_interval")?;
+        reject_zero_duration(config.retry_interval, "cluster.sharding.retry_interval")?;
+    }
+    if let Some(timeout) = table.get("handoff_timeout") {
+        config.handoff_timeout = parse_duration(timeout, "cluster.sharding.handoff_timeout")?;
+        reject_zero_duration(config.handoff_timeout, "cluster.sharding.handoff_timeout")?;
+    }
+    if let Some(backoff) = table.get("shard_failure_backoff") {
+        config.shard_failure_backoff =
+            parse_duration(backoff, "cluster.sharding.shard_failure_backoff")?;
+        reject_zero_duration(
+            config.shard_failure_backoff,
+            "cluster.sharding.shard_failure_backoff",
+        )?;
+    }
     if let Some(interval) = table.get("rebalance_interval") {
         config.rebalance_interval =
             parse_duration(interval, "cluster.sharding.rebalance_interval")?;
         reject_zero_duration(
             config.rebalance_interval,
             "cluster.sharding.rebalance_interval",
+        )?;
+    }
+    if let Some(timeout) = table.get("shard_region_query_timeout") {
+        config.shard_region_query_timeout =
+            parse_duration(timeout, "cluster.sharding.shard_region_query_timeout")?;
+        reject_zero_duration(
+            config.shard_region_query_timeout,
+            "cluster.sharding.shard_region_query_timeout",
         )?;
     }
     Ok(config)

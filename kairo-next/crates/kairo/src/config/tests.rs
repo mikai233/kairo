@@ -133,7 +133,12 @@ role = "backend"
 
 [cluster.sharding]
 number_of_shards = 128
+remember_entities = true
+retry_interval = "3s"
+handoff_timeout = "45s"
+shard_failure_backoff = "12s"
 rebalance_interval = "30s"
+shard_region_query_timeout = "4s"
 
 [cluster.tools.singleton]
 role = "backend"
@@ -180,9 +185,26 @@ gossip_state_changes = true
         Duration::from_secs(15)
     );
     assert_eq!(settings.cluster.sharding.number_of_shards, 128);
+    assert!(settings.cluster.sharding.remember_entities);
+    assert_eq!(
+        settings.cluster.sharding.retry_interval,
+        Duration::from_secs(3)
+    );
+    assert_eq!(
+        settings.cluster.sharding.handoff_timeout,
+        Duration::from_secs(45)
+    );
+    assert_eq!(
+        settings.cluster.sharding.shard_failure_backoff,
+        Duration::from_secs(12)
+    );
     assert_eq!(
         settings.cluster.sharding.rebalance_interval,
         Duration::from_secs(30)
+    );
+    assert_eq!(
+        settings.cluster.sharding.shard_region_query_timeout,
+        Duration::from_secs(4)
     );
     assert_eq!(
         settings.cluster.tools.singleton_role.as_deref(),
@@ -209,6 +231,23 @@ fn toml_config_defaults_missing_sections_without_toml_specific_state() {
     assert_eq!(settings.actor.mailboxes["default"].capacity, None);
     assert_eq!(settings.remote.transport.canonical_port, 25520);
     assert_eq!(settings.cluster.sharding.number_of_shards, 100);
+    assert!(!settings.cluster.sharding.remember_entities);
+    assert_eq!(
+        settings.cluster.sharding.retry_interval,
+        Duration::from_secs(2)
+    );
+    assert_eq!(
+        settings.cluster.sharding.handoff_timeout,
+        Duration::from_secs(60)
+    );
+    assert_eq!(
+        settings.cluster.sharding.shard_failure_backoff,
+        Duration::from_secs(10)
+    );
+    assert_eq!(
+        settings.cluster.sharding.shard_region_query_timeout,
+        Duration::from_secs(3)
+    );
     assert!(settings.observability.diagnostics.dead_letters);
     assert!(
         settings
@@ -655,6 +694,38 @@ rebalance_interval = "0ms"
 }
 
 #[test]
+fn toml_config_rejects_zero_sharding_runtime_durations() {
+    for (key, path) in [
+        ("retry_interval", "cluster.sharding.retry_interval"),
+        ("handoff_timeout", "cluster.sharding.handoff_timeout"),
+        (
+            "shard_failure_backoff",
+            "cluster.sharding.shard_failure_backoff",
+        ),
+        (
+            "shard_region_query_timeout",
+            "cluster.sharding.shard_region_query_timeout",
+        ),
+    ] {
+        let error = parse_toml_str(&format!(
+            r#"
+[cluster.sharding]
+{key} = "0ms"
+"#
+        ))
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            ConfigError::InvalidValue {
+                path: path.to_string(),
+                reason: "must be greater than zero".to_string(),
+            }
+        );
+    }
+}
+
+#[test]
 fn toml_config_rejects_zero_mailbox_capacity() {
     let error = parse_toml_str(
         r#"
@@ -959,15 +1030,45 @@ fn config_converts_sharding_settings_to_runtime_helpers() {
         r#"
 [cluster.sharding]
 number_of_shards = 128
+remember_entities = true
+retry_interval = "3s"
+handoff_timeout = "45s"
+shard_failure_backoff = "12s"
 rebalance_interval = "30s"
+shard_region_query_timeout = "4s"
 "#,
     )
     .unwrap();
 
     assert_eq!(settings.cluster.sharding.to_shard_count().unwrap(), 128);
+    assert!(settings.cluster.sharding.remember_entities_enabled());
+    assert_eq!(
+        settings.cluster.sharding.to_retry_interval().unwrap(),
+        Duration::from_secs(3)
+    );
+    assert_eq!(
+        settings.cluster.sharding.to_handoff_timeout().unwrap(),
+        Duration::from_secs(45)
+    );
+    assert_eq!(
+        settings
+            .cluster
+            .sharding
+            .to_shard_failure_backoff()
+            .unwrap(),
+        Duration::from_secs(12)
+    );
     assert_eq!(
         settings.cluster.sharding.to_rebalance_interval().unwrap(),
         Duration::from_secs(30)
+    );
+    assert_eq!(
+        settings
+            .cluster
+            .sharding
+            .to_shard_region_query_timeout()
+            .unwrap(),
+        Duration::from_secs(4)
     );
     assert!(
         !settings
@@ -1156,6 +1257,52 @@ fn config_validate_checks_all_format_neutral_sections() {
             reason: "must be greater than zero".to_string(),
         }
     );
+
+    for (config, path) in [
+        (
+            super::ClusterShardingConfig {
+                retry_interval: Duration::ZERO,
+                ..Default::default()
+            },
+            "cluster.sharding.retry_interval",
+        ),
+        (
+            super::ClusterShardingConfig {
+                handoff_timeout: Duration::ZERO,
+                ..Default::default()
+            },
+            "cluster.sharding.handoff_timeout",
+        ),
+        (
+            super::ClusterShardingConfig {
+                shard_failure_backoff: Duration::ZERO,
+                ..Default::default()
+            },
+            "cluster.sharding.shard_failure_backoff",
+        ),
+        (
+            super::ClusterShardingConfig {
+                shard_region_query_timeout: Duration::ZERO,
+                ..Default::default()
+            },
+            "cluster.sharding.shard_region_query_timeout",
+        ),
+    ] {
+        let settings = KairoSettings {
+            cluster: super::ClusterConfig {
+                sharding: config,
+                ..Default::default()
+            },
+            ..KairoSettings::default()
+        };
+        assert_eq!(
+            settings.validate().unwrap_err(),
+            ConfigError::InvalidValue {
+                path: path.to_string(),
+                reason: "must be greater than zero".to_string(),
+            }
+        );
+    }
 
     let settings = KairoSettings {
         cluster: super::ClusterConfig {

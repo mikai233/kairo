@@ -131,14 +131,24 @@ pub enum ClusterDowningStrategyConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterShardingConfig {
     pub number_of_shards: u64,
+    pub remember_entities: bool,
+    pub retry_interval: Duration,
+    pub handoff_timeout: Duration,
+    pub shard_failure_backoff: Duration,
     pub rebalance_interval: Duration,
+    pub shard_region_query_timeout: Duration,
 }
 
 impl Default for ClusterShardingConfig {
     fn default() -> Self {
         Self {
             number_of_shards: 100,
+            remember_entities: false,
+            retry_interval: Duration::from_secs(2),
+            handoff_timeout: Duration::from_secs(60),
+            shard_failure_backoff: Duration::from_secs(10),
             rebalance_interval: Duration::from_secs(10),
+            shard_region_query_timeout: Duration::from_secs(3),
         }
     }
 }
