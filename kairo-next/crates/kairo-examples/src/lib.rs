@@ -21,6 +21,8 @@
 //!   `ReplicatorActor` with change subscription delivery.
 //! - `cluster_membership`: cluster event subscription, snapshot delivery,
 //!   member-up publication, member removal, and current-state request.
+//! - `cluster_tools_local`: local pubsub subscribe/publish/topics plus local
+//!   singleton manager startup and singleton access.
 //! - `cluster_tcp_peer_bootstrap`: two local cluster TCP peer runtimes using
 //!   cluster-derived route plans.
 //! - `ddata_tcp_peer_bootstrap`: two local distributed-data TCP peer runtimes
@@ -56,6 +58,7 @@
 
 pub mod cluster_membership;
 pub mod cluster_tcp;
+pub mod cluster_tools_local;
 pub mod cluster_tools_tcp;
 pub mod configured_counter;
 pub mod counter;

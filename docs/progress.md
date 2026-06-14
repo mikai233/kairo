@@ -1915,6 +1915,9 @@ Implemented:
   subscribes through the cluster facade, observes the initial snapshot,
   publishes a peer `Up` gossip change, publishes member removal, and requests
   the final current state through reusable helper code with smoke coverage.
+- `kairo-examples` now includes a runnable `cluster_tools_local` example that
+  exercises local pubsub subscribe/publish/current-topics behavior and local
+  singleton manager startup with typed access to the running singleton child.
 - `kairo-examples` now includes a runnable local cluster-sharding example that
   wires a shard coordinator, local shard region, `ShardingEnvelopeRouter`, and
   `EntityRef<String>` through reusable helper code and demonstrates stable

@@ -53,6 +53,7 @@ cargo run -p kairo-examples --example ask_pipe_to_self
 cargo run -p kairo-examples --example remote_ping_pong
 cargo run -p kairo-examples --example ddata_counter
 cargo run -p kairo-examples --example cluster_membership
+cargo run -p kairo-examples --example cluster_tools_local
 cargo run -p kairo-examples --example cluster_sharding_local
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
@@ -73,6 +74,10 @@ The `ddata_counter` example demonstrates a local distributed-data
 The `cluster_membership` example demonstrates cluster-event subscription,
 initial snapshot delivery, member-up publication, member removal, and
 current-state request through the public cluster facade.
+
+The `cluster_tools_local` example demonstrates local cluster-tools workflows:
+pubsub subscribe/publish/topic listing and singleton manager startup with
+typed access to the running singleton child.
 
 The `cluster_sharding_local` example demonstrates:
 

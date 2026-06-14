@@ -5,6 +5,7 @@ use kairo::cluster::MemberStatus;
 use kairo::cluster_sharding::PassivatePlan;
 use kairo::prelude::*;
 use kairo_examples::cluster_membership::run_cluster_membership;
+use kairo_examples::cluster_tools_local::run_cluster_tools_local;
 use kairo_examples::configured_counter::run_configured_counter;
 use kairo_examples::counter::{CounterCmd, spawn_counter};
 use kairo_examples::ddata_counter::run_ddata_counter;
@@ -103,6 +104,22 @@ fn cluster_membership_example_smoke() -> Result<(), Box<dyn std::error::Error>> 
     assert_eq!(observation.up_member, observation.removed_member);
     assert_eq!(observation.previous_status, MemberStatus::Up);
     assert_eq!(observation.final_member_count, 1);
+    Ok(())
+}
+
+#[test]
+fn cluster_tools_local_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
+    let observation = run_cluster_tools_local("example-smoke-cluster-tools-local")?;
+
+    assert_eq!(observation.topic, "orders");
+    assert!(observation.subscribed);
+    assert_eq!(observation.delivered_message, "created");
+    assert_eq!(observation.delivered_count, 1);
+    assert_eq!(observation.current_topics, vec!["orders".to_string()]);
+    assert!(observation.singleton_started);
+    assert_eq!(observation.singleton_reply, "pong");
+    assert!(observation.singleton_running);
+    assert!(observation.singleton_path.is_some());
     Ok(())
 }
 

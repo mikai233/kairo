@@ -45,6 +45,7 @@ cargo run -p kairo-examples --example ask_pipe_to_self
 cargo run -p kairo-examples --example remote_ping_pong
 cargo run -p kairo-examples --example ddata_counter
 cargo run -p kairo-examples --example cluster_membership
+cargo run -p kairo-examples --example cluster_tools_local
 cargo run -p kairo-examples --example cluster_sharding_local
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
@@ -75,6 +76,10 @@ flushes the change notification, and reads the CRDT value back.
 The `cluster_membership` example subscribes to cluster state, observes the
 initial snapshot, publishes a gossip view that marks a peer `Up`, publishes a
 removal, and requests the final current state through the cluster facade.
+
+The `cluster_tools_local` example runs a local pubsub actor, verifies
+subscribe/publish/current-topics behavior, starts a singleton through the local
+singleton manager, and sends a typed message to the running singleton child.
 
 The `cluster_sharding_local` example wires a local shard coordinator, typed
 shard region, stable `ShardingEnvelopeRouter`, `EntityRef<String>`, and

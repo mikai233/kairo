@@ -266,6 +266,14 @@ subscription model end to end: initial state snapshot, `MemberUp` event,
 cargo run -p kairo-examples --example cluster_membership
 ```
 
+The runnable `cluster_tools_local` example shows local cluster-tools usage:
+pubsub subscribe/publish/topic listing plus singleton manager startup and typed
+access to the singleton child:
+
+```bash
+cargo run -p kairo-examples --example cluster_tools_local
+```
+
 ## Validation
 
 Run focused validation for the area you touch first, then widen as needed:
