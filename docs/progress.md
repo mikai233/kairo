@@ -1340,6 +1340,10 @@ Implemented:
   now hosts the shard through a local remember-entity store and verifies that
   first delivery to the pre-remembered entity is routed as recovered entity
   delivery rather than a fresh start.
+- `ShardRegionActor` remote `HostShard` handling now has focused coverage that
+  a region receiving the stable remote host command can spawn a store-backed
+  local shard, send the stable `ShardStarted` reply, and recover remembered
+  entities before the first local delivery.
 - `kairo-cluster-sharding` shard region actors can now request shard homes
   from their registered local coordinator when local delivery buffers the first
   message for an unknown shard. Coordinator replies are applied through the
@@ -2704,4 +2708,8 @@ cargo test -p kairo-actor actor_system_terminate_retry_still_waits_for_timed_out
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-sharding region_actor_remote_host_shard_spawns_store_backed_shard_and_recovers_entities --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 ```

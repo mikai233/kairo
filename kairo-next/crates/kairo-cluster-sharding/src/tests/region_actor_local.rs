@@ -254,6 +254,86 @@ fn region_actor_spawns_store_backed_shard_and_recovers_entities() {
 }
 
 #[test]
+fn region_actor_remote_host_shard_spawns_store_backed_shard_and_recovers_entities() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("region-remote-host-remember-shard-child").unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let remote_replies = kit
+        .create_probe::<RemoteEnvelope>("remote-replies")
+        .unwrap();
+    let local_shard = kit
+        .create_probe::<Option<kairo_actor::ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let mut registry = Registry::new();
+    register_sharding_protocol_codecs(&mut registry).unwrap();
+    let registry = Arc::new(registry);
+    let reply = crate::ShardRegionRemoteControlReplyTarget::new(
+        ActorRefWireData::new("kairo://region@127.0.0.1:25520/system/sharding/region-a").unwrap(),
+        ActorRefWireData::new("kairo://coordinator@127.0.0.1:25521/system/sharding/coordinator")
+            .unwrap(),
+        registry.clone(),
+        remote_replies.actor_ref(),
+    );
+
+    region
+        .tell(ShardRegionMsg::RemoteHostShard {
+            shard: "shard-1".to_string(),
+            reply,
+        })
+        .unwrap();
+
+    let reply_envelope = remote_replies
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    let started: ShardStarted = registry.deserialize(reply_envelope.message).unwrap();
+    assert_eq!(started.shard_id, "shard-1");
+
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "loaded".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "loaded".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_routes_to_spawned_local_shard_child() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-actor-local-route-child").unwrap();
     let region = kit
