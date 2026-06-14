@@ -1025,9 +1025,13 @@ Implemented:
   for both remote peers before coordinated shutdown stops all live-route
   connectors; the same scenario now publishes a reduced two-node membership
   view and validates the surviving nodes remove the departed node's active
-  route through the connector boundary. The test now also pins the underlying
-  association-cache route counts across full mesh, reduced membership, and
-  coordinated shutdown cleanup for all three bootstrap-owned runtimes.
+  route through the connector boundary. The same route-reduction scenario now
+  also proves sends to the removed peer reject through the association cache
+  and do not deliver another request to that removed peer, while the remaining
+  route still carries stable `ReplicatorRead` traffic. The test now also pins
+  the underlying association-cache route counts across full mesh, reduced
+  membership, and coordinated shutdown cleanup for all three bootstrap-owned
+  runtimes.
 - Distributed-data TCP peer bootstrap lifecycle coverage now validates
   membership removal: after two bound runtimes install socket routes from a
   shared gossip snapshot, publishing a sender-side snapshot without the peer
@@ -3043,5 +3047,10 @@ cargo test -p kairo-testkit multi_node --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_bootstrap --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```

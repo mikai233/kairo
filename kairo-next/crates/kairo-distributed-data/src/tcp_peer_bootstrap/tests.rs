@@ -658,6 +658,25 @@ fn bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed() {
     await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
     assert_eq!(first_cache.route_count(), 1);
 
+    let removed_peer_error = to_third
+        .tell(ReplicatorRead {
+            key: "counter-third-after-removal".to_string(),
+            from: Some(ReplicaId::from(&first_node)),
+        })
+        .expect_err("removed peer route should reject sends");
+    assert!(
+        removed_peer_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected removed-peer send error: {removed_peer_error:?}"
+    );
+    assert_eq!(
+        third_requests
+            .wait_for_len(2, Duration::from_millis(100))
+            .len(),
+        1
+    );
+
     let second_received_after_removal = send_read_until_count_received(
         &to_second,
         &second_requests,
