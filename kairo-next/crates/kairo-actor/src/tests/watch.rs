@@ -29,6 +29,16 @@ enum WatchProbeMsg {
         subject: ActorRef<()>,
         reply_to: mpsc::Sender<Result<(), ActorError>>,
     },
+    WatchThenUnwatchThenWatchWith {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<Result<(), ActorError>>,
+        observed: mpsc::Sender<ActorPath>,
+    },
+    WatchWithThenUnwatchThenWatch {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<Result<(), ActorError>>,
+        observed: mpsc::Sender<ActorPath>,
+    },
     Observed(ActorPath),
     Unwatch {
         subject: ActorRef<()>,
@@ -90,6 +100,37 @@ impl Actor for WatchProbe {
                 ctx.watch_with(&subject, WatchProbeMsg::Observed(subject.path().clone()))?;
                 reply_to
                     .send(ctx.watch(&subject))
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::WatchThenUnwatchThenWatchWith {
+                subject,
+                reply_to,
+                observed,
+            } => {
+                let result = (|| {
+                    ctx.watch(&subject)?;
+                    ctx.unwatch(&subject);
+                    let path = subject.path().clone();
+                    self.custom = Some(observed);
+                    ctx.watch_with(&subject, WatchProbeMsg::Observed(path))
+                })();
+                reply_to
+                    .send(result)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::WatchWithThenUnwatchThenWatch {
+                subject,
+                reply_to,
+                observed,
+            } => {
+                let result = (|| {
+                    self.custom = Some(observed);
+                    ctx.watch_with(&subject, WatchProbeMsg::Observed(subject.path().clone()))?;
+                    ctx.unwatch(&subject);
+                    ctx.watch(&subject)
+                })();
+                reply_to
+                    .send(result)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             WatchProbeMsg::Observed(path) => {
@@ -590,6 +631,106 @@ fn restart_supervision_rebuilds_actor_after_signal_failure() {
 
     ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(!watcher.is_stopped());
+}
+
+#[test]
+fn watch_then_unwatch_then_watch_with_changes_notification() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (subject_stopped_tx, _subject_stopped_rx) = mpsc::channel();
+    let subject = system
+        .spawn(
+            "subject",
+            Props::new(move || StopProbe {
+                stopped: subject_stopped_tx,
+            }),
+        )
+        .unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (observed_tx, observed_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchThenUnwatchThenWatchWith {
+            subject: subject.clone(),
+            reply_to: reply_tx,
+            observed: observed_tx,
+        })
+        .unwrap();
+    reply_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+
+    system.stop(&subject);
+
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject.path().clone()
+    );
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+}
+
+#[test]
+fn watch_with_then_unwatch_then_watch_changes_notification() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (subject_stopped_tx, _subject_stopped_rx) = mpsc::channel();
+    let subject = system
+        .spawn(
+            "subject",
+            Props::new(move || StopProbe {
+                stopped: subject_stopped_tx,
+            }),
+        )
+        .unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (observed_tx, observed_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWithThenUnwatchThenWatch {
+            subject: subject.clone(),
+            reply_to: reply_tx,
+            observed: observed_tx,
+        })
+        .unwrap();
+    reply_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+
+    system.stop(&subject);
+
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject.path().clone()
+    );
+    assert!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
 }
 
 #[test]

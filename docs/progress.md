@@ -168,6 +168,10 @@ Implemented:
 - Death-watch registrations reject switching between plain `watch` and
   `watch_with` for the same watched actor without an intervening `unwatch`,
   preserving the Pekko rule that termination-message changes must be explicit.
+- Local death-watch coverage now also pins the positive notification-change
+  path: after `unwatch`, actors can switch from `watch` to `watch_with` or
+  from `watch_with` back to `watch` without receiving stale notifications from
+  the old registration.
 - Death-watch registration and notification state lives in a focused
   `death_watch` module.
 - `ActorSystem::schedule_once`, `Context::schedule_once`, and
@@ -3007,5 +3011,11 @@ git diff --check
 cargo test -p kairo-cluster-sharding allocation --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor watch_then_unwatch_then_watch_with_changes_notification --all-targets --all-features
+cargo test -p kairo-actor watch_with_then_unwatch_then_watch_changes_notification --all-targets --all-features
+cargo test -p kairo-actor watch --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```
