@@ -541,6 +541,204 @@ fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
 }
 
 #[test]
+fn multi_node_passivated_entity_is_not_recovered_after_rehost() {
+    let nodes = kairo_testkit::MultiNodeTestKit::new([
+        "sharding-passivate-store",
+        "sharding-passivate-region-a",
+        "sharding-passivate-region-b",
+    ])
+    .unwrap();
+    let store_kit = nodes.kit("sharding-passivate-store").unwrap();
+    let region_a_kit = nodes.kit("sharding-passivate-region-a").unwrap();
+    let region_b_kit = nodes.kit("sharding-passivate-region-b").unwrap();
+    let remember_store = store_kit
+        .system()
+        .spawn(
+            "remember-store-shard-1",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let region_a = region_a_kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_remember_store_shards(
+                "region-a",
+                10,
+                10,
+                BTreeMap::from([("shard-1".to_string(), remember_store.clone())]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let region_b = region_b_kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_remember_store_shards(
+                "region-b",
+                10,
+                10,
+                BTreeMap::from([("shard-1".to_string(), remember_store.clone())]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let host_a = nodes
+        .create_probe_on::<HostShardPlan<String>>("sharding-passivate-region-a", "host-a")
+        .unwrap();
+    let shard_a_ref = nodes
+        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
+            "sharding-passivate-region-a",
+            "shard-a-ref",
+        )
+        .unwrap();
+    let delivery_a = nodes
+        .create_probe_on::<ShardDeliverPlan<String>>("sharding-passivate-region-a", "delivery-a")
+        .unwrap();
+    let passivation = nodes
+        .create_probe_on::<PassivatePlan<String>>("sharding-passivate-region-a", "passivation")
+        .unwrap();
+    let termination = nodes
+        .create_probe_on::<crate::EntityTerminatedPlan<String>>(
+            "sharding-passivate-region-a",
+            "termination",
+        )
+        .unwrap();
+    let store_state = nodes
+        .create_probe_on::<RememberShardStoreSnapshot>("sharding-passivate-store", "store-state")
+        .unwrap();
+    let host_b = nodes
+        .create_probe_on::<HostShardPlan<String>>("sharding-passivate-region-b", "host-b")
+        .unwrap();
+    let shard_b_ref = nodes
+        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
+            "sharding-passivate-region-b",
+            "shard-b-ref",
+        )
+        .unwrap();
+    let delivery_b = nodes
+        .create_probe_on::<ShardDeliverPlan<String>>("sharding-passivate-region-b", "delivery-b")
+        .unwrap();
+
+    region_a
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host_a.actor_ref(),
+        })
+        .unwrap();
+    host_a.expect_msg(Duration::from_millis(500)).unwrap();
+    region_a
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: shard_a_ref.actor_ref(),
+        })
+        .unwrap();
+    let shard_a = shard_a_ref
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("region-a should host shard-1");
+    shard_a
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "before-passivation".to_string()),
+            reply_to: delivery_a.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        delivery_a.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "before-passivation".to_string()),
+        }
+    );
+
+    shard_a
+        .tell(ShardMsg::Passivate {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+            reply_to: passivation.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        passivation.expect_msg(Duration::from_millis(500)).unwrap(),
+        PassivatePlan::SendStop {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+        }
+    );
+    shard_a
+        .tell(ShardMsg::EntityTerminated {
+            entity_id: "entity-1".to_string(),
+            reply_to: termination.actor_ref(),
+        })
+        .unwrap();
+    let stop_update =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
+    assert_eq!(
+        termination.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::EntityTerminatedPlan::RememberUpdate {
+            update: stop_update,
+        }
+    );
+
+    let mut store_empty = false;
+    for _ in 0..20 {
+        remember_store
+            .tell(RememberShardStoreMsg::GetState {
+                reply_to: store_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
+        store_empty = snapshot.entities_by_key.values().all(BTreeSet::is_empty);
+        if store_empty {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        store_empty,
+        "passivated entity should be removed from shared remember store"
+    );
+
+    region_b
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host_b.actor_ref(),
+        })
+        .unwrap();
+    host_b.expect_msg(Duration::from_millis(500)).unwrap();
+    region_b
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: shard_b_ref.actor_ref(),
+        })
+        .unwrap();
+    let shard_b = shard_b_ref
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("region-b should host shard-1");
+    shard_b
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-rehost".to_string()),
+            reply_to: delivery_b.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        delivery_b.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: RememberShardUpdate::new(
+                ["entity-1".to_string()],
+                std::iter::empty::<String>(),
+            ),
+        }
+    );
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_system_inbound_remote_graceful_shutdown_rebalances_to_local_region() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("coordinator-remote-graceful-shutdown").unwrap();

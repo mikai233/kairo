@@ -1926,6 +1926,12 @@ Implemented:
   shutting-down region, starts the shard on the replacement region, and proves
   the replacement shard recovers remembered entities from the shared store
   before subsequent delivery.
+- `kairo-cluster-sharding` now also has multi-node remember-store
+  passivation validation: a store-backed shard hosted on one region passivates
+  and terminates a remembered entity, removes it from the shared remember
+  store, and a replacement region hosting the same shard treats the next
+  delivery as a fresh remembered start instead of recovering the stopped
+  entity.
 - `kairo-cluster-sharding` transport-neutral handoff delivery success and
   missing-target tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` local coordinator bootstrap, manual region
@@ -2060,7 +2066,8 @@ Not yet implemented:
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level coverage and the
   multi-node graceful-shutdown validation that now proves remembered entity
-  recovery after handoff through a shared remember store.
+  recovery after handoff plus passivated-entity removal before rehost through
+  a shared remember store.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader lifecycle tests around the bootstrap facades beyond the current
   localhost crate and example smoke tests.
@@ -2071,6 +2078,10 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding multi_node_passivated_entity_is_not_recovered_after_rehost
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
