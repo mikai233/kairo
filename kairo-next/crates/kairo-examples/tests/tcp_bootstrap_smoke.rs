@@ -232,6 +232,66 @@ fn ddata_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks() -> Te
 }
 
 #[test]
+fn ddata_tcp_peer_bootstrap_keeps_remaining_read_route_after_peer_removed() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b, node_c) = ddata_tcp::bind_three_nodes()?;
+    let result = (|| -> TestResult {
+        node_a.publish_up_members(vec![
+            node_a.self_node().clone(),
+            node_b.self_node().clone(),
+            node_c.self_node().clone(),
+        ])?;
+        let full_mesh = node_a.wait_for_route_count(2, Duration::from_secs(2))?;
+        assert!(
+            full_mesh
+                .active_targets
+                .iter()
+                .any(|target| target.node() == node_b.self_node())
+        );
+        assert!(
+            full_mesh
+                .active_targets
+                .iter()
+                .any(|target| target.node() == node_c.self_node())
+        );
+
+        node_a.send_read_to(&node_b, "counter-before-removal")?;
+        let before = node_b.wait_for_request_count(1, Duration::from_secs(2));
+        assert_eq!(before.len(), 1);
+        let before_read = node_b.decode_read(before[0].1.clone())?;
+        assert_eq!(before_read.key, "counter-before-removal");
+        assert_eq!(before_read.from, Some(ReplicaId::from(node_a.self_node())));
+
+        node_a.publish_up_members(vec![node_a.self_node().clone(), node_b.self_node().clone()])?;
+        let reduced = node_a.wait_for_route_count(1, Duration::from_secs(2))?;
+        assert!(
+            reduced
+                .active_targets
+                .iter()
+                .any(|target| target.node() == node_b.self_node())
+        );
+
+        node_a.send_read_to(&node_b, "counter-after-removal")?;
+        let after = node_b.wait_for_request_count(2, Duration::from_secs(2));
+        assert_eq!(after.len(), 2);
+        let after_read = node_b.decode_read(after[1].1.clone())?;
+        assert_eq!(after_read.key, "counter-after-removal");
+        assert_eq!(after_read.from, Some(ReplicaId::from(node_a.self_node())));
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+    let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    shutdown_c?;
+    Ok(())
+}
+
+#[test]
 fn ddata_tcp_peer_bootstrap_reinstalls_route_for_replacement_peer() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b, node_c) = ddata_tcp::bind_three_nodes()?;
