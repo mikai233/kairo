@@ -736,6 +736,10 @@ Implemented:
   `ReplicaId`, resolves the `RemoteEnvelope` recipient `ActorRefWireData` to a
   local temporary write or read aggregation child, and routes missing or
   mistyped targets through normal actor dead-letter diagnostics.
+- `ReplicatorRemoteReplyInbound` can now be constructed with the local remote
+  settings so replies addressed to the node's canonical `system@host:port`
+  actor-ref form normalize back to local temporary aggregation child paths,
+  matching the remote provider's local-address resolution behavior.
 - `kairo-distributed-data` now has a transport-neutral remote request/reply
   bridge for direct replicator traffic. `ReplicatorRemoteRequestInbound`
   validates the addressed local replicator `RemoteEnvelope`, decodes stable
@@ -2558,5 +2562,10 @@ cargo test -p kairo-actor event_stream --all-targets --all-features
 cargo test -p kairo-actor local_core --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data remote_reply --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
 git diff --check
 ```

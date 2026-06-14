@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
+use kairo_remote::RemoteSettings;
 use kairo_serialization::{Manifest, RemoteEnvelope, SerializedMessage};
 
 use super::*;
@@ -243,6 +244,43 @@ fn remote_reply_inbound_delivers_write_replies_to_addressed_aggregator() {
             replica("remote"),
             RemoteEnvelope::new(
                 actor_ref(&recipient),
+                None,
+                registry.serialize(&ReplicatorWriteAck).unwrap(),
+            ),
+        )
+        .unwrap();
+
+    assert!(matches!(
+        replies.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ReplicatorWireReply::WriteAck { from, message: ReplicatorWriteAck }
+            if from == replica("remote")
+    ));
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn remote_reply_inbound_maps_owned_canonical_recipient_to_local_aggregator() {
+    let system = ActorSystem::builder("ddata-remote-reply-canonical")
+        .build()
+        .unwrap();
+    let registry = registry();
+    let inbound = ReplicatorRemoteReplyInbound::with_remote_settings(
+        system.clone(),
+        RemoteSettings::new("127.0.0.1", 25520),
+        registry.clone(),
+    );
+    let (recipient, replies) = write_probe(&system);
+    let canonical_recipient = wire_ref(&recipient.path().as_str().replacen(
+        "kairo://ddata-remote-reply-canonical",
+        "kairo://ddata-remote-reply-canonical@127.0.0.1:25520",
+        1,
+    ));
+
+    inbound
+        .receive_from(
+            replica("remote"),
+            RemoteEnvelope::new(
+                canonical_recipient,
                 None,
                 registry.serialize(&ReplicatorWriteAck).unwrap(),
             ),
