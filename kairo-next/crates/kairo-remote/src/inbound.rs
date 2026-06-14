@@ -231,8 +231,18 @@ mod tests {
         value: u8,
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Pong {
+        value: u8,
+    }
+
     impl RemoteMessage for Ping {
         const MANIFEST: &'static str = "kairo.remote.test.InboundPing";
+        const VERSION: u16 = 1;
+    }
+
+    impl RemoteMessage for Pong {
+        const MANIFEST: &'static str = "kairo.remote.test.InboundPong";
         const VERSION: u16 = 1;
     }
 
@@ -249,6 +259,22 @@ mod tests {
 
         fn decode(&self, payload: Bytes, _version: u16) -> kairo_serialization::Result<Ping> {
             Ok(Ping { value: payload[0] })
+        }
+    }
+
+    struct PongCodec;
+
+    impl MessageCodec<Pong> for PongCodec {
+        fn serializer_id(&self) -> u32 {
+            100
+        }
+
+        fn encode(&self, message: &Pong) -> kairo_serialization::Result<Bytes> {
+            Ok(Bytes::from(vec![message.value]))
+        }
+
+        fn decode(&self, payload: Bytes, _version: u16) -> kairo_serialization::Result<Pong> {
+            Ok(Pong { value: payload[0] })
         }
     }
 
@@ -296,6 +322,13 @@ mod tests {
     fn registry() -> Arc<Registry> {
         let mut registry = Registry::new();
         registry.register::<Ping, _>(PingCodec).unwrap();
+        Arc::new(registry)
+    }
+
+    fn registry_with_pong() -> Arc<Registry> {
+        let mut registry = Registry::new();
+        registry.register::<Ping, _>(PingCodec).unwrap();
+        registry.register::<Pong, _>(PongCodec).unwrap();
         Arc::new(registry)
     }
 
@@ -417,6 +450,48 @@ mod tests {
                 serializer_id: 99,
                 manifest: Ping::MANIFEST.to_string(),
                 version: Ping::VERSION,
+                reason: error.to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn inbound_reports_registered_wrong_message_type_as_serialization_failure() {
+        let registry = registry_with_pong();
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+        let delivery = Arc::new(CollectingDelivery::default());
+        let inbound = RemoteInbound::<Ping>::new(
+            Arc::clone(&registry),
+            delivery.clone() as Arc<dyn RemoteInboundDelivery<Ping>>,
+        )
+        .with_diagnostics(diagnostics.clone() as Arc<dyn RemoteInboundDiagnostics>);
+        let recipient = ActorRefWireData::new("kairo://local/user/target").unwrap();
+        let sender =
+            Some(ActorRefWireData::new("kairo://remote@127.0.0.1:25520/user/source").unwrap());
+        let envelope = RemoteEnvelope::new(
+            recipient.clone(),
+            sender.clone(),
+            registry.serialize(&Pong { value: 9 }).unwrap(),
+        );
+
+        let error = inbound
+            .receive(envelope)
+            .expect_err("wrong registered message type should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("codec expected remote message type")
+        );
+        assert!(delivery.messages().is_empty());
+        assert_eq!(
+            diagnostics.records(),
+            vec![RemoteInboundDiagnostic::SerializationFailure {
+                recipient,
+                sender,
+                serializer_id: 100,
+                manifest: Pong::MANIFEST.to_string(),
+                version: Pong::VERSION,
                 reason: error.to_string(),
             }]
         );

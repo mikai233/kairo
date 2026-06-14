@@ -391,6 +391,10 @@ Implemented:
   `RemoteInboundDiagnostics` sink that records structured inbound
   serialization failures and delivery failures with recipient, optional sender,
   wire manifest/version, serializer id, and error reason.
+- Remote inbound diagnostics now also cover registered-but-wrong wire message
+  types: if the `(serializer_id, manifest)` codec decodes a message that does
+  not match the typed inbound boundary, delivery is skipped and a structured
+  serialization failure is reported with the original wire metadata.
 - `ActorSystemRemoteInbound` can now carry that same
   `RemoteInboundDiagnostics` observer through the actor-system inbound frame
   router, so runtime-composed business message decode and local-delivery
@@ -2935,5 +2939,11 @@ cargo test -p kairo-serialization deserialize --all-targets --all-features
 cargo test -p kairo-serialization --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-remote inbound_reports_registered_wrong_message_type_as_serialization_failure --all-targets --all-features
+cargo test -p kairo-remote tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```
