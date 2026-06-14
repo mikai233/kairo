@@ -1684,10 +1684,11 @@ Implemented:
   a new `UniqueAddress` for a replacement receiver installs a fresh
   membership-derived cluster-tools socket route through the same connector.
 - Cluster-tools TCP peer bootstrap now also has a three-node full-mesh socket
-  validation: three real bound runtimes are spawned through the bootstrap
-  facade, one shared gossip snapshot is published to all connector actors, and
-  each connector installs membership-derived routes for both remote peers
-  before coordinated shutdown stops all live-route connectors; the same
+  validation: the first actor-backed connector installs membership-derived
+  routes to both remote peers, carries stable-codec pubsub publish envelopes to
+  both peer mediator inbound handlers over those routes, then the remaining
+  connectors install the rest of the full mesh from the same published gossip
+  snapshot before coordinated shutdown stops all live-route connectors; the same
   scenario now publishes a reduced two-node membership view and validates the
   surviving nodes remove the departed node's active route through the connector
   boundary.
@@ -2392,5 +2393,9 @@ cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_
 cargo fmt --all -- --check
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```

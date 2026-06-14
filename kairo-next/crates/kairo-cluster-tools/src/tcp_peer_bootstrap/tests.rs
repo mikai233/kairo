@@ -478,14 +478,21 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &first_kit,
         registry.clone(),
     );
-    let second_runtime = bind_runtime(
+    let first_cache = first_runtime.association_cache().clone();
+    let (second_runtime, second_probes) = bind_runtime_with_probes(
         "cluster-tools-bootstrap-second",
         2,
         22,
         &second_kit,
         registry.clone(),
     );
-    let third_runtime = bind_runtime("cluster-tools-bootstrap-third", 3, 33, &third_kit, registry);
+    let (third_runtime, third_probes) = bind_runtime_with_probes(
+        "cluster-tools-bootstrap-third",
+        3,
+        33,
+        &third_kit,
+        registry.clone(),
+    );
     let first_node = first_runtime.self_node().clone();
     let second_node = second_runtime.self_node().clone();
     let third_node = third_runtime.self_node().clone();
@@ -537,17 +544,82 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Member::new(second_node.clone(), Vec::new()).with_status(MemberStatus::Up),
         Member::new(third_node.clone(), Vec::new()).with_status(MemberStatus::Up),
     ]);
-    for publisher in [&first_publisher, &second_publisher, &third_publisher] {
-        publisher
-            .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
-            .unwrap();
-    }
+    publish_gossip(&first_publisher, gossip.clone());
 
     await_connector_routes(
         first_bootstrap.connector(),
         &first_snapshots,
         &[second_node.clone(), third_node.clone()],
     );
+
+    let first_outbound = Arc::new(first_cache) as Arc<dyn RemoteOutbound>;
+    let second_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        second_node.clone(),
+        registry.clone(),
+        first_outbound.clone(),
+    );
+    let third_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        third_node.clone(),
+        registry,
+        first_outbound,
+    );
+    second_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 21 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    third_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("invoices"),
+            message: TestMessage { value: 34 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+
+    match second_probes
+        .mediator
+        .expect_msg(Duration::from_secs(1))
+        .unwrap()
+    {
+        DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::Publish {
+            topic,
+            message,
+            mode,
+            reply_to,
+        }) => {
+            assert_eq!(topic, TopicName::new("orders"));
+            assert_eq!(message, TestMessage { value: 21 });
+            assert_eq!(mode, TopicPublishMode::Broadcast);
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected pubsub publish delivery at second node"),
+    }
+    match third_probes
+        .mediator
+        .expect_msg(Duration::from_secs(1))
+        .unwrap()
+    {
+        DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::Publish {
+            topic,
+            message,
+            mode,
+            reply_to,
+        }) => {
+            assert_eq!(topic, TopicName::new("invoices"));
+            assert_eq!(message, TestMessage { value: 34 });
+            assert_eq!(mode, TopicPublishMode::Broadcast);
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected pubsub publish delivery at third node"),
+    }
+
+    publish_gossip(&second_publisher, gossip.clone());
+    publish_gossip(&third_publisher, gossip);
+
     await_connector_routes(
         second_bootstrap.connector(),
         &second_snapshots,
