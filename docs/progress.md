@@ -2372,7 +2372,9 @@ Implemented:
 - `kairo-cluster` TCP peer bootstrap coverage now pins sender-side route
   reduction with live membership delivery: after one of two remote peers leaves
   the sender's cluster membership view, the remaining membership route
-  continues to deliver stable-manifest `Join` envelopes.
+  continues to deliver stable-manifest `Join` envelopes, sends to the removed
+  peer reject through the association cache without another membership
+  delivery, and the sender cache drops from two routes to one.
 - `kairo-distributed-data` TCP peer bootstrap coverage now pins sender-side
   route reduction with live delivery: after one of two remote peers leaves the
   sender's cluster membership view, the remaining replicator route continues
@@ -3059,5 +3061,10 @@ cargo test -p kairo-cluster-tools bootstrap_sender_keeps_remaining_pubsub_route_
 cargo test -p kairo-cluster-tools tcp_peer_bootstrap --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_removed --all-targets --all-features
+cargo test -p kairo-cluster tcp_peer_bootstrap --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 git diff --check
 ```

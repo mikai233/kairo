@@ -587,6 +587,26 @@ fn bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_remov
     await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
     assert_eq!(first_cache.route_count(), 1);
 
+    let removed_peer_error = third_membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: first_node.clone(),
+                roles: vec!["after-removal-third".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("removed peer route should reject sends");
+    assert!(
+        removed_peer_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected removed-peer send error: {removed_peer_error:?}"
+    );
+    third_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
     send_join_until_received(
         &second_membership_outbound,
         &second_probes,
