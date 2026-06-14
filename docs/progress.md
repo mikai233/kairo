@@ -20,6 +20,9 @@ Implemented:
   termination, and rejects later spawns.
 - `Context::system`, `Context::spawn`, and `Context::spawn_anonymous` are
   available for local actors.
+- `ActorSystem::spawn_system` can spawn framework-owned actors under `/system`
+  so remoting and later cluster services can use stable system paths without
+  occupying `/user`.
 - `Context::parent`, `Context::children`, and `Context::child` expose local
   actor-tree introspection.
 - `Context::stop` can stop the current actor or a typed direct child actor ref
@@ -436,6 +439,9 @@ Implemented:
   death-watch actor, and inbound router composition, and clears outbound
   association routes during shutdown so typed remote refs cannot keep socket
   lanes open after the runtime stops.
+- The TCP actor-system runtime now spawns its remote death-watch actor under
+  `/system/remote-watch`, aligning the local actor path with the stable system
+  watcher path used by remote death-watch wire metadata.
 - TCP actor-system runtime shutdown now stops the runtime-owned remote
   death-watch actor with an explicit timeout before clearing association
   routes and stopping the listener, so remoting lifecycle ownership includes

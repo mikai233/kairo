@@ -24,6 +24,23 @@ impl ActorSystem {
         self.spawn_under(&parent_path, name.as_ref(), props)
     }
 
+    /// Spawn a framework-owned actor under `/system`.
+    ///
+    /// This is intended for Kairo subsystems such as remoting or cluster
+    /// services that need stable system paths. User actors should use
+    /// [`ActorSystem::spawn`] or [`Context::spawn`](crate::Context::spawn).
+    pub fn spawn_system<A>(
+        &self,
+        name: impl AsRef<str>,
+        props: Props<A>,
+    ) -> Result<ActorRef<A::Msg>, ActorError>
+    where
+        A: Actor,
+    {
+        let parent_path = self.system_root_path();
+        self.spawn_under(&parent_path, name.as_ref(), props)
+    }
+
     pub(crate) fn spawn_under<A>(
         &self,
         parent_path: &ActorPath,

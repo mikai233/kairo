@@ -196,6 +196,20 @@ fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
         22,
     )
     .unwrap();
+    assert!(
+        receiver_remote
+            .death_watch()
+            .path()
+            .as_str()
+            .starts_with("kairo://receiver/system/remote-watch#")
+    );
+    assert!(
+        sender_remote
+            .death_watch()
+            .path()
+            .as_str()
+            .starts_with("kairo://sender/system/remote-watch#")
+    );
     let sender_identity = TcpAssociationIdentity::new(
         RemoteAssociationAddress::new(
             "kairo",

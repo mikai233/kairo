@@ -323,6 +323,40 @@ fn actor_system_provider_exposes_guardian_refs_and_resolves_local_paths() {
 }
 
 #[test]
+fn actor_system_spawn_system_places_framework_actors_under_system_guardian() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let provider = system.provider();
+
+    let system_actor = system
+        .spawn_system("remote-watch", Props::new(|| Noop))
+        .unwrap();
+    let user_actor = system.spawn("remote-watch", Props::new(|| Noop)).unwrap();
+
+    assert!(
+        system_actor
+            .path()
+            .as_str()
+            .starts_with("kairo://test/system/remote-watch#")
+    );
+    assert!(
+        user_actor
+            .path()
+            .as_str()
+            .starts_with("kairo://test/user/remote-watch#")
+    );
+    assert_eq!(
+        system_actor.path().parent(),
+        Some(provider.system_guardian().path().clone())
+    );
+    assert!(provider.resolve(system_actor.path()).is_local());
+    assert!(
+        system
+            .spawn_system("remote-watch", Props::new(|| Noop))
+            .is_err()
+    );
+}
+
+#[test]
 fn local_actor_ref_provider_allocates_unique_temp_paths_under_temp_root() {
     let system = ActorSystem::builder("test").build().unwrap();
     let provider = system.provider();

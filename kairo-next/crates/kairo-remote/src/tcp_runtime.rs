@@ -86,7 +86,7 @@ where
             local_watcher,
         ));
         let death_watch = system
-            .spawn(
+            .spawn_system(
                 "remote-watch",
                 crate::RemoteDeathWatchActor::props(death_watch_sink),
             )
