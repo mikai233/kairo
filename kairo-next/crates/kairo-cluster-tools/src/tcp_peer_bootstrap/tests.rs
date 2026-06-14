@@ -1,5 +1,6 @@
 mod support;
 
+use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,6 +22,11 @@ use crate::{
 };
 
 use support::*;
+
+fn unused_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap().port()
+}
 
 #[test]
 fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
@@ -381,6 +387,67 @@ fn bootstrap_removes_peer_route_when_cluster_membership_drops_peer() {
     run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("cluster-tools-bootstrap-remove-pending-sender").unwrap();
+    let registry = registry();
+    let sender_runtime = bind_runtime(
+        "cluster-tools-bootstrap-remove-pending-sender",
+        1,
+        11,
+        &sender_kit,
+        registry,
+    );
+    let sender_node = sender_runtime.self_node().clone();
+    let missing_node = UniqueAddress::new(
+        Address::new(
+            "kairo",
+            "cluster-tools-bootstrap-remove-pending-missing",
+            Some("127.0.0.1".to_string()),
+            Some(unused_port()),
+        ),
+        2,
+    );
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ClusterToolsTcpPeerBootstrapSettings::new()
+        .with_connector_settings(
+            ClusterToolsTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        )
+        .with_connector_name("sender-tools-peer");
+
+    let sender_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), missing_node.clone()]),
+    );
+    await_connector_pending_reconnect(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &missing_node,
+    );
+
+    publish_gossip(&sender_publisher, up_gossip([sender_node]));
+    await_connector_no_routes_or_pending(sender_bootstrap.connector(), &sender_snapshots);
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

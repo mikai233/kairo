@@ -184,6 +184,9 @@ Implemented:
 - `kairo-distributed-data` TCP peer bootstrap coverage now drives the same
   failed-dial pending reconnect path through the bootstrap facade and proves
   gossip removal clears retry state before the replicator route ever succeeds.
+- `kairo-cluster-tools` TCP peer bootstrap coverage now drives the same
+  failed-dial pending reconnect path through the bootstrap facade and proves
+  gossip removal clears retry state before pubsub or singleton routes succeed.
 - Coordinated-shutdown phase metadata, run state, and task execution now live
   in focused submodules instead of one mixed implementation file.
 - Focused coordinated-shutdown tests now pin `run_from` phase selection and
@@ -2117,6 +2120,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-tools bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
 cargo test -p kairo-distributed-data bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
 cargo test -p kairo-cluster bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
 cargo test -p kairo-cluster-tools connector_clears_pending_reconnect_when_peer_leaves_membership
