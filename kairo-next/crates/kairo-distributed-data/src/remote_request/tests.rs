@@ -9,9 +9,10 @@ use kairo_serialization::{ActorRefWireData, Manifest, RemoteEnvelope, Serialized
 
 use super::*;
 use crate::{
-    DataEnvelope, DeltaReplicatedData, GCounter, GCounterCodec, GetResponse,
-    REPLICATOR_READ_RESULT_SERIALIZER_ID, REPLICATOR_WRITE_ACK_SERIALIZER_ID, ReadConsistency,
-    ReplicatorActor, ReplicatorKey, ReplicatorReadResult, register_ddata_protocol_codecs,
+    DataEnvelope, DeltaPropagationLog, DeltaReplicatedData, GCounter, GCounterCodec, GetResponse,
+    REPLICATOR_DELTA_ACK_SERIALIZER_ID, REPLICATOR_READ_RESULT_SERIALIZER_ID,
+    REPLICATOR_WRITE_ACK_SERIALIZER_ID, ReadConsistency, ReplicatorActor, ReplicatorKey,
+    ReplicatorReadResult, register_ddata_protocol_codecs,
 };
 
 struct Forward<M> {
@@ -57,6 +58,12 @@ fn counter(replica_id: &str, value: u128) -> GCounter {
         .increment(replica(replica_id), value)
         .unwrap()
         .reset_delta()
+}
+
+fn delta_counter(replica_id: &str, value: u128) -> GCounter {
+    GCounter::new()
+        .increment(replica(replica_id), value)
+        .unwrap()
 }
 
 fn actor_ref<M>(actor: &ActorRef<M>) -> ActorRefWireData
@@ -141,6 +148,76 @@ fn remote_request_inbound_applies_write_and_replies_to_sender_ref() {
             .value()
             .unwrap(),
         12
+    );
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn remote_request_inbound_applies_delta_and_replies_to_sender_ref_when_requested() {
+    let system = ActorSystem::builder("ddata-remote-request-delta")
+        .build()
+        .unwrap();
+    let registry = registry();
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let (outbound_ref, outbound_rx) = probe::<ReplicatorRemoteEnvelope>(&system, "remote-out");
+    let local_ref = actor_ref(&replicator);
+    let remote_sender = wire_ref("kairo://remote@127.0.0.1:25520/user/delta-ack#6");
+    let inbound = ReplicatorRemoteRequestInbound::new(
+        system.clone(),
+        local_ref.clone(),
+        Some(local_ref.clone()),
+        registry.clone(),
+        replicator.clone(),
+        wire_codecs(),
+        outbound_ref,
+    );
+    let key = ReplicatorKey::new("counter");
+    let mut log = DeltaPropagationLog::new([replica("local")]);
+    log.record_delta(key.clone(), Some(delta_counter("remote", 3)));
+    let propagation = log.collect_propagations().into_values().next().unwrap();
+    let wire =
+        crate::encode_delta_propagation(replica("remote"), true, &propagation, &GCounterCodec)
+            .unwrap();
+
+    inbound
+        .receive_from(
+            replica("remote"),
+            RemoteEnvelope::new(
+                local_ref.clone(),
+                Some(remote_sender.clone()),
+                registry.serialize(&wire).unwrap(),
+            ),
+        )
+        .unwrap();
+
+    let reply = outbound_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(reply.target, replica("remote"));
+    assert_eq!(reply.envelope.recipient, remote_sender);
+    assert_eq!(reply.envelope.sender, Some(local_ref.clone()));
+    assert_eq!(
+        reply.envelope.message.serializer_id,
+        REPLICATOR_DELTA_ACK_SERIALIZER_ID
+    );
+
+    let (get_ref, get_rx) = probe::<GetResponse<GCounter>>(&system, "get-delta");
+    replicator
+        .tell(ReplicatorActorMsg::Get {
+            key,
+            consistency: ReadConsistency::local(),
+            reply_to: get_ref,
+        })
+        .unwrap();
+    assert_eq!(
+        get_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .data()
+            .unwrap()
+            .value()
+            .unwrap(),
+        3
     );
     system.terminate(Duration::from_secs(1)).unwrap();
 }

@@ -2241,6 +2241,11 @@ Implemented:
   sender's cluster membership view, the remaining replicator route continues
   to deliver stable-manifest remote read envelopes, and the sender cache drops
   from two routes to one before coordinated shutdown clears it.
+- `kairo-distributed-data` remote request inbound coverage now pins
+  reply-requested delta propagation: a stable remote delta request is applied
+  through the replicator actor, the temporary reply actor sends a stable
+  delta-ack envelope back to the incoming remote sender, and the reply carries
+  the configured local sender metadata.
 - `kairo-cluster-tools` TCP peer bootstrap coverage now pins the same
   sender-side route reduction for pubsub delivery: after one of two remote
   peers leaves the sender's cluster membership view, the remaining tools route
@@ -2712,4 +2717,8 @@ cargo test -p kairo-cluster-sharding region_actor_remote_host_shard_spawns_store
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-distributed-data remote_request_inbound_applies_delta_and_replies_to_sender_ref_when_requested --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 ```
