@@ -697,6 +697,10 @@ Implemented:
   the peer as an inbound local-watchee registration, heartbeat messages are
   acknowledged over the reverse lane, and the watcher re-sends watch metadata
   after observing the peer UID.
+- TCP actor-system runtime tests now also send the stable `AddressTerminated`
+  control protocol across a real association route and verify the receiver's
+  actor-backed remote watcher observes the unreachable sender address with the
+  remote UID preserved.
 - `kairo-distributed-data::register_ddata_protocol_codecs` registers stable
   explicit codecs and serializer ids for the initial replicator get, update,
   subscribe, and changed protocol messages.
@@ -2896,6 +2900,12 @@ git diff --check
 cargo test -p kairo-remote address_terminated --all-targets --all-features
 cargo test -p kairo-remote remote_watch --all-targets --all-features
 cargo test -p kairo-remote inbound_router --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-remote tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch --all-targets --all-features
+cargo test -p kairo-remote tcp_remote_actor_system --all-targets --all-features
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings

@@ -6,15 +6,15 @@ use kairo_actor::{
     Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, PHASE_SERVICE_UNBIND, Props,
 };
 use kairo_serialization::{
-    ActorRefResolver, ActorRefWireData, MessageCodec, Registry, RemoteMessage,
+    ActorRefResolver, ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage,
     SerializationRegistry,
 };
 
 use super::TcpRemoteActorSystem;
 use crate::{
-    AssociationState, RemoteAssociationAddress, RemoteDeathWatchCommand, RemoteDeathWatchEffect,
-    RemoteDeathWatchEffectObserver, RemoteDeathWatchStats, RemoteSettings, TcpAssociationIdentity,
-    WatchRemote, register_remote_protocol_codecs,
+    AddressTerminated, AssociationState, RemoteAssociationAddress, RemoteDeathWatchCommand,
+    RemoteDeathWatchEffect, RemoteDeathWatchEffectObserver, RemoteDeathWatchStats, RemoteOutbound,
+    RemoteSettings, TcpAssociationIdentity, WatchRemote, register_remote_protocol_codecs,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,6 +469,136 @@ fn tcp_remote_actor_system_round_trips_remote_death_watch_heartbeat_ack() {
             )
         })
         .expect("sender should rewatch after first heartbeat ack UID");
+
+    drop(registration);
+    let sender_report = sender_remote.shutdown().unwrap();
+    assert_eq!(sender_report.accepted_associations, 0);
+    let receiver_report = receiver_remote.shutdown().unwrap();
+    assert_eq!(receiver_report.accepted_associations, 1);
+}
+
+#[test]
+fn tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch() {
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let sender = ActorSystem::builder("sender").build().unwrap();
+    let registry = registry();
+    let (sender_received_tx, _sender_received_rx) = mpsc::channel();
+    let (receiver_received_tx, _receiver_received_rx) = mpsc::channel();
+    let sender_target = sender
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: sender_received_tx,
+            }),
+        )
+        .unwrap();
+    let receiver_watcher = receiver
+        .spawn(
+            "watcher",
+            Props::new(move || Target {
+                received: receiver_received_tx,
+            }),
+        )
+        .unwrap();
+    let receiver_observer = Arc::new(RecordingObserver::default());
+    let sender_remote = TcpRemoteActorSystem::<Ping>::bind(
+        sender.clone(),
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        22,
+    )
+    .unwrap();
+    let receiver_remote = TcpRemoteActorSystem::<Ping>::bind_with_observer(
+        receiver.clone(),
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+        receiver_observer.clone() as Arc<dyn RemoteDeathWatchEffectObserver>,
+    )
+    .unwrap();
+    let receiver_address = RemoteAssociationAddress::new(
+        "kairo",
+        "receiver",
+        receiver_remote.settings().canonical_hostname.clone(),
+        Some(receiver_remote.settings().canonical_port),
+    )
+    .unwrap();
+    let registration = sender_remote.dial(receiver_address).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while (sender_remote.association_cache().route_count() == 0
+        || receiver_remote.association_cache().route_count() == 0)
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(sender_remote.association_cache().route_count(), 1);
+    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+
+    let sender_watchee = ActorRefWireData::new(remote_path_for_system(
+        sender_target.path().as_str(),
+        "sender",
+        sender_remote.settings(),
+    ))
+    .unwrap();
+    let receiver_watcher = ActorRefWireData::new(remote_path_for(
+        receiver_watcher.path().as_str(),
+        receiver_remote.settings(),
+    ))
+    .unwrap();
+    receiver_remote
+        .death_watch()
+        .tell(RemoteDeathWatchCommand::Watch(WatchRemote {
+            watchee: sender_watchee,
+            watcher: receiver_watcher,
+        }))
+        .unwrap();
+    receiver_observer
+        .wait_for(Duration::from_secs(1), |effect| {
+            matches!(effect, RemoteDeathWatchEffect::SendWatchRemote(_))
+        })
+        .expect("receiver should register sender watch before address termination");
+
+    let recipient = ActorRefWireData::new(remote_path_for(
+        "kairo://receiver/system/remote-watch",
+        receiver_remote.settings(),
+    ))
+    .unwrap();
+    let sender_watcher = ActorRefWireData::new(remote_path_for_system(
+        "kairo://sender/system/remote-watch",
+        "sender",
+        sender_remote.settings(),
+    ))
+    .unwrap();
+    let sender_address = format!(
+        "kairo://sender@{}:{}",
+        sender_remote.settings().canonical_hostname,
+        sender_remote.settings().canonical_port
+    );
+    sender_remote
+        .association_cache()
+        .send(RemoteEnvelope::new(
+            recipient,
+            Some(sender_watcher),
+            registry
+                .serialize(&AddressTerminated {
+                    address: sender_address.clone(),
+                    uid: Some(22),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+
+    receiver_observer
+        .wait_for(Duration::from_secs(1), |effect| {
+            matches!(
+                effect,
+                RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
+                    address,
+                    uid: Some(22),
+                }) if address == &sender_address
+            )
+        })
+        .expect("receiver should route address-terminated frame to remote death-watch");
 
     drop(registration);
     let sender_report = sender_remote.shutdown().unwrap();
