@@ -183,7 +183,7 @@ impl ClusterTcpPeerBootstrap {
         let shutdown_phase = settings.shutdown_phase().to_string();
         let shutdown_task_name = settings.shutdown_task_name().to_string();
         let shutdown_timeout = settings.shutdown_timeout();
-        let connector = system.spawn(
+        let connector = system.spawn_system(
             connector_name,
             Props::new(move || {
                 ClusterTcpPeerConnector::with_settings(cluster, runtime, connector_settings)

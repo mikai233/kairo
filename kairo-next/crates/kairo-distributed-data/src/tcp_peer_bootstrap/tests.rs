@@ -57,6 +57,13 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
 
     assert_eq!(bootstrap.self_node().uid, 1);
     assert_eq!(bootstrap.local_address().system(), "ddata-peer-bootstrap");
+    assert!(
+        bootstrap
+            .connector()
+            .path()
+            .as_str()
+            .starts_with("kairo://ddata-peer-bootstrap/system/ddata-peer#")
+    );
     assert!(!bootstrap.connector().is_stopped());
 
     run_bootstrap_shutdown(&kit, bootstrap.connector());

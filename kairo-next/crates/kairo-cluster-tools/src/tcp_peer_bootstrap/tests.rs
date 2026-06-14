@@ -58,6 +58,13 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
         bootstrap.local_address().system(),
         "cluster-tools-peer-bootstrap"
     );
+    assert!(
+        bootstrap
+            .connector()
+            .path()
+            .as_str()
+            .starts_with("kairo://cluster-tools-peer-bootstrap/system/tools-peer#")
+    );
     assert!(!bootstrap.connector().is_stopped());
 
     run_bootstrap_shutdown(&kit, bootstrap.connector());

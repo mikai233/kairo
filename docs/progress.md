@@ -157,6 +157,10 @@ Implemented:
   wait-only semantics when no stop message is supplied; cluster,
   distributed-data, and cluster-tools TCP bootstrap facades register explicit
   connector stop tasks for coordinated shutdown.
+- Cluster, distributed-data, and cluster-tools TCP bootstrap facades now spawn
+  their framework-owned connector actors under `/system` with
+  `ActorSystem::spawn_system`, keeping internal socket services out of `/user`
+  while preserving their coordinated-shutdown stop tasks.
 - Coordinated-shutdown phase metadata, run state, and task execution now live
   in focused submodules instead of one mixed implementation file.
 - Focused coordinated-shutdown tests now pin `run_from` phase selection and
