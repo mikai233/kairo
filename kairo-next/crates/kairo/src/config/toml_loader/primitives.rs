@@ -117,6 +117,17 @@ pub(super) fn parse_u64(value: &Value, path: &str) -> Result<u64, ConfigError> {
     })
 }
 
+pub(super) fn parse_f64(value: &Value, path: &str) -> Result<f64, ConfigError> {
+    match value {
+        Value::Float(value) => Ok(*value),
+        Value::Integer(value) => Ok(*value as f64),
+        _ => Err(ConfigError::InvalidType {
+            path: path.to_string(),
+            expected: "a number".to_string(),
+        }),
+    }
+}
+
 pub(super) fn parse_duration(value: &Value, path: &str) -> Result<Duration, ConfigError> {
     match value {
         Value::Integer(_) => Ok(Duration::from_millis(parse_u64(value, path)?)),

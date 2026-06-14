@@ -7,8 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{
-    ActorConfig, ClusterDowningStrategyConfig, ConfigError, DiagnosticsConfig, DispatcherConfig,
-    KairoSettings, MailboxConfig, load_toml_file, parse_toml_str,
+    ActorConfig, ClusterDowningStrategyConfig, ClusterShardingAllocationConfig, ConfigError,
+    DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig, load_toml_file,
+    parse_toml_str,
 };
 
 #[cfg(feature = "remote")]
@@ -140,6 +141,10 @@ shard_failure_backoff = "12s"
 rebalance_interval = "30s"
 shard_region_query_timeout = "4s"
 
+[cluster.sharding.least_shard_allocation]
+rebalance_absolute_limit = 4
+rebalance_relative_limit = 0.25
+
 [cluster.tools.singleton]
 role = "backend"
 
@@ -207,6 +212,22 @@ gossip_state_changes = true
         Duration::from_secs(4)
     );
     assert_eq!(
+        settings
+            .cluster
+            .sharding
+            .least_shard_allocation
+            .rebalance_absolute_limit,
+        4
+    );
+    assert_eq!(
+        settings
+            .cluster
+            .sharding
+            .least_shard_allocation
+            .rebalance_relative_limit,
+        0.25
+    );
+    assert_eq!(
         settings.cluster.tools.singleton_role.as_deref(),
         Some("backend")
     );
@@ -243,6 +264,22 @@ fn toml_config_defaults_missing_sections_without_toml_specific_state() {
     assert_eq!(
         settings.cluster.sharding.shard_failure_backoff,
         Duration::from_secs(10)
+    );
+    assert_eq!(
+        settings
+            .cluster
+            .sharding
+            .least_shard_allocation
+            .rebalance_absolute_limit,
+        10
+    );
+    assert_eq!(
+        settings
+            .cluster
+            .sharding
+            .least_shard_allocation
+            .rebalance_relative_limit,
+        0.1
     );
     assert_eq!(
         settings.cluster.sharding.shard_region_query_timeout,
@@ -694,6 +731,46 @@ rebalance_interval = "0ms"
 }
 
 #[test]
+fn toml_config_rejects_invalid_least_shard_allocation_limits() {
+    for (toml, path, reason) in [
+        (
+            r#"
+[cluster.sharding.least_shard_allocation]
+rebalance_absolute_limit = 0
+"#,
+            "cluster.sharding.least_shard_allocation.rebalance_absolute_limit",
+            "must be greater than zero",
+        ),
+        (
+            r#"
+[cluster.sharding.least_shard_allocation]
+rebalance_relative_limit = 0.0
+"#,
+            "cluster.sharding.least_shard_allocation.rebalance_relative_limit",
+            "must be finite and greater than zero",
+        ),
+        (
+            r#"
+[cluster.sharding.least_shard_allocation]
+rebalance_relative_limit = -0.1
+"#,
+            "cluster.sharding.least_shard_allocation.rebalance_relative_limit",
+            "must be finite and greater than zero",
+        ),
+    ] {
+        let error = parse_toml_str(toml).unwrap_err();
+
+        assert_eq!(
+            error,
+            ConfigError::InvalidValue {
+                path: path.to_string(),
+                reason: reason.to_string(),
+            }
+        );
+    }
+}
+
+#[test]
 fn toml_config_rejects_zero_sharding_runtime_durations() {
     for (key, path) in [
         ("retry_interval", "cluster.sharding.retry_interval"),
@@ -1036,6 +1113,10 @@ handoff_timeout = "45s"
 shard_failure_backoff = "12s"
 rebalance_interval = "30s"
 shard_region_query_timeout = "4s"
+
+[cluster.sharding.least_shard_allocation]
+rebalance_absolute_limit = 4
+rebalance_relative_limit = 0.25
 "#,
     )
     .unwrap();
@@ -1076,6 +1157,13 @@ shard_region_query_timeout = "4s"
             .sharding
             .default_shard_count_matches_runtime()
     );
+    let strategy = settings
+        .cluster
+        .sharding
+        .to_least_shard_allocation_strategy()
+        .unwrap();
+    assert_eq!(strategy.absolute_limit(), 4);
+    assert_eq!(strategy.relative_limit(), 0.25);
     assert_eq!(
         settings.cluster.sharding.shard_id_for("counter-1").unwrap(),
         crate::cluster_sharding::shard_id_for("counter-1", 128).unwrap()
@@ -1302,6 +1390,38 @@ fn config_validate_checks_all_format_neutral_sections() {
                 reason: "must be greater than zero".to_string(),
             }
         );
+    }
+
+    for (allocation, path) in [
+        (
+            ClusterShardingAllocationConfig {
+                rebalance_absolute_limit: 0,
+                ..Default::default()
+            },
+            "cluster.sharding.least_shard_allocation.rebalance_absolute_limit",
+        ),
+        (
+            ClusterShardingAllocationConfig {
+                rebalance_relative_limit: 0.0,
+                ..Default::default()
+            },
+            "cluster.sharding.least_shard_allocation.rebalance_relative_limit",
+        ),
+    ] {
+        let settings = KairoSettings {
+            cluster: super::ClusterConfig {
+                sharding: super::ClusterShardingConfig {
+                    least_shard_allocation: allocation,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..KairoSettings::default()
+        };
+        assert!(matches!(
+            settings.validate().unwrap_err(),
+            ConfigError::InvalidValue { path: actual, .. } if actual == path
+        ));
     }
 
     let settings = KairoSettings {

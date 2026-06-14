@@ -5,14 +5,15 @@ use toml::Value;
 
 use crate::config::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
-    ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-    ConfigError, DiagnosticsConfig, DispatcherConfig, MailboxConfig, ObservabilityConfig,
-    RemoteConfig, RemoteTransportConfig,
+    ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingAllocationConfig,
+    ClusterShardingConfig, ClusterToolsConfig, ConfigError, DiagnosticsConfig, DispatcherConfig,
+    MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig,
 };
 
 use super::primitives::{
     expect_table, optional_bool, optional_duration, optional_non_empty_string, parse_duration,
-    parse_string, parse_string_array, parse_u64, parse_usize, reject_unknown, reject_zero_duration,
+    parse_f64, parse_string, parse_string_array, parse_u64, parse_usize, reject_unknown,
+    reject_zero_duration,
 };
 
 pub(super) fn parse_actor(value: &Value) -> Result<ActorConfig, ConfigError> {
@@ -336,6 +337,7 @@ fn parse_cluster_sharding(value: &Value) -> Result<ClusterShardingConfig, Config
             "shard_failure_backoff",
             "rebalance_interval",
             "shard_region_query_timeout",
+            "least_shard_allocation",
         ],
     )?;
     let mut config = ClusterShardingConfig::default();
@@ -387,6 +389,35 @@ fn parse_cluster_sharding(value: &Value) -> Result<ClusterShardingConfig, Config
             "cluster.sharding.shard_region_query_timeout",
         )?;
     }
+    if let Some(allocation) = table.get("least_shard_allocation") {
+        config.least_shard_allocation = parse_cluster_sharding_allocation(allocation)?;
+    }
+    Ok(config)
+}
+
+fn parse_cluster_sharding_allocation(
+    value: &Value,
+) -> Result<ClusterShardingAllocationConfig, ConfigError> {
+    let table = expect_table(value, "cluster.sharding.least_shard_allocation")?;
+    reject_unknown(
+        table,
+        "cluster.sharding.least_shard_allocation",
+        &["rebalance_absolute_limit", "rebalance_relative_limit"],
+    )?;
+    let mut config = ClusterShardingAllocationConfig::default();
+    if let Some(limit) = table.get("rebalance_absolute_limit") {
+        config.rebalance_absolute_limit = parse_usize(
+            limit,
+            "cluster.sharding.least_shard_allocation.rebalance_absolute_limit",
+        )?;
+    }
+    if let Some(limit) = table.get("rebalance_relative_limit") {
+        config.rebalance_relative_limit = parse_f64(
+            limit,
+            "cluster.sharding.least_shard_allocation.rebalance_relative_limit",
+        )?;
+    }
+    config.validate()?;
     Ok(config)
 }
 

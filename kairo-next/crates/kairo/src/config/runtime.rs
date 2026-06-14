@@ -5,9 +5,9 @@ use std::time::Duration;
 use super::error::ConfigError;
 use super::settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
-    ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-    DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig, ObservabilityConfig,
-    RemoteConfig, RemoteTransportConfig,
+    ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingAllocationConfig,
+    ClusterShardingConfig, ClusterToolsConfig, DiagnosticsConfig, DispatcherConfig, KairoSettings,
+    MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig,
 };
 
 #[cfg(feature = "cluster")]
@@ -378,6 +378,7 @@ impl ClusterShardingConfig {
             self.shard_region_query_timeout,
             "cluster.sharding.shard_region_query_timeout",
         )?;
+        self.least_shard_allocation.validate()?;
         Ok(())
     }
 
@@ -451,6 +452,46 @@ impl ClusterShardingConfig {
     #[cfg(feature = "cluster-sharding")]
     pub fn default_shard_count_matches_runtime(&self) -> bool {
         self.number_of_shards == kairo_cluster_sharding::DEFAULT_SHARD_COUNT
+    }
+
+    #[cfg(feature = "cluster-sharding")]
+    pub fn to_least_shard_allocation_strategy(
+        &self,
+    ) -> Result<kairo_cluster_sharding::LeastShardAllocationStrategy, ConfigError> {
+        self.least_shard_allocation
+            .to_least_shard_allocation_strategy()
+    }
+}
+
+impl ClusterShardingAllocationConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        reject_zero(
+            self.rebalance_absolute_limit,
+            "cluster.sharding.least_shard_allocation.rebalance_absolute_limit",
+        )?;
+        if !self.rebalance_relative_limit.is_finite() || self.rebalance_relative_limit <= 0.0 {
+            return Err(ConfigError::InvalidValue {
+                path: "cluster.sharding.least_shard_allocation.rebalance_relative_limit"
+                    .to_string(),
+                reason: "must be finite and greater than zero".to_string(),
+            });
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "cluster-sharding")]
+    pub fn to_least_shard_allocation_strategy(
+        &self,
+    ) -> Result<kairo_cluster_sharding::LeastShardAllocationStrategy, ConfigError> {
+        self.validate()?;
+        kairo_cluster_sharding::LeastShardAllocationStrategy::new(
+            self.rebalance_absolute_limit,
+            self.rebalance_relative_limit,
+        )
+        .map_err(|error| ConfigError::InvalidValue {
+            path: "cluster.sharding.least_shard_allocation".to_string(),
+            reason: error.to_string(),
+        })
     }
 }
 

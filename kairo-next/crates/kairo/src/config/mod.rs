@@ -10,9 +10,9 @@ pub use error::ConfigError;
 pub use runtime::ConfiguredDowningHook;
 pub use settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
-    ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-    DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig, ObservabilityConfig,
-    RemoteConfig, RemoteTransportConfig,
+    ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingAllocationConfig,
+    ClusterShardingConfig, ClusterToolsConfig, DiagnosticsConfig, DispatcherConfig, KairoSettings,
+    MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig,
 };
 pub use toml_loader::{load_toml_file, parse_toml_str};
 

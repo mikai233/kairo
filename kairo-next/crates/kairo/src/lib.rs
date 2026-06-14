@@ -56,6 +56,10 @@
 //! rebalance_interval = "10s"
 //! shard_region_query_timeout = "3s"
 //!
+//! [cluster.sharding.least_shard_allocation]
+//! rebalance_absolute_limit = 10
+//! rebalance_relative_limit = 0.1
+//!
 //! [observability.diagnostics]
 //! dead_letters = true
 //! remote_delivery_failures = true
@@ -69,6 +73,14 @@
 //! assert_eq!(settings.cluster.heartbeat.interval, Duration::from_millis(500));
 //! assert_eq!(settings.cluster.sharding.number_of_shards, 100);
 //! assert_eq!(settings.cluster.sharding.handoff_timeout, Duration::from_secs(60));
+//! assert_eq!(
+//!     settings
+//!         .cluster
+//!         .sharding
+//!         .least_shard_allocation
+//!         .rebalance_absolute_limit,
+//!     10
+//! );
 //! assert!(settings.observability.diagnostics.dead_letters);
 //! # Ok(())
 //! # }
@@ -111,9 +123,10 @@ pub mod prelude {
     #[cfg(feature = "config")]
     pub use crate::config::{
         ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
-        ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-        ConfigError, DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig,
-        ObservabilityConfig, RemoteConfig, RemoteTransportConfig, load_toml_file, parse_toml_str,
+        ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingAllocationConfig,
+        ClusterShardingConfig, ClusterToolsConfig, ConfigError, DiagnosticsConfig,
+        DispatcherConfig, KairoSettings, MailboxConfig, ObservabilityConfig, RemoteConfig,
+        RemoteTransportConfig, load_toml_file, parse_toml_str,
     };
     #[cfg(feature = "actor")]
     pub use kairo_actor::prelude::*;

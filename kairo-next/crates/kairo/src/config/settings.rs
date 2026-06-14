@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct KairoSettings {
     pub actor: ActorConfig,
     pub remote: RemoteConfig,
@@ -60,7 +60,7 @@ impl Default for RemoteTransportConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ClusterConfig {
     pub seed: ClusterSeedConfig,
     pub heartbeat: ClusterHeartbeatConfig,
@@ -128,10 +128,11 @@ pub enum ClusterDowningStrategyConfig {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClusterShardingConfig {
     pub number_of_shards: u64,
     pub remember_entities: bool,
+    pub least_shard_allocation: ClusterShardingAllocationConfig,
     pub retry_interval: Duration,
     pub handoff_timeout: Duration,
     pub shard_failure_backoff: Duration,
@@ -144,11 +145,27 @@ impl Default for ClusterShardingConfig {
         Self {
             number_of_shards: 100,
             remember_entities: false,
+            least_shard_allocation: ClusterShardingAllocationConfig::default(),
             retry_interval: Duration::from_secs(2),
             handoff_timeout: Duration::from_secs(60),
             shard_failure_backoff: Duration::from_secs(10),
             rebalance_interval: Duration::from_secs(10),
             shard_region_query_timeout: Duration::from_secs(3),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClusterShardingAllocationConfig {
+    pub rebalance_absolute_limit: usize,
+    pub rebalance_relative_limit: f64,
+}
+
+impl Default for ClusterShardingAllocationConfig {
+    fn default() -> Self {
+        Self {
+            rebalance_absolute_limit: 10,
+            rebalance_relative_limit: 0.1,
         }
     }
 }

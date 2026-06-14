@@ -1944,6 +1944,10 @@ Implemented:
   and shard-region query timeout settings, with TOML parsing, direct
   validation, runtime helper accessors, and facade docs coverage for the
   Pekko-aligned sharding timing knobs Kairo already models.
+- `ClusterShardingConfig` now carries format-neutral least-shard allocation
+  rebalance limits under `[cluster.sharding.least_shard_allocation]`, validates
+  positive absolute and relative limits, and converts them into
+  `LeastShardAllocationStrategy` for the cluster-sharding runtime.
 - `ClusterDowningConfig` now stores a structured
   `ClusterDowningStrategyConfig` enum instead of a raw strategy string, and the
   TOML loader parses `none`, `down-all`, `keep-majority`, `keep-oldest`, and
@@ -2974,5 +2978,10 @@ git diff --check
 cargo test -p kairo --doc --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo fmt --all -- --check
+git diff --check
+cargo test -p kairo config --all-targets --all-features
+cargo test -p kairo --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```
