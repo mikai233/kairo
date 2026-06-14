@@ -110,12 +110,16 @@ impl EventStream {
     where
         M: Clone + Send + 'static,
     {
-        let mut subscriptions = self
-            .inner
-            .subscriptions
-            .lock()
-            .expect("event stream subscriptions poisoned");
-        let Some(channel) = subscriptions.get_mut(&TypeId::of::<M>()) else {
+        let type_id = TypeId::of::<M>();
+        let mut channel = {
+            let mut subscriptions = self
+                .inner
+                .subscriptions
+                .lock()
+                .expect("event stream subscriptions poisoned");
+            subscriptions.remove(&type_id)
+        };
+        let Some(mut channel) = channel.take() else {
             return;
         };
 
@@ -125,9 +129,17 @@ impl EventStream {
                 retained.push(subscription);
             }
         }
-        *channel = retained;
-        if channel.is_empty() {
-            subscriptions.remove(&TypeId::of::<M>());
+
+        let mut subscriptions = self
+            .inner
+            .subscriptions
+            .lock()
+            .expect("event stream subscriptions poisoned");
+        if let Some(new_subscriptions) = subscriptions.remove(&type_id) {
+            retained.extend(new_subscriptions);
+        }
+        if !retained.is_empty() {
+            subscriptions.insert(type_id, retained);
         }
     }
 }

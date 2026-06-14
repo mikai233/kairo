@@ -142,3 +142,32 @@ fn event_stream_matches_exact_event_type() {
             .is_err()
     );
 }
+
+#[test]
+fn dead_letters_are_published_to_event_stream() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (dead_letter_tx, dead_letter_rx) = mpsc::channel::<DeadLetter>();
+    let subscriber = system
+        .spawn(
+            "dead-letter-subscriber",
+            Props::new(move || ChannelProbe {
+                observed: dead_letter_tx,
+            }),
+        )
+        .unwrap();
+    assert!(system.event_stream().subscribe(subscriber));
+    let missing: ActorRef<CounterMsg> = system.missing_ref("kairo://test/user/missing#404");
+
+    let error = missing.tell(CounterMsg::Increment).unwrap_err();
+
+    assert_eq!(error.reason(), "actor does not exist");
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    let event = dead_letter_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(event.recipient(), missing.path());
+    assert_eq!(event.reason(), "actor does not exist");
+    assert_eq!(event.message_type(), std::any::type_name::<CounterMsg>());
+}

@@ -53,6 +53,10 @@ Implemented:
   `terminated`.
 - Sends after stop are rejected and recorded as dead letters.
 - Missing local actor refs reject user messages and record dead letters.
+- Dead letters are now also published to the local typed event stream as
+  `DeadLetter` events, matching Pekko's observable dead-letter subscription
+  model while preserving Kairo's deterministic `DeadLetters` record buffer for
+  tests.
 - System stop drains queued user messages to dead letters before delivery.
 - Duplicate live names under `/user` are rejected; stopped names can be reused
   with a new path incarnation.
@@ -212,6 +216,9 @@ Implemented:
   explicit unknown-phase errors.
 - `ActorSystem::event_stream` and `Context::event_stream` expose a local typed
   event stream for exact Rust event types.
+- Event-stream publication now delivers outside the subscription-table lock so
+  failed subscribers can be removed and their resulting dead letters can be
+  published without recursively deadlocking the stream.
 - Event-stream subscription state lives in a focused `event_stream` module.
 - `Context::spawn_task` starts external local work with only a typed self ref,
   and `Context::pipe_to_self` maps task success or failure back into the
@@ -2547,5 +2554,9 @@ cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo clippy -p kairo-actor -p kairo --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor event_stream --all-targets --all-features
+cargo test -p kairo-actor local_core --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```

@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
+use crate::dead_letters::DeadLetters;
 use crate::dispatcher::DispatcherSettings;
 use crate::error::ActorError;
+use crate::event_stream::EventStream;
 use crate::mailbox::MailboxSettings;
 use crate::path::Address;
 use crate::scheduler::{ManualScheduler, Scheduler};
@@ -48,6 +50,8 @@ impl ActorSystemBuilder {
         if self.mailbox.user_capacity() == Some(0) {
             return Err(ActorError::InvalidMailboxCapacity);
         }
+        let event_stream = EventStream::default();
+        let dead_letters = DeadLetters::new(event_stream.clone());
         Ok(ActorSystem {
             address: Address::local(self.name.clone()),
             name: self.name,
@@ -55,6 +59,8 @@ impl ActorSystemBuilder {
                 dispatcher: self.dispatcher,
                 mailbox: self.mailbox,
                 scheduler: self.scheduler,
+                event_stream,
+                dead_letters,
                 ..ActorSystemInner::default()
             }),
         })

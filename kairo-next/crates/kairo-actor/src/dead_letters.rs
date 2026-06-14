@@ -3,6 +3,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::ActorPath;
+use crate::EventStream;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadLetter {
@@ -34,9 +35,17 @@ struct DeadLettersInner {
 #[derive(Debug, Clone, Default)]
 pub struct DeadLetters {
     inner: Arc<DeadLettersInner>,
+    event_stream: Option<EventStream>,
 }
 
 impl DeadLetters {
+    pub(crate) fn new(event_stream: EventStream) -> Self {
+        Self {
+            inner: Arc::default(),
+            event_stream: Some(event_stream),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.inner
             .records
@@ -82,12 +91,17 @@ impl DeadLetters {
         recipient: ActorPath,
         reason: impl Into<String>,
     ) {
-        let mut records = self.inner.records.lock().expect("dead letters poisoned");
-        records.push(DeadLetter {
+        let record = DeadLetter {
             recipient,
             message_type: type_name::<M>(),
             reason: reason.into(),
-        });
+        };
+        let mut records = self.inner.records.lock().expect("dead letters poisoned");
+        records.push(record.clone());
         self.inner.changed.notify_all();
+        drop(records);
+        if let Some(event_stream) = &self.event_stream {
+            event_stream.publish(record);
+        }
     }
 }
