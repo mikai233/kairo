@@ -174,6 +174,55 @@ fn region_actor_sends_remote_graceful_shutdown_and_region_stopped() {
 }
 
 #[test]
+fn region_actor_repeats_remote_graceful_shutdown_when_host_shard_arrives_during_shutdown() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-remote-graceful-host-shard").unwrap();
+    let fixture =
+        RemoteCoordinatorFixture::new(&kit, "region-remote-graceful-host-shard", 2676, 12, 5_000);
+    let region = fixture.spawn_region(&kit, "region-a");
+    let host = kit
+        .create_probe::<HostShardPlan<String>>("remote-host-shard")
+        .unwrap();
+
+    fixture.publish_discovery(&region);
+    let register = fixture.expect_remote_message::<Register>();
+    assert_eq!(register.region, fixture.region_wire().clone());
+    region
+        .tell(ShardRegionMsg::RemoteCoordinatorRegistrationAck {
+            ack: ShardCoordinatorRemoteRegistrationAck {
+                sender: Some(fixture.target().recipient().clone()),
+                coordinator: fixture.target().recipient().clone(),
+            },
+        })
+        .unwrap();
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        host.expect_msg(Duration::from_millis(500)).unwrap(),
+        HostShardPlan::AlreadyStarted { ref shard, .. } if shard == "shard-1"
+    ));
+
+    region
+        .tell(ShardRegionMsg::GracefulShutdown { reply_to: None })
+        .unwrap();
+    let graceful = fixture.expect_remote_message::<GracefulShutdownReq>();
+    assert_eq!(graceful.region, fixture.region_wire().clone());
+
+    region
+        .tell(ShardRegionMsg::RemoteHostShard {
+            shard: "shard-2".to_string(),
+            reply: fixture.remote_control_reply_target(),
+        })
+        .unwrap();
+    let repeated = fixture.expect_remote_message::<GracefulShutdownReq>();
+    assert_eq!(repeated.region, fixture.region_wire().clone());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_delays_remote_region_stopped_until_hosted_shard_handoff() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-remote-graceful-handoff").unwrap();
     let fixture =

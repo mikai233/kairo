@@ -1809,6 +1809,11 @@ Implemented:
   workers for each shard it owns, exclude it from new allocations, reallocate
   completed handoffs through the normal shard-home path, and regions stop once
   their local shards and buffers are gone.
+- `ShardRegionActor` now preserves Pekko's graceful-shutdown retry semantics:
+  if a local or remote coordinator sends `HostShard` while the region is
+  already shutting down, the region rejects the host request and re-sends
+  `GracefulShutdownReq` so a moved or lagging coordinator can stop allocating
+  shards to the terminating region.
 - `kairo-cluster-sharding` now has stable remote graceful-shutdown protocol
   messages and codecs for `GracefulShutdownReq(region)` and
   `RegionStopped(region)`, plus a focused region-to-coordinator shutdown
@@ -1951,6 +1956,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding region_actor_repeats_graceful_shutdown_when_host_shard_arrives_during_shutdown
+cargo test -p kairo-cluster-sharding region_actor_repeats_remote_graceful_shutdown_when_host_shard_arrives_during_shutdown
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 cargo test -p kairo-examples cluster_sharding_local_example
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings

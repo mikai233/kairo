@@ -573,3 +573,76 @@ fn region_actor_graceful_shutdown_notifies_registered_coordinator() {
     ));
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn region_actor_repeats_graceful_shutdown_when_host_shard_arrives_during_shutdown() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-graceful-host-shard").unwrap();
+    let coordinator = kit
+        .create_probe::<ShardCoordinatorMsg<String>>("coordinator")
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_local_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                coordinator.actor_ref(),
+                Duration::from_secs(10),
+            ),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+
+    let registration = coordinator.expect_msg(Duration::from_millis(500)).unwrap();
+    let ShardCoordinatorMsg::RegisterLocalRegion { reply_to, .. } = registration else {
+        panic!("expected local region registration");
+    };
+    reply_to
+        .tell(Ok(CoordinatorStateSnapshot {
+            allocations: BTreeMap::from([("region-a".to_string(), Vec::new())]),
+            proxies: BTreeSet::new(),
+            unallocated_shards: BTreeSet::new(),
+            rebalance_in_progress: BTreeMap::new(),
+            remember_entities: false,
+        }))
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        host.expect_msg(Duration::from_millis(500)).unwrap(),
+        HostShardPlan::AlreadyStarted { ref shard, .. } if shard == "shard-1"
+    ));
+
+    region
+        .tell(ShardRegionMsg::GracefulShutdown { reply_to: None })
+        .unwrap();
+    assert!(matches!(
+        coordinator.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardCoordinatorMsg::GracefulShutdownReq { region, .. } if region == "region-a"
+    ));
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-2".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        host.expect_msg(Duration::from_millis(500)).unwrap(),
+        HostShardPlan::IgnoredGracefulShutdown {
+            shard: "shard-2".to_string(),
+        }
+    );
+    assert!(matches!(
+        coordinator.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardCoordinatorMsg::GracefulShutdownReq { region, .. } if region == "region-a"
+    ));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}

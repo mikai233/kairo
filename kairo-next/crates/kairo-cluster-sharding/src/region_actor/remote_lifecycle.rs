@@ -11,6 +11,10 @@ where
         reply: crate::ShardRegionRemoteControlReplyTarget,
     ) -> ActorResult {
         let plan = self.runtime.host_shard(shard);
+        if matches!(plan, HostShardPlan::IgnoredGracefulShutdown { .. }) {
+            self.send_graceful_shutdown_to_coordinator()?;
+            return Ok(());
+        }
         let plan = self.maybe_start_local_shard_from_host_plan(ctx, plan)?;
         let plan = self.replay_buffered_from_host_plan(plan)?;
         if let HostShardPlan::AlreadyStarted { started, .. } = plan {
@@ -49,7 +53,7 @@ where
         self.try_complete_graceful_shutdown(ctx)
     }
 
-    fn send_graceful_shutdown_to_coordinator(&self) -> ActorResult {
+    pub(super) fn send_graceful_shutdown_to_coordinator(&self) -> ActorResult {
         let Some(registration) = &self.registration else {
             let Some(target) = self.remote_coordinator.target() else {
                 return Ok(());

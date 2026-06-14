@@ -94,6 +94,9 @@ where
                 let plan = self.runtime.host_shard(shard);
                 let plan = self.maybe_start_local_shard_from_host_plan(ctx, plan)?;
                 let plan = self.replay_buffered_from_host_plan(plan)?;
+                if matches!(plan, HostShardPlan::IgnoredGracefulShutdown { .. }) {
+                    self.send_graceful_shutdown_to_coordinator()?;
+                }
                 let _ = reply_to.tell(plan);
             }
             ShardRegionMsg::HostShardAndReplayBuffered {
