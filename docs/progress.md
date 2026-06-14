@@ -744,6 +744,10 @@ Implemented:
   settings so replies addressed to the node's canonical `system@host:port`
   actor-ref form normalize back to local temporary aggregation child paths,
   matching the remote provider's local-address resolution behavior.
+- `kairo-remote` now exposes the canonical local-address helper used by
+  provider resolution and local inbound delivery, and distributed-data
+  aggregation sender publication plus remote-reply recipient resolution share
+  that helper instead of duplicating actor-ref path rewriting rules.
 - `kairo-distributed-data` now has a transport-neutral remote request/reply
   bridge for direct replicator traffic. `ReplicatorRemoteRequestInbound`
   validates the addressed local replicator `RemoteEnvelope`, decodes stable
@@ -2578,4 +2582,12 @@ cargo test -p kairo-distributed-data replicator_actor_client --all-targets --all
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
+cargo test -p kairo-remote local_address --all-targets --all-features
+cargo test -p kairo-distributed-data remote_tcp::tests::tcp_runtime_routes_replicator_requests_and_replies_over_bidirectional_association --all-targets --all-features
+cargo test -p kairo-distributed-data remote_reply_inbound_maps_owned_canonical_recipient_to_local_aggregator --all-targets --all-features
+cargo test -p kairo-distributed-data aggregation_session --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 ```

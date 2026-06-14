@@ -405,8 +405,8 @@ mod tests {
 
         let receiver_outbound = outbound(
             replica("sender"),
-            sender_ref,
-            receiver_ref,
+            sender_ref.clone(),
+            receiver_ref.clone(),
             registry,
             receiver.association_cache().clone(),
         );
@@ -421,6 +421,8 @@ mod tests {
             replies[0].1.message.manifest.as_str(),
             ReplicatorReadResult::MANIFEST
         );
+        assert_eq!(replies[0].1.recipient, sender_ref);
+        assert_eq!(replies[0].1.sender, Some(receiver_ref));
 
         let sender_report = sender.shutdown().unwrap();
         assert_eq!(sender_report.accepted_associations, 0);
