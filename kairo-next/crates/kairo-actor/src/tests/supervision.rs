@@ -455,6 +455,112 @@ fn restart_supervision_stops_children_by_default() {
     assert_eq!(count_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 0);
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum RestartOrderingEvent {
+    PreRestartChildCount(usize),
+    ChildStopped,
+}
+
+struct RestartOrderingChild {
+    events: mpsc::Sender<RestartOrderingEvent>,
+}
+
+impl Actor for RestartOrderingChild {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.events
+            .send(RestartOrderingEvent::ChildStopped)
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+enum RestartOrderingMsg {
+    SpawnChild(mpsc::Sender<()>),
+    Fail,
+    Ping(mpsc::Sender<()>),
+}
+
+struct RestartOrderingParent {
+    events: mpsc::Sender<RestartOrderingEvent>,
+}
+
+impl Actor for RestartOrderingParent {
+    type Msg = RestartOrderingMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RestartOrderingMsg::SpawnChild(reply_to) => {
+                let events = self.events.clone();
+                ctx.spawn(
+                    "child",
+                    Props::new(move || RestartOrderingChild {
+                        events: events.clone(),
+                    }),
+                )?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartOrderingMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            RestartOrderingMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PreRestart => self
+                .events
+                .send(RestartOrderingEvent::PreRestartChildCount(
+                    ctx.children().len(),
+                ))
+                .map_err(|error| ActorError::Message(error.to_string())),
+            Signal::PostStop => self.stopped(ctx),
+            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
+        }
+    }
+}
+
+#[test]
+fn restart_supervision_sends_pre_restart_before_stopping_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (events_tx, events_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(move || RestartOrderingParent {
+                events: events_tx.clone(),
+            }),
+        )
+        .unwrap();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartOrderingMsg::SpawnChild(spawned_tx))
+        .unwrap();
+    spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(RestartOrderingMsg::Fail).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent.tell(RestartOrderingMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RestartOrderingEvent::PreRestartChildCount(1)
+    );
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RestartOrderingEvent::ChildStopped
+    );
+}
+
 #[test]
 fn restart_supervision_can_preserve_children() {
     let system = ActorSystem::builder("test").build().unwrap();

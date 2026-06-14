@@ -332,9 +332,11 @@ Kairo's first supervision slice stores a `SupervisorStrategy` on `Props`.
 `Stop` remains the default and preserves the previous failure behavior. `Resume`
 drops the failing message and continues with the same actor value. `Restart`
 requires `Props::restartable`, which stores a reusable Rust factory; on failure
-the runtime cancels timers, stops children, sends `Signal::PreRestart` to the
-old actor value, builds a fresh actor value, and invokes `started` on the new
-value while preserving the actor ref path and incarnation.
+the runtime cancels actor-owned timers, tasks, asks, and adapters, sends
+`Signal::PreRestart` to the old actor value while existing children are still
+visible, stops children for the default restart strategy, builds a fresh actor
+value, and invokes `started` on the new value while preserving the actor ref
+path and incarnation.
 
 Consequences:
 - Existing one-shot actor factories keep their previous stop-on-failure

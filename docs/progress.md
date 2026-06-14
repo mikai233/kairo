@@ -196,7 +196,8 @@ Implemented:
 - `Props::with_supervisor` supports explicit stop, resume, and restart
   directives for local actor receive failures; stop remains the default.
 - `Props::restartable` provides the reusable actor factory required by restart
-  supervision, which sends `Signal::PreRestart`, cancels timers, stops children,
+  supervision, which cancels actor-owned timers/tasks/asks/adapters, sends
+  `Signal::PreRestart` to the old actor value before default child teardown,
   rebuilds actor state, reruns `started`, and preserves the actor ref path.
 - Actor startup failures now enter the same supervision boundary: default and
   resume strategies stop the actor, escalation reports the failed child to the
@@ -1926,6 +1927,9 @@ Implemented:
 - `kairo-actor` startup-failure, restart/resume strategy, restart-limit,
   child-preservation, and escalation supervision tests now live in a focused
   sibling test module with only the watch-shared probe fixture exposed.
+- `kairo-actor` restart supervision now pins Pekko-aligned lifecycle ordering:
+  `Signal::PreRestart` is delivered while children are still visible to the
+  restarting parent, then the default restart strategy stops those children.
 - `kairo-actor` context spawn, parent/child introspection, direct-child stop,
   parent-before-child shutdown, actor-path metadata, and post-stop signal tests
   now live in a focused sibling test module.
@@ -1981,6 +1985,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor supervision
+cargo fmt --all -- --check
+cargo test -p kairo-actor --all-targets --all-features
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor --test adapters
 cargo fmt --all -- --check
 cargo test -p kairo-actor --all-targets --all-features

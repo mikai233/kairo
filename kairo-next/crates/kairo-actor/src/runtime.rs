@@ -501,10 +501,10 @@ where
     context.cancel_tasks();
     context.cancel_asks();
     stop_adapter_refs(system_inner, context);
+    let _ = invoke_signal(actor, context, Signal::PreRestart);
     if stop_children_on_restart {
         stop_children(system_inner, actor_ref.path.as_str());
     }
-    let _ = invoke_signal(actor, context, Signal::PreRestart);
     context.stop_requested = false;
     invoke_started(&mut restarted, context)?;
     *actor = restarted;
