@@ -2,7 +2,8 @@ mod support;
 
 use std::net::TcpListener;
 use std::sync::Arc;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use kairo_actor::{Address, Props};
 use kairo_remote::{RemoteOutbound, RemoteSettings};
@@ -23,6 +24,39 @@ use support::*;
 fn unused_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.local_addr().unwrap().port()
+}
+
+fn send_join_until_received(
+    outbound: &ClusterMembershipWireOutbound,
+    probes: &ClusterInboundProbes,
+    join: Join,
+    timeout: Duration,
+) {
+    let deadline = Instant::now() + timeout;
+    let mut last_error = None;
+    while Instant::now() < deadline {
+        if let Err(error) = outbound.send_membership(ClusterMembershipMsg::Join {
+            join: join.clone(),
+            reply_to: None,
+        }) {
+            last_error = Some(error.to_string());
+        }
+
+        match probes.membership.expect_msg(Duration::from_millis(50)) {
+            Ok(ClusterMembershipMsg::Join {
+                join: received,
+                reply_to,
+            }) => {
+                assert_eq!(received, join);
+                assert!(reply_to.is_none());
+                return;
+            }
+            Ok(other) => panic!("expected cluster join, got {other:?}"),
+            Err(_) => thread::sleep(Duration::from_millis(10)),
+        }
+    }
+
+    panic!("cluster join was not delivered before timeout; last send error: {last_error:?}");
 }
 
 #[test]
@@ -467,6 +501,109 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     old_receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
     new_receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_removed() {
+    let _guard = bootstrap_socket_test_lock();
+    let first_kit = ActorSystemTestKit::new("cluster-bootstrap-reduce-first").unwrap();
+    let second_kit = ActorSystemTestKit::new("cluster-bootstrap-reduce-second").unwrap();
+    let third_kit = ActorSystemTestKit::new("cluster-bootstrap-reduce-third").unwrap();
+    let registry = registry();
+    let first_runtime = bind_runtime("cluster-bootstrap-reduce-first", 1, 11, &first_kit);
+    let first_cache = first_runtime.association_cache().clone();
+    let (second_runtime, second_probes) =
+        bind_runtime_with_probes("cluster-bootstrap-reduce-second", 2, 22, &second_kit);
+    let (third_runtime, third_probes) =
+        bind_runtime_with_probes("cluster-bootstrap-reduce-third", 3, 33, &third_kit);
+    let first_node = first_runtime.self_node().clone();
+    let second_node = second_runtime.self_node().clone();
+    let third_node = third_runtime.self_node().clone();
+    let first_publisher = spawn_publisher(&first_kit, "first-publisher", first_node.clone());
+    let first_cluster = Cluster::new(first_publisher.clone());
+    let settings = ClusterTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
+        .with_connector_settings(
+            ClusterTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        );
+
+    let first_bootstrap = ClusterTcpPeerBootstrap::spawn_with_runtime(
+        first_kit.system(),
+        first_cluster,
+        first_runtime,
+        settings.with_connector_name("first-cluster-peer"),
+    )
+    .unwrap();
+    let first_snapshots = first_kit
+        .create_probe::<ClusterTcpPeerConnectorSnapshot>("first-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &first_publisher,
+        up_gossip([first_node.clone(), second_node.clone(), third_node.clone()]),
+    );
+    await_connector_routes(
+        first_bootstrap.connector(),
+        &first_snapshots,
+        &[second_node.clone(), third_node.clone()],
+    );
+    assert_eq!(first_cache.route_count(), 2);
+
+    let first_outbound = Arc::new(first_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let second_membership_outbound = ClusterMembershipWireOutbound::new(
+        second_node.clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(first_outbound.clone()),
+    );
+    let third_membership_outbound = ClusterMembershipWireOutbound::new(
+        third_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(first_outbound),
+    );
+    send_join_until_received(
+        &second_membership_outbound,
+        &second_probes,
+        Join {
+            node: first_node.clone(),
+            roles: vec!["before-removal-second".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+    send_join_until_received(
+        &third_membership_outbound,
+        &third_probes,
+        Join {
+            node: first_node.clone(),
+            roles: vec!["before-removal-third".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
+    publish_gossip(
+        &first_publisher,
+        up_gossip([first_node.clone(), second_node.clone()]),
+    );
+    await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
+    assert_eq!(first_cache.route_count(), 1);
+
+    send_join_until_received(
+        &second_membership_outbound,
+        &second_probes,
+        Join {
+            node: first_node.clone(),
+            roles: vec!["after-removal".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
+    run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
+    assert_eq!(first_cache.route_count(), 0);
+    second_runtime.shutdown().unwrap();
+    third_runtime.shutdown().unwrap();
+    first_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

@@ -2217,6 +2217,10 @@ Implemented:
   route-preservation path: one membership receiver can mark and down a sender
   as unreachable while the sender keeps its remaining TCP route live and
   delivers a later join to a second receiver.
+- `kairo-cluster` TCP peer bootstrap coverage now pins sender-side route
+  reduction with live membership delivery: after one of two remote peers leaves
+  the sender's cluster membership view, the remaining membership route
+  continues to deliver stable-manifest `Join` envelopes.
 - `kairo-distributed-data` TCP peer bootstrap coverage now pins sender-side
   route reduction with live delivery: after one of two remote peers leaves the
   sender's cluster membership view, the remaining replicator route continues
