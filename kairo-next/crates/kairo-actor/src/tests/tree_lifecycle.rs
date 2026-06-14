@@ -707,6 +707,46 @@ fn parent_stop_waits_for_children_before_stopped_hook() {
     assert!(parent.wait_for_stop(Duration::from_secs(1)));
 }
 
+#[test]
+fn parent_stop_does_not_process_user_messages_while_waiting_for_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+
+    system.stop(&parent);
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    assert!(
+        parent.tell(ChildStopMsg::Ping(ping_tx)).is_err(),
+        "stopping parent should reject new user messages"
+    );
+    assert!(
+        ping_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "parent must not process user messages while stop waits for child termination"
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+}
+
 #[derive(Debug)]
 struct PostStopSpawnResults {
     named: Result<(), String>,

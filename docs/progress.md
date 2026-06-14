@@ -39,7 +39,8 @@ Implemented:
 - Mailbox tests now pin the actor runtime contract that system messages are
   dequeued before already queued user messages while preserving FIFO order
   within the system lane.
-- Stopping a local actor recursively requests child stops and runs the parent's
+- Stopping a local actor recursively requests child stops, rejects later user
+  messages while child termination is still in progress, and runs the parent's
   `stopped` hook after children have terminated.
 - Sends after stop are rejected and recorded as dead letters.
 - Missing local actor refs reject user messages and record dead letters.
@@ -2026,6 +2027,9 @@ Implemented:
   ordering: a restarting parent waits for children stopped by default restart
   teardown before processing queued user messages, so replacement children
   cannot observe the old child name as reusable until termination completes.
+- `kairo-actor` tree-lifecycle tests now pin stop-time child termination
+  ordering: a stopping parent rejects and does not process user messages while
+  waiting for a blocking child stop to finish.
 - `kairo-actor` context spawn, parent/child introspection, direct-child stop,
   parent-before-child shutdown, actor-path metadata, and post-stop signal tests
   now live in a focused sibling test module.
@@ -2406,5 +2410,9 @@ cargo test -p kairo-cluster-sharding multi_node_region_discovery_allocates_remem
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor parent_stop_does_not_process_user_messages_while_waiting_for_children
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```
