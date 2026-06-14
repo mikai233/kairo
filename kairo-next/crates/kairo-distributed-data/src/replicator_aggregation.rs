@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kairo_actor::{ActorError, ActorRef, Context, Props};
+use kairo_remote::RemoteSettings;
 
 use crate::{
     AggregationTransport, CrdtDataCodec, DataEnvelope, DeltaReplicatedData, GetResponse,
@@ -47,6 +48,25 @@ where
             spawner: Arc::new(SessionSpawner {
                 transport,
                 data_codec,
+                sender_settings: None,
+                _data: PhantomData,
+            }),
+        }
+    }
+
+    pub fn with_sender_remote_settings<Codec>(
+        transport: AggregationTransport<Codec>,
+        data_codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,
+        sender_settings: RemoteSettings,
+    ) -> Self
+    where
+        Codec: CrdtDataCodec<D> + Clone + Send + Sync + 'static,
+    {
+        Self {
+            spawner: Arc::new(SessionSpawner {
+                transport,
+                data_codec,
+                sender_settings: Some(sender_settings),
                 _data: PhantomData,
             }),
         }
@@ -106,6 +126,7 @@ where
 {
     transport: AggregationTransport<Codec>,
     data_codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,
+    sender_settings: Option<RemoteSettings>,
     _data: PhantomData<fn(D)>,
 }
 
@@ -126,8 +147,15 @@ where
     ) -> Result<ActorRef<WriteAggregationSessionMsg>, ActorError> {
         ctx.spawn_anonymous(Props::new({
             let transport = self.transport.clone();
+            let sender_settings = self.sender_settings.clone();
             move || {
-                WriteAggregationSession::new(plan, envelope, outcome, transport, timeout, reply_to)
+                let session = WriteAggregationSession::new(
+                    plan, envelope, outcome, transport, timeout, reply_to,
+                );
+                match sender_settings {
+                    Some(settings) => session.with_sender_remote_settings(settings),
+                    None => session,
+                }
             }
         }))
     }
@@ -142,7 +170,15 @@ where
         ctx.spawn_anonymous(Props::new({
             let transport = self.transport.clone();
             let data_codec = Arc::clone(&self.data_codec);
-            move || ReadAggregationSession::new(plan, data_codec, transport, timeout, reply_to)
+            let sender_settings = self.sender_settings.clone();
+            move || {
+                let session =
+                    ReadAggregationSession::new(plan, data_codec, transport, timeout, reply_to);
+                match sender_settings {
+                    Some(settings) => session.with_sender_remote_settings(settings),
+                    None => session,
+                }
+            }
         }))
     }
 }

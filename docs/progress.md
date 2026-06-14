@@ -730,6 +730,10 @@ Implemented:
   aggregator child refs as stable `ActorRefWireData` senders, and
   `ReplicatorRemoteEnvelopeOutbound` preserves that sender metadata so remote
   ACK/NACK/read-result replies can target the aggregation child.
+- Aggregation sessions and `ReplicatorAggregation` can now be configured with
+  the node's remote settings so temporary aggregation child sender refs are
+  published in canonical `system@host:port` form before crossing remote
+  sender-aware transports.
 - `kairo-distributed-data` now has a focused inbound remote-reply bridge for
   sender-addressed aggregation replies. `ReplicatorRemoteReplyInbound` decodes
   stable ACK/NACK/read-result manifests, tags them with the source
@@ -2568,4 +2572,10 @@ cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check
+cargo test -p kairo-distributed-data aggregation_session --all-targets --all-features
+cargo test -p kairo-distributed-data replicator_actor_aggregation_uses_canonical_sender_ref --all-targets --all-features
+cargo test -p kairo-distributed-data replicator_actor_client --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
 ```

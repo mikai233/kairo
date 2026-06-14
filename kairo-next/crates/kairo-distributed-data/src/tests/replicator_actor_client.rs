@@ -1,4 +1,39 @@
 use super::*;
+use std::marker::PhantomData;
+
+use kairo_remote::RemoteSettings;
+use kairo_serialization::ActorRefWireData;
+
+use crate::{ReplicatorRead, ReplicatorWrite, SenderAwareRecipient};
+
+struct CaptureSender<M> {
+    tx: mpsc::Sender<ActorRefWireData>,
+    _message: PhantomData<fn(M)>,
+}
+
+impl<M> CaptureSender<M> {
+    fn new(tx: mpsc::Sender<ActorRefWireData>) -> Self {
+        Self {
+            tx,
+            _message: PhantomData,
+        }
+    }
+}
+
+impl<M> SenderAwareRecipient<M> for CaptureSender<M>
+where
+    M: Send + 'static,
+{
+    fn tell_with_sender(
+        &self,
+        message: M,
+        sender: &ActorRefWireData,
+    ) -> Result<(), kairo_actor::SendError<M>> {
+        self.tx
+            .send(sender.clone())
+            .map_err(|error| kairo_actor::SendError::new(message, error.to_string()))
+    }
+}
 
 #[test]
 fn replicator_actor_handles_local_get_and_update() {
@@ -54,6 +89,71 @@ fn replicator_actor_handles_local_get_and_update() {
     };
     assert_eq!(data.value().unwrap(), 4);
 
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn replicator_actor_aggregation_uses_canonical_sender_ref() {
+    let system = ActorSystem::builder("ddata-replicator-canonical-aggregate")
+        .build()
+        .unwrap();
+    let (write_ref, _write_rx) = forward_ref::<ReplicatorWrite>(&system, "remote-writes");
+    let (read_ref, _read_rx) = forward_ref::<ReplicatorRead>(&system, "remote-reads");
+    let (update_ref, _update_rx) = forward_ref(&system, "update-replies");
+    let (write_sender_tx, write_sender_rx) = mpsc::channel();
+    let (read_sender_tx, _read_sender_rx) = mpsc::channel();
+    let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    transport.insert_target(AggregationTarget::new_sender_aware(
+        replica("remote"),
+        write_ref,
+        read_ref,
+        CaptureSender::<ReplicatorWrite>::new(write_sender_tx),
+        CaptureSender::<ReplicatorRead>::new(read_sender_tx),
+    ));
+    let aggregation = ReplicatorAggregation::with_sender_remote_settings(
+        transport,
+        Arc::new(GCounterCodec),
+        RemoteSettings::new("127.0.0.1", 25520),
+    );
+    let replicator = system
+        .spawn(
+            "replicator",
+            Props::new(move || ReplicatorActor::<GCounter>::with_aggregation(aggregation)),
+        )
+        .unwrap();
+    let key = ReplicatorKey::new("counter");
+
+    replicator
+        .tell(ReplicatorActorMsg::SetRemoteReplicas {
+            nodes: vec![replica("remote")],
+            unreachable: BTreeSet::new(),
+        })
+        .unwrap();
+    replicator
+        .tell(ReplicatorActorMsg::Update {
+            key,
+            initial: GCounter::new(),
+            consistency: WriteConsistency::to(2, Duration::from_millis(20)).unwrap(),
+            modify: Box::new(|counter| {
+                counter
+                    .increment(replica("local"), 5)
+                    .map_err(|error| error.to_string())
+            }),
+            reply_to: update_ref,
+        })
+        .unwrap();
+
+    let sender = write_sender_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(sender.protocol(), "kairo");
+    assert_eq!(sender.system(), "ddata-replicator-canonical-aggregate");
+    assert_eq!(sender.host(), Some("127.0.0.1"));
+    assert_eq!(sender.port(), Some(25520));
+    assert!(sender.path().starts_with(
+        "kairo://ddata-replicator-canonical-aggregate@127.0.0.1:25520/user/replicator#"
+    ));
+    assert!(sender.path().contains("/$anon-"));
     system.terminate(Duration::from_secs(1)).unwrap();
 }
 

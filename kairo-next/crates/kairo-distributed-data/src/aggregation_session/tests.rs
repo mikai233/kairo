@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::marker::PhantomData;
 use std::sync::{
     Arc,
     mpsc::{self, Receiver},
@@ -8,12 +9,14 @@ use std::time::Duration;
 use kairo_actor::{
     Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props, Recipient,
 };
+use kairo_remote::RemoteSettings;
+use kairo_serialization::ActorRefWireData;
 
 use super::*;
 use crate::{
     DataEnvelope, GCounter, GCounterCodec, ReadAggregatorState, ReadConsistency, ReplicatorRead,
-    ReplicatorWireReply, ReplicatorWrite, ReplicatorWriteAck, WriteAggregatorState,
-    WriteConsistency, decode_data_envelope, encode_read_result,
+    ReplicatorWireReply, ReplicatorWrite, ReplicatorWriteAck, SenderAwareRecipient,
+    WriteAggregatorState, WriteConsistency, decode_data_envelope, encode_read_result,
 };
 
 struct Forward<M> {
@@ -58,6 +61,35 @@ where
     }
 }
 
+struct CaptureSender<M> {
+    tx: mpsc::Sender<ActorRefWireData>,
+    _message: PhantomData<fn(M)>,
+}
+
+impl<M> CaptureSender<M> {
+    fn new(tx: mpsc::Sender<ActorRefWireData>) -> Self {
+        Self {
+            tx,
+            _message: PhantomData,
+        }
+    }
+}
+
+impl<M> SenderAwareRecipient<M> for CaptureSender<M>
+where
+    M: Send + 'static,
+{
+    fn tell_with_sender(
+        &self,
+        _message: M,
+        sender: &ActorRefWireData,
+    ) -> Result<(), kairo_actor::SendError<M>> {
+        self.tx
+            .send(sender.clone())
+            .map_err(|error| kairo_actor::SendError::new(_message, error.to_string()))
+    }
+}
+
 fn replica(id: &str) -> ReplicaId {
     ReplicaId::new(id)
 }
@@ -78,6 +110,22 @@ fn aggregation_target(
         replica(replica_id),
         SendToActor { target: write_ref },
         SendToActor { target: read_ref },
+    )
+}
+
+fn sender_aware_aggregation_target(
+    replica_id: &str,
+    write_ref: ActorRef<ReplicatorWrite>,
+    read_ref: ActorRef<ReplicatorRead>,
+    write_sender_tx: mpsc::Sender<ActorRefWireData>,
+    read_sender_tx: mpsc::Sender<ActorRefWireData>,
+) -> crate::AggregationTarget {
+    crate::AggregationTarget::new_sender_aware(
+        replica(replica_id),
+        SendToActor { target: write_ref },
+        SendToActor { target: read_ref },
+        CaptureSender::<ReplicatorWrite>::new(write_sender_tx),
+        CaptureSender::<ReplicatorRead>::new(read_sender_tx),
     )
 }
 
@@ -318,5 +366,136 @@ fn read_session_spawns_aggregator_sends_primary_and_maps_result() {
         }
         other => panic!("expected get success, got {other:?}"),
     }
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn write_session_can_publish_canonical_sender_ref() {
+    let system = ActorSystem::builder("ddata-write-aggregation-canonical")
+        .build()
+        .unwrap();
+    let (write_ref, _write_rx) = probe::<ReplicatorWrite>(&system, "writes");
+    let (read_ref, _read_rx) = probe::<ReplicatorRead>(&system, "reads");
+    let (reply_to, _replies) = probe::<UpdateResponse<GCounter>>(&system, "replies");
+    let (events_ref, events) = probe::<WriteAggregationSessionEvent>(&system, "events");
+    let (write_sender_tx, write_sender_rx) = mpsc::channel();
+    let (read_sender_tx, _read_sender_rx) = mpsc::channel();
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("a");
+    let state = WriteAggregatorState::new(
+        key.clone(),
+        &WriteConsistency::to(2, Duration::from_secs(1)).unwrap(),
+        vec![remote],
+    )
+    .unwrap();
+    let plan = WriteAggregationPlan::new(state.clone(), state.select_replicas(&BTreeSet::new()));
+    let envelope = DataEnvelope::new(counter("local", 5));
+    let outcome = UpdateOutcome::new(key, true, Some(counter("local", 5)));
+    let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    transport.insert_target(sender_aware_aggregation_target(
+        "a",
+        write_ref,
+        read_ref,
+        write_sender_tx,
+        read_sender_tx,
+    ));
+
+    system
+        .spawn(
+            "write-session",
+            Props::new({
+                let events_ref = events_ref.clone();
+                let reply_to = reply_to.clone();
+                move || {
+                    WriteAggregationSession::with_events(
+                        plan,
+                        envelope,
+                        outcome,
+                        transport,
+                        Duration::from_secs(5),
+                        reply_to,
+                        events_ref,
+                    )
+                    .with_sender_remote_settings(RemoteSettings::new("127.0.0.1", 25520))
+                }
+            }),
+        )
+        .unwrap();
+
+    events.recv_timeout(Duration::from_secs(1)).unwrap();
+    let sender = write_sender_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(sender.protocol(), "kairo");
+    assert_eq!(sender.system(), "ddata-write-aggregation-canonical");
+    assert_eq!(sender.host(), Some("127.0.0.1"));
+    assert_eq!(sender.port(), Some(25520));
+    assert!(sender.path().starts_with(
+        "kairo://ddata-write-aggregation-canonical@127.0.0.1:25520/user/write-session#"
+    ));
+    assert!(sender.path().contains("/$anon-"));
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn read_session_can_publish_canonical_sender_ref() {
+    let system = ActorSystem::builder("ddata-read-aggregation-canonical")
+        .build()
+        .unwrap();
+    let (write_ref, _write_rx) = probe::<ReplicatorWrite>(&system, "writes");
+    let (read_ref, _read_rx) = probe::<ReplicatorRead>(&system, "reads");
+    let (reply_to, _replies) = probe::<GetResponse<GCounter>>(&system, "replies");
+    let (events_ref, events) = probe::<ReadAggregationSessionEvent>(&system, "events");
+    let (write_sender_tx, _write_sender_rx) = mpsc::channel();
+    let (read_sender_tx, read_sender_rx) = mpsc::channel();
+    let remote = replica("a");
+    let state = ReadAggregatorState::new(
+        ReplicatorKey::new("counter"),
+        &ReadConsistency::from(2, Duration::from_secs(1)).unwrap(),
+        vec![remote],
+        None,
+    )
+    .unwrap();
+    let plan = ReadAggregationPlan::new(state.clone(), state.select_replicas(&BTreeSet::new()));
+    let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    transport.insert_target(sender_aware_aggregation_target(
+        "a",
+        write_ref,
+        read_ref,
+        write_sender_tx,
+        read_sender_tx,
+    ));
+
+    system
+        .spawn(
+            "read-session",
+            Props::new({
+                let events_ref = events_ref.clone();
+                let reply_to = reply_to.clone();
+                move || {
+                    ReadAggregationSession::with_events(
+                        plan,
+                        Arc::new(GCounterCodec),
+                        transport,
+                        Duration::from_secs(5),
+                        reply_to,
+                        events_ref,
+                    )
+                    .with_sender_remote_settings(RemoteSettings::new("127.0.0.1", 25521))
+                }
+            }),
+        )
+        .unwrap();
+
+    events.recv_timeout(Duration::from_secs(1)).unwrap();
+    let sender = read_sender_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(sender.protocol(), "kairo");
+    assert_eq!(sender.system(), "ddata-read-aggregation-canonical");
+    assert_eq!(sender.host(), Some("127.0.0.1"));
+    assert_eq!(sender.port(), Some(25521));
+    assert!(sender.path().starts_with(
+        "kairo://ddata-read-aggregation-canonical@127.0.0.1:25521/user/read-session#"
+    ));
+    assert!(sender.path().contains("/$anon-"));
     system.terminate(Duration::from_secs(1)).unwrap();
 }

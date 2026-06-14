@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
+use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
+use kairo_remote::RemoteSettings;
 use kairo_serialization::ActorRefWireData;
 
 use crate::{
@@ -44,6 +45,7 @@ where
     reply_to: ActorRef<UpdateResponse<D::Delta>>,
     events: Option<ActorRef<WriteAggregationSessionEvent>>,
     sender: Option<ActorRefWireData>,
+    sender_settings: Option<RemoteSettings>,
 }
 
 impl<D, Codec> WriteAggregationSession<D, Codec>
@@ -68,6 +70,7 @@ where
             reply_to,
             events: None,
             sender: None,
+            sender_settings: None,
         }
     }
 
@@ -89,7 +92,13 @@ where
             reply_to,
             events: Some(events),
             sender: None,
+            sender_settings: None,
         }
+    }
+
+    pub fn with_sender_remote_settings(mut self, settings: RemoteSettings) -> Self {
+        self.sender_settings = Some(settings);
+        self
     }
 }
 
@@ -108,7 +117,7 @@ where
             let timeout = self.timeout;
             move || WriteAggregationActor::with_timeout(plan, timeout, events)
         }))?;
-        let sender = actor_ref_wire_data(&aggregator)?;
+        let sender = actor_ref_wire_data(&aggregator, ctx.system(), self.sender_settings.as_ref())?;
         self.sender = Some(sender.clone());
         let report = self
             .transport
@@ -231,6 +240,7 @@ where
     reply_to: ActorRef<GetResponse<D>>,
     events: Option<ActorRef<ReadAggregationSessionEvent>>,
     sender: Option<ActorRefWireData>,
+    sender_settings: Option<RemoteSettings>,
 }
 
 impl<D, Codec> ReadAggregationSession<D, Codec>
@@ -253,6 +263,7 @@ where
             reply_to,
             events: None,
             sender: None,
+            sender_settings: None,
         }
     }
 
@@ -273,7 +284,13 @@ where
             reply_to,
             events: Some(events),
             sender: None,
+            sender_settings: None,
         }
+    }
+
+    pub fn with_sender_remote_settings(mut self, settings: RemoteSettings) -> Self {
+        self.sender_settings = Some(settings);
+        self
     }
 }
 
@@ -292,7 +309,7 @@ where
             let timeout = self.timeout;
             move || ReadAggregationActor::with_timeout(plan, codec, timeout, events)
         }))?;
-        let sender = actor_ref_wire_data(&aggregator)?;
+        let sender = actor_ref_wire_data(&aggregator, ctx.system(), self.sender_settings.as_ref())?;
         self.sender = Some(sender.clone());
         let report = self.transport.publish_read_with_sender(&self.plan, &sender);
         self.emit(ReadAggregationSessionEvent::Started {
@@ -357,16 +374,50 @@ where
         .map_err(|error| ActorError::Message(error.reason().to_string()))
 }
 
-fn actor_ref_wire_data<M>(actor: &ActorRef<M>) -> Result<ActorRefWireData, ActorError>
+fn actor_ref_wire_data<M>(
+    actor: &ActorRef<M>,
+    system: &ActorSystem,
+    settings: Option<&RemoteSettings>,
+) -> Result<ActorRefWireData, ActorError>
 where
     M: Send + 'static,
 {
-    ActorRefWireData::new(actor.path().to_string()).map_err(|error| {
+    let path = match settings {
+        Some(settings) => canonical_actor_ref_path(actor.path().as_str(), system, settings)
+            .ok_or_else(|| {
+                ActorError::Message(format!(
+                    "failed to encode aggregation reply actor ref {}: actor ref is not owned by this actor system",
+                    actor.path()
+                ))
+            })?,
+        None => actor.path().to_string(),
+    };
+    ActorRefWireData::new(path).map_err(|error| {
         ActorError::Message(format!(
             "failed to encode aggregation reply actor ref {}: {error}",
             actor.path()
         ))
     })
+}
+
+fn canonical_actor_ref_path(
+    actor_path: &str,
+    system: &ActorSystem,
+    settings: &RemoteSettings,
+) -> Option<String> {
+    let local_prefix = format!("{}://{}", system.address().protocol(), system.name());
+    let suffix = actor_path.strip_prefix(&local_prefix)?;
+    if !suffix.starts_with('/') {
+        return None;
+    }
+    Some(format!(
+        "{}://{}@{}:{}{}",
+        system.address().protocol(),
+        system.name(),
+        settings.canonical_hostname,
+        settings.canonical_port,
+        suffix
+    ))
 }
 
 #[cfg(test)]
