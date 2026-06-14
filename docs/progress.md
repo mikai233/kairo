@@ -360,6 +360,11 @@ Implemented:
   `RemoteInboundDiagnostics` sink that records structured inbound
   serialization failures and delivery failures with recipient, optional sender,
   wire manifest/version, serializer id, and error reason.
+- `ActorSystemRemoteInbound` can now carry that same
+  `RemoteInboundDiagnostics` observer through the actor-system inbound frame
+  router, so runtime-composed business message decode and local-delivery
+  failures emit structured diagnostics before TCP socket wiring selects a
+  concrete logging or metrics backend.
 - `kairo-serialization::WireWriter` and `WireReader` provide a small shared
   stable binary helper for explicit system-protocol codecs, using
   length-prefixed UTF-8 strings and byte payloads, optional strings, boolean

@@ -163,6 +163,18 @@ delivery failures:
 let inbound = inbound.with_diagnostics(diagnostics);
 ```
 
+Actor-system inbound composition has matching constructors:
+
+```rust
+let inbound = ActorSystemRemoteInbound::<CounterCommand>::with_diagnostics(
+    system,
+    registry,
+    remote_watch,
+    local_system_uid,
+    diagnostics,
+);
+```
+
 The diagnostic sink receives structured recipient, optional sender, manifest,
 version, serializer id, and reason data, so applications can route failures to
 logs, metrics, tests, or event streams without changing the wire contract.

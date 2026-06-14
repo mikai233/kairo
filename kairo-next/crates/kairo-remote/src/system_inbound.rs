@@ -8,7 +8,8 @@ use kairo_serialization::{Registry, RemoteMessage};
 use crate::{
     AssociationRemoteInbound, LocalActorInboundDelivery, RemoteDeathWatchCommand,
     RemoteDeathWatchProtocolDelivery, RemoteDeathWatchSystemInbound, RemoteFrameHandler,
-    RemoteInbound, RemoteInboundFrameRouter, RemoteSettings, RemoteStreamId, Result,
+    RemoteInbound, RemoteInboundDiagnostics, RemoteInboundFrameRouter, RemoteSettings,
+    RemoteStreamId, Result,
 };
 
 pub struct ActorSystemRemoteInbound<M> {
@@ -32,6 +33,24 @@ where
             death_watch,
             local_system_uid,
             LocalActorInboundDelivery::<M>::new,
+            None,
+        )
+    }
+
+    pub fn with_diagnostics(
+        system: ActorSystem,
+        registry: Arc<Registry>,
+        death_watch: ActorRef<RemoteDeathWatchCommand>,
+        local_system_uid: u64,
+        diagnostics: Arc<dyn RemoteInboundDiagnostics>,
+    ) -> Self {
+        Self::with_delivery(
+            system,
+            registry,
+            death_watch,
+            local_system_uid,
+            LocalActorInboundDelivery::<M>::new,
+            Some(diagnostics),
         )
     }
 
@@ -48,6 +67,25 @@ where
             death_watch,
             local_system_uid,
             move |system| LocalActorInboundDelivery::<M>::with_remote_settings(system, settings),
+            None,
+        )
+    }
+
+    pub fn with_remote_settings_and_diagnostics(
+        system: ActorSystem,
+        registry: Arc<Registry>,
+        death_watch: ActorRef<RemoteDeathWatchCommand>,
+        local_system_uid: u64,
+        settings: RemoteSettings,
+        diagnostics: Arc<dyn RemoteInboundDiagnostics>,
+    ) -> Self {
+        Self::with_delivery(
+            system,
+            registry,
+            death_watch,
+            local_system_uid,
+            move |system| LocalActorInboundDelivery::<M>::with_remote_settings(system, settings),
+            Some(diagnostics),
         )
     }
 
@@ -57,8 +95,12 @@ where
         death_watch: ActorRef<RemoteDeathWatchCommand>,
         local_system_uid: u64,
         delivery: impl FnOnce(ActorSystem) -> LocalActorInboundDelivery<M>,
+        diagnostics: Option<Arc<dyn RemoteInboundDiagnostics>>,
     ) -> Self {
-        let business = RemoteInbound::new(registry.clone(), Arc::new(delivery(system)));
+        let mut business = RemoteInbound::new(registry.clone(), Arc::new(delivery(system)));
+        if let Some(diagnostics) = diagnostics {
+            business = business.with_diagnostics(diagnostics);
+        }
         let death_watch = RemoteDeathWatchSystemInbound::new(
             registry,
             RemoteDeathWatchProtocolDelivery::new(death_watch, local_system_uid),
@@ -95,14 +137,15 @@ mod tests {
     use bytes::Bytes;
     use kairo_actor::{Actor, ActorResult, Context, Props};
     use kairo_serialization::{
-        ActorRefWireData, MessageCodec, RemoteEnvelope, SerializationRegistry,
+        ActorRefWireData, MessageCodec, RemoteEnvelope, SerializationRegistry, SerializedMessage,
     };
 
     use super::*;
     use crate::WatchRemote;
     use crate::{
         RemoteDeathWatchActor, RemoteDeathWatchEffect, RemoteDeathWatchEffectSink, RemoteError,
-        RemoteStreamEncoder, encode_remote_envelope_frame, register_remote_protocol_codecs,
+        RemoteInboundDiagnostic, RemoteStreamEncoder, encode_remote_envelope_frame,
+        register_remote_protocol_codecs,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -200,6 +243,26 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct CollectingDiagnostics {
+        records: Mutex<Vec<RemoteInboundDiagnostic>>,
+    }
+
+    impl CollectingDiagnostics {
+        fn records(&self) -> Vec<RemoteInboundDiagnostic> {
+            self.records.lock().expect("diagnostics poisoned").clone()
+        }
+    }
+
+    impl RemoteInboundDiagnostics for CollectingDiagnostics {
+        fn record(&self, diagnostic: RemoteInboundDiagnostic) {
+            self.records
+                .lock()
+                .expect("diagnostics poisoned")
+                .push(diagnostic);
+        }
+    }
+
     fn registry() -> Arc<Registry> {
         let mut registry = Registry::new();
         registry.register::<Ping, _>(PingCodec).unwrap();
@@ -259,6 +322,105 @@ mod tests {
 
         assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), 11);
         assert!(system.dead_letters().is_empty());
+    }
+
+    #[test]
+    fn system_inbound_reports_business_deserialization_diagnostics() {
+        let system = ActorSystem::builder("receiver-business-decode-diagnostics")
+            .build()
+            .unwrap();
+        let registry = Arc::new(Registry::new());
+        let effects = Arc::new(RecordingEffectSink::default());
+        let death_watch = system
+            .spawn(
+                "remote-watch",
+                RemoteDeathWatchActor::props(effects as Arc<dyn RemoteDeathWatchEffectSink>),
+            )
+            .unwrap();
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+        let inbound = ActorSystemRemoteInbound::<Ping>::with_diagnostics(
+            system,
+            registry,
+            death_watch,
+            42,
+            diagnostics.clone() as Arc<dyn RemoteInboundDiagnostics>,
+        );
+        let envelope = RemoteEnvelope::new(
+            local_actor("target"),
+            Some(remote_actor("source")),
+            SerializedMessage::new(
+                901,
+                Ping::MANIFEST.into(),
+                Ping::VERSION,
+                Bytes::from(vec![7]),
+            ),
+        );
+
+        let error = inbound
+            .handle_frame(
+                RemoteStreamId::Ordinary,
+                encode_remote_envelope_frame(&envelope).unwrap(),
+            )
+            .expect_err("missing business codec should fail");
+
+        assert!(matches!(error, RemoteError::Serialization(_)));
+        assert_eq!(
+            diagnostics.records(),
+            vec![RemoteInboundDiagnostic::SerializationFailure {
+                recipient: local_actor("target"),
+                sender: Some(remote_actor("source")),
+                serializer_id: 901,
+                manifest: Ping::MANIFEST.to_string(),
+                version: Ping::VERSION,
+                reason: error.to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn system_inbound_reports_business_delivery_diagnostics() {
+        let system = ActorSystem::builder("receiver-business-delivery-diagnostics")
+            .build()
+            .unwrap();
+        let registry = registry();
+        let effects = Arc::new(RecordingEffectSink::default());
+        let death_watch = system
+            .spawn(
+                "remote-watch",
+                RemoteDeathWatchActor::props(effects as Arc<dyn RemoteDeathWatchEffectSink>),
+            )
+            .unwrap();
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+        let inbound = ActorSystemRemoteInbound::<Ping>::with_remote_settings_and_diagnostics(
+            system,
+            registry.clone(),
+            death_watch,
+            42,
+            RemoteSettings::new("127.0.0.1", 25520),
+            diagnostics.clone() as Arc<dyn RemoteInboundDiagnostics>,
+        );
+        let envelope = RemoteEnvelope::new(
+            local_actor("missing"),
+            Some(remote_actor("source")),
+            registry.serialize(&Ping { value: 15 }).unwrap(),
+        );
+
+        let error = inbound
+            .handle_frame(
+                RemoteStreamId::Ordinary,
+                encode_remote_envelope_frame(&envelope).unwrap(),
+            )
+            .expect_err("missing local recipient should fail delivery");
+
+        assert!(matches!(error, RemoteError::Inbound(_)));
+        assert_eq!(
+            diagnostics.records(),
+            vec![RemoteInboundDiagnostic::DeliveryFailure {
+                recipient: local_actor("missing"),
+                sender: Some(remote_actor("source")),
+                reason: error.to_string(),
+            }]
+        );
     }
 
     #[test]

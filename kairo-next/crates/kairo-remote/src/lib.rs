@@ -110,6 +110,9 @@
 //! [`RemoteInbound::with_diagnostics`] can attach a backend-neutral
 //! [`RemoteInboundDiagnostics`] sink to record structured serialization and
 //! delivery failures without choosing a logging or metrics dependency.
+//! [`ActorSystemRemoteInbound::with_diagnostics`] and
+//! [`ActorSystemRemoteInbound::with_remote_settings_and_diagnostics`] carry the
+//! same observer through actor-system inbound frame routing.
 
 mod association;
 mod association_cache;

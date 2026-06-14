@@ -2835,3 +2835,9 @@ Consequences:
   deterministically.
 - Future facade wiring can map observability settings into concrete observer
   installation without changing wire decoding or local delivery semantics.
+
+Follow-up:
+`ActorSystemRemoteInbound` now exposes diagnostic-aware constructors that pass
+the same observer into its business-message `RemoteInbound`, so actor-system
+runtime composition can report serialization and local-delivery failures
+without changing the remote death-watch system-control path.
