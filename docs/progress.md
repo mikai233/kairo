@@ -2074,7 +2074,9 @@ Implemented:
 - The cluster TCP bootstrap example smoke suite now also validates sender-side
   route-preservation delivery: after a three-node sender removes one peer from
   its membership view, the remaining route still carries a stable-manifest
-  `Join` to the surviving peer.
+  `Join` to the surviving peer, while a send to the removed peer rejects
+  through the association cache and leaves that peer's membership recorder
+  quiet.
 - The cluster TCP bootstrap example smoke suite now also validates replacement
   peer delivery: after a sender removes an old peer route and installs a route
   to a replacement peer, a stable-manifest `Join` reaches the replacement
@@ -2093,7 +2095,9 @@ Implemented:
 - The distributed-data TCP bootstrap example smoke suite now also validates
   sender-side route-preservation delivery: after a three-node sender removes
   one peer from its membership view, the remaining route still carries a
-  stable-manifest `ReplicatorRead` to the surviving peer.
+  stable-manifest `ReplicatorRead` to the surviving peer, while a send to the
+  removed peer rejects through the association cache and leaves that peer's
+  request recorder quiet.
 - The distributed-data TCP bootstrap example smoke suite now also validates
   replacement peer delivery: after a sender removes an old peer route and
   installs a route to a replacement peer, a stable-manifest `ReplicatorRead`
@@ -2112,7 +2116,9 @@ Implemented:
 - The cluster-tools TCP bootstrap example smoke suite now also validates
   sender-side route-preservation delivery: after a three-node sender removes
   one peer from its membership view, the remaining route still carries a
-  stable-codec `PubSubStatus` publish to the surviving peer.
+  stable-codec `PubSubStatus` publish to the surviving peer, while a send to
+  the removed peer rejects through the association cache and leaves that peer's
+  mediator subscriber quiet.
 - The cluster-tools TCP bootstrap example smoke suite now also validates
   replacement peer delivery: after a sender removes an old peer route and
   installs a route to a replacement peer, a stable-codec `PubSubStatus`
@@ -3066,5 +3072,13 @@ cargo test -p kairo-cluster bootstrap_sender_keeps_remaining_membership_route_de
 cargo test -p kairo-cluster tcp_peer_bootstrap --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples cluster_tcp_peer_bootstrap_keeps_remaining_join_route_after_peer_removed --all-targets --all-features
+cargo test -p kairo-examples ddata_tcp_peer_bootstrap_keeps_remaining_read_route_after_peer_removed --all-targets --all-features
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_keeps_remaining_pubsub_route_after_peer_removed --all-targets --all-features
+cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 ```

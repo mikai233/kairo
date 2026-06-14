@@ -176,6 +176,21 @@ fn cluster_tcp_peer_bootstrap_keeps_remaining_join_route_after_peer_removed() ->
                 .any(|target| target.node() == node_b.self_node())
         );
 
+        let removed_error = node_a
+            .send_join_to(&node_c, ["after-removal-removed"])
+            .expect_err("removed cluster peer route should reject sends");
+        assert!(
+            removed_error
+                .to_string()
+                .contains("no remote association route"),
+            "unexpected removed cluster peer send error: {removed_error:?}"
+        );
+        assert!(
+            node_c
+                .wait_for_join_count(1, Duration::from_millis(100))
+                .is_empty()
+        );
+
         node_a.send_join_to(&node_b, ["after-removal"])?;
         let after = node_b.wait_for_join_count(2, Duration::from_secs(2));
         assert_eq!(after.len(), 2);
@@ -402,6 +417,21 @@ fn ddata_tcp_peer_bootstrap_keeps_remaining_read_route_after_peer_removed() -> T
                 .active_targets
                 .iter()
                 .any(|target| target.node() == node_b.self_node())
+        );
+
+        let removed_error = node_a
+            .send_read_to(&node_c, "counter-after-removal-removed")
+            .expect_err("removed distributed-data peer route should reject sends");
+        assert!(
+            removed_error
+                .to_string()
+                .contains("no remote association route"),
+            "unexpected removed distributed-data peer send error: {removed_error:?}"
+        );
+        assert!(
+            node_c
+                .wait_for_request_count(1, Duration::from_millis(100))
+                .is_empty()
         );
 
         node_a.send_read_to(&node_b, "counter-after-removal")?;
@@ -636,6 +666,26 @@ fn cluster_tools_tcp_peer_bootstrap_keeps_remaining_pubsub_route_after_peer_remo
                 .active_targets
                 .iter()
                 .any(|target| target.node() == node_b.self_node())
+        );
+
+        let removed = PubSubStatus {
+            from: node_a.self_node().clone(),
+            versions: BTreeMap::from([(cluster_tools_tcp::EXAMPLE_PUBSUB_TOPIC.to_string(), 33)]),
+            reply: false,
+        };
+        let removed_error = node_a
+            .send_status_to(&node_c, removed)
+            .expect_err("removed cluster-tools peer route should reject sends");
+        assert!(
+            removed_error
+                .to_string()
+                .contains("no remote association route"),
+            "unexpected removed cluster-tools peer send error: {removed_error:?}"
+        );
+        assert!(
+            node_c
+                .wait_for_status_count(1, Duration::from_millis(100))
+                .is_empty()
         );
 
         let after = PubSubStatus {
