@@ -1,7 +1,8 @@
 mod support;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use kairo_actor::{Address, Props, Recipient};
 use kairo_cluster::{
@@ -23,6 +24,27 @@ use crate::{
 };
 
 use support::*;
+
+fn send_read_until_received(
+    outbound: &impl Recipient<ReplicatorRead>,
+    requests: &RecordingRequests,
+    read: ReplicatorRead,
+    timeout: Duration,
+) -> Vec<(ReplicaId, kairo_serialization::RemoteEnvelope)> {
+    let deadline = Instant::now() + timeout;
+    let mut last_error = None;
+    while Instant::now() < deadline {
+        if let Err(error) = outbound.tell(read.clone()) {
+            last_error = Some(error.reason().to_string());
+        }
+        let received = requests.wait_for_len(1, Duration::from_millis(50));
+        if !received.is_empty() {
+            return received;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    panic!("remote request was not delivered before timeout; last send error: {last_error:?}");
+}
 
 #[test]
 fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
@@ -449,15 +471,34 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
 #[test]
 fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
     let _guard = bootstrap_socket_test_lock();
+    let registry = registry();
     let first_kit = ActorSystemTestKit::new("ddata-bootstrap-first").unwrap();
     let second_kit = ActorSystemTestKit::new("ddata-bootstrap-second").unwrap();
     let third_kit = ActorSystemTestKit::new("ddata-bootstrap-third").unwrap();
     let first_runtime = bind_runtime("ddata-bootstrap-first", 1, 11, ReplicaId::new("first"));
-    let second_runtime = bind_runtime("ddata-bootstrap-second", 2, 22, ReplicaId::new("second"));
-    let third_runtime = bind_runtime("ddata-bootstrap-third", 3, 33, ReplicaId::new("third"));
+    let first_cache = first_runtime.association_cache().clone();
     let first_node = first_runtime.self_node().clone();
+    let first_settings = first_runtime.runtime().settings().clone();
+    let second_requests = Arc::new(RecordingRequests::default());
+    let third_requests = Arc::new(RecordingRequests::default());
+    let second_runtime = bind_runtime_with_requests(
+        "ddata-bootstrap-second",
+        2,
+        22,
+        ReplicaId::from(&first_node),
+        second_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
     let second_node = second_runtime.self_node().clone();
+    let second_settings = second_runtime.runtime().settings().clone();
+    let third_runtime = bind_runtime_with_requests(
+        "ddata-bootstrap-third",
+        3,
+        33,
+        ReplicaId::from(&first_node),
+        third_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
     let third_node = third_runtime.self_node().clone();
+    let third_settings = third_runtime.runtime().settings().clone();
     let first_publisher = spawn_publisher(&first_kit, "first-publisher", first_node.clone());
     let second_publisher = spawn_publisher(&second_kit, "second-publisher", second_node.clone());
     let third_publisher = spawn_publisher(&third_kit, "third-publisher", third_node.clone());
@@ -507,17 +548,89 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Member::new(second_node.clone(), Vec::new()).with_status(MemberStatus::Up),
         Member::new(third_node.clone(), Vec::new()).with_status(MemberStatus::Up),
     ]);
-    for publisher in [&first_publisher, &second_publisher, &third_publisher] {
-        publisher
-            .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
-            .unwrap();
-    }
+    first_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
+        .unwrap();
 
     await_connector_routes(
         first_bootstrap.connector(),
         &first_snapshots,
         &[second_node.clone(), third_node.clone()],
     );
+
+    let first_ref = replicator_actor_ref_for("ddata-bootstrap-first", &first_settings)
+        .expect("first ref should be serializable");
+    let second_ref = replicator_actor_ref_for("ddata-bootstrap-second", &second_settings)
+        .expect("second ref should be serializable");
+    let third_ref = replicator_actor_ref_for("ddata-bootstrap-third", &third_settings)
+        .expect("third ref should be serializable");
+    let to_second = outbound(
+        ReplicaId::from(&second_node),
+        second_ref.clone(),
+        first_ref.clone(),
+        registry.clone(),
+        first_cache.clone(),
+    );
+    let to_third = outbound(
+        ReplicaId::from(&third_node),
+        third_ref.clone(),
+        first_ref.clone(),
+        registry.clone(),
+        first_cache,
+    );
+
+    let second_received = send_read_until_received(
+        &to_second,
+        &second_requests,
+        ReplicatorRead {
+            key: "counter-second".to_string(),
+            from: Some(ReplicaId::from(&first_node)),
+        },
+        Duration::from_secs(1),
+    );
+    let third_received = send_read_until_received(
+        &to_third,
+        &third_requests,
+        ReplicatorRead {
+            key: "counter-third".to_string(),
+            from: Some(ReplicaId::from(&first_node)),
+        },
+        Duration::from_secs(1),
+    );
+
+    assert_eq!(second_received.len(), 1);
+    assert_eq!(second_received[0].0, ReplicaId::from(&first_node));
+    assert_eq!(
+        second_received[0].1.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    let second_read = registry
+        .deserialize::<ReplicatorRead>(second_received[0].1.message.clone())
+        .unwrap();
+    assert_eq!(second_read.from, Some(ReplicaId::from(&first_node)));
+    assert_eq!(second_read.key, "counter-second");
+    assert_eq!(second_received[0].1.recipient, second_ref);
+    assert_eq!(second_received[0].1.sender, Some(first_ref.clone()));
+
+    assert_eq!(third_received.len(), 1);
+    assert_eq!(third_received[0].0, ReplicaId::from(&first_node));
+    assert_eq!(
+        third_received[0].1.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    let third_read = registry
+        .deserialize::<ReplicatorRead>(third_received[0].1.message.clone())
+        .unwrap();
+    assert_eq!(third_read.from, Some(ReplicaId::from(&first_node)));
+    assert_eq!(third_read.key, "counter-third");
+    assert_eq!(third_received[0].1.recipient, third_ref);
+    assert_eq!(third_received[0].1.sender, Some(first_ref));
+
+    for publisher in [&second_publisher, &third_publisher] {
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
+            .unwrap();
+    }
     await_connector_routes(
         second_bootstrap.connector(),
         &second_snapshots,

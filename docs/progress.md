@@ -837,12 +837,13 @@ Implemented:
   and their final shutdown are owned by the structured multi-node harness.
 - Distributed-data TCP peer bootstrap now also has a three-node full-mesh
   socket validation: three real bound runtimes are spawned through the
-  bootstrap facade, one shared gossip snapshot is published to all connector
-  actors, and each connector installs membership-derived routes for both
-  remote peers before coordinated shutdown stops all live-route connectors;
-  the same scenario now publishes a reduced two-node membership view and
-  validates the surviving nodes remove the departed node's active route through
-  the connector boundary.
+  bootstrap facade, membership-derived routes from the first node carry stable
+  `ReplicatorRead` request envelopes to both peer request receivers with
+  preserved sender and recipient wire refs, and each connector installs routes
+  for both remote peers before coordinated shutdown stops all live-route
+  connectors; the same scenario now publishes a reduced two-node membership
+  view and validates the surviving nodes remove the departed node's active
+  route through the connector boundary.
 - Distributed-data TCP peer bootstrap lifecycle coverage now validates
   membership removal: after two bound runtimes install socket routes from a
   shared gossip snapshot, publishing a sender-side snapshot without the peer
@@ -2054,7 +2055,8 @@ Not yet implemented:
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
-  two-node example smoke test and three-node bootstrap route validation.
+  two-node example smoke test and three-node bootstrap route/request-delivery
+  validation.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level coverage and the
   multi-node graceful-shutdown validation that now proves remembered entity
@@ -2069,6 +2071,10 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding multi_node_graceful_shutdown_rebalances_region_shard_across_nodes
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
