@@ -102,6 +102,10 @@ impl PubSubGossipActor {
         self
     }
 
+    pub fn max_delta_entries(&self) -> usize {
+        self.max_delta_entries
+    }
+
     pub fn registry(&self) -> &PubSubRegistryState {
         &self.registry
     }

@@ -335,6 +335,32 @@ impl ClusterShardingConfig {
     }
 
     #[cfg(feature = "cluster-sharding")]
+    pub fn to_shard_count(&self) -> Result<u64, ConfigError> {
+        self.validated_shard_count()
+    }
+
+    pub fn to_rebalance_interval(&self) -> Result<Duration, ConfigError> {
+        reject_zero_duration(
+            self.rebalance_interval,
+            "cluster.sharding.rebalance_interval",
+        )?;
+        Ok(self.rebalance_interval)
+    }
+
+    #[cfg(feature = "cluster-sharding")]
+    pub fn shard_id_for(
+        &self,
+        entity_id: impl AsRef<str>,
+    ) -> Result<kairo_cluster_sharding::ShardId, ConfigError> {
+        kairo_cluster_sharding::shard_id_for(entity_id, self.to_shard_count()?).map_err(|error| {
+            ConfigError::InvalidValue {
+                path: "cluster.sharding.number_of_shards".to_string(),
+                reason: error.to_string(),
+            }
+        })
+    }
+
+    #[cfg(feature = "cluster-sharding")]
     pub fn default_shard_count_matches_runtime(&self) -> bool {
         self.number_of_shards == kairo_cluster_sharding::DEFAULT_SHARD_COUNT
     }
@@ -342,6 +368,16 @@ impl ClusterShardingConfig {
 
 impl ClusterToolsConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if self
+            .singleton_role
+            .as_ref()
+            .is_some_and(|role| role.trim().is_empty())
+        {
+            return Err(ConfigError::InvalidValue {
+                path: "cluster.tools.singleton.role".to_string(),
+                reason: "must not be empty when set".to_string(),
+            });
+        }
         reject_zero_duration(
             self.pubsub_gossip_interval,
             "cluster.tools.pubsub.gossip_interval",
@@ -351,6 +387,41 @@ impl ClusterToolsConfig {
             "cluster.tools.pubsub.max_delta_entries",
         )?;
         Ok(())
+    }
+
+    #[cfg(feature = "cluster-tools")]
+    pub fn to_singleton_scope(&self) -> Result<kairo_cluster_tools::SingletonScope, ConfigError> {
+        self.validate()?;
+        Ok(match &self.singleton_role {
+            Some(role) => kairo_cluster_tools::SingletonScope::for_role(role.clone()),
+            None => kairo_cluster_tools::SingletonScope::all(),
+        })
+    }
+
+    pub fn to_pubsub_gossip_interval(&self) -> Result<Duration, ConfigError> {
+        reject_zero_duration(
+            self.pubsub_gossip_interval,
+            "cluster.tools.pubsub.gossip_interval",
+        )?;
+        Ok(self.pubsub_gossip_interval)
+    }
+
+    pub fn to_pubsub_max_delta_entries(&self) -> Result<usize, ConfigError> {
+        reject_zero(
+            self.pubsub_max_delta_entries,
+            "cluster.tools.pubsub.max_delta_entries",
+        )?;
+        Ok(self.pubsub_max_delta_entries)
+    }
+
+    #[cfg(feature = "cluster-tools")]
+    pub fn to_pubsub_gossip_actor(
+        &self,
+        self_node: kairo_cluster::UniqueAddress,
+    ) -> Result<kairo_cluster_tools::PubSubGossipActor, ConfigError> {
+        self.validate()?;
+        Ok(kairo_cluster_tools::PubSubGossipActor::new(self_node)
+            .with_max_delta_entries(self.to_pubsub_max_delta_entries()?))
     }
 }
 

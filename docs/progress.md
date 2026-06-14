@@ -1824,6 +1824,10 @@ Implemented:
   failure-detector/heartbeat settings, sharding shard counts, and cluster-tools
   pubsub settings while keeping the base config model usable without enabling
   every runtime crate.
+- `ClusterShardingConfig` now exposes validated shard-count, rebalance
+  interval, and stable `shard_id_for` helpers, while `ClusterToolsConfig` maps
+  singleton role settings into `SingletonScope` and pubsub settings into
+  gossip interval/max-delta values plus a configured `PubSubGossipActor`.
 - `KairoSettings::validate` now validates all format-neutral configuration
   sections, including programmatically constructed actor, remote, cluster
   heartbeat, downing, sharding, and cluster-tools settings.

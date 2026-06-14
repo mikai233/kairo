@@ -499,6 +499,95 @@ release_after = "30s"
 }
 
 #[test]
+#[cfg(feature = "cluster-sharding")]
+fn config_converts_sharding_settings_to_runtime_helpers() {
+    let settings = parse_toml_str(
+        r#"
+[cluster.sharding]
+number_of_shards = 128
+rebalance_interval = "30s"
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(settings.cluster.sharding.to_shard_count().unwrap(), 128);
+    assert_eq!(
+        settings.cluster.sharding.to_rebalance_interval().unwrap(),
+        Duration::from_secs(30)
+    );
+    assert!(
+        !settings
+            .cluster
+            .sharding
+            .default_shard_count_matches_runtime()
+    );
+    assert_eq!(
+        settings.cluster.sharding.shard_id_for("counter-1").unwrap(),
+        crate::cluster_sharding::shard_id_for("counter-1", 128).unwrap()
+    );
+}
+
+#[test]
+#[cfg(all(feature = "cluster", feature = "cluster-tools"))]
+fn config_converts_cluster_tools_settings_to_runtime_helpers() {
+    use crate::cluster::{Member, UniqueAddress};
+    use kairo_actor::Address;
+
+    let settings = parse_toml_str(
+        r#"
+[cluster.tools.singleton]
+role = "backend"
+
+[cluster.tools.pubsub]
+gossip_interval = "250ms"
+max_delta_entries = 7
+"#,
+    )
+    .unwrap();
+
+    let scope = settings.cluster.tools.to_singleton_scope().unwrap();
+    let self_node = node("tools", 1);
+    let backend = Member::new(self_node.clone(), vec!["backend".to_string()]);
+    let frontend = Member::new(node("frontend", 2), vec!["frontend".to_string()]);
+
+    assert_eq!(scope.role(), Some("backend"));
+    assert!(scope.includes(&backend));
+    assert!(!scope.includes(&frontend));
+    assert_eq!(
+        settings.cluster.tools.to_pubsub_gossip_interval().unwrap(),
+        Duration::from_millis(250)
+    );
+    assert_eq!(
+        settings
+            .cluster
+            .tools
+            .to_pubsub_max_delta_entries()
+            .unwrap(),
+        7
+    );
+
+    let gossip = settings
+        .cluster
+        .tools
+        .to_pubsub_gossip_actor(self_node.clone())
+        .unwrap();
+    assert_eq!(gossip.registry().self_node(), &self_node);
+    assert_eq!(gossip.max_delta_entries(), 7);
+
+    fn node(name: &str, uid: u64) -> UniqueAddress {
+        UniqueAddress::new(
+            Address::new(
+                "kairo",
+                name,
+                Some(format!("{name}.example.test")),
+                Some(2552),
+            ),
+            uid,
+        )
+    }
+}
+
+#[test]
 #[cfg(feature = "actor")]
 fn config_runtime_helpers_validate_directly_constructed_settings() {
     let actor = ActorConfig {
@@ -611,6 +700,24 @@ fn config_validate_checks_all_format_neutral_sections() {
         ConfigError::InvalidValue {
             path: "cluster.sharding.rebalance_interval".to_string(),
             reason: "must be greater than zero".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        cluster: super::ClusterConfig {
+            tools: super::ClusterToolsConfig {
+                singleton_role: Some(String::new()),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "cluster.tools.singleton.role".to_string(),
+            reason: "must not be empty when set".to_string(),
         }
     );
 
