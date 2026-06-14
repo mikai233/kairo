@@ -2007,6 +2007,11 @@ Implemented:
   route-preservation delivery: after a three-node sender removes one peer from
   its membership view, the remaining route still carries a stable-manifest
   `Join` to the surviving peer.
+- The cluster TCP bootstrap example smoke suite now validates failed-dial
+  lifecycle cleanup through the public example boundary: when an unreachable
+  peer enters membership, the connector reports a pending reconnect, and when
+  that peer leaves the sender's membership view, both the pending reconnect
+  and route count clear.
 - The distributed-data TCP bootstrap example now keeps its public reusable
   node boundary wired to a real recording request receiver and shared
   association cache, and the smoke suite sends a stable-manifest
@@ -2802,6 +2807,7 @@ cargo test -p kairo-examples --all-targets --all-features
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-examples cluster_tcp_peer_bootstrap_keeps_remaining_join_route_after_peer_removed --all-targets --all-features
+cargo test -p kairo-examples cluster_tcp_peer_bootstrap_clears_pending_reconnect_when_peer_leaves --all-targets --all-features
 cargo fmt --all -- --check
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features

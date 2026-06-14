@@ -1,6 +1,11 @@
 use std::collections::BTreeMap;
+use std::net::TcpListener;
+use std::thread;
 use std::time::Duration;
+use std::time::Instant;
 
+use kairo::actor::Address;
+use kairo::cluster::UniqueAddress;
 use kairo::cluster_tools::PubSubStatus;
 use kairo::distributed_data::ReplicaId;
 use kairo_examples::cluster_tcp;
@@ -65,6 +70,32 @@ fn cluster_tcp_peer_bootstrap_removes_route_when_membership_shrinks() -> TestRes
     result?;
     shutdown_a?;
     shutdown_b?;
+    Ok(())
+}
+
+#[test]
+fn cluster_tcp_peer_bootstrap_clears_pending_reconnect_when_peer_leaves() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let node = cluster_tcp::ClusterTcpExampleNode::bind(
+        "cluster-pending-node-a",
+        1,
+        11,
+        "cluster-pending-node-a-peers",
+    )?;
+    let result = (|| -> TestResult {
+        let missing = missing_peer("cluster-pending-missing", 2);
+        node.publish_up_members(vec![node.self_node().clone(), missing.clone()])?;
+        wait_for_cluster_pending_reconnect(&node, &missing, Duration::from_secs(2))?;
+
+        node.publish_up_members(vec![node.self_node().clone()])?;
+        wait_for_cluster_no_routes_or_pending(&node, Duration::from_secs(2))?;
+        Ok(())
+    })();
+
+    let shutdown = node.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown?;
     Ok(())
 }
 
@@ -461,4 +492,67 @@ fn cluster_tools_tcp_peer_bootstrap_reinstalls_route_for_replacement_peer() -> T
     shutdown_b?;
     shutdown_c?;
     Ok(())
+}
+
+fn missing_peer(system_name: &str, uid: u64) -> UniqueAddress {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("unused port should bind");
+    let port = listener
+        .local_addr()
+        .expect("unused port should resolve")
+        .port();
+    drop(listener);
+    UniqueAddress::new(
+        Address::new(
+            "kairo",
+            system_name,
+            Some("127.0.0.1".to_string()),
+            Some(port),
+        ),
+        uid,
+    )
+}
+
+fn wait_for_cluster_pending_reconnect(
+    node: &cluster_tcp::ClusterTcpExampleNode,
+    expected: &UniqueAddress,
+    timeout: Duration,
+) -> TestResult {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let snapshot = node.connector_snapshot(timeout)?;
+        let has_pending = snapshot
+            .pending_reconnects
+            .iter()
+            .any(|pending| pending.target.node() == expected);
+        if snapshot.route_count == 0 && has_pending {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out waiting for pending cluster reconnect to {expected:?}: {snapshot:?}"
+            )
+            .into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_for_cluster_no_routes_or_pending(
+    node: &cluster_tcp::ClusterTcpExampleNode,
+    timeout: Duration,
+) -> TestResult {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let snapshot = node.connector_snapshot(timeout)?;
+        if snapshot.route_count == 0 && snapshot.pending_reconnects.is_empty() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out waiting for cluster routes and pending reconnects to clear: {snapshot:?}"
+            )
+            .into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
