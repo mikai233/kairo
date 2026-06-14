@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use kairo_actor::{ActorRef, Props};
+use kairo_actor::{ActorRef, Address, Props};
 use kairo_remote::{RemoteOutbound, RemoteSettings};
 use kairo_serialization::{ActorRefWireData, Registry};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
@@ -38,7 +38,7 @@ fn tcp_membership_socket_updates_downing_provider_state() {
     let receiver_snapshots = receiver_snapshots.take();
 
     let registration = sender.dial(receiver.local_address().clone()).unwrap();
-    wait_for_route(&receiver);
+    wait_for_routes(&receiver, 1);
 
     assert_member_status(
         &receiver_membership,
@@ -122,6 +122,173 @@ fn tcp_membership_socket_updates_downing_provider_state() {
     receiver.shutdown().unwrap();
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender() {
+    let sender_kit = ActorSystemTestKit::new("cluster-live-downing-multi-sender").unwrap();
+    let (first_kit, first_time) =
+        ActorSystemTestKit::with_manual_time("cluster-live-downing-multi-first").unwrap();
+    let second_kit = ActorSystemTestKit::new("cluster-live-downing-multi-second").unwrap();
+    let registry = registry();
+    let sender = bind_probe_runtime("multi-sender", 1, 11, &sender_kit, registry.clone());
+    let first_membership = SharedMembership::default();
+    let first_snapshots = SharedSnapshotProbe::default();
+    let first = bind_membership_runtime(
+        "multi-first",
+        2,
+        22,
+        &first_kit,
+        registry.clone(),
+        first_membership.clone(),
+        first_snapshots.clone(),
+    );
+    let second_membership = SharedMembership::default();
+    let second_snapshots = SharedSnapshotProbe::default();
+    let second = bind_membership_runtime(
+        "multi-second",
+        3,
+        33,
+        &second_kit,
+        registry.clone(),
+        second_membership.clone(),
+        second_snapshots,
+    );
+    let first_membership = first_membership.take();
+    let first_snapshots = first_snapshots.take();
+    let second_membership = second_membership.take();
+
+    let first_registration = sender.dial(first.local_address().clone()).unwrap();
+    let second_registration = sender.dial(second.local_address().clone()).unwrap();
+    wait_for_routes(&sender, 2);
+    wait_for_routes(&first, 1);
+    wait_for_routes(&second, 1);
+
+    let sender_outbound_to_first = ClusterMembershipWireOutbound::new(
+        first.self_node().clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(Arc::new(
+            sender.association_cache().clone(),
+        ) as Arc<dyn RemoteOutbound>),
+    );
+    let sender_outbound_to_second = ClusterMembershipWireOutbound::new(
+        second.self_node().clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(Arc::new(
+            sender.association_cache().clone(),
+        ) as Arc<dyn RemoteOutbound>),
+    );
+
+    for outbound in [&sender_outbound_to_first, &sender_outbound_to_second] {
+        outbound
+            .send_membership(ClusterMembershipMsg::Join {
+                join: Join {
+                    node: sender.self_node().clone(),
+                    roles: Vec::new(),
+                },
+                reply_to: None,
+            })
+            .unwrap();
+    }
+
+    assert_member_status(
+        &first_membership,
+        &first_kit
+            .create_probe::<Gossip>("multi-first-joined-gossip")
+            .unwrap(),
+        sender.self_node(),
+        MemberStatus::Joining,
+    );
+    assert_member_status(
+        &second_membership,
+        &second_kit
+            .create_probe::<Gossip>("multi-second-joined-gossip")
+            .unwrap(),
+        sender.self_node(),
+        MemberStatus::Joining,
+    );
+
+    first_membership
+        .tell(ClusterMembershipMsg::MarkUnreachable {
+            observer: first.self_node().clone(),
+            subject: sender.self_node().clone(),
+        })
+        .unwrap();
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            first_snapshots
+                .provider
+                .tell(DowningProviderMsg::Snapshot {
+                    reply_to: first_snapshots.snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = first_snapshots
+                .snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            if snapshot.responsible
+                && snapshot.stable_timer_active
+                && snapshot.relevant_unreachable == vec![sender.self_node().clone()]
+            {
+                Ok(())
+            } else {
+                Err(format!("unexpected downing snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
+
+    first_time.advance(Duration::from_millis(10));
+    assert_member_status(
+        &first_membership,
+        &first_kit
+            .create_probe::<Gossip>("multi-first-downed-gossip")
+            .unwrap(),
+        sender.self_node(),
+        MemberStatus::Down,
+    );
+
+    assert!(sender.remove_route(first.local_address()));
+    assert_eq!(sender.association_cache().route_count(), 1);
+
+    let late_node = UniqueAddress::new(
+        Address::new(
+            "kairo",
+            "multi-late",
+            Some("127.0.0.1".to_string()),
+            Some(25520),
+        ),
+        44,
+    );
+    sender_outbound_to_second
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: late_node.clone(),
+                roles: vec!["late".to_string()],
+            },
+            reply_to: None,
+        })
+        .unwrap();
+    assert_member_status(
+        &second_membership,
+        &second_kit
+            .create_probe::<Gossip>("multi-second-late-gossip")
+            .unwrap(),
+        &late_node,
+        MemberStatus::Joining,
+    );
+
+    assert!(sender.remove_route(second.local_address()));
+    drop(first_registration);
+    drop(second_registration);
+    sender.shutdown().unwrap();
+    first.shutdown().unwrap();
+    second.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    first_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 fn registry() -> Arc<Registry> {
@@ -327,12 +494,12 @@ fn assert_member_status(
     .unwrap();
 }
 
-fn wait_for_route(runtime: &ClusterTcpAssociationRuntime) {
+fn wait_for_routes(runtime: &ClusterTcpAssociationRuntime, expected: usize) {
     let deadline = Instant::now() + Duration::from_secs(1);
-    while runtime.association_cache().route_count() == 0 && Instant::now() < deadline {
+    while runtime.association_cache().route_count() != expected && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(1));
     }
-    assert_eq!(runtime.association_cache().route_count(), 1);
+    assert_eq!(runtime.association_cache().route_count(), expected);
 }
 
 fn wire_for(node: &UniqueAddress, path: &str) -> ActorRefWireData {

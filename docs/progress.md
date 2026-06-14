@@ -2066,6 +2066,10 @@ Implemented:
   failed-start children are removed from the parent's child registry and their
   child name reservation is released so the parent can spawn a replacement
   under the same logical child name.
+- `kairo-cluster` TCP membership/downing socket coverage now pins a three-node
+  route-preservation path: one membership receiver can mark and down a sender
+  as unreachable while the sender keeps its remaining TCP route live and
+  delivers a later join to a second receiver.
 - `kairo-distributed-data` TCP peer bootstrap two-node route coverage now
   pins coordinated shutdown cleanup of installed association routes on both
   peers after cluster membership installs them.
@@ -2115,12 +2119,14 @@ Not yet implemented:
   localhost crate and example smoke tests.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
-  membership/downing socket validation.
+  membership/downing socket validation and focused three-node
+  route-preservation coverage.
 
 ## Last Validation
 
 ```bash
 cargo test -p kairo-cluster-tools bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
+cargo test -p kairo-cluster tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender
 cargo test -p kairo-distributed-data bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
 cargo test -p kairo-cluster bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
 cargo test -p kairo-cluster-tools connector_clears_pending_reconnect_when_peer_leaves_membership
