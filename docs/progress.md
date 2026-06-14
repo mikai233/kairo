@@ -2074,6 +2074,10 @@ Implemented:
   route reduction with live delivery: after one of two remote peers leaves the
   sender's cluster membership view, the remaining replicator route continues
   to deliver stable-manifest remote read envelopes.
+- `kairo-cluster-tools` TCP peer bootstrap coverage now pins the same
+  sender-side route reduction for pubsub delivery: after one of two remote
+  peers leaves the sender's cluster membership view, the remaining tools route
+  continues to deliver stable-manifest remote publish envelopes.
 - `kairo-distributed-data` TCP peer bootstrap two-node route coverage now
   pins coordinated shutdown cleanup of installed association routes on both
   peers after cluster membership installs them.
@@ -2120,7 +2124,8 @@ Not yet implemented:
   a shared remember store.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader lifecycle tests around the bootstrap facades beyond the current
-  localhost crate and example smoke tests.
+  localhost crate, focused sender-side route-reduction delivery coverage, and
+  example smoke tests.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation and focused three-node
@@ -2130,6 +2135,7 @@ Not yet implemented:
 
 ```bash
 cargo test -p kairo-cluster-tools bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
+cargo test -p kairo-cluster-tools bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed
 cargo test -p kairo-distributed-data bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed
 cargo test -p kairo-cluster tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender
 cargo test -p kairo-distributed-data bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry

@@ -28,6 +28,27 @@ fn unused_port() -> u16 {
     listener.local_addr().unwrap().port()
 }
 
+fn assert_pubsub_publish(
+    probes: &ClusterToolsInboundProbes,
+    expected_topic: TopicName,
+    expected_message: TestMessage,
+) {
+    match probes.mediator.expect_msg(Duration::from_secs(1)).unwrap() {
+        DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::Publish {
+            topic,
+            message,
+            mode,
+            reply_to,
+        }) => {
+            assert_eq!(topic, expected_topic);
+            assert_eq!(message, expected_message);
+            assert_eq!(mode, TopicPublishMode::Broadcast);
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected pubsub publish delivery"),
+    }
+}
+
 #[test]
 fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
     let _guard = bootstrap_socket_test_lock();
@@ -529,6 +550,132 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     old_receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
     new_receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed() {
+    let _guard = bootstrap_socket_test_lock();
+    let first_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-reduce-first").unwrap();
+    let second_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-reduce-second").unwrap();
+    let third_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-reduce-third").unwrap();
+    let registry = registry();
+    let first_runtime = bind_runtime(
+        "cluster-tools-bootstrap-reduce-first",
+        1,
+        11,
+        &first_kit,
+        registry.clone(),
+    );
+    let first_cache = first_runtime.association_cache().clone();
+    let (second_runtime, second_probes) = bind_runtime_with_probes(
+        "cluster-tools-bootstrap-reduce-second",
+        2,
+        22,
+        &second_kit,
+        registry.clone(),
+    );
+    let (third_runtime, third_probes) = bind_runtime_with_probes(
+        "cluster-tools-bootstrap-reduce-third",
+        3,
+        33,
+        &third_kit,
+        registry.clone(),
+    );
+    let first_node = first_runtime.self_node().clone();
+    let second_node = second_runtime.self_node().clone();
+    let third_node = third_runtime.self_node().clone();
+    let first_publisher = spawn_publisher(&first_kit, "first-publisher", first_node.clone());
+    let first_cluster = Cluster::new(first_publisher.clone());
+    let settings = ClusterToolsTcpPeerBootstrapSettings::new().with_connector_settings(
+        ClusterToolsTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
+
+    let first_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        first_kit.system(),
+        first_cluster,
+        first_runtime,
+        settings.with_connector_name("first-tools-peer"),
+    )
+    .unwrap();
+    let first_snapshots = first_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("first-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &first_publisher,
+        up_gossip([first_node.clone(), second_node.clone(), third_node.clone()]),
+    );
+    await_connector_routes(
+        first_bootstrap.connector(),
+        &first_snapshots,
+        &[second_node.clone(), third_node.clone()],
+    );
+
+    let first_outbound = Arc::new(first_cache) as Arc<dyn RemoteOutbound>;
+    let second_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        second_node.clone(),
+        registry.clone(),
+        first_outbound.clone(),
+    );
+    let third_outbound =
+        PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(third_node, registry, first_outbound);
+
+    second_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 21 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    third_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("invoices"),
+            message: TestMessage { value: 34 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+
+    assert_pubsub_publish(
+        &second_probes,
+        TopicName::new("orders"),
+        TestMessage { value: 21 },
+    );
+    assert_pubsub_publish(
+        &third_probes,
+        TopicName::new("invoices"),
+        TestMessage { value: 34 },
+    );
+
+    publish_gossip(
+        &first_publisher,
+        up_gossip([first_node.clone(), second_node.clone()]),
+    );
+    await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
+
+    second_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 55 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &second_probes,
+        TopicName::new("orders"),
+        TestMessage { value: 55 },
+    );
+
+    run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
+    second_runtime.shutdown().unwrap();
+    third_runtime.shutdown().unwrap();
+    first_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]
