@@ -1926,6 +1926,9 @@ Implemented:
   failed-start children are removed from the parent's child registry and their
   child name reservation is released so the parent can spawn a replacement
   under the same logical child name.
+- `kairo-distributed-data` TCP peer bootstrap two-node route coverage now
+  pins coordinated shutdown cleanup of installed association routes on both
+  peers after cluster membership installs them.
 - `kairo-actor` local core spawn/tell, builder, recipient, name validation,
   dead-letter, local resolution, stop, name-reuse, and termination tests now
   live in a focused sibling test module, leaving the parent test module for
@@ -1965,6 +1968,10 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership
+cargo fmt --all -- --check
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor child_startup_failure_cleans_parent_registry_and_releases_name
 cargo fmt --all -- --check
 cargo test -p kairo-actor --all-targets --all-features

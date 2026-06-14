@@ -73,6 +73,8 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
     let sender_runtime = bind_runtime("ddata-bootstrap-sender", 1, 11, ReplicaId::new("receiver"));
     let receiver_runtime =
         bind_runtime("ddata-bootstrap-receiver", 2, 22, ReplicaId::new("sender"));
+    let sender_cache = sender_runtime.association_cache().clone();
+    let receiver_cache = receiver_runtime.association_cache().clone();
     let sender_node = sender_runtime.self_node().clone();
     let receiver_node = receiver_runtime.self_node().clone();
     let sender_publisher = spawn_publisher(sender_kit, "sender-publisher", sender_node.clone());
@@ -135,9 +137,13 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
         &receiver_snapshots,
         &sender_node,
     );
+    assert_eq!(sender_cache.route_count(), 1);
+    assert_eq!(receiver_cache.route_count(), 1);
 
     run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
+    assert_eq!(sender_cache.route_count(), 0);
     run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
+    assert_eq!(receiver_cache.route_count(), 0);
     nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
