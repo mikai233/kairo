@@ -8,6 +8,19 @@ pub type ManualTimeHandle = Cancellable;
 
 const NO_MESSAGE_SETTLE: Duration = Duration::from_millis(50);
 
+pub trait NoMessageProbe {
+    fn expect_no_msg(&self, duration: Duration) -> Result<(), ProbeError>;
+}
+
+impl<M> NoMessageProbe for TestProbe<M>
+where
+    M: Send + 'static,
+{
+    fn expect_no_msg(&self, duration: Duration) -> Result<(), ProbeError> {
+        TestProbe::expect_no_msg(self, duration)
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ManualTime {
     scheduler: ManualScheduler,
@@ -42,14 +55,11 @@ impl ManualTime {
         self.scheduler.advance(amount);
     }
 
-    pub fn expect_no_msg_for<M>(
+    pub fn expect_no_msg_for(
         &self,
         duration: Duration,
-        probes: &[&TestProbe<M>],
-    ) -> Result<(), ProbeError>
-    where
-        M: Send + 'static,
-    {
+        probes: &[&dyn NoMessageProbe],
+    ) -> Result<(), ProbeError> {
         self.advance(duration);
         for probe in probes {
             probe.expect_no_msg(NO_MESSAGE_SETTLE)?;

@@ -96,6 +96,31 @@ fn manual_time_expect_no_msg_for_advances_and_checks_probe() {
 }
 
 #[test]
+fn manual_time_expect_no_msg_for_accepts_heterogeneous_probes() {
+    let kit = ActorSystemTestKit::new("manual-time-expect-no-msg-heterogeneous")
+        .expect("system should build");
+    let text = kit
+        .create_probe::<&'static str>("text")
+        .expect("text probe should spawn");
+    let number = kit
+        .create_probe::<u8>("number")
+        .expect("number probe should spawn");
+    let time = ManualTime::default();
+
+    time.schedule_once(Duration::from_secs(1), text.actor_ref(), "text");
+    time.schedule_once(Duration::from_secs(2), number.actor_ref(), 2);
+
+    time.expect_no_msg_for(Duration::from_millis(999), &[&text, &number])
+        .expect("no probe should receive before the first deadline");
+
+    time.advance(Duration::from_millis(1));
+    assert_eq!(text.expect_msg(Duration::from_millis(50)).unwrap(), "text");
+    assert_eq!(number.expect_no_msg(Duration::ZERO), Ok(()));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn manual_time_expect_no_msg_for_reports_due_probe_message() {
     let kit =
         ActorSystemTestKit::new("manual-time-expect-no-msg-failure").expect("system should build");

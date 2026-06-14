@@ -94,7 +94,7 @@ mod system;
 
 pub use assertions::{AwaitAssertError, await_assert};
 pub use fishing::FishingOutcome;
-pub use manual_time::{ManualTime, ManualTimeHandle};
+pub use manual_time::{ManualTime, ManualTimeHandle, NoMessageProbe};
 pub use multi_node::{MultiNode, MultiNodeError, MultiNodeResult, MultiNodeTestKit};
 pub use probe::{ProbeError, TestProbe};
 pub use system::ActorSystemTestKit;

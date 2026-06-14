@@ -296,8 +296,9 @@ Implemented:
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.
-- `ManualTime::expect_no_msg_for` advances manual time and verifies same-typed
-  probes remain quiet after a short dispatcher settle window.
+- `ManualTime::expect_no_msg_for` advances manual time and verifies probes
+  remain quiet after a short dispatcher settle window, including heterogeneous
+  `TestProbe<M>` protocol types through the `NoMessageProbe` boundary.
 - `kairo-testkit::MultiNodeTestKit` now owns multiple named local actor systems
   for deterministic integration tests, can create typed probes on specific
   nodes, wires optional manual time per node, can advance all manual-time node
@@ -2144,6 +2145,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-testkit manual_time
 cargo test -p kairo-actor ask_
 cargo test -p kairo-actor restart_supervision_rebuilds_actor_state_and_keeps_ref_path
 cargo test -p kairo-actor stopped_watcher_is_removed_from_subject_watchers
