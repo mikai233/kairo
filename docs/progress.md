@@ -1826,7 +1826,9 @@ Implemented:
   snapshot before coordinated shutdown stops all live-route connectors; the same
   scenario now publishes a reduced two-node membership view and validates the
   surviving nodes remove the departed node's active route through the connector
-  boundary.
+  boundary. The test now also pins the underlying association-cache route
+  counts across full mesh, reduced membership, and coordinated shutdown cleanup
+  for all three bootstrap-owned runtimes.
 - Cluster-tools TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
