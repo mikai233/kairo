@@ -1885,6 +1885,10 @@ Implemented:
 - `kairo-cluster-sharding` handoff worker, coordinator handoff completion,
   and graceful shutdown orchestration tests now live in a focused sibling test
   module.
+- `kairo-cluster-sharding` now has multi-node graceful region-shutdown
+  validation: a coordinator node hands off a store-backed shard from one
+  region node to another through the typed handoff transport, clears the
+  shutting-down region, and starts the shard on the replacement region.
 - `kairo-cluster-sharding` transport-neutral handoff delivery success and
   missing-target tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` local coordinator bootstrap, manual region
@@ -2009,7 +2013,8 @@ Not yet implemented:
   two-node example smoke test and three-node bootstrap route validation.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration and broader
-  multi-node validation of graceful region shutdown across nodes.
+  multi-node graceful-shutdown validation beyond the current local typed
+  handoff-transport scenario.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader lifecycle tests around the bootstrap facades beyond the current
   localhost crate and example smoke tests.

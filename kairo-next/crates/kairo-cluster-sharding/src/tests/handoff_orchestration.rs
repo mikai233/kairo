@@ -340,6 +340,165 @@ fn coordinator_actor_graceful_shutdown_rebalances_region_shards() {
 }
 
 #[test]
+fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
+    let nodes = kairo_testkit::MultiNodeTestKit::new([
+        "sharding-graceful-coordinator",
+        "sharding-graceful-region-a",
+        "sharding-graceful-region-b",
+    ])
+    .unwrap();
+    let coordinator_kit = nodes.kit("sharding-graceful-coordinator").unwrap();
+    let region_a_kit = nodes.kit("sharding-graceful-region-a").unwrap();
+    let region_b_kit = nodes.kit("sharding-graceful-region-b").unwrap();
+    let region_a = region_a_kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let region_b = region_b_kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards(
+                "region-b",
+                "orders",
+                10,
+                10,
+                BTreeMap::new(),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let host = nodes
+        .create_probe_on::<HostShardPlan<String>>("sharding-graceful-region-a", "host")
+        .unwrap();
+    region_a
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    let bootstrap = ShardCoordinatorBootstrap::local_regions([
+        HandoffRegionTarget::new("region-a", region_a.clone()),
+        HandoffRegionTarget::new("region-b", region_b.clone()),
+    ])
+    .unwrap();
+    let (mut state, transport) = bootstrap.into_parts();
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    let coordinator = coordinator_kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                RebalanceThenAllocateStrategy::new(["shard-1"], "region-b"),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                transport,
+            ),
+        )
+        .unwrap();
+    let shutdown = nodes
+        .create_probe_on::<RegionShutdownPlan>("sharding-graceful-coordinator", "shutdown")
+        .unwrap();
+    let snapshot = nodes
+        .create_probe_on::<CoordinatorStateSnapshot>(
+            "sharding-graceful-coordinator",
+            "coordinator-state",
+        )
+        .unwrap();
+    let region_a_state = nodes
+        .create_probe_on::<ShardRegionSnapshot>("sharding-graceful-region-a", "region-a-state")
+        .unwrap();
+    let region_b_state = nodes
+        .create_probe_on::<ShardRegionSnapshot>("sharding-graceful-region-b", "region-b-state")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::GracefulShutdownReq {
+            region: "region-a".to_string(),
+            reply_to: Some(shutdown.actor_ref()),
+        })
+        .unwrap();
+    assert!(matches!(
+        shutdown.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionShutdownPlan::Started { region, ref shards }
+            if region == "region-a" && shards.len() == 1 && shards[0].shard == "shard-1"
+    ));
+
+    let mut completed = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: snapshot.actor_ref(),
+            })
+            .unwrap();
+        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
+        completed = !state.rebalance_in_progress.contains_key("shard-1")
+            && !state
+                .allocations
+                .get("region-a")
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
+            && state
+                .allocations
+                .get("region-b")
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
+        if completed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        completed,
+        "multi-node graceful shutdown should hand off and reallocate region-a shard"
+    );
+
+    region_a
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_a_state.actor_ref(),
+        })
+        .unwrap();
+    let region_a_snapshot = region_a_state
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert!(!region_a_snapshot.local_shards.contains("shard-1"));
+    assert!(!region_a_snapshot.handing_off_shards.contains("shard-1"));
+
+    region_b
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_b_state.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        region_b_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .contains("shard-1")
+    );
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_system_inbound_remote_graceful_shutdown_rebalances_to_local_region() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("coordinator-remote-graceful-shutdown").unwrap();
