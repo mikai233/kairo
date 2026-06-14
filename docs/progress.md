@@ -1998,6 +1998,12 @@ Implemented:
   removes a departed peer route, publishing a new `UniqueAddress` installs a
   route to the replacement peer through the public reusable example module
   boundary.
+- The distributed-data TCP bootstrap example now keeps its public reusable
+  node boundary wired to a real recording request receiver and shared
+  association cache, and the smoke suite sends a stable-manifest
+  `ReplicatorRead` across the bootstrapped socket route, decodes it on the
+  receiver side, and validates both configured peer identity and payload
+  sender metadata.
 - TCP bootstrap example smoke-test support now lives in a focused sibling
   module, keeping shared live-socket locking, node adapters, membership
   publication, and route-count assertions separate from the scenario tests.
@@ -2756,4 +2762,9 @@ cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
+cargo test -p kairo-examples ddata_tcp_peer_bootstrap_delivers_remote_read_request --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
 ```

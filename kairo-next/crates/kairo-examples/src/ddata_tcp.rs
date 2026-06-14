@@ -1,6 +1,6 @@
 use std::error::Error;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -10,13 +10,15 @@ use kairo::cluster::{
     UniqueAddress,
 };
 use kairo::distributed_data::{
-    ReplicaId, ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver,
-    ReplicatorRemoteRequestError, ReplicatorRemoteRequestReceiver, ReplicatorTcpPeerBootstrap,
-    ReplicatorTcpPeerBootstrapIdentity, ReplicatorTcpPeerBootstrapSettings,
-    ReplicatorTcpPeerConnectorMsg, ReplicatorTcpPeerConnectorSettings,
-    ReplicatorTcpPeerConnectorSnapshot,
+    ReplicaId, ReplicatorRead, ReplicatorRemoteAssociationCacheOutbound,
+    ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver,
+    ReplicatorRemoteRequestError, ReplicatorRemoteRequestReceiver, ReplicatorRemoteTarget,
+    ReplicatorTcpPeerBootstrap, ReplicatorTcpPeerBootstrapSettings, ReplicatorTcpPeerConnectorMsg,
+    ReplicatorTcpPeerConnectorSettings, ReplicatorTcpPeerConnectorSnapshot,
+    ReplicatorTcpPeerRuntime, register_ddata_protocol_codecs, replicator_actor_ref_for,
 };
-use kairo::remote::RemoteSettings;
+use kairo::remote::{RemoteAssociationCache, RemoteSettings};
+use kairo::serialization::Registry;
 use kairo::serialization::RemoteEnvelope;
 
 use crate::reply::spawn_one_shot_reply;
@@ -49,10 +51,56 @@ impl ReplicatorRemoteReplyReceiver for IgnoreReplicatorReplies {
     }
 }
 
+#[derive(Default)]
+pub struct RecordingReplicatorRequests {
+    received: Mutex<Vec<(ReplicaId, RemoteEnvelope)>>,
+    changed: Condvar,
+}
+
+impl RecordingReplicatorRequests {
+    pub fn wait_for_len(&self, len: usize, timeout: Duration) -> Vec<(ReplicaId, RemoteEnvelope)> {
+        let deadline = Instant::now() + timeout;
+        let mut received = self.received.lock().expect("requests poisoned");
+        while received.len() < len {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let (next_received, wait) = self
+                .changed
+                .wait_timeout(received, remaining)
+                .expect("requests poisoned");
+            received = next_received;
+            if wait.timed_out() {
+                break;
+            }
+        }
+        received.clone()
+    }
+}
+
+impl ReplicatorRemoteRequestReceiver for RecordingReplicatorRequests {
+    fn receive_request_from(
+        &self,
+        from: ReplicaId,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ReplicatorRemoteRequestError> {
+        self.received
+            .lock()
+            .expect("requests poisoned")
+            .push((from, envelope));
+        self.changed.notify_all();
+        Ok(())
+    }
+}
+
 pub struct DDataTcpExampleNode {
     system: ActorSystem,
     publisher: ActorRef<ClusterEventPublisherMsg>,
     bootstrap: ReplicatorTcpPeerBootstrap,
+    registry: Arc<Registry>,
+    association_cache: RemoteAssociationCache,
+    remote_settings: RemoteSettings,
+    request_recorder: Arc<RecordingReplicatorRequests>,
 }
 
 impl DDataTcpExampleNode {
@@ -62,6 +110,40 @@ impl DDataTcpExampleNode {
         system_uid: u64,
         connector_name: &str,
     ) -> Result<Self, Box<dyn Error>> {
+        Self::bind_with_remote_replica(
+            system_name,
+            node_uid,
+            system_uid,
+            connector_name,
+            ReplicaId::new("example-peer"),
+        )
+    }
+
+    pub fn bind_with_remote_replica(
+        system_name: &str,
+        node_uid: u64,
+        system_uid: u64,
+        connector_name: &str,
+        remote_replica: ReplicaId,
+    ) -> Result<Self, Box<dyn Error>> {
+        Self::bind_with_requests(
+            system_name,
+            node_uid,
+            system_uid,
+            connector_name,
+            Arc::new(RecordingReplicatorRequests::default()),
+            remote_replica,
+        )
+    }
+
+    fn bind_with_requests(
+        system_name: &str,
+        node_uid: u64,
+        system_uid: u64,
+        connector_name: &str,
+        request_recorder: Arc<RecordingReplicatorRequests>,
+        remote_replica: ReplicaId,
+    ) -> Result<Self, Box<dyn Error>> {
         let system = ActorSystem::builder(system_name).build()?;
         let publisher_node = UniqueAddress::new(Address::local(system_name), node_uid);
         let publisher = system.spawn(
@@ -69,6 +151,7 @@ impl DDataTcpExampleNode {
             Props::new(move || ClusterEventPublisher::new(publisher_node.clone())),
         )?;
         let cluster = Cluster::new(publisher.clone());
+        let registry = ddata_registry()?;
         let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
             .with_connector_name(connector_name)
             .with_connector_settings(
@@ -76,23 +159,28 @@ impl DDataTcpExampleNode {
                     .with_automatic_retry_ticks(false),
             )
             .with_shutdown_timeout(Duration::from_secs(1));
-        let bootstrap = ReplicatorTcpPeerBootstrap::bind_and_spawn(
-            &system,
-            cluster,
-            ReplicatorTcpPeerBootstrapIdentity::new(
-                node_uid,
-                system_uid,
-                ReplicaId::new("example-peer"),
-            ),
-            settings,
-            Arc::new(IgnoreReplicatorRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        let runtime = ReplicatorTcpPeerRuntime::bind(
+            system_name,
+            node_uid,
+            system_uid,
+            remote_replica,
+            settings.runtime_settings().remote().clone(),
+            request_recorder.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
             Arc::new(IgnoreReplicatorReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
         )?;
+        let association_cache = runtime.association_cache().clone();
+        let remote_settings = runtime.runtime().settings().clone();
+        let bootstrap =
+            ReplicatorTcpPeerBootstrap::spawn_with_runtime(&system, cluster, runtime, settings)?;
 
         Ok(Self {
             system,
             publisher,
             bootstrap,
+            registry,
+            association_cache,
+            remote_settings,
+            request_recorder,
         })
     }
 
@@ -149,6 +237,40 @@ impl DDataTcpExampleNode {
         }
     }
 
+    pub fn send_read_to(
+        &self,
+        target: &DDataTcpExampleNode,
+        key: impl Into<String>,
+    ) -> Result<(), Box<dyn Error>> {
+        let sender_ref = replicator_actor_ref_for(self.system.name(), &self.remote_settings)?;
+        let target_ref = replicator_actor_ref_for(target.system.name(), &target.remote_settings)?;
+        let outbound = ReplicatorRemoteEnvelopeOutbound::new(
+            ReplicatorRemoteTarget::new(ReplicaId::from(target.self_node()), target_ref),
+            Some(sender_ref),
+            self.registry.clone(),
+            ReplicatorRemoteAssociationCacheOutbound::new(self.association_cache.clone()),
+        );
+        outbound.send(&ReplicatorRead {
+            key: key.into(),
+            from: Some(ReplicaId::from(self.self_node())),
+        })?;
+        Ok(())
+    }
+
+    pub fn wait_for_request_count(
+        &self,
+        len: usize,
+        timeout: Duration,
+    ) -> Vec<(ReplicaId, RemoteEnvelope)> {
+        self.request_recorder.wait_for_len(len, timeout)
+    }
+
+    pub fn decode_read(&self, envelope: RemoteEnvelope) -> Result<ReplicatorRead, Box<dyn Error>> {
+        Ok(self
+            .registry
+            .deserialize::<ReplicatorRead>(envelope.message)?)
+    }
+
     pub fn shutdown(self, timeout: Duration) -> Result<(), ActorError> {
         self.system
             .run_coordinated_shutdown("ddata tcp example complete", timeout)
@@ -157,8 +279,20 @@ impl DDataTcpExampleNode {
 
 pub fn bind_two_nodes() -> Result<(DDataTcpExampleNode, DDataTcpExampleNode), Box<dyn Error>> {
     Ok((
-        DDataTcpExampleNode::bind("ddata-node-a", 1, 11, "ddata-node-a-peers")?,
-        DDataTcpExampleNode::bind("ddata-node-b", 2, 22, "ddata-node-b-peers")?,
+        DDataTcpExampleNode::bind_with_remote_replica(
+            "ddata-node-a",
+            1,
+            11,
+            "ddata-node-a-peers",
+            ReplicaId::new("ddata-node-b"),
+        )?,
+        DDataTcpExampleNode::bind_with_remote_replica(
+            "ddata-node-b",
+            2,
+            22,
+            "ddata-node-b-peers",
+            ReplicaId::new("ddata-node-a"),
+        )?,
     ))
 }
 
@@ -179,4 +313,10 @@ pub fn bind_three_nodes() -> Result<
 
 fn up_member(node: UniqueAddress) -> Member {
     Member::new(node, vec![]).with_status(MemberStatus::Up)
+}
+
+fn ddata_registry() -> Result<Arc<Registry>, Box<dyn Error>> {
+    let mut registry = Registry::new();
+    register_ddata_protocol_codecs(&mut registry)?;
+    Ok(Arc::new(registry))
 }

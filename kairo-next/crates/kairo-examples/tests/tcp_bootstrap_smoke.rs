@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use kairo::distributed_data::ReplicaId;
 use kairo_examples::cluster_tcp;
 use kairo_examples::cluster_tools_tcp;
 use kairo_examples::ddata_tcp;
@@ -81,6 +82,31 @@ fn ddata_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b) = ddata_tcp::bind_two_nodes()?;
     let result = assert_two_node_bidirectional_routes(&node_a, &node_b);
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
+fn ddata_tcp_peer_bootstrap_delivers_remote_read_request() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b) = ddata_tcp::bind_two_nodes()?;
+    let result = (|| -> TestResult {
+        assert_two_node_bidirectional_routes(&node_a, &node_b)?;
+        node_a.send_read_to(&node_b, "example-counter")?;
+        let received = node_b.wait_for_request_count(1, Duration::from_secs(2));
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].0, ReplicaId::new("ddata-node-a"));
+        let read = node_b.decode_read(received[0].1.clone())?;
+        assert_eq!(read.key, "example-counter");
+        assert_eq!(read.from, Some(ReplicaId::from(node_a.self_node())));
+        Ok(())
+    })();
 
     let shutdown_a = node_a.shutdown(Duration::from_secs(1));
     let shutdown_b = node_b.shutdown(Duration::from_secs(1));
