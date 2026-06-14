@@ -13,6 +13,7 @@ use crate::death_watch::{
 use crate::dispatcher::DispatcherSettings;
 use crate::error::ActorError;
 use crate::event_stream::EventStream;
+use crate::extensions::{Extension, ExtensionRegistry};
 use crate::mailbox::MailboxSettings;
 use crate::path::{ActorPath, Address};
 use crate::provider::LocalActorRefProvider;
@@ -46,6 +47,7 @@ pub(crate) struct ActorSystemInner {
     pub(crate) mailbox: MailboxSettings,
     pub(crate) scheduler: Scheduler,
     pub(crate) event_stream: EventStream,
+    pub(crate) extensions: ExtensionRegistry,
     pub(crate) receptionist: Receptionist,
     pub(crate) coordinated_shutdown: CoordinatedShutdown,
     pub(crate) dead_letters: DeadLetters,
@@ -78,6 +80,32 @@ impl ActorSystem {
 
     pub fn event_stream(&self) -> EventStream {
         self.inner.event_stream.clone()
+    }
+
+    pub fn extensions(&self) -> ExtensionRegistry {
+        self.inner.extensions.clone()
+    }
+
+    pub fn register_extension<T, F>(&self, create: F) -> Arc<T>
+    where
+        T: Extension,
+        F: FnOnce(&ActorSystem) -> T,
+    {
+        self.inner.extensions.register(self, create)
+    }
+
+    pub fn extension<T>(&self) -> Result<Arc<T>, ActorError>
+    where
+        T: Extension,
+    {
+        self.inner.extensions.extension()
+    }
+
+    pub fn has_extension<T>(&self) -> bool
+    where
+        T: Extension,
+    {
+        self.inner.extensions.has_extension::<T>()
     }
 
     pub fn receptionist(&self) -> Receptionist {

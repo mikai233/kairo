@@ -10,6 +10,7 @@ mod asks;
 mod backoff_supervisor;
 mod coordinated_shutdown;
 mod event_stream;
+mod extensions;
 mod local_core;
 mod receive_timeout;
 mod receptionist;

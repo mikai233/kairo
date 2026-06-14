@@ -37,6 +37,9 @@ Implemented:
   mailbox for local actors; overflow rejects the send, records a dead letter,
   and leaves the actor running while system messages remain on their separate
   priority lane.
+- `ActorSystem` exposes a type-keyed extension registry; extensions are created
+  at most once per actor system, retrieved as `Arc<T>`, and report explicit
+  lookup errors when missing.
 - `ActorSystemBuilder` construction and scheduler/dispatcher wiring now live in
   a focused `system::builder` submodule instead of the actor-system runtime
   operations file.

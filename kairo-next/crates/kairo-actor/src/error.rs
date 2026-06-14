@@ -31,6 +31,8 @@ pub enum ActorError {
     InvalidThroughput,
     #[error("mailbox capacity must be greater than zero")]
     InvalidMailboxCapacity,
+    #[error("extension `{0}` is not registered")]
+    ExtensionNotRegistered(&'static str),
     #[error("actor `{actor}` is not self or a direct child of `{owner}`")]
     InvalidStopTarget { actor: String, owner: String },
     #[error("actor `{actor}` is stopping")]

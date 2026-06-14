@@ -43,6 +43,23 @@ adapters. Do not introduce `AsyncActor` for the initial rewrite model.
 Local-only messages do not need serialization metadata. Add remote metadata only
 when a message crosses a remote boundary.
 
+## Actor-System Extensions
+
+Use extensions for shared actor-system services that must be created once per
+system and retrieved type-safely:
+
+```rust
+use std::sync::Arc;
+
+let created = system.register_extension(|system| MyExtension::new(system.name()));
+let looked_up = system.extension::<MyExtension>()?;
+assert!(Arc::ptr_eq(&created, &looked_up));
+```
+
+Extensions are keyed by their Rust type and scoped to one `ActorSystem`.
+Mutable actor-like behavior should usually remain in actors, with the extension
+holding typed refs, handles, or other thread-safe service state.
+
 ## Configuration
 
 Use TOML for file-backed configuration:

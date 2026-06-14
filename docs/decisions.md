@@ -2728,3 +2728,28 @@ Consequences:
   helpers per strategy.
 - Lease-majority settings can be validated without introducing a concrete
   lease dependency into the `kairo` facade crate.
+
+## ADR-0096: Extensions Are Type-Keyed Actor-System Services
+
+Status: Accepted
+
+Context:
+Pekko extensions are loaded once per actor system and retrieved through an
+extension id. Kairo needs the same observable lifetime and lookup semantics,
+but JVM class-name loading, reflective setup overrides, and Scala singleton
+extension ids do not translate cleanly to a Rust-first API.
+
+Decision:
+Kairo models extensions with `ExtensionRegistry` in `kairo-actor`. Extensions
+are registered explicitly through `ActorSystem::register_extension`, keyed by
+the Rust `TypeId` of the extension type, created at most once per actor system,
+and returned as `Arc<T>`. Lookups use `ActorSystem::extension::<T>()` and report
+an explicit `ActorError::ExtensionNotRegistered` when no instance exists.
+
+Consequences:
+- Extension instances are type-safe, thread-safe, and scoped to one actor
+  system without relying on string class names or global registries.
+- Mutable actor-like behavior should still live in actors; extensions are best
+  used as shared system services, registries, handles, or integration points.
+- Future config-driven eager loading can layer explicit registrar functions on
+  top of the same registry without introducing HOCON or JVM reflection.
