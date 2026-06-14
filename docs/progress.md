@@ -340,7 +340,8 @@ Implemented:
   queue, plus `ActorSystemTestKit` for creating probe-backed local actor
   systems in tests.
 - `TestProbe<M>` can register typed death-watch messages through
-  `watch_with`, and `TestProbe<AnyActorRef>` provides `watch_terminated` and
+  `watch_with`, remove those registrations through `unwatch`, and
+  `TestProbe<AnyActorRef>` provides `watch_terminated` and
   `expect_terminated` helpers for deterministic local lifecycle assertions.
 - `TestProbe::expect_msg_matching` can now assert a typed predicate while
   returning the original message, improving deterministic assertions for
@@ -3017,5 +3018,12 @@ cargo test -p kairo-actor watch_with_then_unwatch_then_watch_changes_notificatio
 cargo test -p kairo-actor watch --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit test_probe_unwatch_suppresses_custom_termination_message --all-targets --all-features
+cargo test -p kairo-testkit probe --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```

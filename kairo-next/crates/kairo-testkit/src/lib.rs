@@ -13,6 +13,8 @@
 //!   [`TestProbe::expect_no_msg`] assert direct probe traffic.
 //! - [`TestProbe::receive_messages`] collects a fixed batch under one shared
 //!   deadline.
+//! - [`TestProbe::watch_with`] and [`TestProbe::unwatch`] register and remove
+//!   typed lifecycle notifications through the same death-watch path as actors.
 //! - [`TestProbe::fish_for_message`] classifies incoming messages with
 //!   [`FishingOutcome`].
 //! - [`await_assert`] retries result-returning assertions without relying on

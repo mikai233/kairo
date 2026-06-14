@@ -189,6 +189,28 @@ fn test_probe_watch_with_receives_custom_termination_message() {
 }
 
 #[test]
+fn test_probe_unwatch_suppresses_custom_termination_message() {
+    let kit = ActorSystemTestKit::new("test-probe-unwatch").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let subject = kit
+        .system()
+        .spawn("subject", Props::new(|| UnitActor))
+        .expect("subject should spawn");
+
+    probe
+        .watch_with(&subject, "terminated")
+        .expect("watch should register");
+    probe.unwatch(&subject);
+    kit.system().stop(&subject);
+
+    assert_eq!(probe.expect_no_msg(Duration::from_millis(50)), Ok(()));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn test_probe_expect_terminated_checks_expected_actor() {
     let kit = ActorSystemTestKit::new("test-probe-expect-terminated").expect("system should build");
     let probe = kit

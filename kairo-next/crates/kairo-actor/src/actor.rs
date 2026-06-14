@@ -251,7 +251,7 @@ impl<M: Send + 'static> Context<M> {
     }
 
     pub fn unwatch<N: Send + 'static>(&mut self, actor: &ActorRef<N>) {
-        self.system.unwatch(self.myself.path(), actor.path());
+        self.system.unwatch(&self.myself, actor);
     }
 
     pub fn schedule_once<N: Send + 'static>(

@@ -376,7 +376,15 @@ impl ActorSystem {
         self.watch_registered(subject, registration)
     }
 
-    pub(crate) fn unwatch(&self, watcher: &ActorPath, subject: &ActorPath) {
+    pub fn unwatch<M, N>(&self, watcher: &ActorRef<M>, subject: &ActorRef<N>)
+    where
+        M: Send + 'static,
+        N: Send + 'static,
+    {
+        self.unwatch_path(watcher.path(), subject.path());
+    }
+
+    pub(crate) fn unwatch_path(&self, watcher: &ActorPath, subject: &ActorPath) {
         self.inner.death_watch.unwatch(subject, watcher);
     }
 

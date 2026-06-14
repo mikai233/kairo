@@ -39,6 +39,10 @@ impl<M: Send + 'static> TestProbe<M> {
             .watch_with(self.actor_ref.clone(), subject.clone(), message)
     }
 
+    pub fn unwatch<N: Send + 'static>(&self, subject: &ActorRef<N>) {
+        self.system.unwatch(&self.actor_ref, subject);
+    }
+
     pub fn expect_msg(&self, timeout: Duration) -> Result<M, ProbeError> {
         match self.receiver.recv_timeout(timeout) {
             Ok(message) => Ok(message),
