@@ -1,8 +1,10 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
+use kairo::cluster::MemberStatus;
 use kairo::cluster_sharding::PassivatePlan;
 use kairo::prelude::*;
+use kairo_examples::cluster_membership::run_cluster_membership;
 use kairo_examples::configured_counter::run_configured_counter;
 use kairo_examples::counter::{CounterCmd, spawn_counter};
 use kairo_examples::ddata_counter::run_ddata_counter;
@@ -85,6 +87,22 @@ fn ddata_counter_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
     assert!(observation.update_changed);
     assert_eq!(observation.change_value, 5);
     assert_eq!(observation.read_value, 5);
+    Ok(())
+}
+
+#[test]
+fn cluster_membership_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
+    let observation = run_cluster_membership("example-smoke-cluster-membership")?;
+
+    assert_eq!(observation.initial_member_count, 0);
+    assert!(
+        observation
+            .up_member
+            .starts_with("kairo://example-smoke-cluster-membership-peer@127.0.0.1:25521#")
+    );
+    assert_eq!(observation.up_member, observation.removed_member);
+    assert_eq!(observation.previous_status, MemberStatus::Up);
+    assert_eq!(observation.final_member_count, 1);
     Ok(())
 }
 

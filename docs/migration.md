@@ -258,6 +258,14 @@ if let Some(diagnostics) = settings
 The observer receives previous gossip, current gossip, and the computed
 cluster-event diff for each real gossip state change.
 
+The runnable `cluster_membership` example shows the public cluster facade
+subscription model end to end: initial state snapshot, `MemberUp` event,
+`MemberRemoved` event, and current-state request:
+
+```bash
+cargo run -p kairo-examples --example cluster_membership
+```
+
 ## Validation
 
 Run focused validation for the area you touch first, then widen as needed:

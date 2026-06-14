@@ -1911,6 +1911,10 @@ Implemented:
   a local `ReplicatorActor<GCounter>`, observes initial not-found state,
   subscribes to the key, applies a local increment, flushes the change
   notification, and reads the CRDT value back.
+- `kairo-examples` now includes a runnable `cluster_membership` example that
+  subscribes through the cluster facade, observes the initial snapshot,
+  publishes a peer `Up` gossip change, publishes member removal, and requests
+  the final current state through reusable helper code with smoke coverage.
 - `kairo-examples` now includes a runnable local cluster-sharding example that
   wires a shard coordinator, local shard region, `ShardingEnvelopeRouter`, and
   `EntityRef<String>` through reusable helper code and demonstrates stable
