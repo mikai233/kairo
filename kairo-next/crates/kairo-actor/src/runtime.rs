@@ -491,12 +491,6 @@ fn restart_actor<A>(
 where
     A: Actor,
 {
-    let Some(mut restarted) = props.restart() else {
-        return Err(ActorError::Message(
-            "restart supervision requires restartable props".to_string(),
-        ));
-    };
-
     context.cancel_all_timers();
     context.cancel_receive_timeout();
     context.cancel_tasks();
@@ -506,6 +500,11 @@ where
     if stop_children_on_restart {
         stop_children_for_restart(system_inner, actor_ref.path());
     }
+    let Some(mut restarted) = props.restart() else {
+        return Err(ActorError::Message(
+            "restart supervision requires restartable props".to_string(),
+        ));
+    };
     context.stop_requested = false;
     invoke_started(&mut restarted, context)?;
     *actor = restarted;
@@ -534,12 +533,6 @@ where
             "bounded restart requires RestartWithLimit strategy".to_string(),
         ));
     };
-    let Some(mut restarted) = props.restart() else {
-        return Err(ActorError::Message(
-            "restart supervision requires restartable props".to_string(),
-        ));
-    };
-
     context.cancel_all_timers();
     context.cancel_receive_timeout();
     context.cancel_tasks();
@@ -551,6 +544,11 @@ where
     }
 
     loop {
+        let Some(mut restarted) = props.restart() else {
+            return Err(ActorError::Message(
+                "restart supervision requires restartable props".to_string(),
+            ));
+        };
         context.stop_requested = false;
         match invoke_started(&mut restarted, context) {
             Ok(()) => {
@@ -569,11 +567,6 @@ where
                 if !supervision_state.restart_allowed(max_restarts, within, Instant::now()) {
                     return Err(error);
                 }
-                restarted = props.restart().ok_or_else(|| {
-                    ActorError::Message(
-                        "restart supervision requires restartable props".to_string(),
-                    )
-                })?;
             }
         }
     }
@@ -590,12 +583,6 @@ fn restart_after_start_failure<A>(
 where
     A: Actor,
 {
-    let Some(restarted) = props.restart() else {
-        return Err(ActorError::Message(
-            "restart supervision requires restartable props".to_string(),
-        ));
-    };
-
     context.cancel_all_timers();
     context.cancel_receive_timeout();
     context.cancel_tasks();
@@ -604,6 +591,11 @@ where
     if stop_children_on_restart {
         stop_children_for_restart(system_inner, actor_ref.path());
     }
+    let Some(restarted) = props.restart() else {
+        return Err(ActorError::Message(
+            "restart supervision requires restartable props".to_string(),
+        ));
+    };
     context.stop_requested = false;
     *actor = restarted;
     Ok(())

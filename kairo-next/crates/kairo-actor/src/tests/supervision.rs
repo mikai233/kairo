@@ -695,6 +695,123 @@ fn restart_supervision_sends_pre_restart_before_stopping_children() {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+enum RestartRecreateOrderEvent {
+    Built(u64),
+    PreRestart,
+    ChildStopped,
+}
+
+struct RestartRecreateOrderChild {
+    events: mpsc::Sender<RestartRecreateOrderEvent>,
+}
+
+impl Actor for RestartRecreateOrderChild {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.events
+            .send(RestartRecreateOrderEvent::ChildStopped)
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+enum RestartRecreateOrderMsg {
+    SpawnChild(mpsc::Sender<()>),
+    Fail,
+}
+
+struct RestartRecreateOrderParent {
+    events: mpsc::Sender<RestartRecreateOrderEvent>,
+}
+
+impl Actor for RestartRecreateOrderParent {
+    type Msg = RestartRecreateOrderMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RestartRecreateOrderMsg::SpawnChild(reply_to) => {
+                let events = self.events.clone();
+                ctx.spawn(
+                    "child",
+                    Props::new(move || RestartRecreateOrderChild {
+                        events: events.clone(),
+                    }),
+                )?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartRecreateOrderMsg::Fail => Err(ActorError::Message("boom".to_string())),
+        }
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PreRestart => self
+                .events
+                .send(RestartRecreateOrderEvent::PreRestart)
+                .map_err(|error| ActorError::Message(error.to_string())),
+            Signal::PostStop => self.stopped(ctx),
+            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
+        }
+    }
+}
+
+#[test]
+fn restart_supervision_builds_replacement_after_pre_restart_and_child_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (events_tx, events_rx) = mpsc::channel();
+    let builds = Arc::new(AtomicU64::new(0));
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable({
+                let events = events_tx.clone();
+                let builds = Arc::clone(&builds);
+                move || {
+                    let generation = builds.fetch_add(1, Ordering::SeqCst) + 1;
+                    events
+                        .send(RestartRecreateOrderEvent::Built(generation))
+                        .expect("restart recreate order receiver should be open");
+                    RestartRecreateOrderParent {
+                        events: events.clone(),
+                    }
+                }
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RestartRecreateOrderEvent::Built(1)
+    );
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartRecreateOrderMsg::SpawnChild(spawned_tx))
+        .unwrap();
+    spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(RestartRecreateOrderMsg::Fail).unwrap();
+
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RestartRecreateOrderEvent::PreRestart
+    );
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RestartRecreateOrderEvent::ChildStopped
+    );
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RestartRecreateOrderEvent::Built(2)
+    );
+}
+
+#[derive(Debug, PartialEq, Eq)]
 enum RestartWatchEvent {
     ChildStopped,
     WatchDelivered,

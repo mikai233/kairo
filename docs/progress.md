@@ -150,6 +150,10 @@ Implemented:
   cleanup hook before the actor instance is replaced, matching Pekko's default
   restart cleanup expectation while still allowing actors to override
   `signal` for custom pre-restart behavior.
+- Restart supervision now builds the replacement actor only after the old actor
+  has run `PreRestart` cleanup and restart-time child teardown has completed,
+  matching Pekko's observable recreate ordering while keeping Kairo's explicit
+  Rust `Props::restartable` factory boundary.
 - Watching an already stopped local actor now has focused integration coverage:
   plain `watch` immediately delivers `Signal::Terminated`, while `watch_with`
   immediately delivers the caller's typed custom message.
@@ -2876,5 +2880,12 @@ cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor restart_supervision_builds_replacement_after_pre_restart_and_child_stop --all-targets --all-features
+cargo test -p kairo-actor supervision --all-targets --all-features
+cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```
