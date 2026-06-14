@@ -9,3 +9,7 @@ handoff_timeout = "45s"
 shard_failure_backoff = "12s"
 rebalance_interval = "30s"
 shard_region_query_timeout = "4s"
+
+[cluster.sharding.least_shard_allocation]
+rebalance_absolute_limit = 4
+rebalance_relative_limit = 0.25

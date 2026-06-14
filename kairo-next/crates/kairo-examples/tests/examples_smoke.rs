@@ -43,6 +43,8 @@ fn configured_counter_example_smoke() -> Result<(), Box<dyn std::error::Error>> 
     assert_eq!(observation.dispatcher_throughput, 2);
     assert_eq!(observation.sharding_shards, 128);
     assert!(observation.remember_entities);
+    assert_eq!(observation.sharding_allocation_absolute_limit, 4);
+    assert_eq!(observation.sharding_allocation_relative_limit, 0.25);
     assert_eq!(observation.sharding_retry_interval, Duration::from_secs(3));
     assert_eq!(
         observation.sharding_handoff_timeout,

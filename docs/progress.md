@@ -1982,6 +1982,10 @@ Implemented:
   count, remember-entity enablement, retry, handoff, failure-backoff,
   rebalance, and query-timeout helper values through the public example
   boundary.
+- The configured-counter example TOML now also exercises
+  `[cluster.sharding.least_shard_allocation]`, and its reusable observation
+  verifies that parsed allocation limits convert through the public
+  `LeastShardAllocationStrategy` helper.
 - `kairo-examples` now includes an `ask_pipe_to_self` example with reusable
   calculation-service and pattern-coordinator modules, demonstrating
   `Context::ask` and `Context::pipe_to_self` without placing the actor logic
@@ -2983,5 +2987,11 @@ cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples configured_counter_example_smoke --all-targets --all-features
+cargo test -p kairo-examples --test examples_smoke --all-features
+cargo test -p kairo-examples --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 ```
