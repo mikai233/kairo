@@ -678,6 +678,32 @@ mod tests {
     }
 
     #[test]
+    fn provider_rejects_serializing_local_ref_from_system_name_prefix() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let other = ActorSystem::builder("locality").build().unwrap();
+        let provider = provider_with_system(system);
+        let (received_tx, _received_rx) = mpsc::channel();
+        let target = other
+            .spawn(
+                "target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+
+        let error = provider
+            .local_actor_ref_to_wire_data(&target)
+            .expect_err("system name prefix must not be treated as the local system");
+
+        assert!(matches!(
+            error,
+            RemoteError::InvalidRemoteRef(_, ref reason)
+                if reason == "actor ref is not owned by this provider"
+        ));
+    }
+
+    #[test]
     fn provider_resolver_trait_keeps_foreign_paths_remote() {
         let system = ActorSystem::builder("local").build().unwrap();
         let provider = provider_with_system(system);

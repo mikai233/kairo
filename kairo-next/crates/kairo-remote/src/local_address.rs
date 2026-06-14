@@ -32,9 +32,11 @@ impl CanonicalLocalAddress {
             "{}://{}@{}:{}",
             self.protocol, self.system, self.host, self.port
         );
-        local_path
-            .strip_prefix(&local_prefix)
-            .map(|suffix| format!("{canonical_prefix}{suffix}"))
+        let suffix = local_path.strip_prefix(&local_prefix)?;
+        if !suffix.starts_with('/') {
+            return None;
+        }
+        Some(format!("{canonical_prefix}{suffix}"))
     }
 
     fn matches(&self, recipient: &ActorRefWireData) -> bool {
