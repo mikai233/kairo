@@ -2217,6 +2217,9 @@ Implemented:
   crate-level test file.
 - `kairo-cluster-sharding` shard allocation and least-shard allocation
   strategy tests now live in a focused sibling test module.
+- `LeastShardAllocationStrategy` constructor validation now has direct focused
+  coverage for zero absolute limits and zero, negative, or non-finite relative
+  limits, matching the facade's runtime configuration validation path.
 - `kairo-cluster-sharding` coordinator state transition tests now live in a
   focused sibling test module.
 - `kairo-cluster-sharding` coordinator runtime shard-home, remember-entity,
@@ -3000,5 +3003,9 @@ git diff --check
 cargo test -p kairo --doc --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo fmt --all -- --check
+git diff --check
+cargo test -p kairo-cluster-sharding allocation --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

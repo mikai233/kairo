@@ -101,6 +101,16 @@ fn least_shard_strategy_limits_rebalance_and_skips_when_in_progress() {
 }
 
 #[test]
+fn least_shard_strategy_rejects_invalid_rebalance_limits() {
+    for (absolute_limit, relative_limit) in [(0, 0.1), (1, 0.0), (1, -0.1), (1, f64::NAN)] {
+        assert_eq!(
+            LeastShardAllocationStrategy::new(absolute_limit, relative_limit).unwrap_err(),
+            ShardingError::InvalidRebalanceLimit
+        );
+    }
+}
+
+#[test]
 fn least_shard_strategy_phase_two_moves_one_shard_to_empty_region() {
     let strategy = LeastShardAllocationStrategy::new(10, 1.0).unwrap();
     let mut allocations = ShardAllocations::from_regions([
