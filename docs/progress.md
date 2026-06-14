@@ -1973,6 +1973,11 @@ Implemented:
   module with a structured observation result, and the examples smoke tests
   validate the TOML facade-to-builder path instead of duplicating setup inside
   the binary.
+- The configured-counter example TOML now also exercises the facade
+  `[cluster.sharding]` settings, and its reusable observation verifies shard
+  count, remember-entity enablement, retry, handoff, failure-backoff,
+  rebalance, and query-timeout helper values through the public example
+  boundary.
 - `kairo-examples` now includes an `ask_pipe_to_self` example with reusable
   calculation-service and pattern-coordinator modules, demonstrating
   `Context::ask` and `Context::pipe_to_self` without placing the actor logic
@@ -2955,5 +2960,11 @@ cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples configured_counter_example_smoke --all-targets --all-features
+cargo test -p kairo-examples --test examples_smoke --all-features
+cargo test -p kairo-examples --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 ```

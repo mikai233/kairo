@@ -1,2 +1,11 @@
 [actor.dispatchers.default]
 throughput = 2
+
+[cluster.sharding]
+number_of_shards = 128
+remember_entities = true
+retry_interval = "3s"
+handoff_timeout = "45s"
+shard_failure_backoff = "12s"
+rebalance_interval = "30s"
+shard_region_query_timeout = "4s"

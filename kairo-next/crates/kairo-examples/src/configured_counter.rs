@@ -10,6 +10,13 @@ use crate::counter::{CounterCmd, spawn_counter};
 pub struct ConfiguredCounterObservation {
     pub value: i64,
     pub dispatcher_throughput: usize,
+    pub sharding_shards: u64,
+    pub remember_entities: bool,
+    pub sharding_retry_interval: Duration,
+    pub sharding_handoff_timeout: Duration,
+    pub sharding_failure_backoff: Duration,
+    pub sharding_rebalance_interval: Duration,
+    pub sharding_query_timeout: Duration,
 }
 
 pub fn run_configured_counter(
@@ -34,6 +41,13 @@ pub fn run_configured_counter(
         Ok(ConfiguredCounterObservation {
             value,
             dispatcher_throughput: system.dispatcher_settings().throughput(),
+            sharding_shards: settings.cluster.sharding.to_shard_count()?,
+            remember_entities: settings.cluster.sharding.remember_entities_enabled(),
+            sharding_retry_interval: settings.cluster.sharding.to_retry_interval()?,
+            sharding_handoff_timeout: settings.cluster.sharding.to_handoff_timeout()?,
+            sharding_failure_backoff: settings.cluster.sharding.to_shard_failure_backoff()?,
+            sharding_rebalance_interval: settings.cluster.sharding.to_rebalance_interval()?,
+            sharding_query_timeout: settings.cluster.sharding.to_shard_region_query_timeout()?,
         })
     })();
 
