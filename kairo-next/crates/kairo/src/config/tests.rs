@@ -372,6 +372,133 @@ expected_response_after = "750ms"
 }
 
 #[test]
+#[cfg(all(feature = "remote", feature = "cluster"))]
+fn config_converts_downing_strategy_to_runtime_hook() {
+    use crate::cluster::{
+        DowningDecision, DowningHook, DowningPlan, Gossip, Member, MemberStatus, Reachability,
+        UniqueAddress,
+    };
+    use kairo_actor::Address;
+
+    let settings = parse_toml_str(
+        r#"
+[cluster.downing]
+strategy = "keep-majority"
+role = "backend"
+"#,
+    )
+    .unwrap();
+    let hook = settings.cluster.downing.to_downing_hook().unwrap();
+    let self_node = node("a", 1);
+    let peer = node("b", 2);
+    let unreachable = node("c", 3);
+    let gossip = Gossip::from_members([
+        Member::new(self_node.clone(), vec!["backend".to_string()]).with_status(MemberStatus::Up),
+        Member::new(peer, vec!["frontend".to_string()]).with_status(MemberStatus::Up),
+        Member::new(unreachable.clone(), vec!["backend".to_string()]).with_status(MemberStatus::Up),
+    ])
+    .with_reachability(Reachability::new().unreachable(self_node.clone(), unreachable.clone()));
+
+    let plan = DowningPlan::from_hook(&hook, &gossip, &self_node);
+
+    assert_eq!(
+        hook.decide(&gossip, &self_node),
+        DowningDecision::DownUnreachable
+    );
+    assert_eq!(plan.nodes_to_down(), &[unreachable]);
+
+    fn node(name: &str, uid: u64) -> UniqueAddress {
+        UniqueAddress::new(
+            Address::new(
+                "kairo",
+                name,
+                Some(format!("{name}.example.test")),
+                Some(2552),
+            ),
+            uid,
+        )
+    }
+}
+
+#[test]
+#[cfg(all(feature = "remote", feature = "cluster"))]
+fn config_converts_lease_majority_with_explicit_lease() {
+    use crate::cluster::{
+        DowningDecision, DowningHook, DowningPlan, Gossip, LeaseMajorityLease, Member,
+        MemberStatus, Reachability, UniqueAddress,
+    };
+    use kairo_actor::Address;
+
+    struct AlwaysAcquire;
+
+    impl LeaseMajorityLease for AlwaysAcquire {
+        fn acquire(&self, lease_name: &str) -> bool {
+            lease_name == "cluster-sbr"
+        }
+    }
+
+    let settings = parse_toml_str(
+        r#"
+[cluster.downing]
+strategy = "lease-majority"
+lease_name = "cluster-sbr"
+role = "backend"
+acquire_lease_delay_for_minority = "3s"
+release_after = "30s"
+"#,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        settings.cluster.downing.to_downing_hook().unwrap_err(),
+        ConfigError::InvalidValue { .. }
+    ));
+    let lease_settings = settings
+        .cluster
+        .downing
+        .to_lease_majority_settings()
+        .unwrap();
+    assert_eq!(lease_settings.lease_name(), "cluster-sbr");
+    assert_eq!(lease_settings.role(), Some("backend"));
+    assert_eq!(
+        lease_settings.acquire_lease_delay_for_minority(),
+        Duration::from_secs(3)
+    );
+    let hook = settings
+        .cluster
+        .downing
+        .to_lease_majority_hook(AlwaysAcquire)
+        .unwrap();
+    let self_node = node("a", 1);
+    let unreachable = node("b", 2);
+    let gossip = Gossip::from_members([
+        Member::new(self_node.clone(), vec!["backend".to_string()]).with_status(MemberStatus::Up),
+        Member::new(unreachable.clone(), vec!["backend".to_string()]).with_status(MemberStatus::Up),
+    ])
+    .with_reachability(Reachability::new().unreachable(self_node.clone(), unreachable.clone()));
+
+    let plan = DowningPlan::from_hook(&hook, &gossip, &self_node);
+
+    assert_eq!(
+        hook.decide(&gossip, &self_node),
+        DowningDecision::DownUnreachable
+    );
+    assert_eq!(plan.nodes_to_down(), &[unreachable]);
+
+    fn node(name: &str, uid: u64) -> UniqueAddress {
+        UniqueAddress::new(
+            Address::new(
+                "kairo",
+                name,
+                Some(format!("{name}.example.test")),
+                Some(2552),
+            ),
+            uid,
+        )
+    }
+}
+
+#[test]
 #[cfg(feature = "actor")]
 fn config_runtime_helpers_validate_directly_constructed_settings() {
     let actor = ActorConfig {

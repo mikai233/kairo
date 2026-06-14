@@ -7,6 +7,49 @@ use super::settings::{
     KairoSettings, MailboxConfig, RemoteConfig, RemoteTransportConfig,
 };
 
+#[cfg(feature = "cluster")]
+#[derive(Debug, Clone)]
+pub enum ConfiguredDowningHook {
+    None,
+    SplitBrain(kairo_cluster::SplitBrainResolverHook),
+}
+
+#[cfg(feature = "cluster")]
+impl kairo_cluster::DowningHook for ConfiguredDowningHook {
+    fn decide(
+        &self,
+        gossip: &kairo_cluster::Gossip,
+        self_node: &kairo_cluster::UniqueAddress,
+    ) -> kairo_cluster::DowningDecision {
+        match self {
+            Self::None => kairo_cluster::NoDowning.decide(gossip, self_node),
+            Self::SplitBrain(hook) => hook.decide(gossip, self_node),
+        }
+    }
+
+    fn decision_delay(
+        &self,
+        gossip: &kairo_cluster::Gossip,
+        self_node: &kairo_cluster::UniqueAddress,
+    ) -> Duration {
+        match self {
+            Self::None => kairo_cluster::NoDowning.decision_delay(gossip, self_node),
+            Self::SplitBrain(hook) => hook.decision_delay(gossip, self_node),
+        }
+    }
+
+    fn plan(
+        &self,
+        gossip: &kairo_cluster::Gossip,
+        self_node: &kairo_cluster::UniqueAddress,
+    ) -> kairo_cluster::DowningPlan {
+        match self {
+            Self::None => kairo_cluster::NoDowning.plan(gossip, self_node),
+            Self::SplitBrain(hook) => hook.plan(gossip, self_node),
+        }
+    }
+}
+
 impl KairoSettings {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.actor.validate()?;
@@ -196,6 +239,77 @@ impl ClusterDowningConfig {
             reject_zero_duration(*release_after, "cluster.downing.release_after")?;
         }
         Ok(())
+    }
+
+    #[cfg(feature = "cluster")]
+    pub fn to_downing_hook(&self) -> Result<ConfiguredDowningHook, ConfigError> {
+        self.validate()?;
+        match &self.strategy {
+            ClusterDowningStrategyConfig::None => Ok(ConfiguredDowningHook::None),
+            ClusterDowningStrategyConfig::DownAll => Ok(ConfiguredDowningHook::SplitBrain(
+                kairo_cluster::SplitBrainResolverHook::down_all(),
+            )),
+            ClusterDowningStrategyConfig::KeepMajority { role } => {
+                Ok(ConfiguredDowningHook::SplitBrain(
+                    kairo_cluster::SplitBrainResolverHook::keep_majority(role.clone()),
+                ))
+            }
+            ClusterDowningStrategyConfig::KeepOldest {
+                role,
+                down_if_alone,
+            } => Ok(ConfiguredDowningHook::SplitBrain(
+                kairo_cluster::SplitBrainResolverHook::keep_oldest(role.clone(), *down_if_alone),
+            )),
+            ClusterDowningStrategyConfig::LeaseMajority { .. } => Err(ConfigError::InvalidValue {
+                path: "cluster.downing.strategy".to_string(),
+                reason:
+                    "lease-majority requires to_lease_majority_hook with an explicit lease implementation"
+                        .to_string(),
+            }),
+        }
+    }
+
+    #[cfg(feature = "cluster")]
+    pub fn to_lease_majority_settings(
+        &self,
+    ) -> Result<kairo_cluster::LeaseMajoritySettings, ConfigError> {
+        self.validate()?;
+        let ClusterDowningStrategyConfig::LeaseMajority {
+            lease_name,
+            role,
+            acquire_lease_delay_for_minority,
+            release_after,
+        } = &self.strategy
+        else {
+            return Err(ConfigError::InvalidValue {
+                path: "cluster.downing.strategy".to_string(),
+                reason: "expected lease-majority".to_string(),
+            });
+        };
+        kairo_cluster::LeaseMajoritySettings::new(
+            lease_name.clone(),
+            role.clone(),
+            *acquire_lease_delay_for_minority,
+            *release_after,
+        )
+        .map_err(|error| ConfigError::InvalidValue {
+            path: "cluster.downing.lease_name".to_string(),
+            reason: error.to_string(),
+        })
+    }
+
+    #[cfg(feature = "cluster")]
+    pub fn to_lease_majority_hook<L>(
+        &self,
+        lease: L,
+    ) -> Result<kairo_cluster::LeaseMajorityHook<L>, ConfigError>
+    where
+        L: kairo_cluster::LeaseMajorityLease,
+    {
+        Ok(kairo_cluster::LeaseMajorityHook::new(
+            self.to_lease_majority_settings()?,
+            lease,
+        ))
     }
 }
 

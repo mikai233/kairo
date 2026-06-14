@@ -89,6 +89,8 @@ pub use kairo_serialization as serialization;
 pub use kairo_testkit as testkit;
 
 pub mod prelude {
+    #[cfg(all(feature = "config", feature = "cluster"))]
+    pub use crate::config::ConfiguredDowningHook;
     #[cfg(feature = "config")]
     pub use crate::config::{
         ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,

@@ -1835,6 +1835,10 @@ Implemented:
   TOML loader parses `none`, `down-all`, `keep-majority`, `keep-oldest`, and
   `lease-majority` settings with role, `down_if_alone`, lease name, acquire
   delay, and release timing validation.
+- `ClusterDowningConfig` can now convert parsed TOML downing strategies into
+  runtime downing hooks for `none`, `down-all`, `keep-majority`, and
+  `keep-oldest`; `lease-majority` intentionally requires a caller-provided
+  lease implementation through explicit lease-majority settings/hook helpers.
 - `kairo-examples` now provides the first runnable example crate under
   `kairo-next`, with a `local_counter` example that demonstrates spawning a
   typed actor, sending local messages without serialization, replying through
@@ -2590,4 +2594,9 @@ cargo test -p kairo-remote --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo test -p kairo config_converts_downing_strategy_to_runtime_hook --all-targets --all-features
+cargo test -p kairo config_converts_lease_majority_with_explicit_lease --all-targets --all-features
+cargo test -p kairo config --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 ```

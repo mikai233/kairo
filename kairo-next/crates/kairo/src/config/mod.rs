@@ -6,6 +6,8 @@ mod settings;
 mod toml_loader;
 
 pub use error::ConfigError;
+#[cfg(feature = "cluster")]
+pub use runtime::ConfiguredDowningHook;
 pub use settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,

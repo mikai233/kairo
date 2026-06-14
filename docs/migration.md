@@ -59,6 +59,20 @@ let settings = kairo::prelude::load_toml_file("kairo.local.toml")?;
 let system = settings.actor.actor_system_builder("app")?.build()?;
 ```
 
+Cluster downing settings can be mapped into runtime hooks for `none`,
+`down-all`, `keep-majority`, and `keep-oldest`:
+
+```rust
+let downing = settings.cluster.downing.to_downing_hook()?;
+```
+
+`lease-majority` requires an explicit lease implementation supplied by the
+application:
+
+```rust
+let lease_hook = settings.cluster.downing.to_lease_majority_hook(my_lease)?;
+```
+
 Do not add HOCON or `hocon-rs` until that parser is intentionally adopted.
 
 ## Remote Messages
@@ -114,4 +128,3 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
 ```
-
