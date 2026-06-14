@@ -672,11 +672,8 @@ fn multi_node_passivated_entity_is_not_recovered_after_rehost() {
     let host_b = nodes
         .create_probe_on::<HostShardPlan<String>>("sharding-passivate-region-b", "host-b")
         .unwrap();
-    let shard_b_ref = nodes
-        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
-            "sharding-passivate-region-b",
-            "shard-b-ref",
-        )
+    let route_b = nodes
+        .create_probe_on::<RegionLocalRoutePlan<String>>("sharding-passivate-region-b", "route-b")
         .unwrap();
     let delivery_b = nodes
         .create_probe_on::<ShardDeliverPlan<String>>("sharding-passivate-region-b", "delivery-b")
@@ -768,21 +765,19 @@ fn multi_node_passivated_entity_is_not_recovered_after_rehost() {
         .unwrap();
     host_b.expect_msg(Duration::from_millis(500)).unwrap();
     region_b
-        .tell(ShardRegionMsg::GetLocalShard {
+        .tell(ShardRegionMsg::RouteToLocalShard {
             shard: "shard-1".to_string(),
-            reply_to: shard_b_ref.actor_ref(),
-        })
-        .unwrap();
-    let shard_b = shard_b_ref
-        .expect_msg(Duration::from_millis(500))
-        .unwrap()
-        .expect("region-b should host shard-1");
-    shard_b
-        .tell(ShardMsg::Deliver {
             message: ShardingEnvelope::new("entity-1", "after-rehost".to_string()),
-            reply_to: delivery_b.actor_ref(),
+            route_reply_to: route_b.actor_ref(),
+            delivery_reply_to: delivery_b.actor_ref(),
         })
         .unwrap();
+    assert_eq!(
+        route_b.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
     assert_eq!(
         delivery_b.expect_msg(Duration::from_millis(500)).unwrap(),
         ShardDeliverPlan::RememberUpdate {

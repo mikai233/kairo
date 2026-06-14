@@ -2276,7 +2276,8 @@ Implemented:
   and terminates a remembered entity, removes it from the shared remember
   store, and a replacement region hosting the same shard treats the next
   delivery as a fresh remembered start instead of recovering the stopped
-  entity.
+  entity. The rehosted delivery now enters through the region-local routing
+  boundary before the shard emits the fresh remembered-start store update.
 - `kairo-cluster-sharding` transport-neutral handoff delivery success and
   missing-target tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` local coordinator bootstrap, manual region
