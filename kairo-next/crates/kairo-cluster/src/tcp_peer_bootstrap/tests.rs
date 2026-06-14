@@ -143,18 +143,23 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
 #[test]
 fn bootstrap_installed_peer_route_delivers_membership_join_to_receiver() {
     let _guard = bootstrap_socket_test_lock();
-    let sender_kit = ActorSystemTestKit::new("cluster-bootstrap-deliver-sender").unwrap();
-    let receiver_kit = ActorSystemTestKit::new("cluster-bootstrap-deliver-receiver").unwrap();
+    let nodes = MultiNodeTestKit::new([
+        "cluster-bootstrap-deliver-sender",
+        "cluster-bootstrap-deliver-receiver",
+    ])
+    .unwrap();
+    let sender_kit = nodes.kit("cluster-bootstrap-deliver-sender").unwrap();
+    let receiver_kit = nodes.kit("cluster-bootstrap-deliver-receiver").unwrap();
     let registry = registry();
-    let sender_runtime = bind_runtime("cluster-bootstrap-deliver-sender", 1, 11, &sender_kit);
+    let sender_runtime = bind_runtime("cluster-bootstrap-deliver-sender", 1, 11, sender_kit);
     let sender_cache = sender_runtime.association_cache().clone();
     let (receiver_runtime, receiver_probes) =
-        bind_runtime_with_probes("cluster-bootstrap-deliver-receiver", 2, 22, &receiver_kit);
+        bind_runtime_with_probes("cluster-bootstrap-deliver-receiver", 2, 22, receiver_kit);
     let sender_node = sender_runtime.self_node().clone();
     let receiver_node = receiver_runtime.self_node().clone();
-    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_publisher = spawn_publisher(sender_kit, "sender-publisher", sender_node.clone());
     let receiver_publisher =
-        spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+        spawn_publisher(receiver_kit, "receiver-publisher", receiver_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
     let receiver_cluster = Cluster::new(receiver_publisher.clone());
     let settings = ClusterTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
@@ -178,11 +183,17 @@ fn bootstrap_installed_peer_route_delivers_membership_join_to_receiver() {
         settings.with_connector_name("receiver-cluster-peer"),
     )
     .unwrap();
-    let sender_snapshots = sender_kit
-        .create_probe::<ClusterTcpPeerConnectorSnapshot>("sender-snapshots")
+    let sender_snapshots = nodes
+        .create_probe_on::<ClusterTcpPeerConnectorSnapshot>(
+            "cluster-bootstrap-deliver-sender",
+            "sender-snapshots",
+        )
         .unwrap();
-    let receiver_snapshots = receiver_kit
-        .create_probe::<ClusterTcpPeerConnectorSnapshot>("receiver-snapshots")
+    let receiver_snapshots = nodes
+        .create_probe_on::<ClusterTcpPeerConnectorSnapshot>(
+            "cluster-bootstrap-deliver-receiver",
+            "receiver-snapshots",
+        )
         .unwrap();
 
     let gossip = Gossip::from_members([
@@ -237,10 +248,9 @@ fn bootstrap_installed_peer_route_delivers_membership_join_to_receiver() {
         _ => panic!("expected cluster join"),
     }
 
-    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
-    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
-    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
-    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

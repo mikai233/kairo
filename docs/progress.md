@@ -1410,7 +1410,10 @@ Implemented:
 - Cluster TCP peer bootstrap now validates payload delivery over an installed
   membership-derived peer route: a real bootstrap-owned sender association
   cache carries a stable-codec `Join` membership message to the remote
-  membership inbound handler before coordinated shutdown.
+  membership inbound handler before coordinated shutdown. The delivery
+  scenario now uses `kairo-testkit::MultiNodeTestKit` so both live
+  bootstrap-owned actor systems and their final shutdown are owned by the
+  structured multi-node harness.
 - Cluster TCP peer bootstrap lifecycle coverage now validates membership
   removal: after a two-node socket route is installed through published gossip,
   publishing sender-local membership without the remote peer removes the
@@ -2260,5 +2263,10 @@ cargo test -p kairo-cluster-sharding region_actor_registers_with_discovered_loca
 cargo fmt --all -- --check
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster bootstrap_installed_peer_route_delivers_membership_join_to_receiver
+cargo test -p kairo-cluster bootstrap
+cargo fmt --all -- --check
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 git diff --check
 ```
