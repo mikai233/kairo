@@ -1914,6 +1914,10 @@ Implemented:
   or restart are rejected and do not re-enter the actor mailbox.
 - `kairo-actor` message-adapter mapping and stopped-owner rejection tests now
   live in a focused sibling test module.
+- `kairo-actor` message-adapter integration tests now pin owner-scoped
+  adapter lifecycles across both owner stop and restart: old adapter refs stop
+  and notify death-watch subscribers when the owner tears down its adapter
+  scope.
 - `kairo-actor` watch, watch_with, self-watch rejection, duplicate-watch
   rejection, unwatch, signal-failure, and parent-child watch tests now live in
   a focused sibling test module.
@@ -1977,6 +1981,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor --test adapters
+cargo fmt --all -- --check
+cargo test -p kairo-actor --all-targets --all-features
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor --test tasks
 cargo fmt --all -- --check
 cargo test -p kairo-actor --all-targets --all-features
