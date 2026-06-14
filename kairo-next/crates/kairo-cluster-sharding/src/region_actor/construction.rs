@@ -203,6 +203,13 @@ where
         self
     }
 
+    pub fn with_remember_shard_failure_backoff(mut self, backoff: Duration) -> Self {
+        if let Some(spawner) = &mut self.local_shard_spawner {
+            spawner.set_failure_backoff(backoff);
+        }
+        self
+    }
+
     pub fn with_remote_handoff_stop_message_factory(
         mut self,
         stop_message: impl Fn() -> M + Send + Sync + 'static,

@@ -1133,6 +1133,10 @@ Implemented:
   store-backed shard child handoff by asking the child for handoff-stopper
   completion, stopping and removing the local shard child, and marking the
   shard stopped in region state.
+- `kairo-cluster-sharding` shard region actors now restart remembered local
+  shard children after unexpected termination through a configurable failure
+  backoff, while preserving Pekko's distinction that handoff and graceful
+  shutdown stops are not failure restarts.
 - `kairo-cluster-sharding` now has an actor-backed handoff worker that follows
   Pekko's rebalance worker sequence: send `BeginHandOff` to participants,
   wait for acknowledgements, hand off the owner region's store-backed local
@@ -2020,9 +2024,9 @@ Not yet implemented:
   runtime, actor-backed connector, and bootstrap beyond the current localhost
   two-node example smoke test and three-node bootstrap route validation.
 - Sharding remember-entity stores still need broader automatic region/shard
-  orchestration, including restart backoff policy integration and broader
-  multi-node graceful-shutdown validation beyond the current local typed
-  handoff-transport scenario.
+  orchestration and broader multi-node graceful-shutdown validation beyond the
+  current local typed handoff-transport scenario and focused remembered-shard
+  restart coverage.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader lifecycle tests around the bootstrap facades beyond the current
   localhost crate and example smoke tests.
@@ -2044,6 +2048,12 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
 git diff --check
+cargo test -p kairo-cluster-sharding region_actor_restarts_remembered_local_shard_after_unexpected_stop
+cargo test -p kairo-cluster-sharding region_actor_does_not_restart_remembered_local_shard_after_handoff_stop
+cargo test -p kairo-cluster-sharding region_actor_local
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo test -p kairo-actor restart_supervision_unwatches_children_before_restart_stop
 cargo test -p kairo-actor supervision
 cargo fmt --all -- --check

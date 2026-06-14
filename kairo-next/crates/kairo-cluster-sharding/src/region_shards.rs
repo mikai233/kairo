@@ -9,6 +9,8 @@ use crate::{
     ShardMsg, ShardRegionMsg,
 };
 
+const DEFAULT_REMEMBER_SHARD_FAILURE_BACKOFF: Duration = Duration::from_secs(10);
+
 type SpawnShard<M> = dyn Fn(&Context<ShardRegionMsg<M>>, &ShardId, usize) -> Result<ActorRef<ShardMsg<M>>, ActorError>
     + Send
     + Sync;
@@ -18,6 +20,7 @@ where
     M: Send + 'static,
 {
     shard_buffer_capacity: usize,
+    failure_backoff: Option<Duration>,
     spawn: Arc<SpawnShard<M>>,
 }
 
@@ -28,6 +31,7 @@ where
     pub(crate) fn plain(shard_buffer_capacity: usize) -> Self {
         Self {
             shard_buffer_capacity,
+            failure_backoff: None,
             spawn: Arc::new(|ctx, shard, shard_buffer_capacity| {
                 ctx.spawn(
                     shard_actor_name(shard),
@@ -46,6 +50,7 @@ where
     {
         Self {
             shard_buffer_capacity,
+            failure_backoff: None,
             spawn: Arc::new(move |ctx, shard, shard_buffer_capacity| {
                 ctx.spawn(
                     shard_actor_name(shard),
@@ -72,6 +77,7 @@ where
         };
         Self {
             shard_buffer_capacity,
+            failure_backoff: Some(DEFAULT_REMEMBER_SHARD_FAILURE_BACKOFF),
             spawn: Arc::new(move |ctx, shard, shard_buffer_capacity| {
                 let state = remember_store.store_state(shard);
                 ctx.spawn(
@@ -92,6 +98,16 @@ where
         shard: &ShardId,
     ) -> Result<ActorRef<ShardMsg<M>>, ActorError> {
         (self.spawn)(ctx, shard, self.shard_buffer_capacity)
+    }
+
+    pub(crate) fn failure_backoff(&self) -> Option<Duration> {
+        self.failure_backoff
+    }
+
+    pub(crate) fn set_failure_backoff(&mut self, backoff: Duration) {
+        if self.failure_backoff.is_some() {
+            self.failure_backoff = Some(backoff);
+        }
     }
 }
 

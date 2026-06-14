@@ -173,6 +173,10 @@ impl<M> ShardRegionRuntime<M> {
             && self.total_buffered_count() == 0
     }
 
+    pub fn graceful_shutdown_in_progress(&self) -> bool {
+        self.graceful_shutdown_in_progress
+    }
+
     pub fn route(
         &mut self,
         shard: impl Into<ShardId>,

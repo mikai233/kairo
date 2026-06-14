@@ -119,6 +119,9 @@ pub enum ShardRegionMsg<M> {
         shard: ShardId,
         reply_to: Option<ActorRef<ShardRegionSnapshot>>,
     },
+    RestartLocalShard {
+        shard: ShardId,
+    },
     SetGracefulShutdown {
         in_progress: bool,
     },

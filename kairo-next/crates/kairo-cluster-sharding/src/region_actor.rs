@@ -229,10 +229,22 @@ where
             }
             ShardRegionMsg::ForwardedBufferedRouteResult { result: _ } => {}
             ShardRegionMsg::MarkShardStopped { shard, reply_to } => {
+                let restart_backoff = self.remembered_shard_restart_backoff(&shard);
                 self.runtime.mark_shard_stopped(&shard);
                 self.local_shards.remove(&shard);
+                if let Some(backoff) = restart_backoff {
+                    ctx.schedule_once_self(
+                        backoff,
+                        ShardRegionMsg::RestartLocalShard {
+                            shard: shard.clone(),
+                        },
+                    );
+                }
                 reply_optional(reply_to, self.snapshot());
                 self.try_complete_graceful_shutdown(ctx)?;
+            }
+            ShardRegionMsg::RestartLocalShard { shard } => {
+                self.restart_local_shard(ctx, shard)?;
             }
             ShardRegionMsg::SetGracefulShutdown { in_progress } => {
                 self.runtime.set_graceful_shutdown_in_progress(in_progress);
@@ -248,6 +260,25 @@ where
             }
         }
         Ok(())
+    }
+}
+
+impl<M> ShardRegionActor<M>
+where
+    M: Send + 'static,
+{
+    fn remembered_shard_restart_backoff(&self, shard: &ShardId) -> Option<Duration> {
+        if !self.local_shards.contains_key(shard) {
+            return None;
+        }
+        if self.runtime.handing_off_shards().contains(shard)
+            || self.runtime.graceful_shutdown_in_progress()
+        {
+            return None;
+        }
+        self.local_shard_spawner
+            .as_ref()
+            .and_then(LocalShardSpawner::failure_backoff)
     }
 }
 

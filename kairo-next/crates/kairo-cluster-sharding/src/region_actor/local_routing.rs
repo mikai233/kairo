@@ -153,6 +153,21 @@ where
         }
     }
 
+    pub(super) fn restart_local_shard(
+        &mut self,
+        ctx: &Context<ShardRegionMsg<M>>,
+        shard: ShardId,
+    ) -> Result<(), ActorError> {
+        if self.local_shard_spawner.is_none() || self.local_shards.contains_key(&shard) {
+            return Ok(());
+        }
+
+        let plan = self.runtime.host_shard(shard);
+        let plan = self.maybe_start_local_shard_from_host_plan(ctx, plan)?;
+        self.replay_buffered_from_host_plan(plan)?;
+        Ok(())
+    }
+
     fn replay_buffered_to_local_shard(
         &self,
         shard: &ShardId,

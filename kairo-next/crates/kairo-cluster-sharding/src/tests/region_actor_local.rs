@@ -387,3 +387,191 @@ fn region_actor_replays_buffered_routes_to_spawned_local_shard_child() {
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn region_actor_restarts_remembered_local_shard_after_unexpected_stop() {
+    let (kit, time) =
+        kairo_testkit::ActorSystemTestKit::with_manual_time("region-remember-shard-restart")
+            .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            Props::new(|| {
+                ShardRegionActor::<String>::new_with_local_remember_store_shards(
+                    "region-a",
+                    "orders",
+                    10,
+                    10,
+                    BTreeMap::from([(
+                        "shard-1".to_string(),
+                        BTreeSet::from(["entity-1".to_string()]),
+                    )]),
+                    Duration::from_millis(500),
+                )
+                .with_remember_shard_failure_backoff(Duration::from_secs(1))
+            }),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let local_shard = kit
+        .create_probe::<Option<kairo_actor::ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let state = kit.create_probe::<ShardRegionSnapshot>("state").unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let first_shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    kit.system().stop(&first_shard);
+    assert!(first_shard.wait_for_stop(Duration::from_secs(1)));
+    region
+        .tell(ShardRegionMsg::MarkShardStopped {
+            shard: "shard-1".to_string(),
+            reply_to: Some(state.actor_ref()),
+        })
+        .unwrap();
+    assert!(
+        state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .is_empty()
+    );
+
+    time.advance(Duration::from_secs(1));
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let restarted_shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+    assert_ne!(first_shard.path(), restarted_shard.path());
+
+    restarted_shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-restart".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "after-restart".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_does_not_restart_remembered_local_shard_after_handoff_stop() {
+    let (kit, time) =
+        kairo_testkit::ActorSystemTestKit::with_manual_time("region-remember-shard-handoff-stop")
+            .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            Props::new(|| {
+                ShardRegionActor::<String>::new_with_local_remember_store_shards(
+                    "region-a",
+                    "orders",
+                    10,
+                    10,
+                    BTreeMap::from([(
+                        "shard-1".to_string(),
+                        BTreeSet::from(["entity-1".to_string()]),
+                    )]),
+                    Duration::from_millis(500),
+                )
+                .with_remember_shard_failure_backoff(Duration::from_secs(1))
+            }),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let handoff = kit.create_probe::<HandOffPlan>("handoff").unwrap();
+    let local_shard = kit
+        .create_probe::<Option<kairo_actor::ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let state = kit.create_probe::<ShardRegionSnapshot>("state").unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+    region
+        .tell(ShardRegionMsg::HandOff {
+            shard: "shard-1".to_string(),
+            reply_to: handoff.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        handoff.expect_msg(Duration::from_millis(500)).unwrap(),
+        HandOffPlan::ForwardToLocalShard { .. }
+    ));
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    kit.system().stop(&shard);
+    assert!(shard.wait_for_stop(Duration::from_secs(1)));
+    region
+        .tell(ShardRegionMsg::MarkShardStopped {
+            shard: "shard-1".to_string(),
+            reply_to: Some(state.actor_ref()),
+        })
+        .unwrap();
+    assert!(
+        state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .is_empty()
+    );
+
+    time.advance(Duration::from_secs(1));
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        local_shard
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .is_none()
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
