@@ -966,7 +966,9 @@ Implemented:
   for both remote peers before coordinated shutdown stops all live-route
   connectors; the same scenario now publishes a reduced two-node membership
   view and validates the surviving nodes remove the departed node's active
-  route through the connector boundary.
+  route through the connector boundary. The test now also pins the underlying
+  association-cache route counts across full mesh, reduced membership, and
+  coordinated shutdown cleanup for all three bootstrap-owned runtimes.
 - Distributed-data TCP peer bootstrap lifecycle coverage now validates
   membership removal: after two bound runtimes install socket routes from a
   shared gossip snapshot, publishing a sender-side snapshot without the peer

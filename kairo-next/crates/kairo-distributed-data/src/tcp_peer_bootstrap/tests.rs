@@ -717,6 +717,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         ReplicaId::from(&first_node),
         second_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
     );
+    let second_cache = second_runtime.association_cache().clone();
     let second_node = second_runtime.self_node().clone();
     let second_settings = second_runtime.runtime().settings().clone();
     let third_runtime = bind_runtime_with_requests(
@@ -726,6 +727,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         ReplicaId::from(&first_node),
         third_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
     );
+    let third_cache = third_runtime.association_cache().clone();
     let third_node = third_runtime.self_node().clone();
     let third_settings = third_runtime.runtime().settings().clone();
     let first_publisher = spawn_publisher(&first_kit, "first-publisher", first_node.clone());
@@ -786,6 +788,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &first_snapshots,
         &[second_node.clone(), third_node.clone()],
     );
+    assert_eq!(first_cache.route_count(), 2);
 
     let first_ref = replicator_actor_ref_for("ddata-bootstrap-first", &first_settings)
         .expect("first ref should be serializable");
@@ -805,7 +808,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         third_ref.clone(),
         first_ref.clone(),
         registry.clone(),
-        first_cache,
+        first_cache.clone(),
     );
 
     let second_received = send_read_until_received(
@@ -865,11 +868,13 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &second_snapshots,
         &[first_node.clone(), third_node.clone()],
     );
+    assert_eq!(second_cache.route_count(), 2);
     await_connector_routes(
         third_bootstrap.connector(),
         &third_snapshots,
         &[first_node.clone(), second_node.clone()],
     );
+    assert_eq!(third_cache.route_count(), 2);
 
     let reduced_gossip = Gossip::from_members([
         Member::new(first_node.clone(), Vec::new()).with_status(MemberStatus::Up),
@@ -889,15 +894,21 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &first_snapshots,
         std::slice::from_ref(&second_node),
     );
+    assert_eq!(first_cache.route_count(), 1);
     await_connector_routes(
         second_bootstrap.connector(),
         &second_snapshots,
         std::slice::from_ref(&first_node),
     );
+    assert_eq!(second_cache.route_count(), 1);
+    assert_eq!(third_cache.route_count(), 2);
 
     run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
+    assert_eq!(first_cache.route_count(), 0);
     run_bootstrap_shutdown(&second_kit, second_bootstrap.connector());
+    assert_eq!(second_cache.route_count(), 0);
     run_bootstrap_shutdown(&third_kit, third_bootstrap.connector());
+    assert_eq!(third_cache.route_count(), 0);
     first_kit.shutdown(Duration::from_secs(1)).unwrap();
     second_kit.shutdown(Duration::from_secs(1)).unwrap();
     third_kit.shutdown(Duration::from_secs(1)).unwrap();
