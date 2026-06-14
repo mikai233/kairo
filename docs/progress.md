@@ -178,6 +178,9 @@ Implemented:
   pending-reconnect cleanup when a peer leaves membership before retry, keeping
   pubsub and singleton socket route lifecycle behavior aligned with cluster and
   distributed-data.
+- `kairo-cluster` TCP peer bootstrap coverage now drives the failed-dial
+  pending reconnect path through the bootstrap facade and proves the retry
+  state is cleared when gossip removes the peer before retry.
 - Coordinated-shutdown phase metadata, run state, and task execution now live
   in focused submodules instead of one mixed implementation file.
 - Focused coordinated-shutdown tests now pin `run_from` phase selection and
@@ -2111,6 +2114,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
 cargo test -p kairo-cluster-tools connector_clears_pending_reconnect_when_peer_leaves_membership
 cargo test -p kairo-cluster connector_clears_pending_reconnect_when_peer_leaves_membership
 cargo test -p kairo-distributed-data connector_clears_pending_reconnect_when_peer_leaves_membership
