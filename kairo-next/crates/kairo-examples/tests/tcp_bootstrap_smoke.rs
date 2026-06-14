@@ -31,6 +31,29 @@ fn cluster_tcp_peer_bootstrap_establishes_bidirectional_routes() -> TestResult {
 }
 
 #[test]
+fn cluster_tcp_peer_bootstrap_delivers_remote_join() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b) = cluster_tcp::bind_two_nodes()?;
+    let result = (|| -> TestResult {
+        assert_two_node_bidirectional_routes(&node_a, &node_b)?;
+        node_a.send_join_to(&node_b, ["backend"])?;
+        let received = node_b.wait_for_join_count(1, Duration::from_secs(2));
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].node, node_a.self_node().clone());
+        assert_eq!(received[0].roles, vec!["backend".to_string()]);
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
 fn cluster_tcp_peer_bootstrap_removes_route_when_membership_shrinks() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b) = cluster_tcp::bind_two_nodes()?;

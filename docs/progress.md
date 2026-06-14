@@ -1998,6 +1998,11 @@ Implemented:
   removes a departed peer route, publishing a new `UniqueAddress` installs a
   route to the replacement peer through the public reusable example module
   boundary.
+- The cluster TCP bootstrap example now keeps its public reusable node
+  boundary wired to a real membership inbound recorder and shared association
+  cache, and the smoke suite sends a stable-manifest `Join` across the
+  bootstrapped socket route before validating the receiver observes the joining
+  node and roles.
 - The distributed-data TCP bootstrap example now keeps its public reusable
   node boundary wired to a real recording request receiver and shared
   association cache, and the smoke suite sends a stable-manifest
@@ -2773,6 +2778,12 @@ cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features
 cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_delivers_remote_pubsub_publish --all-targets --all-features
+cargo fmt --all -- --check
+cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples cluster_tcp_peer_bootstrap_delivers_remote_join --all-targets --all-features
 cargo fmt --all -- --check
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features

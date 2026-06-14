@@ -1,25 +1,90 @@
 use std::error::Error;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use kairo::actor::{ActorError, ActorRef, ActorSystem, Address, Props};
+use kairo::actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Address, Props};
 use kairo::cluster::{
-    Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, ClusterSystemInbound,
-    ClusterTcpPeerBootstrap, ClusterTcpPeerBootstrapIdentity, ClusterTcpPeerBootstrapSettings,
-    ClusterTcpPeerConnectorMsg, ClusterTcpPeerConnectorSettings, ClusterTcpPeerConnectorSnapshot,
-    Gossip, Member, MemberStatus, UniqueAddress,
+    Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, ClusterMembershipMsg,
+    ClusterMembershipRemoteEnvelopeOutbound, ClusterMembershipWireInbound,
+    ClusterMembershipWireOutbound, ClusterSystemInbound, ClusterTcpPeerBootstrap,
+    ClusterTcpPeerBootstrapSettings, ClusterTcpPeerConnectorMsg, ClusterTcpPeerConnectorSettings,
+    ClusterTcpPeerConnectorSnapshot, ClusterTcpPeerRuntime, Gossip, Join, Member, MemberStatus,
+    UniqueAddress, register_cluster_protocol_codecs,
 };
-use kairo::remote::RemoteSettings;
+use kairo::remote::{RemoteAssociationCache, RemoteOutbound, RemoteSettings};
+use kairo::serialization::Registry;
 
 use crate::reply::spawn_one_shot_reply;
 
 static SNAPSHOT_ID: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Default)]
+pub struct RecordingClusterJoins {
+    received: Mutex<Vec<Join>>,
+    changed: Condvar,
+}
+
+impl RecordingClusterJoins {
+    pub fn wait_for_len(&self, len: usize, timeout: Duration) -> Vec<Join> {
+        let deadline = Instant::now() + timeout;
+        let mut received = self.received.lock().expect("cluster joins poisoned");
+        while received.len() < len {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let (next_received, wait) = self
+                .changed
+                .wait_timeout(received, remaining)
+                .expect("cluster joins poisoned");
+            received = next_received;
+            if wait.timed_out() {
+                break;
+            }
+        }
+        received.clone()
+    }
+}
+
+struct RecordingClusterMembershipActor {
+    joins: Arc<RecordingClusterJoins>,
+}
+
+impl RecordingClusterMembershipActor {
+    fn new(joins: Arc<RecordingClusterJoins>) -> Self {
+        Self { joins }
+    }
+}
+
+impl Actor for RecordingClusterMembershipActor {
+    type Msg = ClusterMembershipMsg;
+
+    fn receive(
+        &mut self,
+        _ctx: &mut kairo::actor::Context<Self::Msg>,
+        msg: Self::Msg,
+    ) -> ActorResult {
+        if let ClusterMembershipMsg::Join { join, .. } = msg {
+            self.joins
+                .received
+                .lock()
+                .expect("cluster joins poisoned")
+                .push(join);
+            self.joins.changed.notify_all();
+        }
+        Ok(())
+    }
+}
+
 pub struct ClusterTcpExampleNode {
     system: ActorSystem,
     publisher: ActorRef<ClusterEventPublisherMsg>,
     bootstrap: ClusterTcpPeerBootstrap,
+    registry: Arc<Registry>,
+    association_cache: RemoteAssociationCache,
+    join_recorder: Arc<RecordingClusterJoins>,
 }
 
 impl ClusterTcpExampleNode {
@@ -36,6 +101,16 @@ impl ClusterTcpExampleNode {
             Props::new(move || ClusterEventPublisher::new(publisher_node.clone())),
         )?;
         let cluster = Cluster::new(publisher.clone());
+        let registry = cluster_registry()?;
+        let inbound_registry = registry.clone();
+        let join_recorder = Arc::new(RecordingClusterJoins::default());
+        let membership = system.spawn(
+            "cluster-membership-recorder",
+            Props::new({
+                let join_recorder = join_recorder.clone();
+                move || RecordingClusterMembershipActor::new(join_recorder.clone())
+            }),
+        )?;
         let settings = ClusterTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
             .with_connector_name(connector_name)
             .with_connector_settings(
@@ -43,18 +118,32 @@ impl ClusterTcpExampleNode {
                     .with_automatic_retry_ticks(false),
             )
             .with_shutdown_timeout(Duration::from_secs(1));
-        let bootstrap = ClusterTcpPeerBootstrap::bind_and_spawn(
-            &system,
-            cluster,
-            ClusterTcpPeerBootstrapIdentity::new(node_uid, system_uid),
-            settings,
-            |self_node, _cache| ClusterSystemInbound::new(self_node),
+        let runtime = ClusterTcpPeerRuntime::bind(
+            system_name,
+            node_uid,
+            system_uid,
+            settings.remote_settings().clone(),
+            move |self_node, _cache| {
+                ClusterSystemInbound::new(self_node.clone()).with_membership(
+                    ClusterMembershipWireInbound::new(
+                        self_node,
+                        inbound_registry,
+                        membership as ActorRef<ClusterMembershipMsg>,
+                    ),
+                )
+            },
         )?;
+        let association_cache = runtime.association_cache().clone();
+        let bootstrap =
+            ClusterTcpPeerBootstrap::spawn_with_runtime(&system, cluster, runtime, settings)?;
 
         Ok(Self {
             system,
             publisher,
             bootstrap,
+            registry,
+            association_cache,
+            join_recorder,
         })
     }
 
@@ -110,6 +199,33 @@ impl ClusterTcpExampleNode {
         }
     }
 
+    pub fn send_join_to(
+        &self,
+        target: &ClusterTcpExampleNode,
+        roles: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<(), Box<dyn Error>> {
+        let outbound = ClusterMembershipWireOutbound::new(
+            target.self_node().clone(),
+            self.registry.clone(),
+            ClusterMembershipRemoteEnvelopeOutbound::from_arc(Arc::new(
+                self.association_cache.clone(),
+            )
+                as Arc<dyn RemoteOutbound>),
+        );
+        outbound.send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: self.self_node().clone(),
+                roles: roles.into_iter().map(Into::into).collect(),
+            },
+            reply_to: None,
+        })?;
+        Ok(())
+    }
+
+    pub fn wait_for_join_count(&self, len: usize, timeout: Duration) -> Vec<Join> {
+        self.join_recorder.wait_for_len(len, timeout)
+    }
+
     pub fn shutdown(self, timeout: Duration) -> Result<(), ActorError> {
         self.system
             .run_coordinated_shutdown("cluster tcp example complete", timeout)
@@ -140,4 +256,10 @@ pub fn bind_three_nodes() -> Result<
 
 fn up_member(node: UniqueAddress) -> Member {
     Member::new(node, vec![]).with_status(MemberStatus::Up)
+}
+
+fn cluster_registry() -> Result<Arc<Registry>, Box<dyn Error>> {
+    let mut registry = Registry::new();
+    register_cluster_protocol_codecs(&mut registry)?;
+    Ok(Arc::new(registry))
 }
