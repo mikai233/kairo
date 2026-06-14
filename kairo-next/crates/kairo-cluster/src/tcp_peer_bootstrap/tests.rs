@@ -411,9 +411,13 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let first_kit = ActorSystemTestKit::new("cluster-bootstrap-first").unwrap();
     let second_kit = ActorSystemTestKit::new("cluster-bootstrap-second").unwrap();
     let third_kit = ActorSystemTestKit::new("cluster-bootstrap-third").unwrap();
+    let registry = registry();
     let first_runtime = bind_runtime("cluster-bootstrap-first", 1, 11, &first_kit);
-    let second_runtime = bind_runtime("cluster-bootstrap-second", 2, 22, &second_kit);
-    let third_runtime = bind_runtime("cluster-bootstrap-third", 3, 33, &third_kit);
+    let first_cache = first_runtime.association_cache().clone();
+    let (second_runtime, second_probes) =
+        bind_runtime_with_probes("cluster-bootstrap-second", 2, 22, &second_kit);
+    let (third_runtime, third_probes) =
+        bind_runtime_with_probes("cluster-bootstrap-third", 3, 33, &third_kit);
     let first_node = first_runtime.self_node().clone();
     let second_node = second_runtime.self_node().clone();
     let third_node = third_runtime.self_node().clone();
@@ -466,17 +470,72 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Member::new(second_node.clone(), Vec::new()).with_status(MemberStatus::Up),
         Member::new(third_node.clone(), Vec::new()).with_status(MemberStatus::Up),
     ]);
-    for publisher in [&first_publisher, &second_publisher, &third_publisher] {
-        publisher
-            .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
-            .unwrap();
-    }
+    publish_gossip(&first_publisher, gossip.clone());
 
     await_connector_routes(
         first_bootstrap.connector(),
         &first_snapshots,
         &[second_node.clone(), third_node.clone()],
     );
+
+    let first_outbound = Arc::new(first_cache) as Arc<dyn RemoteOutbound>;
+    let second_membership_outbound = ClusterMembershipWireOutbound::new(
+        second_node.clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(first_outbound.clone()),
+    );
+    let third_membership_outbound = ClusterMembershipWireOutbound::new(
+        third_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(first_outbound),
+    );
+    second_membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: first_node.clone(),
+                roles: vec!["backend".to_string()],
+            },
+            reply_to: None,
+        })
+        .unwrap();
+    third_membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: first_node.clone(),
+                roles: vec!["frontend".to_string()],
+            },
+            reply_to: None,
+        })
+        .unwrap();
+
+    match second_probes
+        .membership
+        .expect_msg(Duration::from_secs(1))
+        .unwrap()
+    {
+        ClusterMembershipMsg::Join { join, reply_to } => {
+            assert_eq!(join.node, first_node);
+            assert_eq!(join.roles, vec!["backend".to_string()]);
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected cluster join at second node"),
+    }
+    match third_probes
+        .membership
+        .expect_msg(Duration::from_secs(1))
+        .unwrap()
+    {
+        ClusterMembershipMsg::Join { join, reply_to } => {
+            assert_eq!(join.node, first_node);
+            assert_eq!(join.roles, vec!["frontend".to_string()]);
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected cluster join at third node"),
+    }
+
+    publish_gossip(&second_publisher, gossip.clone());
+    publish_gossip(&third_publisher, gossip);
+
     await_connector_routes(
         second_bootstrap.connector(),
         &second_snapshots,

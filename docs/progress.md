@@ -1462,11 +1462,14 @@ Implemented:
   `UniqueAddress` for a replacement receiver installs a fresh membership-
   derived socket route through the same bootstrap connector.
 - Cluster TCP peer bootstrap now also has a three-node full-mesh socket
-  validation, proving each actor-backed connector installs membership-derived
-  routes for both remote peers from the same published gossip snapshot before
-  coordinated shutdown stops all live-route connectors; the same scenario now
-  publishes a reduced two-node membership view and validates the surviving
-  nodes remove the departed node's active route through the connector boundary.
+  validation: the first actor-backed connector installs membership-derived
+  routes to both remote peers, carries stable-codec `Join` membership messages
+  to both peer membership inbound handlers over those routes, then the remaining
+  connectors install the rest of the full mesh from the same published gossip
+  snapshot before coordinated shutdown stops all live-route connectors; the same
+  scenario now publishes a reduced two-node membership view and validates the
+  surviving nodes remove the departed node's active route through the connector
+  boundary.
 - Cluster TCP peer bootstrap tests now live in a focused sibling test module,
   keeping the production bootstrap facade separate from socket fixture setup
   and two-node validation data.
@@ -2385,6 +2388,7 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster bootstrap_installed_peer_route_delivers_membership_join_to_receiver
 cargo test -p kairo-cluster bootstrap
+cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership
 cargo fmt --all -- --check
 cargo test -p kairo-cluster --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
