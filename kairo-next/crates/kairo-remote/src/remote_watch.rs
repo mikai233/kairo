@@ -66,6 +66,22 @@ impl RemoteDeathWatchState {
         self.watchees_by_address.len()
     }
 
+    pub fn watching_refs(&self) -> Vec<WatchRemote> {
+        self.watchees
+            .values()
+            .flat_map(|entry| {
+                entry.watchers.values().map(|watcher| WatchRemote {
+                    watchee: entry.watchee.clone(),
+                    watcher: watcher.clone(),
+                })
+            })
+            .collect()
+    }
+
+    pub fn watching_addresses(&self) -> Vec<String> {
+        self.watchees_by_address.keys().cloned().collect()
+    }
+
     pub fn inbound_watching_count(&self) -> usize {
         self.inbound_watches
             .values()

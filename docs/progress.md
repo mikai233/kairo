@@ -485,7 +485,9 @@ Implemented:
   transport-neutral effects through an explicit sink boundary, handles
   heartbeat ticks, heartbeat acks, unreachable observations, watch/unwatch
   commands, inbound remote watch/unwatch registrations, and reports
-  deterministic watch statistics for tests and future diagnostics.
+  deterministic watch statistics for tests and future diagnostics, including
+  ordered watched ref pairs and watched remote addresses in addition to
+  counters.
 - Remote death-watch actor coverage now lives in a focused sibling test module
   and validates inbound remote unwatch cleanup at the actor boundary, proving
   decoded inbound `UnwatchRemote` commands remove remote watchers without
@@ -2030,6 +2032,7 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote provider_local_resolution_does_not_require_registered_codec
 cargo test -p kairo-remote provider_maps_owned_canonical_missing_path_to_local_missing_ref_without_codec
+cargo test -p kairo-remote remote_watch_actor
 cargo fmt --all -- --check
 cargo test -p kairo-remote --all-targets --all-features
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings

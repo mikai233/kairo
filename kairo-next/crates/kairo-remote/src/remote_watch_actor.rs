@@ -13,6 +13,8 @@ pub struct RemoteDeathWatchStats {
     pub watched_addresses: usize,
     pub inbound_watching: usize,
     pub unreachable_addresses: usize,
+    pub watching_refs: Vec<WatchRemote>,
+    pub watching_addresses: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +77,8 @@ impl RemoteDeathWatchActor {
             watched_addresses: self.state.watched_address_count(),
             inbound_watching: self.state.inbound_watching_count(),
             unreachable_addresses: self.state.unreachable_address_count(),
+            watching_refs: self.state.watching_refs(),
+            watching_addresses: self.state.watching_addresses(),
         }
     }
 

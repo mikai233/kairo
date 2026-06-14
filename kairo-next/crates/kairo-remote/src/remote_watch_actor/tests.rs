@@ -191,11 +191,13 @@ fn remote_watch_actor_rewatches_after_uid_changes() {
 fn remote_watch_actor_reports_stats_after_ordered_commands() {
     let (system, actor, _sink) = spawn_remote_watcher("watcher");
     let (stats_probe, stats_rx) = stats_probe(&system);
+    let watchee = watchee("target");
+    let watcher = watcher("observer");
 
     actor
         .tell(RemoteDeathWatchCommand::Watch(WatchRemote {
-            watchee: watchee("target"),
-            watcher: watcher("observer"),
+            watchee: watchee.clone(),
+            watcher: watcher.clone(),
         }))
         .unwrap();
     actor
@@ -216,6 +218,8 @@ fn remote_watch_actor_reports_stats_after_ordered_commands() {
             watched_addresses: 1,
             inbound_watching: 0,
             unreachable_addresses: 1,
+            watching_refs: vec![WatchRemote { watchee, watcher }],
+            watching_addresses: vec!["kairo://remote@127.0.0.1:25520".to_string()],
         }
     );
 }
@@ -244,6 +248,8 @@ fn remote_watch_actor_records_inbound_watch_without_outbound_effects() {
             watched_addresses: 0,
             inbound_watching: 1,
             unreachable_addresses: 0,
+            watching_refs: Vec::new(),
+            watching_addresses: Vec::new(),
         }
     );
     assert!(sink.wait_for_len(1, Duration::from_millis(50)).is_empty());
@@ -281,6 +287,8 @@ fn remote_watch_actor_removes_inbound_watch_without_outbound_effects() {
             watched_addresses: 0,
             inbound_watching: 0,
             unreachable_addresses: 0,
+            watching_refs: Vec::new(),
+            watching_addresses: Vec::new(),
         }
     );
     assert!(sink.wait_for_len(1, Duration::from_millis(50)).is_empty());
