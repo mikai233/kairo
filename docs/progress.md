@@ -2224,11 +2224,13 @@ Implemented:
 - `kairo-distributed-data` TCP peer bootstrap coverage now pins sender-side
   route reduction with live delivery: after one of two remote peers leaves the
   sender's cluster membership view, the remaining replicator route continues
-  to deliver stable-manifest remote read envelopes.
+  to deliver stable-manifest remote read envelopes, and the sender cache drops
+  from two routes to one before coordinated shutdown clears it.
 - `kairo-cluster-tools` TCP peer bootstrap coverage now pins the same
   sender-side route reduction for pubsub delivery: after one of two remote
   peers leaves the sender's cluster membership view, the remaining tools route
-  continues to deliver stable-manifest remote publish envelopes.
+  continues to deliver stable-manifest remote publish envelopes, and the sender
+  cache drops from two routes to one before coordinated shutdown clears it.
 - `kairo-distributed-data` TCP peer bootstrap two-node route coverage now
   pins coordinated shutdown cleanup of installed association routes on both
   peers after cluster membership installs them.

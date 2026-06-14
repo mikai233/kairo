@@ -612,8 +612,9 @@ fn bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed()
         &first_snapshots,
         &[second_node.clone(), third_node.clone()],
     );
+    assert_eq!(first_cache.route_count(), 2);
 
-    let first_outbound = Arc::new(first_cache) as Arc<dyn RemoteOutbound>;
+    let first_outbound = Arc::new(first_cache.clone()) as Arc<dyn RemoteOutbound>;
     let second_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
         second_node.clone(),
         registry.clone(),
@@ -655,6 +656,7 @@ fn bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed()
         up_gossip([first_node.clone(), second_node.clone()]),
     );
     await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
+    assert_eq!(first_cache.route_count(), 1);
 
     second_outbound
         .tell(LocalPubSubMsg::Publish {
@@ -671,6 +673,7 @@ fn bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed()
     );
 
     run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
+    assert_eq!(first_cache.route_count(), 0);
     second_runtime.shutdown().unwrap();
     third_runtime.shutdown().unwrap();
     first_kit.shutdown(Duration::from_secs(1)).unwrap();

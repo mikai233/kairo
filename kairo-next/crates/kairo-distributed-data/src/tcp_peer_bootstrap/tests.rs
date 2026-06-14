@@ -607,6 +607,7 @@ fn bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed() {
         &first_snapshots,
         &[second_node.clone(), third_node.clone()],
     );
+    assert_eq!(first_cache.route_count(), 2);
 
     let first_ref = replicator_actor_ref_for("ddata-bootstrap-reduce-first", &first_settings)
         .expect("first ref should be serializable");
@@ -626,7 +627,7 @@ fn bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed() {
         third_ref,
         first_ref.clone(),
         registry.clone(),
-        first_cache,
+        first_cache.clone(),
     );
 
     let second_received = send_read_until_received(
@@ -655,6 +656,7 @@ fn bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed() {
         up_gossip([first_node.clone(), second_node.clone()]),
     );
     await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
+    assert_eq!(first_cache.route_count(), 1);
 
     let second_received_after_removal = send_read_until_count_received(
         &to_second,
@@ -690,6 +692,7 @@ fn bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed() {
     assert_eq!(second_received_after_removal[1].1.sender, Some(first_ref));
 
     run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
+    assert_eq!(first_cache.route_count(), 0);
     second_runtime.shutdown().unwrap();
     third_runtime.shutdown().unwrap();
     first_kit.shutdown(Duration::from_secs(1)).unwrap();
