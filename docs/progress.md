@@ -274,6 +274,10 @@ Implemented:
   when one actor is registered for several service keys, actor termination
   removes that actor from each listing and publishes empty updates to each
   subscriber.
+- Local receptionist coverage now also pins multi-key subscriber cleanup:
+  when one subscriber actor is subscribed to several service keys, subscriber
+  termination removes it from each bucket so later service updates do not send
+  stale listings to dead letters.
 - Local receptionist state lives in a focused `receptionist` module.
 - `ActorSystem::coordinated_shutdown` exposes local coordinated shutdown with
   standard phase names, one-shot run semantics, task registration, later-phase
@@ -2913,6 +2917,11 @@ cargo test -p kairo-remote tcp_remote_actor_system --all-targets --all-features
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor receptionist --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor receptionist --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features

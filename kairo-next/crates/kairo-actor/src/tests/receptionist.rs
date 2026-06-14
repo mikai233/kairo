@@ -152,6 +152,59 @@ fn receptionist_removes_service_from_all_keys_on_actor_stop() {
     );
 }
 
+#[test]
+fn receptionist_removes_subscriber_from_all_keys_on_actor_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let key_a = ServiceKey::<()>::new("svc-a");
+    let key_b = ServiceKey::<()>::new("svc-b");
+    let (listing_tx, listing_rx) = mpsc::channel();
+    let subscriber = system
+        .spawn(
+            "listing-probe",
+            Props::new(move || ListingProbe {
+                observed: listing_tx,
+            }),
+        )
+        .unwrap();
+
+    assert!(
+        system
+            .receptionist()
+            .subscribe(key_a.clone(), subscriber.clone())
+    );
+    assert!(
+        system
+            .receptionist()
+            .subscribe(key_b.clone(), subscriber.clone())
+    );
+    assert_eq!(
+        listing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Vec::<ActorPath>::new()
+    );
+    assert_eq!(
+        listing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Vec::<ActorPath>::new()
+    );
+
+    system.stop(&subscriber);
+    assert!(subscriber.wait_for_stop(Duration::from_secs(1)));
+
+    let service_a = system.spawn("svc-a", Props::new(|| Noop)).unwrap();
+    let service_b = system.spawn("svc-b", Props::new(|| Noop)).unwrap();
+    assert!(system.receptionist().register(key_a.clone(), service_a));
+    assert!(system.receptionist().register(key_b.clone(), service_b));
+
+    assert_eq!(system.dead_letters().len(), 0);
+    assert_eq!(
+        system.receptionist().find(&key_a).service_instances().len(),
+        1
+    );
+    assert_eq!(
+        system.receptionist().find(&key_b).service_instances().len(),
+        1
+    );
+}
+
 enum ContextReceptionistMsg {
     RegisterSelf {
         key: ServiceKey<ContextReceptionistMsg>,
