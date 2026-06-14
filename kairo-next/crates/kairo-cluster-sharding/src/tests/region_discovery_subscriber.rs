@@ -478,10 +478,10 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
             "region-state",
         )
         .unwrap();
-    let local_shard = nodes
-        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
+    let routes = nodes
+        .create_probe_on::<RegionLocalRoutePlan<String>>(
             "sharding-remembered-discovery-region",
-            "local-shard",
+            "remembered-routes",
         )
         .unwrap();
     let deliveries = nodes
@@ -550,21 +550,19 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
     );
 
     region
-        .tell(ShardRegionMsg::GetLocalShard {
+        .tell(ShardRegionMsg::RouteToLocalShard {
             shard: "shard-1".to_string(),
-            reply_to: local_shard.actor_ref(),
-        })
-        .unwrap();
-    let shard = local_shard
-        .expect_msg(Duration::from_millis(500))
-        .unwrap()
-        .expect("remembered shard should have a local child after registration");
-    shard
-        .tell(ShardMsg::Deliver {
             message: ShardingEnvelope::new("entity-1", "after-discovery".to_string()),
-            reply_to: deliveries.actor_ref(),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
         })
         .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string()
+        }
+    );
     assert_eq!(
         deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
         ShardDeliverPlan::Deliver {

@@ -1390,8 +1390,9 @@ Implemented:
   registers with that coordinator from cluster membership, and the coordinator
   allocation is observed as an actually hosted region shard. The same scenario
   now hosts the shard through a local remember-entity store and verifies that
-  first delivery to the pre-remembered entity is routed as recovered entity
-  delivery rather than a fresh start.
+  first delivery to the pre-remembered entity goes through the normal region
+  local-route boundary and is routed as recovered entity delivery rather than a
+  fresh start.
 - `ShardRegionActor` remote `HostShard` handling now has focused coverage that
   a region receiving the stable remote host command can spawn a store-backed
   local shard, send the stable `ShardStarted` reply, and recover remembered
@@ -3080,5 +3081,11 @@ cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding multi_node_region_discovery_allocates_remembered_shard_on_registration --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_discovery --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
