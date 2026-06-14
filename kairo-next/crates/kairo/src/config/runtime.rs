@@ -93,7 +93,7 @@ impl ClusterConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.heartbeat.validate()?;
         self.downing.validate()?;
-        self.sharding.validated_shard_count()?;
+        self.sharding.validate()?;
         self.tools.validate()?;
         Ok(())
     }
@@ -160,6 +160,15 @@ impl ClusterDowningConfig {
 }
 
 impl ClusterShardingConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        self.validated_shard_count()?;
+        reject_zero_duration(
+            self.rebalance_interval,
+            "cluster.sharding.rebalance_interval",
+        )?;
+        Ok(())
+    }
+
     pub fn validated_shard_count(&self) -> Result<u64, ConfigError> {
         if self.number_of_shards == 0 {
             Err(ConfigError::InvalidValue {

@@ -253,6 +253,25 @@ number_of_shards = 0
 }
 
 #[test]
+fn toml_config_rejects_zero_sharding_rebalance_interval() {
+    let error = parse_toml_str(
+        r#"
+[cluster.sharding]
+rebalance_interval = "0ms"
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "cluster.sharding.rebalance_interval".to_string(),
+            reason: "must be greater than zero".to_string(),
+        }
+    );
+}
+
+#[test]
 #[cfg(feature = "actor")]
 fn config_converts_actor_settings_to_builder() {
     let settings = parse_toml_str(
@@ -394,6 +413,24 @@ fn config_validate_checks_all_format_neutral_sections() {
         ConfigError::InvalidValue {
             path: "cluster.downing.lease_name".to_string(),
             reason: "must not be empty for lease-majority".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        cluster: super::ClusterConfig {
+            sharding: super::ClusterShardingConfig {
+                rebalance_interval: Duration::ZERO,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "cluster.sharding.rebalance_interval".to_string(),
+            reason: "must be greater than zero".to_string(),
         }
     );
 

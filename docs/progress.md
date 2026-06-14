@@ -1799,6 +1799,9 @@ Implemented:
 - `KairoSettings::validate` now validates all format-neutral configuration
   sections, including programmatically constructed actor, remote, cluster
   heartbeat, downing, sharding, and cluster-tools settings.
+- Sharding TOML and direct `ClusterShardingConfig` validation now reject a
+  zero `rebalance_interval`, keeping periodic rebalance configuration from
+  starting an immediate timer loop in the coordinator runtime.
 - `ClusterDowningConfig` now stores a structured
   `ClusterDowningStrategyConfig` enum instead of a raw strategy string, and the
   TOML loader parses `none`, `down-all`, `keep-majority`, `keep-oldest`, and
@@ -2526,5 +2529,9 @@ cargo test -p kairo-remote provider_
 cargo test -p kairo-serialization --all-targets --all-features
 cargo test -p kairo-remote --all-targets --all-features
 cargo clippy -p kairo-serialization -p kairo-remote --all-targets --all-features -- -D warnings
+cargo test -p kairo config --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```

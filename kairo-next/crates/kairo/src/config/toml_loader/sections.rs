@@ -308,6 +308,10 @@ fn parse_cluster_sharding(value: &Value) -> Result<ClusterShardingConfig, Config
     if let Some(interval) = table.get("rebalance_interval") {
         config.rebalance_interval =
             parse_duration(interval, "cluster.sharding.rebalance_interval")?;
+        reject_zero_duration(
+            config.rebalance_interval,
+            "cluster.sharding.rebalance_interval",
+        )?;
     }
     Ok(config)
 }
