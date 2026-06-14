@@ -46,7 +46,7 @@ Implemented:
 - Local actor refs, child links, and reserved names remain present through
   `PostStop`; stopping children keep their logical names reserved until
   termination completes, and the names can be reused only after the stopped
-  hook has run.
+  hook and local registry cleanup have run.
 - User actor names follow stable actor path element validation; `$`-prefixed
   names are reserved for internal actors such as anonymous children.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop

@@ -115,18 +115,18 @@ pub(crate) fn run_actor<A>(
 
     stop_children(&system_inner, actor_ref.path.as_str());
     let _ = invoke_signal(&mut actor, &mut context, Signal::PostStop);
-    actor_ref.target.terminated.mark_stopped();
     system_inner.registry.remove_ref(actor_ref.path());
     system_inner.registry.release_name(&registry_key);
     system_inner
         .registry
         .remove_child(parent_path.as_str(), actor_ref.path());
     system_inner.registry.remove_handle(actor_ref.path());
+    system_inner.receptionist.remove_actor(actor_ref.path());
     system_inner.death_watch.remove_watcher(actor_ref.path());
+    actor_ref.target.terminated.mark_stopped();
     system_inner
         .death_watch
         .notify(actor_ref.path(), run_state.termination_cause);
-    system_inner.receptionist.remove_actor(actor_ref.path());
 }
 
 #[derive(Debug)]
