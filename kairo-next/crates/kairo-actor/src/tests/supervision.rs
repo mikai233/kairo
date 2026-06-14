@@ -117,6 +117,38 @@ impl Actor for StartupPanicProbe {
     }
 }
 
+enum RestartStartupProbeMsg {
+    Fail,
+    GetStarts(mpsc::Sender<u64>),
+}
+
+struct RestartStartupProbe {
+    starts: Arc<AtomicU64>,
+    fail_restarted_start_until: u64,
+}
+
+impl Actor for RestartStartupProbe {
+    type Msg = RestartStartupProbeMsg;
+
+    fn started(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
+        if start > 1 && start <= self.fail_restarted_start_until {
+            Err(ActorError::Message(format!("restart startup boom {start}")))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RestartStartupProbeMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            RestartStartupProbeMsg::GetStarts(reply_to) => reply_to
+                .send(self.starts.load(Ordering::SeqCst))
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
 #[test]
 fn startup_failure_stops_actor_by_default() {
     let system = ActorSystem::builder("test").build().unwrap();
@@ -231,6 +263,37 @@ fn startup_panic_enters_bounded_restart_supervision() {
         .unwrap();
 
     assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+    assert!(!actor.is_stopped());
+}
+
+#[test]
+fn bounded_restart_supervision_retries_restarted_startup_failure() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let actor = system
+        .spawn(
+            "restart-startup-probe",
+            Props::restartable({
+                let starts = Arc::clone(&starts);
+                move || RestartStartupProbe {
+                    starts: Arc::clone(&starts),
+                    fail_restarted_start_until: 2,
+                }
+            })
+            .with_supervisor(SupervisorStrategy::restart_with_limit(
+                3,
+                Duration::from_secs(60),
+            )),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor.tell(RestartStartupProbeMsg::Fail).unwrap();
+    actor
+        .tell(RestartStartupProbeMsg::GetStarts(reply_tx))
+        .unwrap();
+
+    assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 3);
     assert!(!actor.is_stopped());
 }
 

@@ -272,6 +272,10 @@ Implemented:
   restarts by allowing a configured number of restarts within a time window,
   stopping the actor when the limit is exceeded, and resetting the count after
   the window elapses.
+- Bounded restart supervision now treats a restarted actor's `started`
+  failure as another restart failure while budget remains, so restart-time
+  startup failures can retry instead of stopping immediately after the first
+  failed rebuilt instance.
 - Restart supervision now defaults to stopping children and exposes explicit
   child-preserving restart policies for callers that want Pekko-style
   `withStopChildren(false)` semantics without changing the default behavior.
@@ -2506,6 +2510,10 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor watch_with_survives_unrelated_actor_restart -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor bounded_restart_supervision_retries_restarted_startup_failure -- --nocapture
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
