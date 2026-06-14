@@ -339,6 +339,10 @@ Implemented:
 - `RemoteActorRefProvider` can now compose with the actor crate's
   `LocalActorRefProvider` boundary for owned local-path resolution, while
   retaining the existing actor-system convenience constructor.
+- `RemoteActorRefProvider::resolver::<M>()` now exposes a typed
+  `ActorRefResolver` adapter for deserialization-style actor-ref resolution,
+  mapping owned canonical addresses back to local `ResolvedActorRef<M>` values
+  and preserving foreign addressed paths as remote refs.
 - `RemoteAssociation` records the initial association state transitions for
   idle, handshaking, active, quarantined, and closed remoting links.
 - `kairo-remote::register_remote_protocol_codecs` registers stable explicit
@@ -2068,8 +2072,8 @@ Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop,
   restart-time child handling, and terminating-child name reservation.
-- Full actor-system local/remote provider integration, optional codec helper
-  crates, richer actor-system lifecycle wiring around the existing TCP
+- Broader actor-system local/remote provider integration, optional codec
+  helper crates, richer actor-system lifecycle wiring around the existing TCP
   association primitives, and broader cross-crate compatibility fixtures.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer

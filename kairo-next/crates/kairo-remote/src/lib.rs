@@ -166,7 +166,7 @@ pub use outbound::RemoteOutbound;
 pub use protocol::{
     AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, UnwatchRemote, WatchRemote,
 };
-pub use provider::RemoteActorRefProvider;
+pub use provider::{RemoteActorRefProvider, RemoteActorRefResolver};
 pub use remote_ref::RemoteActorRef;
 pub use remote_watch::{RemoteDeathWatchEffect, RemoteDeathWatchState};
 pub use remote_watch_actor::{

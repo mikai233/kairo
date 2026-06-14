@@ -1,7 +1,10 @@
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use kairo_actor::{ActorSystem, LocalActorRefProvider};
-use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
+use kairo_serialization::{
+    ActorRefResolver, ActorRefWireData, Registry, RemoteMessage, SerializationError,
+};
 
 use crate::local_address::CanonicalLocalAddress;
 use crate::{
@@ -105,6 +108,13 @@ impl RemoteActorRefProvider {
         self.resolve_wire(wire).map(ResolvedActorRef::Remote)
     }
 
+    pub fn resolver<M>(&self) -> RemoteActorRefResolver<M>
+    where
+        M: RemoteMessage,
+    {
+        RemoteActorRefResolver::new(self.clone())
+    }
+
     pub fn resolve_wire<M>(&self, wire: ActorRefWireData) -> Result<RemoteActorRef<M>>
     where
         M: RemoteMessage,
@@ -141,6 +151,50 @@ impl RemoteActorRefProvider {
     }
 }
 
+pub struct RemoteActorRefResolver<M> {
+    provider: RemoteActorRefProvider,
+    _message: PhantomData<fn(M)>,
+}
+
+impl<M> RemoteActorRefResolver<M> {
+    pub fn new(provider: RemoteActorRefProvider) -> Self {
+        Self {
+            provider,
+            _message: PhantomData,
+        }
+    }
+
+    pub fn provider(&self) -> &RemoteActorRefProvider {
+        &self.provider
+    }
+}
+
+impl<M> Clone for RemoteActorRefResolver<M> {
+    fn clone(&self) -> Self {
+        Self::new(self.provider.clone())
+    }
+}
+
+impl<M> ActorRefResolver for RemoteActorRefResolver<M>
+where
+    M: RemoteMessage,
+{
+    type Ref = ResolvedActorRef<M>;
+
+    fn resolve_actor_ref(&self, wire: &ActorRefWireData) -> kairo_serialization::Result<Self::Ref> {
+        self.provider
+            .resolve_actor_ref_wire(wire.clone())
+            .map_err(remote_error_to_serialization)
+    }
+}
+
+fn remote_error_to_serialization(error: RemoteError) -> SerializationError {
+    match error {
+        RemoteError::Serialization(error) => error,
+        other => SerializationError::Message(other.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
@@ -148,7 +202,9 @@ mod tests {
 
     use bytes::Bytes;
     use kairo_actor::{Actor, ActorResult, Context, Props};
-    use kairo_serialization::{MessageCodec, RemoteEnvelope, SerializationRegistry};
+    use kairo_serialization::{
+        ActorRefResolver, MessageCodec, RemoteEnvelope, SerializationRegistry,
+    };
 
     use super::*;
 
@@ -455,6 +511,53 @@ mod tests {
         let resolved = provider
             .resolve_actor_ref::<LocalCmd>("kairo://remote@127.0.0.1:25521/user/worker")
             .unwrap();
+
+        assert!(resolved.is_remote());
+        assert_eq!(
+            resolved.path().as_str(),
+            "kairo://remote@127.0.0.1:25521/user/worker"
+        );
+    }
+
+    #[test]
+    fn provider_resolver_trait_maps_owned_canonical_path_to_local_ref() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_system(system.clone());
+        let resolver = provider.resolver::<LocalCmd>();
+        let (received_tx, received_rx) = mpsc::channel();
+        let target = system
+            .spawn(
+                "target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+        let canonical_path =
+            target
+                .path()
+                .as_str()
+                .replacen("kairo://local", "kairo://local@127.0.0.1:25520", 1);
+        let wire = ActorRefWireData::new(canonical_path).unwrap();
+
+        let resolved = resolver.resolve_actor_ref(&wire).unwrap();
+
+        assert!(resolved.is_local());
+        resolved.tell(LocalCmd { value: 21 }).unwrap();
+        assert_eq!(
+            received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            21
+        );
+    }
+
+    #[test]
+    fn provider_resolver_trait_keeps_foreign_paths_remote() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_system(system);
+        let resolver = provider.resolver::<LocalCmd>();
+        let wire = ActorRefWireData::new("kairo://remote@127.0.0.1:25521/user/worker").unwrap();
+
+        let resolved = resolver.resolve_actor_ref(&wire).unwrap();
 
         assert!(resolved.is_remote());
         assert_eq!(
