@@ -1196,6 +1196,11 @@ Implemented:
   behavior. Allocated remembered shards are persisted idempotently and, when a
   typed local handoff transport is available, dispatched back to the selected
   region as `HostShard` so the region starts hosting the remembered shard.
+- `kairo-cluster-sharding` now validates the remembered-shard allocation path
+  through the multi-node region-discovery harness: a coordinator node starts
+  with remembered unallocated shard state, a separate region node discovers and
+  registers with that coordinator from cluster membership, and the coordinator
+  allocation is observed as an actually hosted region shard.
 - `kairo-cluster-sharding` shard region actors can now request shard homes
   from their registered local coordinator when local delivery buffers the first
   message for an unknown shard. Coordinator replies are applied through the
@@ -2397,5 +2402,9 @@ cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_r
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-sharding multi_node_region_discovery_allocates_remembered_shard_on_registration
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

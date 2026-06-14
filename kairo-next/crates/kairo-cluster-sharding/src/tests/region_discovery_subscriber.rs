@@ -387,6 +387,146 @@ fn multi_node_region_discovery_registers_and_routes_via_coordinator_node() {
     nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
+    let nodes = kairo_testkit::MultiNodeTestKit::new([
+        "sharding-remembered-discovery-coordinator",
+        "sharding-remembered-discovery-region",
+    ])
+    .unwrap();
+    let coordinator_kit = nodes
+        .kit("sharding-remembered-discovery-coordinator")
+        .unwrap();
+    let region_kit = nodes.kit("sharding-remembered-discovery-region").unwrap();
+    let region_node = remote_unique_node(
+        "sharding-remembered-discovery-region",
+        "127.0.0.1",
+        2690,
+        41,
+    );
+    let coordinator_node = remote_unique_node(
+        "sharding-remembered-discovery-coordinator",
+        "127.0.0.1",
+        2691,
+        42,
+    );
+    let publisher = region_kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(region_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state.merge_remembered_shards(["shard-1".to_string()]);
+    let coordinator = coordinator_kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    )
+    .with_local_coordinator(coordinator_node.clone(), coordinator.clone());
+    let region = region_kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_shards_and_coordinator_discovery(
+                "region-a", 10, 10, discovery,
+            ),
+        )
+        .unwrap();
+    let _subscriber = region_kit
+        .system()
+        .spawn(
+            "region-discovery",
+            ShardRegionDiscoverySubscriber::<String>::props(cluster, region.clone()),
+        )
+        .unwrap();
+    let coordinator_state = nodes
+        .create_probe_on::<CoordinatorStateSnapshot>(
+            "sharding-remembered-discovery-coordinator",
+            "coordinator-state",
+        )
+        .unwrap();
+    let region_state = nodes
+        .create_probe_on::<ShardRegionSnapshot>(
+            "sharding-remembered-discovery-region",
+            "region-state",
+        )
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([cluster_member(
+                coordinator_node,
+                MemberStatus::Up,
+                ["backend"],
+                1,
+            )]),
+        ))
+        .unwrap();
+
+    let mut allocated = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        allocated = snapshot.unallocated_shards.is_empty()
+            && snapshot
+                .allocations
+                .get("region-a")
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
+        if allocated {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        allocated,
+        "remembered shard should be allocated after discovered region registers"
+    );
+
+    let mut hosted = false;
+    for _ in 0..20 {
+        region
+            .tell(ShardRegionMsg::GetState {
+                reply_to: region_state.actor_ref(),
+            })
+            .unwrap();
+        hosted = region_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .contains("shard-1");
+        if hosted {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        hosted,
+        "remembered shard should be hosted by the registered region node"
+    );
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 fn wait_for_coordinator_registration(
     kit: &kairo_testkit::ActorSystemTestKit,
     coordinator: &ActorRef<ShardCoordinatorMsg<String>>,
