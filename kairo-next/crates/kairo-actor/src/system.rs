@@ -13,6 +13,7 @@ use crate::death_watch::{
 use crate::dispatcher::DispatcherSettings;
 use crate::error::ActorError;
 use crate::event_stream::EventStream;
+use crate::mailbox::MailboxSettings;
 use crate::path::{ActorPath, Address};
 use crate::provider::LocalActorRefProvider;
 use crate::receive_timeout::ReceiveTimeoutEnvelope;
@@ -42,6 +43,7 @@ pub(crate) struct ActorSystemInner {
     pub(crate) registry: ActorRegistry,
     pub(crate) death_watch: DeathWatchRegistry,
     pub(crate) dispatcher: DispatcherSettings,
+    pub(crate) mailbox: MailboxSettings,
     pub(crate) scheduler: Scheduler,
     pub(crate) event_stream: EventStream,
     pub(crate) receptionist: Receptionist,
@@ -68,6 +70,10 @@ impl ActorSystem {
 
     pub fn dispatcher_settings(&self) -> DispatcherSettings {
         self.inner.dispatcher
+    }
+
+    pub fn mailbox_settings(&self) -> MailboxSettings {
+        self.inner.mailbox
     }
 
     pub fn event_stream(&self) -> EventStream {

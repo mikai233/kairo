@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{
     ActorConfig, ClusterDowningStrategyConfig, ConfigError, DispatcherConfig, KairoSettings,
-    load_toml_file, parse_toml_str,
+    MailboxConfig, load_toml_file, parse_toml_str,
 };
 
 #[test]
@@ -16,6 +16,12 @@ throughput = 32
 
 [actor.dispatchers.blocking]
 throughput = 1
+
+[actor.mailboxes.default]
+capacity = 64
+
+[actor.mailboxes.control]
+capacity = 8
 
 [remote.transport]
 canonical_hostname = "10.0.0.12"
@@ -54,6 +60,8 @@ max_delta_entries = 250
 
     assert_eq!(settings.actor.dispatchers["default"].throughput, 32);
     assert_eq!(settings.actor.dispatchers["blocking"].throughput, 1);
+    assert_eq!(settings.actor.mailboxes["default"].capacity, Some(64));
+    assert_eq!(settings.actor.mailboxes["control"].capacity, Some(8));
     assert_eq!(settings.remote.transport.canonical_hostname, "10.0.0.12");
     assert_eq!(settings.remote.transport.canonical_port, 25521);
     assert_eq!(settings.cluster.seed.nodes.len(), 2);
@@ -99,6 +107,7 @@ fn toml_config_defaults_missing_sections_without_toml_specific_state() {
 
     assert_eq!(settings, KairoSettings::default());
     assert_eq!(settings.actor.dispatchers["default"].throughput, 5);
+    assert_eq!(settings.actor.mailboxes["default"].capacity, None);
     assert_eq!(settings.remote.transport.canonical_port, 25520);
     assert_eq!(settings.cluster.sharding.number_of_shards, 100);
 }
@@ -272,12 +281,34 @@ rebalance_interval = "0ms"
 }
 
 #[test]
+fn toml_config_rejects_zero_mailbox_capacity() {
+    let error = parse_toml_str(
+        r#"
+[actor.mailboxes.default]
+capacity = 0
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "actor.mailboxes.default.capacity".to_string(),
+            reason: "must be greater than zero when set".to_string(),
+        }
+    );
+}
+
+#[test]
 #[cfg(feature = "actor")]
 fn config_converts_actor_settings_to_builder() {
     let settings = parse_toml_str(
         r#"
 [actor.dispatchers.default]
 throughput = 17
+
+[actor.mailboxes.default]
+capacity = 3
 "#,
     )
     .unwrap();
@@ -290,6 +321,7 @@ throughput = 17
         .unwrap();
 
     assert_eq!(system.dispatcher_settings().throughput(), 17);
+    assert_eq!(system.mailbox_settings().user_capacity(), Some(3));
 }
 
 #[test]
@@ -344,6 +376,7 @@ expected_response_after = "750ms"
 fn config_runtime_helpers_validate_directly_constructed_settings() {
     let actor = ActorConfig {
         dispatchers: BTreeMap::from([("other".to_string(), DispatcherConfig { throughput: 1 })]),
+        ..Default::default()
     };
     assert_eq!(
         actor.default_dispatcher().unwrap_err(),
@@ -359,6 +392,7 @@ fn config_runtime_helpers_validate_directly_constructed_settings() {
                 "default".to_string(),
                 DispatcherConfig { throughput: 0 },
             )]),
+            ..Default::default()
         },
         ..KairoSettings::default()
     };
@@ -382,6 +416,7 @@ fn config_validate_checks_all_format_neutral_sections() {
                 ("default".to_string(), DispatcherConfig { throughput: 5 }),
                 ("blocking".to_string(), DispatcherConfig { throughput: 0 }),
             ]),
+            ..Default::default()
         },
         ..KairoSettings::default()
     };
@@ -390,6 +425,24 @@ fn config_validate_checks_all_format_neutral_sections() {
         ConfigError::InvalidValue {
             path: "actor.dispatchers.blocking.throughput".to_string(),
             reason: "must be greater than zero".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        actor: ActorConfig {
+            mailboxes: BTreeMap::from([(
+                "default".to_string(),
+                MailboxConfig { capacity: Some(0) },
+            )]),
+            ..Default::default()
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "actor.mailboxes.default.capacity".to_string(),
+            reason: "must be greater than zero when set".to_string(),
         }
     );
 

@@ -9,7 +9,7 @@ pub use error::ConfigError;
 pub use settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-    DispatcherConfig, KairoSettings, RemoteConfig, RemoteTransportConfig,
+    DispatcherConfig, KairoSettings, MailboxConfig, RemoteConfig, RemoteTransportConfig,
 };
 pub use toml_loader::{load_toml_file, parse_toml_str};
 

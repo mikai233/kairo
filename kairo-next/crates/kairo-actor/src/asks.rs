@@ -283,8 +283,9 @@ where
                 .expect("ask response mapper must run at most once");
             Some(map_response(result))
         })
-        .inspect_err(|_result| {
-            dead_letters.publish::<M>(owner_path.clone(), "actor mailbox is closed");
+        .map_err(|error| {
+            dead_letters.publish::<M>(owner_path.clone(), error.reason());
+            error.into_message()
         })
 }
 

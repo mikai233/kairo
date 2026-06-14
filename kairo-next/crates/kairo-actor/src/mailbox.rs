@@ -43,8 +43,57 @@ impl<M: fmt::Debug> fmt::Debug for UserEnvelope<M> {
 
 #[derive(Debug)]
 pub(crate) struct Mailbox<M> {
+    settings: MailboxSettings,
     state: Mutex<MailboxState<M>>,
     ready: Condvar,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MailboxSettings {
+    user_capacity: Option<usize>,
+}
+
+impl MailboxSettings {
+    pub fn unbounded() -> Self {
+        Self {
+            user_capacity: None,
+        }
+    }
+
+    pub fn bounded(user_capacity: usize) -> Self {
+        Self {
+            user_capacity: Some(user_capacity),
+        }
+    }
+
+    pub fn user_capacity(&self) -> Option<usize> {
+        self.user_capacity
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MailboxEnqueueError<T> {
+    Closed(T),
+    Full(T),
+}
+
+impl<T> MailboxEnqueueError<T> {
+    pub(crate) fn into_message(self) -> T {
+        match self {
+            Self::Closed(message) | Self::Full(message) => message,
+        }
+    }
+
+    pub(crate) fn reason(&self) -> &'static str {
+        match self {
+            Self::Closed(_) => "actor mailbox is closed",
+            Self::Full(_) => "actor mailbox is full",
+        }
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        matches!(self, Self::Closed(_))
+    }
 }
 
 #[derive(Debug)]
@@ -56,7 +105,14 @@ struct MailboxState<M> {
 
 impl<M> Default for Mailbox<M> {
     fn default() -> Self {
+        Self::new(MailboxSettings::default())
+    }
+}
+
+impl<M> Mailbox<M> {
+    pub(crate) fn new(settings: MailboxSettings) -> Self {
         Self {
+            settings,
             state: Mutex::new(MailboxState {
                 system: VecDeque::new(),
                 user: VecDeque::new(),
@@ -65,13 +121,14 @@ impl<M> Default for Mailbox<M> {
             ready: Condvar::new(),
         }
     }
-}
 
-impl<M> Mailbox<M> {
-    pub(crate) fn enqueue_user(&self, message: M) -> Result<(), M> {
+    pub(crate) fn enqueue_user(&self, message: M) -> Result<(), MailboxEnqueueError<M>> {
         let mut state = self.state.lock().expect("mailbox poisoned");
         if state.closed {
-            return Err(message);
+            return Err(MailboxEnqueueError::Closed(message));
+        }
+        if self.is_full(&state) {
+            return Err(MailboxEnqueueError::Full(message));
         }
         state.user.push_back(UserEnvelope::Message(message));
         self.ready.notify_one();
@@ -90,10 +147,16 @@ impl<M> Mailbox<M> {
         Ok(())
     }
 
-    pub(crate) fn enqueue_timer(&self, timer: TimerEnvelope<M>) -> Result<(), TimerEnvelope<M>> {
+    pub(crate) fn enqueue_timer(
+        &self,
+        timer: TimerEnvelope<M>,
+    ) -> Result<(), MailboxEnqueueError<TimerEnvelope<M>>> {
         let mut state = self.state.lock().expect("mailbox poisoned");
         if state.closed {
-            return Err(timer);
+            return Err(MailboxEnqueueError::Closed(timer));
+        }
+        if self.is_full(&state) {
+            return Err(MailboxEnqueueError::Full(timer));
         }
         state.user.push_back(UserEnvelope::Timer(timer));
         self.ready.notify_one();
@@ -103,24 +166,34 @@ impl<M> Mailbox<M> {
     pub(crate) fn enqueue_receive_timeout(
         &self,
         timeout: ReceiveTimeoutEnvelope<M>,
-    ) -> Result<(), ReceiveTimeoutEnvelope<M>> {
+    ) -> Result<(), MailboxEnqueueError<ReceiveTimeoutEnvelope<M>>> {
         let mut state = self.state.lock().expect("mailbox poisoned");
         if state.closed {
-            return Err(timeout);
+            return Err(MailboxEnqueueError::Closed(timeout));
+        }
+        if self.is_full(&state) {
+            return Err(MailboxEnqueueError::Full(timeout));
         }
         state.user.push_back(UserEnvelope::ReceiveTimeout(timeout));
         self.ready.notify_one();
         Ok(())
     }
 
-    pub(crate) fn enqueue_adapted<U, F>(&self, message: U, adapt: F) -> Result<(), U>
+    pub(crate) fn enqueue_adapted<U, F>(
+        &self,
+        message: U,
+        adapt: F,
+    ) -> Result<(), MailboxEnqueueError<U>>
     where
         U: Send + 'static,
         F: FnOnce(U) -> Option<M> + Send + 'static,
     {
         let mut state = self.state.lock().expect("mailbox poisoned");
         if state.closed {
-            return Err(message);
+            return Err(MailboxEnqueueError::Closed(message));
+        }
+        if self.is_full(&state) {
+            return Err(MailboxEnqueueError::Full(message));
         }
         state
             .user
@@ -177,6 +250,12 @@ impl<M> Mailbox<M> {
         self.ready.notify_all();
         drained
     }
+
+    fn is_full(&self, state: &MailboxState<M>) -> bool {
+        self.settings
+            .user_capacity
+            .is_some_and(|capacity| state.user.len() >= capacity)
+    }
 }
 
 #[cfg(test)]
@@ -219,6 +298,46 @@ mod tests {
         assert!(matches!(
             mailbox.try_dequeue(),
             Some(Dequeued::System(SystemMessage::Stop))
+        ));
+    }
+
+    #[test]
+    fn bounded_mailbox_rejects_user_overflow_without_closing() {
+        let mailbox = Mailbox::new(MailboxSettings::bounded(1));
+
+        mailbox.enqueue_user("first").unwrap();
+        let error = mailbox
+            .enqueue_user("second")
+            .expect_err("bounded mailbox should reject overflow");
+
+        assert_eq!(error.reason(), "actor mailbox is full");
+        assert!(!error.is_closed());
+        assert_eq!(error.into_message(), "second");
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::User(UserEnvelope::Message("first")))
+        ));
+        mailbox.enqueue_user("third").unwrap();
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::User(UserEnvelope::Message("third")))
+        ));
+    }
+
+    #[test]
+    fn bounded_mailbox_keeps_system_lane_available_when_user_lane_is_full() {
+        let mailbox = Mailbox::new(MailboxSettings::bounded(1));
+
+        mailbox.enqueue_user("user").unwrap();
+        mailbox.enqueue_system(SystemMessage::Stop);
+
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::System(SystemMessage::Stop))
+        ));
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::User(UserEnvelope::Message("user")))
         ));
     }
 }

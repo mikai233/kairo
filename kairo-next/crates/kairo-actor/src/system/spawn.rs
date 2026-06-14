@@ -87,7 +87,7 @@ impl ActorSystem {
             .registry
             .reserve_name(registry_key.clone(), uid, name)?;
 
-        let mailbox = Arc::new(Mailbox::default());
+        let mailbox = Arc::new(Mailbox::new(self.inner.mailbox));
         let path = parent_path.child(name, Some(uid));
         let stopped = Arc::new(AtomicBool::new(false));
         let terminated = Arc::new(TerminationLatch::default());

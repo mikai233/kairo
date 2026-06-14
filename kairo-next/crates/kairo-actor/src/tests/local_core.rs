@@ -26,6 +26,16 @@ fn actor_system_builder_configures_dispatcher_throughput() {
 }
 
 #[test]
+fn actor_system_builder_configures_mailbox_capacity() {
+    let system = ActorSystem::builder("test")
+        .mailbox_capacity(1)
+        .build()
+        .unwrap();
+
+    assert_eq!(system.mailbox_settings().user_capacity(), Some(1));
+}
+
+#[test]
 fn actor_system_builder_rejects_zero_dispatcher_throughput() {
     let error = ActorSystem::builder("test")
         .dispatcher_throughput(0)
@@ -33,6 +43,79 @@ fn actor_system_builder_rejects_zero_dispatcher_throughput() {
         .unwrap_err();
 
     assert!(matches!(error, ActorError::InvalidThroughput));
+}
+
+#[test]
+fn actor_system_builder_rejects_zero_mailbox_capacity() {
+    let error = ActorSystem::builder("test")
+        .mailbox_capacity(0)
+        .build()
+        .unwrap_err();
+
+    assert!(matches!(error, ActorError::InvalidMailboxCapacity));
+}
+
+#[test]
+fn bounded_mailbox_overflow_rejects_send_and_records_dead_letter() {
+    struct Blocked {
+        entered: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+    }
+
+    impl Actor for Blocked {
+        type Msg = u8;
+
+        fn started(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+            self.entered
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+            self.release
+                .recv()
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+            Ok(())
+        }
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+            Ok(())
+        }
+    }
+
+    let system = ActorSystem::builder("test")
+        .mailbox_capacity(1)
+        .build()
+        .unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "blocked",
+            Props::new(move || Blocked {
+                entered: entered_tx,
+                release: release_rx,
+            }),
+        )
+        .unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    actor.tell(1).unwrap();
+    let error = actor
+        .tell(2)
+        .expect_err("bounded mailbox should reject overflow");
+
+    assert_eq!(error.reason(), "actor mailbox is full");
+    assert_eq!(error.into_message(), 2);
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    assert_eq!(
+        system.dead_letters().records()[0].reason(),
+        "actor mailbox is full"
+    );
+
+    release_tx.send(()).unwrap();
+    system.terminate(Duration::from_secs(1)).unwrap();
 }
 
 fn send_to_recipient<R>(recipient: &R, message: CounterMsg)

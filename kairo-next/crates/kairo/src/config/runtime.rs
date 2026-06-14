@@ -4,7 +4,7 @@ use super::error::ConfigError;
 use super::settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterShardingConfig, ClusterToolsConfig, DispatcherConfig,
-    KairoSettings, RemoteConfig, RemoteTransportConfig,
+    KairoSettings, MailboxConfig, RemoteConfig, RemoteTransportConfig,
 };
 
 impl KairoSettings {
@@ -23,6 +23,11 @@ impl ActorConfig {
         for (name, dispatcher) in &self.dispatchers {
             dispatcher.validated_throughput(format!("actor.dispatchers.{name}.throughput"))?;
         }
+        self.default_mailbox()?
+            .validate("actor.mailboxes.default")?;
+        for (name, mailbox) in &self.mailboxes {
+            mailbox.validate(format!("actor.mailboxes.{name}"))?;
+        }
         Ok(())
     }
 
@@ -35,17 +40,31 @@ impl ActorConfig {
             })
     }
 
+    pub fn default_mailbox(&self) -> Result<&MailboxConfig, ConfigError> {
+        self.mailboxes
+            .get("default")
+            .ok_or_else(|| ConfigError::InvalidValue {
+                path: "actor.mailboxes.default".to_string(),
+                reason: "default mailbox settings are required".to_string(),
+            })
+    }
+
     #[cfg(feature = "actor")]
     pub fn actor_system_builder(
         &self,
         name: impl Into<String>,
     ) -> Result<kairo_actor::ActorSystemBuilder, ConfigError> {
-        Ok(
-            kairo_actor::ActorSystem::builder(name).dispatcher_throughput(
-                self.default_dispatcher()?
-                    .validated_throughput("actor.dispatchers.default.throughput")?,
-            ),
-        )
+        let mut builder = kairo_actor::ActorSystem::builder(name).dispatcher_throughput(
+            self.default_dispatcher()?
+                .validated_throughput("actor.dispatchers.default.throughput")?,
+        );
+        if let Some(capacity) = self
+            .default_mailbox()?
+            .validated_capacity("actor.mailboxes.default.capacity")?
+        {
+            builder = builder.mailbox_capacity(capacity);
+        }
+        Ok(builder)
     }
 }
 
@@ -58,6 +77,27 @@ impl DispatcherConfig {
             })
         } else {
             Ok(self.throughput)
+        }
+    }
+}
+
+impl MailboxConfig {
+    pub fn validate(&self, path: impl Into<String>) -> Result<(), ConfigError> {
+        let path = path.into();
+        self.validated_capacity(format!("{path}.capacity"))?;
+        Ok(())
+    }
+
+    pub fn validated_capacity(
+        &self,
+        path: impl Into<String>,
+    ) -> Result<Option<usize>, ConfigError> {
+        match self.capacity {
+            Some(0) => Err(ConfigError::InvalidValue {
+                path: path.into(),
+                reason: "must be greater than zero when set".to_string(),
+            }),
+            capacity => Ok(capacity),
         }
     }
 }

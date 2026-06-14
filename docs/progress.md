@@ -33,12 +33,18 @@ Implemented:
   actors cannot create orphan children under a dead parent path.
 - `ActorSystemBuilder::dispatcher_throughput` configures local mailbox batch
   throughput before worker yield.
+- `ActorSystemBuilder::mailbox_capacity` configures an optional bounded user
+  mailbox for local actors; overflow rejects the send, records a dead letter,
+  and leaves the actor running while system messages remain on their separate
+  priority lane.
 - `ActorSystemBuilder` construction and scheduler/dispatcher wiring now live in
   a focused `system::builder` submodule instead of the actor-system runtime
   operations file.
 - Mailbox tests now pin the actor runtime contract that system messages are
   dequeued before already queued user messages while preserving FIFO order
   within the system lane.
+- Mailbox tests now also cover bounded user-lane overflow and prove the system
+  lane remains available when the user lane is full.
 - Stopping a local actor recursively requests child stops, rejects later user
   messages while child termination is still in progress, and runs the parent's
   `stopped` hook after children have terminated.
@@ -1781,6 +1787,9 @@ Implemented:
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
   sections, including explicit type/value validation and unknown-key rejection.
+- The TOML loader now parses `[actor.mailboxes.*]` capacity settings into
+  format-neutral `MailboxConfig` values, rejects zero capacities, and maps the
+  default mailbox capacity into `ActorSystemBuilder::mailbox_capacity`.
 - The TOML loader now separates file/root parsing, section-to-settings
   projection, and primitive value validation into focused modules instead of
   concentrating all configuration parsing logic in one file.
@@ -2533,5 +2542,10 @@ cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor local_core --all-targets --all-features
+cargo test -p kairo config --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo clippy -p kairo-actor -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```

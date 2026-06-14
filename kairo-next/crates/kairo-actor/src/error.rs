@@ -29,6 +29,8 @@ pub enum ActorError {
     ShutdownPhaseTimeout { phase: String, timeout: Duration },
     #[error("dispatcher throughput must be greater than zero")]
     InvalidThroughput,
+    #[error("mailbox capacity must be greater than zero")]
+    InvalidMailboxCapacity,
     #[error("actor `{actor}` is not self or a direct child of `{owner}`")]
     InvalidStopTarget { actor: String, owner: String },
     #[error("actor `{actor}` is stopping")]

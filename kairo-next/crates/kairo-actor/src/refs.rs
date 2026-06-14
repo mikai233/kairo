@@ -119,12 +119,12 @@ impl<M> ActorRef<M> {
                     let mut map = map.lock().expect("message adapter poisoned");
                     Some((map)(message))
                 })
-                .map_err(|message| {
-                    adapter_dead_letters
-                        .publish::<M>(adapter_path.clone(), "actor mailbox is closed");
+                .map_err(|error| {
+                    let reason = error.reason();
+                    adapter_dead_letters.publish::<M>(adapter_path.clone(), reason);
                     SendError {
-                        message,
-                        reason: "actor mailbox is closed".to_string(),
+                        message: error.into_message(),
+                        reason: reason.to_string(),
                     }
                 })
         });
@@ -217,13 +217,15 @@ impl<M: Send + 'static> ActorRef<M> {
             });
         };
 
-        mailbox.enqueue_user(message).map_err(|message| {
-            self.target.stopped.store(true, Ordering::Release);
-            self.dead_letters
-                .publish::<M>(self.path.clone(), "actor mailbox is closed");
+        mailbox.enqueue_user(message).map_err(|error| {
+            if error.is_closed() {
+                self.target.stopped.store(true, Ordering::Release);
+            }
+            let reason = error.reason();
+            self.dead_letters.publish::<M>(self.path.clone(), reason);
             SendError {
-                message,
-                reason: "actor mailbox is closed".to_string(),
+                message: error.into_message(),
+                reason: reason.to_string(),
             }
         })
     }
@@ -274,10 +276,12 @@ impl<M: Send + 'static> ActorRef<M> {
             return;
         };
 
-        if mailbox.enqueue_timer(timer).is_err() {
-            self.target.stopped.store(true, Ordering::Release);
+        if let Err(error) = mailbox.enqueue_timer(timer) {
+            if error.is_closed() {
+                self.target.stopped.store(true, Ordering::Release);
+            }
             self.dead_letters
-                .publish::<M>(self.path.clone(), "actor mailbox is closed");
+                .publish::<M>(self.path.clone(), error.reason());
         }
     }
 
@@ -294,10 +298,12 @@ impl<M: Send + 'static> ActorRef<M> {
             return;
         };
 
-        if mailbox.enqueue_receive_timeout(timeout).is_err() {
-            self.target.stopped.store(true, Ordering::Release);
+        if let Err(error) = mailbox.enqueue_receive_timeout(timeout) {
+            if error.is_closed() {
+                self.target.stopped.store(true, Ordering::Release);
+            }
             self.dead_letters
-                .publish::<M>(self.path.clone(), "actor mailbox is closed");
+                .publish::<M>(self.path.clone(), error.reason());
         }
     }
 

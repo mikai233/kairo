@@ -31,6 +31,9 @@
 //! [actor.dispatchers.default]
 //! throughput = 16
 //!
+//! [actor.mailboxes.default]
+//! capacity = 1024
+//!
 //! [remote.transport]
 //! canonical_hostname = "127.0.0.1"
 //! canonical_port = 25521
@@ -51,6 +54,7 @@
 //! )?;
 //!
 //! assert_eq!(settings.actor.default_dispatcher()?.throughput, 16);
+//! assert_eq!(settings.actor.default_mailbox()?.capacity, Some(1024));
 //! assert_eq!(settings.remote.transport.canonical_port, 25521);
 //! assert_eq!(settings.cluster.seed.nodes.len(), 1);
 //! assert_eq!(settings.cluster.heartbeat.interval, Duration::from_millis(500));
@@ -89,8 +93,8 @@ pub mod prelude {
     pub use crate::config::{
         ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
         ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-        ConfigError, DispatcherConfig, KairoSettings, RemoteConfig, RemoteTransportConfig,
-        load_toml_file, parse_toml_str,
+        ConfigError, DispatcherConfig, KairoSettings, MailboxConfig, RemoteConfig,
+        RemoteTransportConfig, load_toml_file, parse_toml_str,
     };
     #[cfg(feature = "actor")]
     pub use kairo_actor::prelude::*;

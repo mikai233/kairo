@@ -11,12 +11,14 @@ pub struct KairoSettings {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActorConfig {
     pub dispatchers: BTreeMap<String, DispatcherConfig>,
+    pub mailboxes: BTreeMap<String, MailboxConfig>,
 }
 
 impl Default for ActorConfig {
     fn default() -> Self {
         Self {
             dispatchers: BTreeMap::from([("default".to_string(), DispatcherConfig::default())]),
+            mailboxes: BTreeMap::from([("default".to_string(), MailboxConfig::default())]),
         }
     }
 }
@@ -30,6 +32,11 @@ impl Default for DispatcherConfig {
     fn default() -> Self {
         Self { throughput: 5 }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MailboxConfig {
+    pub capacity: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

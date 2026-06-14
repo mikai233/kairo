@@ -6,7 +6,7 @@ use toml::Value;
 use crate::config::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-    ConfigError, DispatcherConfig, RemoteConfig, RemoteTransportConfig,
+    ConfigError, DispatcherConfig, MailboxConfig, RemoteConfig, RemoteTransportConfig,
 };
 
 use super::primitives::{
@@ -16,10 +16,13 @@ use super::primitives::{
 
 pub(super) fn parse_actor(value: &Value) -> Result<ActorConfig, ConfigError> {
     let table = expect_table(value, "actor")?;
-    reject_unknown(table, "actor", &["dispatchers"])?;
+    reject_unknown(table, "actor", &["dispatchers", "mailboxes"])?;
     let mut config = ActorConfig::default();
     if let Some(dispatchers) = table.get("dispatchers") {
         config.dispatchers = parse_dispatchers(dispatchers)?;
+    }
+    if let Some(mailboxes) = table.get("mailboxes") {
+        config.mailboxes = parse_mailboxes(mailboxes)?;
     }
     Ok(config)
 }
@@ -83,6 +86,26 @@ fn parse_dispatchers(value: &Value) -> Result<BTreeMap<String, DispatcherConfig>
         dispatchers.insert("default".to_string(), DispatcherConfig::default());
     }
     Ok(dispatchers)
+}
+
+fn parse_mailboxes(value: &Value) -> Result<BTreeMap<String, MailboxConfig>, ConfigError> {
+    let table = expect_table(value, "actor.mailboxes")?;
+    let mut mailboxes = BTreeMap::new();
+    for (name, value) in table {
+        let path = format!("actor.mailboxes.{name}");
+        let table = expect_table(value, &path)?;
+        reject_unknown(table, &path, &["capacity"])?;
+        let mut mailbox = MailboxConfig::default();
+        if let Some(capacity) = table.get("capacity") {
+            mailbox.capacity = Some(parse_usize(capacity, &format!("{path}.capacity"))?);
+            mailbox.validated_capacity(format!("{path}.capacity"))?;
+        }
+        mailboxes.insert(name.clone(), mailbox);
+    }
+    if mailboxes.is_empty() {
+        mailboxes.insert("default".to_string(), MailboxConfig::default());
+    }
+    Ok(mailboxes)
 }
 
 fn parse_remote_transport(value: &Value) -> Result<RemoteTransportConfig, ConfigError> {
