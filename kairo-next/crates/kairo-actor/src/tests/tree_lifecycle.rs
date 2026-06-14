@@ -518,6 +518,67 @@ fn parent_stop_waits_for_children_before_stopped_hook() {
     assert!(parent.wait_for_stop(Duration::from_secs(1)));
 }
 
+#[derive(Debug)]
+struct PostStopSpawnResults {
+    named: Result<(), String>,
+    anonymous: Result<(), String>,
+}
+
+struct PostStopSpawningActor {
+    results: mpsc::Sender<PostStopSpawnResults>,
+}
+
+impl Actor for PostStopSpawningActor {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let named = ctx
+            .spawn("late-child", Props::new(|| Noop))
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        let anonymous = ctx
+            .spawn_anonymous(Props::new(|| Noop))
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        self.results
+            .send(PostStopSpawnResults { named, anonymous })
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+#[test]
+fn post_stop_rejects_late_child_spawns() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (results_tx, results_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "post-stop-spawner",
+            Props::new(move || PostStopSpawningActor {
+                results: results_tx,
+            }),
+        )
+        .unwrap();
+
+    system.stop(&actor);
+
+    let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        results.named.expect_err("named spawn should be rejected"),
+        format!("actor `{}` is stopping", actor.path())
+    );
+    assert_eq!(
+        results
+            .anonymous
+            .expect_err("anonymous spawn should be rejected"),
+        format!("actor `{}` is stopping", actor.path())
+    );
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+}
+
 struct SignalProbe {
     signals: mpsc::Sender<Signal>,
 }

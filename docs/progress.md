@@ -25,6 +25,9 @@ Implemented:
 - `Context::stop` can stop the current actor or a typed direct child actor ref
   without stopping the parent, and returns an explicit error for invalid
   targets.
+- `Context::spawn` and `Context::spawn_anonymous` now reject child creation
+  once the owning actor is stopping, including during `PostStop`, so stopped
+  actors cannot create orphan children under a dead parent path.
 - `ActorSystemBuilder::dispatcher_throughput` configures local mailbox batch
   throughput before worker yield.
 - `ActorSystemBuilder` construction and scheduler/dispatcher wiring now live in
@@ -2027,6 +2030,8 @@ cargo fmt --all -- --check
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor child_startup_failure_cleans_parent_registry_and_releases_name
+cargo test -p kairo-actor post_stop_rejects_late_child_spawns
+cargo test -p kairo-actor tree_lifecycle
 cargo fmt --all -- --check
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings

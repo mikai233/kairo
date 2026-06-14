@@ -393,6 +393,7 @@ impl<M: Send + 'static> Context<M> {
     where
         A: Actor,
     {
+        self.ensure_can_spawn_child()?;
         self.system
             .spawn_under(self.myself.path(), name.as_ref(), props)
     }
@@ -401,7 +402,17 @@ impl<M: Send + 'static> Context<M> {
     where
         A: Actor,
     {
+        self.ensure_can_spawn_child()?;
         self.system.spawn_anonymous_under(self.myself.path(), props)
+    }
+
+    fn ensure_can_spawn_child(&self) -> Result<(), ActorError> {
+        if self.stop_requested || self.myself.is_stopped() {
+            return Err(ActorError::ActorStopping {
+                actor: self.myself.path().to_string(),
+            });
+        }
+        Ok(())
     }
 
     pub fn stop<N: Send + 'static>(&mut self, actor: ActorRef<N>) -> ActorResult {
