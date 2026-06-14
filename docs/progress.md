@@ -1903,6 +1903,10 @@ Implemented:
   calculation-service and pattern-coordinator modules, demonstrating
   `Context::ask` and `Context::pipe_to_self` without placing the actor logic
   in one binary file.
+- `kairo-examples` now includes a runnable `remote_ping_pong` example that
+  binds two TCP remoting actor systems, registers an explicit stable codec for
+  a typed ping/pong protocol, sends a remote ping, and routes a remote pong
+  back to the sender's canonical actor ref over the accepted association.
 - `kairo-examples` now includes a runnable local cluster-sharding example that
   wires a shard coordinator, local shard region, `ShardingEnvelopeRouter`, and
   `EntityRef<String>` through reusable helper code and demonstrates stable

@@ -191,6 +191,13 @@ The diagnostic sink receives structured recipient, optional sender, manifest,
 version, serializer id, and reason data, so applications can route failures to
 logs, metrics, tests, or event streams without changing the wire contract.
 
+The runnable `remote_ping_pong` example shows the same remote-message contract
+end to end with a registered codec and two loopback TCP remoting actor systems:
+
+```bash
+cargo run -p kairo-examples --example remote_ping_pong
+```
+
 Remote associations can report quarantine transitions through the same
 backend-neutral observer style:
 

@@ -42,6 +42,7 @@ Runnable examples live in the `kairo-examples` crate:
 cargo run -p kairo-examples --example local_counter
 cargo run -p kairo-examples --example configured_counter
 cargo run -p kairo-examples --example ask_pipe_to_self
+cargo run -p kairo-examples --example remote_ping_pong
 cargo run -p kairo-examples --example cluster_sharding_local
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
@@ -60,6 +61,10 @@ typed counter protocol with the configured dispatcher throughput.
 The `ask_pipe_to_self` example keeps a calculation service and a pattern
 coordinator in focused modules while demonstrating `Context::ask` and
 `Context::pipe_to_self` as mailbox-returning local actor patterns.
+
+The `remote_ping_pong` example binds two TCP remoting actor systems, registers
+an explicit stable codec for a typed ping/pong protocol, sends a remote ping,
+and returns a remote pong through the sender's canonical actor ref.
 
 The `cluster_sharding_local` example wires a local shard coordinator, typed
 shard region, stable `ShardingEnvelopeRouter`, `EntityRef<String>`, and

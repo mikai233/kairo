@@ -15,6 +15,8 @@
 //!   returning through mailbox messages.
 //! - `cluster_sharding_local`: local coordinator, shard region, stable shard
 //!   hash, `EntityRef`, and entity-backed shard delivery.
+//! - `remote_ping_pong`: two TCP remoting actor systems exchanging a typed
+//!   ping and pong through registered stable message codecs.
 //! - `cluster_tcp_peer_bootstrap`: two local cluster TCP peer runtimes using
 //!   cluster-derived route plans.
 //! - `ddata_tcp_peer_bootstrap`: two local distributed-data TCP peer runtimes
@@ -54,5 +56,6 @@ pub mod configured_counter;
 pub mod counter;
 pub mod ddata_tcp;
 pub mod patterns;
+pub mod remote_ping_pong;
 pub mod reply;
 pub mod sharding_local;

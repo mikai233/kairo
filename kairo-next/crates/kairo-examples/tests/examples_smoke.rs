@@ -6,6 +6,7 @@ use kairo::prelude::*;
 use kairo_examples::configured_counter::run_configured_counter;
 use kairo_examples::counter::{CounterCmd, spawn_counter};
 use kairo_examples::patterns::{PatternObservation, run_ask_pipe_to_self};
+use kairo_examples::remote_ping_pong::run_remote_ping_pong;
 use kairo_examples::sharding_local::{LocalShardingExample, run_local_graceful_region_shutdown};
 
 #[test]
@@ -51,6 +52,25 @@ fn ask_pipe_to_self_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
         input: 7,
         output: 10,
     }));
+    Ok(())
+}
+
+#[test]
+fn remote_ping_pong_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
+    let observation = run_remote_ping_pong("example-smoke-remote-ping-pong", 41)?;
+
+    assert_eq!(observation.ping_value, 41);
+    assert_eq!(observation.pong_value, 42);
+    assert!(
+        observation
+            .responder_path
+            .starts_with("kairo://example-smoke-remote-ping-pong-receiver@127.0.0.1:")
+    );
+    assert!(
+        observation
+            .reply_path
+            .starts_with("kairo://example-smoke-remote-ping-pong-sender@127.0.0.1:")
+    );
     Ok(())
 }
 
