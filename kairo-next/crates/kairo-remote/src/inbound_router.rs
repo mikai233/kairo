@@ -4,9 +4,9 @@ use bytes::Bytes;
 use kairo_serialization::RemoteMessage;
 
 use crate::{
-    RemoteDeathWatchSystemInbound, RemoteError, RemoteFrameHandler, RemoteHeartbeat,
-    RemoteHeartbeatAck, RemoteInbound, RemoteStreamId, Result, UnwatchRemote, WatchRemote,
-    decode_remote_envelope_frame,
+    AddressTerminated, RemoteDeathWatchSystemInbound, RemoteError, RemoteFrameHandler,
+    RemoteHeartbeat, RemoteHeartbeatAck, RemoteInbound, RemoteStreamId, Result, UnwatchRemote,
+    WatchRemote, decode_remote_envelope_frame,
 };
 
 pub struct RemoteInboundFrameRouter<M> {
@@ -64,6 +64,7 @@ pub fn is_remote_death_watch_manifest(manifest: &str) -> bool {
             | UnwatchRemote::MANIFEST
             | RemoteHeartbeat::MANIFEST
             | RemoteHeartbeatAck::MANIFEST
+            | AddressTerminated::MANIFEST
     )
 }
 
@@ -240,6 +241,19 @@ mod tests {
         )
     }
 
+    fn address_terminated_envelope(registry: &Registry) -> RemoteEnvelope {
+        RemoteEnvelope::new(
+            local_watcher(),
+            Some(remote_watcher()),
+            registry
+                .serialize(&AddressTerminated {
+                    address: "kairo://remote@127.0.0.1:25520".to_string(),
+                    uid: Some(11),
+                })
+                .unwrap(),
+        )
+    }
+
     struct RouterFixture {
         router: RemoteInboundFrameRouter<Business>,
         death_watch: ActorRef<crate::RemoteDeathWatchCommand>,
@@ -330,6 +344,38 @@ mod tests {
     }
 
     #[test]
+    fn router_sends_address_terminated_frames_to_system_inbound() {
+        let registry = registry();
+        let delivery = Arc::new(CollectingBusinessDelivery::default());
+        let effects = Arc::new(RecordingEffectSink::default());
+        let fixture = router(registry.clone(), delivery.clone(), effects.clone());
+        let terminated_frame =
+            encode_remote_envelope_frame(&address_terminated_envelope(&registry)).unwrap();
+
+        fixture
+            .death_watch
+            .tell(crate::RemoteDeathWatchCommand::Watch(WatchRemote {
+                watchee: watcher("target"),
+                watcher: watchee("observer"),
+            }))
+            .unwrap();
+        fixture
+            .router
+            .handle_frame(RemoteStreamId::Control, terminated_frame)
+            .expect("address-terminated frame should route");
+
+        assert!(delivery.messages().is_empty());
+        let observed = effects.wait_for_len(3, Duration::from_secs(1));
+        assert!(matches!(
+            observed.last(),
+            Some(RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
+                address,
+                uid: Some(11),
+            })) if address == "kairo://remote@127.0.0.1:25520"
+        ));
+    }
+
+    #[test]
     fn router_rejects_death_watch_frames_on_non_control_lane() {
         let registry = registry();
         let delivery = Arc::new(CollectingBusinessDelivery::default());
@@ -352,6 +398,7 @@ mod tests {
         assert!(is_remote_death_watch_manifest(UnwatchRemote::MANIFEST));
         assert!(is_remote_death_watch_manifest(RemoteHeartbeat::MANIFEST));
         assert!(is_remote_death_watch_manifest(RemoteHeartbeatAck::MANIFEST));
+        assert!(is_remote_death_watch_manifest(AddressTerminated::MANIFEST));
         assert!(!is_remote_death_watch_manifest(Business::MANIFEST));
     }
 }

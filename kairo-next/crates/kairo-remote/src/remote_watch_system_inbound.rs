@@ -3,8 +3,8 @@ use std::sync::Arc;
 use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage};
 
 use crate::{
-    InboundMessage, RemoteDeathWatchProtocolDelivery, RemoteError, RemoteHeartbeat,
-    RemoteHeartbeatAck, RemoteInboundDelivery, Result, UnwatchRemote, WatchRemote,
+    AddressTerminated, InboundMessage, RemoteDeathWatchProtocolDelivery, RemoteError,
+    RemoteHeartbeat, RemoteHeartbeatAck, RemoteInboundDelivery, Result, UnwatchRemote, WatchRemote,
 };
 
 #[derive(Clone)]
@@ -32,6 +32,7 @@ impl RemoteDeathWatchSystemInbound {
             UnwatchRemote::MANIFEST => self.receive_typed::<UnwatchRemote>(envelope),
             RemoteHeartbeat::MANIFEST => self.receive_typed::<RemoteHeartbeat>(envelope),
             RemoteHeartbeatAck::MANIFEST => self.receive_typed::<RemoteHeartbeatAck>(envelope),
+            AddressTerminated::MANIFEST => self.receive_typed::<AddressTerminated>(envelope),
             manifest => Err(RemoteError::Inbound(format!(
                 "unsupported remote death-watch manifest `{manifest}`"
             ))),
@@ -241,6 +242,41 @@ mod tests {
             effects[2],
             RemoteDeathWatchEffect::RewatchRemote(WatchRemote { watchee, watcher })
         );
+    }
+
+    #[test]
+    fn system_inbound_deserializes_address_terminated_and_marks_unreachable() {
+        let registry = registry();
+        let sink = Arc::new(RecordingEffectSink::default());
+        let (inbound, watcher_actor) = inbound(registry.clone(), sink.clone());
+        let watchee = watchee("target");
+        let watcher = watcher("observer");
+
+        watcher_actor
+            .tell(crate::RemoteDeathWatchCommand::Watch(WatchRemote {
+                watchee,
+                watcher,
+            }))
+            .unwrap();
+        inbound
+            .receive(envelope(
+                &registry,
+                &AddressTerminated {
+                    address: "kairo://remote@127.0.0.1:25520".to_string(),
+                    uid: Some(9),
+                },
+                Some(remote_watcher()),
+            ))
+            .unwrap();
+
+        let effects = sink.wait_for_len(3, Duration::from_secs(1));
+        assert!(matches!(
+            effects.last(),
+            Some(RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
+                address,
+                uid: Some(9),
+            })) if address == "kairo://remote@127.0.0.1:25520"
+        ));
     }
 
     #[test]

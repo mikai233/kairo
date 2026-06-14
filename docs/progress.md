@@ -673,6 +673,11 @@ Implemented:
   watch/unwatch/heartbeat/heartbeat-ack protocol messages through the
   registered codecs, routes them to the actor-backed remote watcher, and
   rejects unknown death-watch manifests or missing codecs explicitly.
+- Remote death-watch system inbound and frame routing now also recognize the
+  stable `AddressTerminated` control manifest, preserve its optional remote
+  UID, and route it into the actor-backed remote watcher as an unreachable
+  address observation instead of treating a registered control-lane protocol
+  as ordinary business traffic.
 - `kairo-remote` now has a focused inbound frame router that decodes remote
   envelope frames once, dispatches remote death-watch manifests from the
   control lane to the system inbound boundary, routes ordinary business
@@ -2887,5 +2892,12 @@ cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-remote address_terminated --all-targets --all-features
+cargo test -p kairo-remote remote_watch --all-targets --all-features
+cargo test -p kairo-remote inbound_router --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```

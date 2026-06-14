@@ -37,6 +37,7 @@ pub enum RemoteDeathWatchCommand {
     },
     AddressUnreachable {
         address: String,
+        uid: Option<u64>,
     },
     GetStats {
         reply_to: ActorRef<RemoteDeathWatchStats>,
@@ -131,8 +132,8 @@ impl Actor for RemoteDeathWatchActor {
                 let effects = self.state.heartbeat_ack(address, ack.uid);
                 self.apply_effects(effects)
             }
-            RemoteDeathWatchCommand::AddressUnreachable { address } => {
-                let effects = self.state.mark_unreachable(address);
+            RemoteDeathWatchCommand::AddressUnreachable { address, uid } => {
+                let effects = self.state.mark_unreachable_with_uid(address, uid);
                 self.apply_effects(effects)
             }
             RemoteDeathWatchCommand::GetStats { reply_to } => reply_to

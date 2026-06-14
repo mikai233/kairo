@@ -203,6 +203,7 @@ fn remote_watch_actor_reports_stats_after_ordered_commands() {
     actor
         .tell(RemoteDeathWatchCommand::AddressUnreachable {
             address: "kairo://remote@127.0.0.1:25520".to_string(),
+            uid: None,
         })
         .unwrap();
     actor

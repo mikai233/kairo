@@ -185,6 +185,25 @@ fn unreachable_address_publishes_termination_once() {
 }
 
 #[test]
+fn unreachable_address_can_use_explicit_uid_from_wire_protocol() {
+    let mut state = RemoteDeathWatchState::new();
+    state.watch(watchee("target"), watcher("observer"));
+    state.heartbeat_ack("kairo://remote@127.0.0.1:25520", 7);
+
+    let effects = state.mark_unreachable_with_uid("kairo://remote@127.0.0.1:25520", Some(8));
+
+    assert_eq!(
+        effects,
+        vec![RemoteDeathWatchEffect::AddressTerminated(
+            AddressTerminated {
+                address: "kairo://remote@127.0.0.1:25520".to_string(),
+                uid: Some(8),
+            }
+        )]
+    );
+}
+
+#[test]
 fn new_watch_after_unreachable_resets_failure_detector() {
     let mut state = RemoteDeathWatchState::new();
     state.watch(watchee("first"), watcher("observer"));

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
 
 use crate::{
-    RemoteDeathWatchActor, RemoteDeathWatchEffect, RemoteDeathWatchEffectSink,
+    AddressTerminated, RemoteDeathWatchActor, RemoteDeathWatchEffect, RemoteDeathWatchEffectSink,
     RemoteDeathWatchStats,
 };
 
@@ -218,6 +218,36 @@ fn inbound_heartbeat_ack_drives_rewatch_for_new_remote_uid() {
         effects[2],
         RemoteDeathWatchEffect::RewatchRemote(WatchRemote { watchee, watcher })
     );
+}
+
+#[test]
+fn inbound_address_terminated_marks_watched_address_unreachable() {
+    let (_system, actor, sink) = spawn_remote_watcher();
+    let delivery = RemoteDeathWatchProtocolDelivery::new(actor.clone(), 42);
+    let watchee = watchee("target");
+    let watcher = watcher("observer");
+    actor
+        .tell(RemoteDeathWatchCommand::Watch(WatchRemote {
+            watchee,
+            watcher,
+        }))
+        .unwrap();
+
+    delivery
+        .deliver(inbound_message(AddressTerminated {
+            address: "kairo://remote@127.0.0.1:25520".to_string(),
+            uid: Some(7),
+        }))
+        .unwrap();
+
+    let effects = sink.wait_for_len(3, Duration::from_secs(1));
+    assert!(matches!(
+        effects.last(),
+        Some(RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
+            address,
+            uid: Some(7),
+        })) if address == "kairo://remote@127.0.0.1:25520"
+    ));
 }
 
 #[test]

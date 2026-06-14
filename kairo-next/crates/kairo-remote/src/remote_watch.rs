@@ -267,6 +267,14 @@ impl RemoteDeathWatchState {
     }
 
     pub fn mark_unreachable(&mut self, address: impl Into<String>) -> Vec<RemoteDeathWatchEffect> {
+        self.mark_unreachable_with_uid(address, None)
+    }
+
+    pub fn mark_unreachable_with_uid(
+        &mut self,
+        address: impl Into<String>,
+        uid: Option<u64>,
+    ) -> Vec<RemoteDeathWatchEffect> {
         let address = address.into();
         if !self.watchees_by_address.contains_key(&address)
             || !self.unreachable.insert(address.clone())
@@ -277,7 +285,7 @@ impl RemoteDeathWatchState {
         vec![RemoteDeathWatchEffect::AddressTerminated(
             AddressTerminated {
                 address: address.clone(),
-                uid: self.address_uids.get(&address).copied(),
+                uid: uid.or_else(|| self.address_uids.get(&address).copied()),
             },
         )]
     }
