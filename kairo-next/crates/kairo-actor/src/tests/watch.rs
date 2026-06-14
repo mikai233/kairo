@@ -120,6 +120,74 @@ impl Actor for WatchProbe {
     }
 }
 
+enum StoppingWatchWithMsg {
+    Start(Box<StoppingWatchWithStart>),
+    SubjectTerminated,
+}
+
+struct StoppingWatchWithStart {
+    subject: ActorRef<()>,
+    entered_child_stop: mpsc::Sender<()>,
+    release_child_stop: mpsc::Receiver<()>,
+    reply_to: mpsc::Sender<()>,
+}
+
+struct BlockingStopChild {
+    entered_stop: mpsc::Sender<()>,
+    release_stop: Option<mpsc::Receiver<()>>,
+}
+
+impl Actor for BlockingStopChild {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.entered_stop
+            .send(())
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        if let Some(release_stop) = self.release_stop.take() {
+            release_stop
+                .recv()
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+struct StoppingWatchWithProbe;
+
+impl Actor for StoppingWatchWithProbe {
+    type Msg = StoppingWatchWithMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            StoppingWatchWithMsg::Start(start) => {
+                let StoppingWatchWithStart {
+                    subject,
+                    entered_child_stop,
+                    release_child_stop,
+                    reply_to,
+                } = *start;
+                ctx.spawn(
+                    "child",
+                    Props::new(move || BlockingStopChild {
+                        entered_stop: entered_child_stop,
+                        release_stop: Some(release_child_stop),
+                    }),
+                )?;
+                ctx.watch_with(&subject, StoppingWatchWithMsg::SubjectTerminated)?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            StoppingWatchWithMsg::SubjectTerminated => Ok(()),
+        }
+    }
+}
+
 enum SignalFailureWatcherMsg {
     Watch {
         subject: ActorRef<()>,
@@ -584,6 +652,48 @@ fn stopped_watcher_is_removed_from_subject_watchers() {
         "stopped watcher should have been removed before subject termination"
     );
     assert!(system.dead_letters().is_empty());
+}
+
+#[test]
+fn stopping_watcher_is_removed_before_waiting_for_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let watcher = system
+        .spawn("watcher", Props::new(|| StoppingWatchWithProbe))
+        .unwrap();
+    let (entered_child_stop_tx, entered_child_stop_rx) = mpsc::channel();
+    let (release_child_stop_tx, release_child_stop_rx) = mpsc::channel();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(StoppingWatchWithMsg::Start(Box::new(
+            StoppingWatchWithStart {
+                subject: subject.clone(),
+                entered_child_stop: entered_child_stop_tx,
+                release_child_stop: release_child_stop_rx,
+                reply_to: registered_tx,
+            },
+        )))
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&watcher);
+    entered_child_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    assert!(
+        !system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_millis(100)),
+        "stopping watcher should unwatch subjects before child shutdown can block"
+    );
+    assert!(system.dead_letters().is_empty());
+
+    release_child_stop_tx.send(()).unwrap();
+    assert!(watcher.wait_for_stop(Duration::from_secs(1)));
 }
 
 #[test]

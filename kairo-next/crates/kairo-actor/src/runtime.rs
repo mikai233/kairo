@@ -113,6 +113,7 @@ pub(crate) fn run_actor<A>(
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
     }
 
+    system_inner.death_watch.remove_watcher(actor_ref.path());
     stop_children(&system_inner, actor_ref.path.as_str());
     let _ = invoke_signal(&mut actor, &mut context, Signal::PostStop);
     system_inner.registry.remove_ref(actor_ref.path());
@@ -122,7 +123,6 @@ pub(crate) fn run_actor<A>(
         .remove_child(parent_path.as_str(), actor_ref.path());
     system_inner.registry.remove_handle(actor_ref.path());
     system_inner.receptionist.remove_actor(actor_ref.path());
-    system_inner.death_watch.remove_watcher(actor_ref.path());
     actor_ref.target.terminated.mark_stopped();
     system_inner
         .death_watch

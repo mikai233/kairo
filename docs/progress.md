@@ -121,6 +121,11 @@ Implemented:
   before its watched subject is removed from the subject's watcher set, so
   later subject termination does not enqueue stale termination traffic or dead
   letters for the stopped watcher.
+- Local death-watch cleanup now also runs before a stopping watcher waits for
+  child termination, matching Pekko's rule that a terminating actor unwatches
+  its subjects before child-stop waiting can block and preventing stale
+  `watch_with` termination messages from reaching dead letters during that
+  window.
 - Watching an already stopped local actor now has focused integration coverage:
   plain `watch` immediately delivers `Signal::Terminated`, while `watch_with`
   immediately delivers the caller's typed custom message.
@@ -2492,5 +2497,9 @@ cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor stopping_watcher_is_removed_before_waiting_for_children -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```
