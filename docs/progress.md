@@ -299,6 +299,10 @@ Implemented:
 - Restart supervision now defaults to stopping children and exposes explicit
   child-preserving restart policies for callers that want Pekko-style
   `withStopChildren(false)` semantics without changing the default behavior.
+- Child-preserving restart supervision now has focused coverage that a parent
+  watch registration for a preserved child survives the parent actor instance
+  restart and still delivers the custom termination message when that child
+  stops later, matching Pekko's cell-owned death-watch state.
 - `SupervisorStrategy::Escalate` now routes a child receive failure back to
   the parent through a structured system message, so the parent applies its own
   supervision policy to the escalated failure. A parent with the default stop
