@@ -211,6 +211,10 @@ Implemented:
   pending-reconnect cleanup when a peer leaves membership before retry, keeping
   pubsub and singleton socket route lifecycle behavior aligned with cluster and
   distributed-data.
+- Cluster, distributed-data, and cluster-tools TCP peer connector coverage now
+  pins explicit live-route clearing: each actor-backed connector removes an
+  installed association route, records the removed target in the last route
+  report, clears active targets, and leaves the error state clear.
 - `kairo-cluster` TCP peer bootstrap coverage now drives the failed-dial
   pending reconnect path through the bootstrap facade and proves the retry
   state is cleared when gossip removes the peer before retry.
@@ -2731,4 +2735,15 @@ cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster connector_clear_routes_removes_active_peer_routes --all-targets --all-features
+cargo test -p kairo-distributed-data connector_clear_routes_removes_active_peer_routes --all-targets --all-features
+cargo test -p kairo-cluster-tools connector_clear_routes_removes_active_peer_routes --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
 ```
