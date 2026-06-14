@@ -177,3 +177,88 @@ fn multi_node_testkit_reports_manual_time_disabled() {
     kit.shutdown(Duration::from_secs(1))
         .expect("node should terminate");
 }
+
+#[test]
+fn multi_node_testkit_coordinates_named_barriers() {
+    let kit = MultiNodeTestKit::new(["barrier-a", "barrier-b"]).expect("nodes should build");
+
+    let first = kit
+        .enter_barrier("started", "barrier-a")
+        .expect("first node should enter barrier");
+    assert_eq!(first.name(), "started");
+    assert!(!first.passed());
+    assert_eq!(
+        first,
+        MultiNodeBarrierStatus::Waiting {
+            name: "started".to_string(),
+            arrived: BTreeSet::from(["barrier-a".to_string()]),
+            remaining: BTreeSet::from(["barrier-b".to_string()]),
+        }
+    );
+
+    let second = kit
+        .enter_barrier("started", "barrier-b")
+        .expect("second node should pass barrier");
+    assert!(second.passed());
+    assert_eq!(
+        second,
+        MultiNodeBarrierStatus::Passed {
+            name: "started".to_string(),
+            participants: BTreeSet::from(["barrier-a".to_string(), "barrier-b".to_string()]),
+        }
+    );
+
+    let next = kit
+        .enter_barrier("after-start", "barrier-b")
+        .expect("completed barrier should allow next barrier");
+    assert_eq!(
+        next,
+        MultiNodeBarrierStatus::Waiting {
+            name: "after-start".to_string(),
+            arrived: BTreeSet::from(["barrier-b".to_string()]),
+            remaining: BTreeSet::from(["barrier-a".to_string()]),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_rejects_wrong_barrier_order_and_duplicate_arrivals() {
+    let kit = MultiNodeTestKit::new(["order-a", "order-b"]).expect("nodes should build");
+
+    kit.enter_barrier("phase-one", "order-a")
+        .expect("first node should enter phase one");
+
+    let wrong = kit
+        .enter_barrier("phase-two", "order-b")
+        .expect_err("different barrier should be rejected while phase one is active");
+    assert!(matches!(
+        wrong,
+        MultiNodeError::WrongBarrier {
+            expected,
+            actual,
+            node,
+        } if expected == "phase-one" && actual == "phase-two" && node == "order-b"
+    ));
+
+    let duplicate = kit
+        .enter_barrier("phase-one", "order-a")
+        .expect_err("same node should not enter one barrier twice");
+    assert!(matches!(
+        duplicate,
+        MultiNodeError::DuplicateBarrierArrival { name, node }
+            if name == "phase-one" && node == "order-a"
+    ));
+
+    let unknown = kit
+        .enter_barrier("phase-one", "missing")
+        .expect_err("unknown node should be rejected before barrier state changes");
+    assert!(matches!(
+        unknown,
+        MultiNodeError::UnknownNode(name) if name == "missing"
+    ));
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}

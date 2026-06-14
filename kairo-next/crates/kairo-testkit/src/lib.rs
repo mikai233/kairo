@@ -20,6 +20,8 @@
 //! - [`ManualTime`] drives systems built with the manual scheduler backend.
 //! - [`MultiNodeTestKit`] owns named actor systems for local multi-node
 //!   integration tests without making cluster membership part of the testkit.
+//! - [`MultiNodeTestKit::enter_barrier`] coordinates named local multi-node
+//!   phases with explicit waiting/passed status and ordering errors.
 //!
 //! ## Probe-backed actor test
 //!
@@ -95,7 +97,9 @@ mod system;
 pub use assertions::{AwaitAssertError, await_assert};
 pub use fishing::FishingOutcome;
 pub use manual_time::{ManualTime, ManualTimeHandle, NoMessageProbe};
-pub use multi_node::{MultiNode, MultiNodeError, MultiNodeResult, MultiNodeTestKit};
+pub use multi_node::{
+    MultiNode, MultiNodeBarrierStatus, MultiNodeError, MultiNodeResult, MultiNodeTestKit,
+};
 pub use probe::{ProbeError, TestProbe};
 pub use system::ActorSystemTestKit;
 
