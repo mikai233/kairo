@@ -233,6 +233,39 @@ fn peer_runtime_applies_snapshot_and_reachability_event_to_live_routes() {
 }
 
 #[test]
+fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
+    let sender_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-shutdown-sender").unwrap();
+    let receiver_kit =
+        ActorSystemTestKit::new("cluster-tools-peer-runtime-shutdown-receiver").unwrap();
+    let registry = registry();
+    let mut sender = bind_peer_runtime("sender", 1, 11, &sender_kit, registry.clone());
+    let receiver = bind_association_runtime("receiver", 2, 22, &receiver_kit, registry);
+
+    sender
+        .apply_snapshot(state(
+            vec![
+                member(sender.self_node().clone()),
+                member(receiver.self_node().clone()),
+            ],
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(sender.peer_route_count(), 1);
+    assert_eq!(sender.association_cache().route_count(), 1);
+    wait_for_route(&receiver);
+
+    let sender_report = sender.shutdown().unwrap();
+
+    assert_eq!(sender_report.peer_routes.removed.len(), 1);
+    assert!(sender_report.pending_reconnects.is_empty());
+    assert_eq!(sender_report.listener.accepted_associations, 0);
+    let receiver_report = receiver.shutdown().unwrap();
+    assert_eq!(receiver_report.accepted_associations, 1);
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
     let sender_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-retry-sender").unwrap();
     let receiver_kit =

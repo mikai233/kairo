@@ -2257,6 +2257,9 @@ Implemented:
 - `kairo-cluster-tools` TCP peer bootstrap two-node route coverage now pins
   coordinated shutdown cleanup of installed association routes on both peers
   after cluster membership installs them.
+- `kairo-distributed-data` and `kairo-cluster-tools` TCP peer runtime
+  coverage now pins direct shutdown cleanup of active peer routes before
+  listener teardown, matching the existing cluster runtime lifecycle coverage.
 - `kairo-cluster` TCP peer bootstrap two-node route coverage now pins
   coordinated shutdown cleanup of installed association routes on both peers
   after cluster membership installs them.
@@ -2721,4 +2724,11 @@ cargo test -p kairo-distributed-data remote_request_inbound_applies_delta_and_re
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo test -p kairo-distributed-data peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop --all-targets --all-features
+cargo test -p kairo-cluster-tools peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 ```

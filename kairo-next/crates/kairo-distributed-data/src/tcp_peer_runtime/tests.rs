@@ -170,6 +170,47 @@ mod route_tests {
     }
 
     #[test]
+    fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
+        let retry_interval = Duration::from_millis(25);
+        let receiver_port = unused_port();
+        let receiver_node = node("receiver", receiver_port, 2);
+        let receiver = bind_association_runtime_on_port(
+            "receiver",
+            ReplicaId::from(&receiver_node),
+            replica("sender"),
+            22,
+            receiver_port,
+        );
+        let mut sender = bind_peer_runtime(
+            "sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&receiver_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+
+        sender
+            .apply_snapshot(state(
+                vec![member(sender_node), member(receiver_node)],
+                vec![],
+            ))
+            .unwrap();
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        wait_for_reverse_route(&receiver);
+
+        let sender_report = sender.shutdown().unwrap();
+
+        assert_eq!(sender_report.peer_routes.removed.len(), 1);
+        assert!(sender_report.pending_reconnects.is_empty());
+        assert_eq!(sender_report.listener.accepted_associations, 0);
+        let receiver_report = receiver.shutdown().unwrap();
+        assert_eq!(receiver_report.accepted_associations, 1);
+    }
+
+    #[test]
     fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
         let receiver_port = unused_port();
         let receiver_node = node("receiver", receiver_port, 2);
