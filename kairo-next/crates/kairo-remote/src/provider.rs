@@ -162,6 +162,9 @@ impl RemoteActorRefProvider {
         if wire.host().is_none() {
             return Err(RemoteError::LocalAddress(wire.path().to_string()));
         }
+        if self.local_path_for_owned_address(&wire).is_some() {
+            return Err(RemoteError::LocalAddress(wire.path().to_string()));
+        }
         if wire.system().is_empty() || wire.protocol().is_empty() {
             return Err(RemoteError::InvalidRemoteRef(
                 wire.path().to_string(),
@@ -498,6 +501,32 @@ mod tests {
         assert!(resolved.is_local());
         resolved.tell(LocalCmd { value: 8 }).unwrap();
         assert_eq!(received_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 8);
+    }
+
+    #[test]
+    fn provider_remote_only_resolve_rejects_owned_canonical_address() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_system(system.clone());
+        let (received_tx, _received_rx) = mpsc::channel();
+        let target = system
+            .spawn(
+                "target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+        let canonical_path =
+            target
+                .path()
+                .as_str()
+                .replacen("kairo://local", "kairo://local@127.0.0.1:25520", 1);
+
+        let error = provider
+            .resolve::<LocalCmd>(canonical_path)
+            .expect_err("remote-only resolution must reject owned canonical addresses");
+
+        assert!(matches!(error, RemoteError::LocalAddress(_)));
     }
 
     #[test]

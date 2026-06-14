@@ -446,6 +446,11 @@ Implemented:
 - `RemoteActorRefProvider` resolves stable remote actor-ref paths with explicit
   host metadata into typed `RemoteActorRef<M>` values and rejects local-only
   paths instead of silently treating them as remote refs.
+- `RemoteActorRefProvider` remote-only resolution now also rejects this
+  provider's owned canonical `system@host:port` address; callers that need
+  Pekko-style local-or-remote resolution use `resolve_actor_ref`, which maps
+  owned canonical addresses back to local refs and preserves foreign addresses
+  as remote refs.
 - `RemoteActorRefProvider` can now compose with the actor crate's
   `LocalActorRefProvider` boundary for owned local-path resolution, while
   retaining the existing actor-system convenience constructor.
@@ -2745,5 +2750,10 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-remote provider_remote_only_resolve_rejects_owned_canonical_address --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```
