@@ -2036,6 +2036,11 @@ Implemented:
   sender-side route-preservation delivery: after a three-node sender removes
   one peer from its membership view, the remaining route still carries a
   stable-codec `PubSubStatus` publish to the surviving peer.
+- The cluster-tools TCP bootstrap example smoke suite now validates
+  failed-dial lifecycle cleanup through the public example boundary: an
+  unreachable peer produces a pending reconnect snapshot, and removing that
+  peer from the sender's membership view clears both pending reconnects and
+  active routes before coordinated shutdown.
 - TCP bootstrap example smoke-test support now lives in a focused sibling
   module, keeping shared live-socket locking, node adapters, membership
   publication, and route-count assertions separate from the scenario tests.
@@ -2821,6 +2826,7 @@ git diff --check
 cargo test -p kairo-examples ddata_tcp_peer_bootstrap_keeps_remaining_read_route_after_peer_removed --all-targets --all-features
 cargo test -p kairo-examples ddata_tcp_peer_bootstrap_clears_pending_reconnect_when_peer_leaves --all-targets --all-features
 cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_keeps_remaining_pubsub_route_after_peer_removed --all-targets --all-features
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_clears_pending_reconnect_when_peer_leaves --all-targets --all-features
 cargo fmt --all -- --check
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features
