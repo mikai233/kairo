@@ -335,6 +335,50 @@ fn actor_ref_wire_data_rejects_invalid_paths() {
 }
 
 #[test]
+fn actor_ref_wire_data_rejects_addressed_paths_without_ports() {
+    let error = ActorRefWireData::new("kairo://system@127.0.0.1/user/counter#9")
+        .expect_err("addressed remote path without port should be invalid");
+
+    assert_eq!(
+        error,
+        SerializationError::InvalidActorRefPath(
+            "kairo://system@127.0.0.1/user/counter#9".to_string()
+        )
+    );
+}
+
+#[test]
+fn actor_ref_wire_data_rejects_mismatched_host_and_port_parts() {
+    let missing_port = ActorRefWireData::from_parts(
+        "kairo",
+        "system",
+        Some("127.0.0.1".to_string()),
+        None,
+        "kairo://system@127.0.0.1/user/counter#9",
+    )
+    .expect_err("host without port should be invalid");
+    assert_eq!(
+        missing_port,
+        SerializationError::InvalidActorRefPath(
+            "kairo://system@127.0.0.1/user/counter#9".to_string()
+        )
+    );
+
+    let missing_host = ActorRefWireData::from_parts(
+        "kairo",
+        "system",
+        None,
+        Some(25520),
+        "kairo://system/user/counter#9",
+    )
+    .expect_err("port without host should be invalid");
+    assert_eq!(
+        missing_host,
+        SerializationError::InvalidActorRefPath("kairo://system/user/counter#9".to_string())
+    );
+}
+
+#[test]
 fn remote_envelope_uses_actor_ref_wire_data() {
     let message = SerializedMessage::new(
         1,

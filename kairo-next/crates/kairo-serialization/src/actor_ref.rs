@@ -35,6 +35,9 @@ impl ActorRefWireData {
         if protocol.is_empty() || system.is_empty() || path.is_empty() {
             return Err(SerializationError::InvalidActorRefPath(path));
         }
+        if host.is_some() != port.is_some() {
+            return Err(SerializationError::InvalidActorRefPath(path));
+        }
         Ok(Self {
             path,
             protocol,
@@ -100,7 +103,7 @@ fn parse_authority(authority: &str) -> Option<(String, Option<String>, Option<u1
         }
         (host.to_string(), Some(port.parse().ok()?))
     } else {
-        (host_port.to_string(), None)
+        return None;
     };
     Some((system.to_string(), Some(host), port))
 }

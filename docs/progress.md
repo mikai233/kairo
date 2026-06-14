@@ -349,6 +349,10 @@ Implemented:
 - `ActorRefWireData` stores serialized actor-ref paths with explicit protocol,
   system, host, and port metadata, and `ActorRefResolver` defines the provider
   boundary for resolving those refs later.
+- `ActorRefWireData` now rejects addressed remote paths that omit a port, and
+  rejects structured host/port metadata where only one side is present, keeping
+  actor-ref wire addresses aligned with Pekko's `system@host:port` remote
+  address shape.
 - `RemoteEnvelope` carries actor-ref wire data for recipient and optional
   sender rather than unstructured path strings.
 - `kairo-remote`, `kairo-cluster`, `kairo-distributed-data`, and
@@ -2483,5 +2487,10 @@ cargo test -p kairo-actor parent_stop_does_not_process_user_messages_while_waiti
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo test -p kairo-serialization --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```
