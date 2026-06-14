@@ -8,6 +8,10 @@ use crate::{
 
 pub trait RemoteByteSink: Send + Sync + 'static {
     fn send_bytes(&self, bytes: Bytes) -> Result<()>;
+
+    fn close(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl<F> RemoteByteSink for F
@@ -56,6 +60,10 @@ impl RemoteStreamWriter {
             .encode_frame(&payload)?;
         self.inner.sink.send_bytes(encoded)
     }
+
+    pub fn close(&self) -> Result<()> {
+        self.inner.sink.close()
+    }
 }
 
 #[derive(Clone)]
@@ -100,6 +108,16 @@ impl StreamLaneSink {
 
     pub fn large(&self) -> &RemoteStreamWriter {
         &self.large
+    }
+
+    pub fn close(&self) -> Result<()> {
+        let mut first_error = None;
+        for writer in [&self.control, &self.ordinary, &self.large] {
+            if let Err(error) = writer.close() {
+                first_error.get_or_insert(error);
+            }
+        }
+        first_error.map_or(Ok(()), Err)
     }
 
     fn writer_for(&self, lane: RemoteStreamId) -> &RemoteStreamWriter {

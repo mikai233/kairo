@@ -88,6 +88,14 @@ impl AssociationOutboundPipeline {
     pub fn guarded_outbound(&self) -> &AssociationRemoteOutbound {
         &self.outbound
     }
+
+    pub fn close(&self, reason: impl Into<String>) -> Result<()> {
+        self.association
+            .lock()
+            .expect("remote association lock poisoned")
+            .close(reason);
+        self.stream_sink.close()
+    }
 }
 
 impl RemoteOutbound for AssociationOutboundPipeline {

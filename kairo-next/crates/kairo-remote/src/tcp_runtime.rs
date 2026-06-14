@@ -3,16 +3,17 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use kairo_actor::{ActorRef, ActorSystem};
+use kairo_actor::{ActorError, ActorRef, ActorSystem};
 use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
 
 use crate::{
-    ActorSystemRemoteInbound, RemoteActorRef, RemoteActorRefProvider, RemoteAssociationAddress,
-    RemoteAssociationCache, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
-    RemoteAssociationRouteRegistration, RemoteDeathWatchCommand, RemoteDeathWatchEffectObserver,
-    RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound, RemoteSettings, ResolvedActorRef,
-    Result, TcpAssociationDialer, TcpAssociationListener, TcpAssociationListenerHandle,
-    TcpAssociationListenerReport, TcpAssociationReaderHandle, TcpAssociationStreamReader,
+    ActorSystemRemoteInbound, AssociationOutboundPipeline, RemoteActorRef, RemoteActorRefProvider,
+    RemoteAssociationAddress, RemoteAssociationCache, RemoteAssociationRegistry,
+    RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration, RemoteDeathWatchCommand,
+    RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound,
+    RemoteSettings, ResolvedActorRef, Result, TcpAssociationDialer, TcpAssociationListener,
+    TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReaderHandle,
+    TcpAssociationStreamReader,
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -27,8 +28,9 @@ pub struct TcpRemoteActorSystem<M> {
     dialer: TcpAssociationDialer,
     outbound_reader: TcpAssociationStreamReader,
     outbound_readers: Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
+    outbound_pipelines: Arc<Mutex<Vec<AssociationOutboundPipeline>>>,
     death_watch: ActorRef<RemoteDeathWatchCommand>,
-    listener: TcpAssociationListenerHandle,
+    listener: Arc<Mutex<Option<TcpAssociationListenerHandle>>>,
     _message: PhantomData<fn(M)>,
 }
 
@@ -129,8 +131,9 @@ where
             dialer,
             outbound_reader,
             outbound_readers: Arc::new(Mutex::new(Vec::new())),
+            outbound_pipelines: Arc::new(Mutex::new(Vec::new())),
             death_watch,
-            listener,
+            listener: Arc::new(Mutex::new(Some(listener))),
             _message: PhantomData,
         })
     }
@@ -174,6 +177,10 @@ where
         let (registration, reader_handle) = self
             .dialer
             .dial_with_reader(address, self.outbound_reader.clone())?;
+        self.outbound_pipelines
+            .lock()
+            .expect("tcp remote actor system outbound pipelines lock poisoned")
+            .push(registration.pipeline().clone());
         self.outbound_readers
             .lock()
             .expect("tcp remote actor system outbound readers lock poisoned")
@@ -200,28 +207,108 @@ where
     }
 
     pub fn shutdown_with_timeout(self, timeout: Duration) -> Result<TcpAssociationListenerReport> {
-        self.system.stop(&self.death_watch);
-        let death_watch_stopped = self.death_watch.wait_for_stop(timeout);
-        self.association_cache.clear_routes();
-        self.listener.stop();
-        let outbound_readers = self
-            .outbound_readers
-            .lock()
-            .expect("tcp remote actor system outbound readers lock poisoned")
-            .drain(..)
-            .collect::<Vec<_>>();
-        for reader in outbound_readers {
-            reader.join()?;
-        }
-        let listener_report = self.listener.join();
+        shutdown_runtime(
+            &self.system,
+            &self.death_watch,
+            &self.association_cache,
+            &self.listener,
+            &self.outbound_readers,
+            &self.outbound_pipelines,
+            timeout,
+        )
+    }
 
+    pub fn register_coordinated_shutdown(
+        &self,
+        phase: impl AsRef<str>,
+        task_name: impl Into<String>,
+        timeout: Duration,
+    ) -> Result<()> {
+        let shutdown = self.system.coordinated_shutdown();
+        let system = self.system.clone();
+        let death_watch = self.death_watch.clone();
+        let association_cache = self.association_cache.clone();
+        let listener = Arc::clone(&self.listener);
+        let outbound_readers = Arc::clone(&self.outbound_readers);
+        let outbound_pipelines = Arc::clone(&self.outbound_pipelines);
+        shutdown
+            .add_task(phase, task_name, move || {
+                shutdown_runtime(
+                    &system,
+                    &death_watch,
+                    &association_cache,
+                    &listener,
+                    &outbound_readers,
+                    &outbound_pipelines,
+                    timeout,
+                )
+                .map(|_| ())
+                .map_err(|error| ActorError::ShutdownTaskFailed(error.to_string()))
+            })
+            .map_err(|error| RemoteError::Inbound(error.to_string()))
+    }
+}
+
+fn shutdown_runtime(
+    system: &ActorSystem,
+    death_watch: &ActorRef<RemoteDeathWatchCommand>,
+    association_cache: &RemoteAssociationCache,
+    listener: &Arc<Mutex<Option<TcpAssociationListenerHandle>>>,
+    outbound_readers: &Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
+    outbound_pipelines: &Arc<Mutex<Vec<AssociationOutboundPipeline>>>,
+    timeout: Duration,
+) -> Result<TcpAssociationListenerReport> {
+    system.stop(death_watch);
+    let death_watch_stopped = death_watch.wait_for_stop(timeout);
+    association_cache.clear_routes();
+    let listener = listener
+        .lock()
+        .expect("tcp remote actor system listener lock poisoned")
+        .take();
+
+    let Some(listener) = listener else {
         if !death_watch_stopped {
             return Err(RemoteError::Inbound(
                 "remote death-watch actor did not stop during tcp shutdown".to_string(),
             ));
         }
+        return Ok(empty_listener_report());
+    };
 
-        listener_report
+    listener.stop();
+    let outbound_pipelines = outbound_pipelines
+        .lock()
+        .expect("tcp remote actor system outbound pipelines lock poisoned")
+        .drain(..)
+        .collect::<Vec<_>>();
+    for pipeline in outbound_pipelines {
+        pipeline.close("tcp remote actor system shutdown")?;
+    }
+    let outbound_readers = outbound_readers
+        .lock()
+        .expect("tcp remote actor system outbound readers lock poisoned")
+        .drain(..)
+        .collect::<Vec<_>>();
+    for reader in outbound_readers {
+        reader.join()?;
+    }
+    let listener_report = listener.join();
+
+    if !death_watch_stopped {
+        return Err(RemoteError::Inbound(
+            "remote death-watch actor did not stop during tcp shutdown".to_string(),
+        ));
+    }
+
+    listener_report
+}
+
+fn empty_listener_report() -> TcpAssociationListenerReport {
+    TcpAssociationListenerReport {
+        accepted_associations: 0,
+        remote_identities: Vec::new(),
+        read: Default::default(),
+        supervision: Vec::new(),
     }
 }
 

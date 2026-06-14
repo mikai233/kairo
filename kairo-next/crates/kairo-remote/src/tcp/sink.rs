@@ -92,6 +92,16 @@ impl RemoteByteSink for TcpRemoteByteSink {
                 RemoteError::Outbound(format!("tcp write to {} failed: {error}", self.peer))
             })
     }
+
+    fn close(&self) -> Result<()> {
+        self.stream
+            .lock()
+            .expect("tcp remote byte sink mutex poisoned")
+            .shutdown(Shutdown::Both)
+            .map_err(|error| {
+                RemoteError::Outbound(format!("tcp close to {} failed: {error}", self.peer))
+            })
+    }
 }
 
 fn resolve_socket_addr(address: &RemoteAssociationAddress) -> Result<SocketAddr> {

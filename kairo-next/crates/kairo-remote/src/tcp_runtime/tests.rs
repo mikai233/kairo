@@ -2,7 +2,9 @@ use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
+use kairo_actor::{
+    Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, PHASE_SERVICE_UNBIND, Props,
+};
 use kairo_serialization::{
     ActorRefWireData, MessageCodec, Registry, RemoteMessage, SerializationRegistry,
 };
@@ -424,4 +426,63 @@ fn tcp_remote_actor_system_round_trips_remote_death_watch_heartbeat_ack() {
     assert_eq!(sender_report.accepted_associations, 0);
     let receiver_report = receiver_remote.shutdown().unwrap();
     assert_eq!(receiver_report.accepted_associations, 1);
+}
+
+#[test]
+fn tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once() {
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let sender = ActorSystem::builder("sender").build().unwrap();
+    let registry = registry();
+    let receiver_remote = TcpRemoteActorSystem::<Ping>::bind(
+        receiver.clone(),
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    )
+    .unwrap();
+    let sender_remote = TcpRemoteActorSystem::<Ping>::bind(
+        sender.clone(),
+        registry,
+        RemoteSettings::new("127.0.0.1", 0),
+        22,
+    )
+    .unwrap();
+    sender_remote
+        .register_coordinated_shutdown(
+            PHASE_SERVICE_UNBIND,
+            "remote-tcp-runtime-shutdown",
+            Duration::from_secs(1),
+        )
+        .unwrap();
+    let receiver_address = RemoteAssociationAddress::new(
+        "kairo",
+        "receiver",
+        receiver_remote.settings().canonical_hostname.clone(),
+        Some(receiver_remote.settings().canonical_port),
+    )
+    .unwrap();
+    let registration = sender_remote.dial(receiver_address).unwrap();
+    assert_eq!(sender_remote.association_cache().route_count(), 1);
+
+    sender
+        .coordinated_shutdown()
+        .run_from(
+            "remote runtime coordinated shutdown",
+            Some(PHASE_SERVICE_UNBIND),
+        )
+        .unwrap();
+
+    assert!(
+        sender_remote
+            .death_watch()
+            .wait_for_stop(Duration::from_secs(1))
+    );
+    assert_eq!(sender_remote.association_cache().route_count(), 0);
+    let second_report = sender_remote.shutdown().unwrap();
+    assert_eq!(second_report.accepted_associations, 0);
+
+    drop(registration);
+    receiver_remote.shutdown().unwrap();
+    sender.terminate(Duration::from_secs(1)).unwrap();
+    receiver.terminate(Duration::from_secs(1)).unwrap();
 }

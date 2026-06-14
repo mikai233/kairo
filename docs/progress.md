@@ -453,6 +453,10 @@ Implemented:
   death-watch actor with an explicit timeout before clearing association
   routes and stopping the listener, so remoting lifecycle ownership includes
   its local system actor instead of leaving it running after socket shutdown.
+- TCP actor-system runtimes can now register their shutdown path with local
+  coordinated shutdown, and runtime shutdown explicitly closes active dialed
+  lane pipelines before joining reader threads so live route registrations
+  cannot keep socket lanes open after shutdown begins.
 - `kairo-remote` now has a focused TCP reader supervision state machine:
   inbound lane or association reader failures plan full inbound-stream
   restarts by default, finite restart limits can stop inbound streams, and
@@ -2044,6 +2048,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-remote tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once
+cargo fmt --all -- --check
+cargo test -p kairo-remote tcp_runtime
+cargo test -p kairo-remote --all-targets --all-features
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor restart_supervision_waits_for_stopping_children_before_processing_messages
 cargo fmt --all -- --check
 cargo test -p kairo-actor --all-targets --all-features
