@@ -64,6 +64,10 @@ The `ask_pipe_to_self` example demonstrates local request/reply through
 `Context::ask` and external work returning to the actor through
 `Context::pipe_to_self`.
 
+The `configured_counter` example demonstrates TOML-first facade settings,
+including actor dispatcher settings and sharding timing helpers, while keeping
+runtime configuration in format-neutral structs.
+
 The `remote_ping_pong` example demonstrates two local TCP remoting actor
 systems exchanging typed messages through stable remote manifests and an
 explicit registered codec.

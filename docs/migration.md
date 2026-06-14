@@ -73,7 +73,12 @@ nodes = ["kairo://cluster@seed-a.example.test:25520"]
 
 [cluster.sharding]
 number_of_shards = 128
+remember_entities = true
+retry_interval = "3s"
+handoff_timeout = "45s"
+shard_failure_backoff = "12s"
 rebalance_interval = "30s"
+shard_region_query_timeout = "4s"
 
 [cluster.tools.singleton]
 role = "backend"
@@ -123,10 +128,20 @@ Sharding and cluster-tools settings also expose runtime helpers:
 
 ```rust
 let shard = settings.cluster.sharding.shard_id_for("account-42")?;
+let remember_entities = settings.cluster.sharding.remember_entities_enabled();
+let retry_every = settings.cluster.sharding.to_retry_interval()?;
+let handoff_timeout = settings.cluster.sharding.to_handoff_timeout()?;
+let shard_failure_backoff = settings.cluster.sharding.to_shard_failure_backoff()?;
 let rebalance_every = settings.cluster.sharding.to_rebalance_interval()?;
+let query_timeout = settings.cluster.sharding.to_shard_region_query_timeout()?;
 let singleton_scope = settings.cluster.tools.to_singleton_scope()?;
 let gossip_every = settings.cluster.tools.to_pubsub_gossip_interval()?;
 ```
+
+These settings are format-neutral Rust values after loading. The current
+`configured_counter` example uses `examples/kairo.local.toml` to validate both
+actor-system builder configuration and sharding helper values through the
+facade without making TOML syntax part of the runtime API.
 
 Observability settings are backend-neutral. Use
 `settings.observability.diagnostics` to decide which diagnostic categories an

@@ -2387,6 +2387,10 @@ Implemented:
   TOML configuration, remote-message wire metadata, sharding routing, cluster
   membership constraints, and validation commands. `docs/blocked.md` now
   records that there are no current external blockers.
+- The README files and migration notes now describe the configured-counter
+  example as a facade configuration path for both actor dispatcher settings
+  and current `[cluster.sharding]` timing/remember-entity helpers, keeping
+  user-facing docs aligned with the TOML loader and example smoke coverage.
 - The `kairo` facade TOML loader now parses configuration input as a document
   table instead of a single TOML value, restoring empty-config defaults, file
   loading, unknown-key validation, and structured runtime settings tests with
@@ -2966,5 +2970,9 @@ cargo test -p kairo-examples --test examples_smoke --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo --doc --all-features
+cargo test -p kairo-examples --doc --all-features
+cargo fmt --all -- --check
 git diff --check
 ```
