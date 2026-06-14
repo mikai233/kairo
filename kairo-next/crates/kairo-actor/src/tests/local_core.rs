@@ -292,6 +292,41 @@ fn actor_system_terminate_stops_top_level_actors() {
 }
 
 #[test]
+fn actor_system_terminate_stops_system_actors() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (user_stopped_tx, user_stopped_rx) = mpsc::channel();
+    let (system_stopped_tx, system_stopped_rx) = mpsc::channel();
+    let user_actor = system
+        .spawn(
+            "user-worker",
+            Props::new(move || StopProbe {
+                stopped: user_stopped_tx,
+            }),
+        )
+        .unwrap();
+    let system_actor = system
+        .spawn_system(
+            "system-worker",
+            Props::new(move || StopProbe {
+                stopped: system_stopped_tx,
+            }),
+        )
+        .unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+
+    user_stopped_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    system_stopped_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert!(user_actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system_actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
+#[test]
 fn actor_system_provider_exposes_guardian_refs_and_resolves_local_paths() {
     let system = ActorSystem::builder("test").build().unwrap();
     let provider = system.provider();

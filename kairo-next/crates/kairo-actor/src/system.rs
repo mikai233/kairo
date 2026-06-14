@@ -192,6 +192,8 @@ impl ActorSystem {
         self.inner.terminating.store(true, Ordering::Release);
         let user_root = self.user_root_path();
         stop_children_with_timeout(&self.inner, user_root.as_str(), timeout)?;
+        let system_root = self.system_root_path();
+        stop_children_with_timeout(&self.inner, system_root.as_str(), timeout)?;
         self.inner.terminated.store(true, Ordering::Release);
         Ok(())
     }

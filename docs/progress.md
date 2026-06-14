@@ -16,8 +16,8 @@ Implemented:
 - Actors receive a synchronous `Signal::PostStop` during local termination.
 - `Context::stop(ctx.myself())` stops the current local actor ref.
 - `ActorSystem::stop` can stop an idle local actor through the system lane.
-- `ActorSystem::terminate` stops top-level `/user` actors, waits for
-  termination, and rejects later spawns.
+- `ActorSystem::terminate` stops top-level `/user` and `/system` actors,
+  waits for termination, and rejects later spawns.
 - `Context::system`, `Context::spawn`, and `Context::spawn_anonymous` are
   available for local actors.
 - `ActorSystem::spawn_system` can spawn framework-owned actors under `/system`
