@@ -246,6 +246,32 @@ fn ddata_tcp_peer_bootstrap_removes_route_when_membership_shrinks() -> TestResul
 }
 
 #[test]
+fn ddata_tcp_peer_bootstrap_clears_pending_reconnect_when_peer_leaves() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let node = ddata_tcp::DDataTcpExampleNode::bind(
+        "ddata-pending-node-a",
+        1,
+        11,
+        "ddata-pending-node-a-peers",
+    )?;
+    let result = (|| -> TestResult {
+        let missing = missing_peer("ddata-pending-missing", 2);
+        node.publish_up_members(vec![node.self_node().clone(), missing.clone()])?;
+        wait_for_ddata_pending_reconnect(&node, &missing, Duration::from_secs(2))?;
+
+        node.publish_up_members(vec![node.self_node().clone()])?;
+        wait_for_ddata_no_routes_or_pending(&node, Duration::from_secs(2))?;
+        Ok(())
+    })();
+
+    let shutdown = node.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown?;
+    Ok(())
+}
+
+#[test]
 fn ddata_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b, node_c) = ddata_tcp::bind_three_nodes()?;
@@ -550,6 +576,51 @@ fn wait_for_cluster_no_routes_or_pending(
         if Instant::now() >= deadline {
             return Err(format!(
                 "timed out waiting for cluster routes and pending reconnects to clear: {snapshot:?}"
+            )
+            .into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_for_ddata_pending_reconnect(
+    node: &ddata_tcp::DDataTcpExampleNode,
+    expected: &UniqueAddress,
+    timeout: Duration,
+) -> TestResult {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let snapshot = node.connector_snapshot(timeout)?;
+        let has_pending = snapshot
+            .pending_reconnects
+            .iter()
+            .any(|pending| pending.target.node() == expected);
+        if snapshot.route_count == 0 && has_pending {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out waiting for pending distributed-data reconnect to {expected:?}: {snapshot:?}"
+            )
+            .into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_for_ddata_no_routes_or_pending(
+    node: &ddata_tcp::DDataTcpExampleNode,
+    timeout: Duration,
+) -> TestResult {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let snapshot = node.connector_snapshot(timeout)?;
+        if snapshot.route_count == 0 && snapshot.pending_reconnects.is_empty() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out waiting for distributed-data routes and pending reconnects to clear: {snapshot:?}"
             )
             .into());
         }
