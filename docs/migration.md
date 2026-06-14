@@ -80,6 +80,10 @@ shard_failure_backoff = "12s"
 rebalance_interval = "30s"
 shard_region_query_timeout = "4s"
 
+[cluster.sharding.least_shard_allocation]
+rebalance_absolute_limit = 4
+rebalance_relative_limit = 0.25
+
 [cluster.tools.singleton]
 role = "backend"
 
@@ -134,14 +138,19 @@ let handoff_timeout = settings.cluster.sharding.to_handoff_timeout()?;
 let shard_failure_backoff = settings.cluster.sharding.to_shard_failure_backoff()?;
 let rebalance_every = settings.cluster.sharding.to_rebalance_interval()?;
 let query_timeout = settings.cluster.sharding.to_shard_region_query_timeout()?;
+let allocation = settings
+    .cluster
+    .sharding
+    .to_least_shard_allocation_strategy()?;
 let singleton_scope = settings.cluster.tools.to_singleton_scope()?;
 let gossip_every = settings.cluster.tools.to_pubsub_gossip_interval()?;
 ```
 
 These settings are format-neutral Rust values after loading. The current
 `configured_counter` example uses `examples/kairo.local.toml` to validate both
-actor-system builder configuration and sharding helper values through the
-facade without making TOML syntax part of the runtime API.
+actor-system builder configuration, sharding timing values, and least-shard
+allocation settings through the facade without making TOML syntax part of the
+runtime API.
 
 Observability settings are backend-neutral. Use
 `settings.observability.diagnostics` to decide which diagnostic categories an

@@ -163,6 +163,7 @@ Suggested top-level sections:
 [cluster.downing]
 
 [cluster.sharding]
+[cluster.sharding.least_shard_allocation]
 [cluster.tools.singleton]
 [cluster.tools.pubsub]
 

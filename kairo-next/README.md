@@ -59,8 +59,9 @@ through an explicit reply channel, and stop the actor.
 The `configured_counter` example loads
 `kairo-next/crates/kairo-examples/examples/kairo.local.toml`, maps the
 format-neutral actor settings into an `ActorSystemBuilder`, validates the
-configured sharding timing helpers through the facade, and runs the same typed
-counter protocol with the configured dispatcher throughput.
+configured sharding timing and least-shard allocation helpers through the
+facade, and runs the same typed counter protocol with the configured dispatcher
+throughput.
 
 The `ask_pipe_to_self` example keeps a calculation service and a pattern
 coordinator in focused modules while demonstrating `Context::ask` and
