@@ -156,6 +156,17 @@ Wire compatibility is based on manifests, versions, serializer ids, and
 registered codecs. Do not rely on Rust type names, enum discriminants, memory
 layout, or compiler-generated details as the wire contract.
 
+Remote inbound paths can attach backend-neutral diagnostics for decode and
+delivery failures:
+
+```rust
+let inbound = inbound.with_diagnostics(diagnostics);
+```
+
+The diagnostic sink receives structured recipient, optional sender, manifest,
+version, serializer id, and reason data, so applications can route failures to
+logs, metrics, tests, or event streams without changing the wire contract.
+
 ## Sharding
 
 Prefer routing through `EntityRef<M>` or `ShardingEnvelope<M>`:

@@ -356,6 +356,10 @@ Implemented:
 - `RemoteMessage`, `MessageCodec<M>`, `DynCodec`, `SerializedMessage`, and
   `RemoteEnvelope` define the stable metadata and payload boundary for remote
   messages.
+- `RemoteInbound::with_diagnostics` can attach a backend-neutral
+  `RemoteInboundDiagnostics` sink that records structured inbound
+  serialization failures and delivery failures with recipient, optional sender,
+  wire manifest/version, serializer id, and error reason.
 - `kairo-serialization::WireWriter` and `WireReader` provide a small shared
   stable binary helper for explicit system-protocol codecs, using
   length-prefixed UTF-8 strings and byte payloads, optional strings, boolean

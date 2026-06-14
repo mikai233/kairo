@@ -2807,3 +2807,31 @@ Consequences:
   application disables event-stream publication.
 - Logging and metrics backends can be added later as subscribers or adapters
   without changing the actor send path.
+
+## ADR-0099: Remote Inbound Diagnostics Use Observer Hooks
+
+Status: Accepted
+
+Context:
+M11 requires diagnostics that identify serialization and remote delivery
+failures. `RemoteInbound` is the point where stable wire metadata is decoded
+and where typed delivery into a local target can fail. Adding logging or
+metrics dependencies directly to this path would violate the dependency
+discipline and make transport tests depend on a concrete observability backend.
+
+Decision:
+`RemoteInbound` exposes `with_diagnostics`, accepting a
+`RemoteInboundDiagnostics` observer. When deserialization fails, the observer
+receives a `RemoteInboundDiagnostic::SerializationFailure` with recipient,
+optional sender, serializer id, manifest, version, and reason. When typed
+delivery fails after successful decode, the observer receives
+`RemoteInboundDiagnostic::DeliveryFailure` with recipient, optional sender, and
+reason. The default constructor remains no-op.
+
+Consequences:
+- Remoting exposes structured diagnostic facts without selecting logging,
+  tracing, or metrics crates.
+- Tests and runtime integrations can collect remote inbound failures
+  deterministically.
+- Future facade wiring can map observability settings into concrete observer
+  installation without changing wire decoding or local delivery semantics.

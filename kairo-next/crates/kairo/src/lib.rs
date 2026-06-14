@@ -133,8 +133,8 @@ pub mod prelude {
     };
     #[cfg(feature = "remote")]
     pub use kairo_remote::{
-        RemoteActorRef, RemoteActorRefProvider, RemoteError, RemoteOutbound, RemoteSettings,
-        TcpRemoteActorSystem,
+        RemoteActorRef, RemoteActorRefProvider, RemoteError, RemoteInboundDiagnostic,
+        RemoteInboundDiagnostics, RemoteOutbound, RemoteSettings, TcpRemoteActorSystem,
     };
     #[cfg(feature = "serialization")]
     pub use kairo_serialization::{

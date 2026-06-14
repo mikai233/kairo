@@ -106,6 +106,10 @@
 //! heartbeat acknowledgements per watched address, re-watch when a peer UID is
 //! first learned or changes, and address termination when the watched address is
 //! deemed unreachable.
+//!
+//! [`RemoteInbound::with_diagnostics`] can attach a backend-neutral
+//! [`RemoteInboundDiagnostics`] sink to record structured serialization and
+//! delivery failures without choosing a logging or metrics dependency.
 
 mod association;
 mod association_cache;
@@ -156,7 +160,10 @@ pub use codec::{
 };
 pub use error::{RemoteError, Result};
 pub use frame::{decode_remote_envelope_frame, encode_remote_envelope_frame};
-pub use inbound::{InboundMessage, RemoteInbound, RemoteInboundDelivery};
+pub use inbound::{
+    InboundMessage, RemoteInbound, RemoteInboundDelivery, RemoteInboundDiagnostic,
+    RemoteInboundDiagnostics,
+};
 pub use inbound_router::{RemoteInboundFrameRouter, is_remote_death_watch_manifest};
 pub use kairo_actor::ActorPath;
 pub use kairo_serialization::{RemoteEnvelope, SerializedMessage};
