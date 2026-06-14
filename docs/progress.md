@@ -373,6 +373,9 @@ Implemented:
 - `MultiNodeTestKit::await_barrier` now provides timeout-based blocking local
   multi-node phase synchronization, including explicit timeout diagnostics with
   arrived and remaining node sets.
+- `MultiNodeTestKit::await_barriers` now runs ordered local multi-node barrier
+  phases under one shared timeout budget, matching Pekko's sequential barrier
+  synchronization shape while preserving Kairo's explicit result status API.
 - `kairo-testkit` crate docs now describe typed probes, batch/fishing
   assertions, await assertions, manual time, multi-node local harnesses, and
   compile-checked examples.
@@ -3030,6 +3033,12 @@ cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-testkit await_barrier --all-targets --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit await_barriers --all-targets --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check

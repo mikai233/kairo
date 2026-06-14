@@ -242,6 +242,29 @@ impl MultiNodeTestKit {
         }
     }
 
+    pub fn await_barriers<I, S>(
+        &self,
+        names: I,
+        node_name: impl AsRef<str>,
+        timeout: Duration,
+    ) -> MultiNodeResult<Vec<MultiNodeBarrierStatus>>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let names = names.into_iter().map(Into::into).collect::<Vec<_>>();
+        let node_name = node_name.as_ref().to_string();
+        let deadline = Instant::now() + timeout;
+        let mut statuses = Vec::with_capacity(names.len());
+
+        for name in names {
+            let remaining_timeout = deadline.saturating_duration_since(Instant::now());
+            statuses.push(self.await_barrier(name, &node_name, remaining_timeout)?);
+        }
+
+        Ok(statuses)
+    }
+
     pub fn create_probe_on<M>(
         &self,
         node_name: impl AsRef<str>,

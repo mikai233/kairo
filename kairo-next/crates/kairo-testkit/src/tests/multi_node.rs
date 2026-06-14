@@ -305,6 +305,46 @@ fn multi_node_testkit_await_barrier_rejects_wrong_barrier_order() {
 }
 
 #[test]
+fn multi_node_testkit_await_barriers_runs_ordered_phases_under_one_timeout() {
+    let kit =
+        Arc::new(MultiNodeTestKit::new(["sequence-a", "sequence-b"]).expect("nodes should build"));
+    let waiting_kit = Arc::clone(&kit);
+    let waiter = thread::spawn(move || {
+        waiting_kit.await_barriers(
+            ["phase-one", "phase-two"],
+            "sequence-a",
+            Duration::from_secs(1),
+        )
+    });
+
+    thread::sleep(Duration::from_millis(20));
+    let main_statuses = kit
+        .await_barriers(
+            ["phase-one", "phase-two"],
+            "sequence-b",
+            Duration::from_secs(1),
+        )
+        .expect("second node should pass both barriers");
+    assert_eq!(
+        passed_barrier_names(&main_statuses),
+        vec!["phase-one", "phase-two"]
+    );
+
+    let waiter_statuses = waiter
+        .join()
+        .expect("waiting thread should not panic")
+        .expect("waiting node should pass both barriers");
+    assert_eq!(
+        passed_barrier_names(&waiter_statuses),
+        vec!["phase-one", "phase-two"]
+    );
+
+    let kit = Arc::try_unwrap(kit).expect("test should release shared kit refs");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
 fn multi_node_testkit_rejects_wrong_barrier_order_and_duplicate_arrivals() {
     let kit = MultiNodeTestKit::new(["order-a", "order-b"]).expect("nodes should build");
 
@@ -342,4 +382,14 @@ fn multi_node_testkit_rejects_wrong_barrier_order_and_duplicate_arrivals() {
 
     kit.shutdown(Duration::from_secs(1))
         .expect("nodes should terminate");
+}
+
+fn passed_barrier_names(statuses: &[MultiNodeBarrierStatus]) -> Vec<&str> {
+    statuses
+        .iter()
+        .map(|status| {
+            assert!(status.passed());
+            status.name()
+        })
+        .collect()
 }

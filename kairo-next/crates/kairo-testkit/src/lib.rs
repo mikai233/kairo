@@ -26,6 +26,8 @@
 //!   phases with explicit waiting/passed status and ordering errors.
 //! - [`MultiNodeTestKit::await_barrier`] blocks a node at a named local
 //!   multi-node phase until all participants arrive or a timeout expires.
+//! - [`MultiNodeTestKit::await_barriers`] runs ordered local multi-node phases
+//!   under one shared timeout budget.
 //!
 //! ## Probe-backed actor test
 //!
