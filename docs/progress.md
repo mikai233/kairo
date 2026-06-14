@@ -1843,6 +1843,11 @@ Implemented:
   runtime downing hooks for `none`, `down-all`, `keep-majority`, and
   `keep-oldest`; `lease-majority` intentionally requires a caller-provided
   lease implementation through explicit lease-majority settings/hook helpers.
+- `RemoteAssociationAddress` now parses strict contact-address strings, and
+  `ClusterSeedConfig` can validate and convert configured seed nodes into
+  remote association addresses while keeping seeds as contact points rather
+  than cluster membership truth. Migration notes now show seed, sharding, and
+  cluster-tools runtime helper usage.
 - `kairo-examples` now provides the first runnable example crate under
   `kairo-next`, with a `local_counter` example that demonstrates spawning a
   typed actor, sending local messages without serialization, replying through

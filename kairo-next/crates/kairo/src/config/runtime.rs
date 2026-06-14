@@ -3,8 +3,8 @@ use std::time::Duration;
 use super::error::ConfigError;
 use super::settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
-    ClusterHeartbeatConfig, ClusterShardingConfig, ClusterToolsConfig, DispatcherConfig,
-    KairoSettings, MailboxConfig, RemoteConfig, RemoteTransportConfig,
+    ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
+    DispatcherConfig, KairoSettings, MailboxConfig, RemoteConfig, RemoteTransportConfig,
 };
 
 #[cfg(feature = "cluster")]
@@ -174,11 +174,44 @@ impl RemoteConfig {
 
 impl ClusterConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
+        self.seed.validate()?;
         self.heartbeat.validate()?;
         self.downing.validate()?;
         self.sharding.validate()?;
         self.tools.validate()?;
         Ok(())
+    }
+}
+
+impl ClusterSeedConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        for (index, node) in self.nodes.iter().enumerate() {
+            if node.trim().is_empty() {
+                return Err(ConfigError::InvalidValue {
+                    path: format!("cluster.seed.nodes[{index}]"),
+                    reason: "must not be empty".to_string(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "remote")]
+    pub fn to_remote_association_addresses(
+        &self,
+    ) -> Result<Vec<kairo_remote::RemoteAssociationAddress>, ConfigError> {
+        self.validate()?;
+        self.nodes
+            .iter()
+            .enumerate()
+            .map(|(index, node)| {
+                node.parse::<kairo_remote::RemoteAssociationAddress>()
+                    .map_err(|error| ConfigError::InvalidValue {
+                        path: format!("cluster.seed.nodes[{index}]"),
+                        reason: error.to_string(),
+                    })
+            })
+            .collect()
     }
 }
 

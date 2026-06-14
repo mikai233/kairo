@@ -141,6 +141,7 @@ fn parse_cluster_seed(value: &Value) -> Result<ClusterSeedConfig, ConfigError> {
     let mut config = ClusterSeedConfig::default();
     if let Some(nodes) = table.get("nodes") {
         config.nodes = parse_string_array(nodes, "cluster.seed.nodes")?;
+        config.validate()?;
     }
     Ok(config)
 }

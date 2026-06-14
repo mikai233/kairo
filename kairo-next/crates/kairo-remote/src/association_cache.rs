@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     fmt::{self, Display, Formatter},
+    str::FromStr,
     sync::{Arc, RwLock},
 };
 
@@ -69,6 +70,44 @@ impl Display for RemoteAssociationAddress {
             write!(f, ":{port}")?;
         }
         Ok(())
+    }
+}
+
+impl FromStr for RemoteAssociationAddress {
+    type Err = RemoteError;
+
+    fn from_str(value: &str) -> Result<Self> {
+        let (protocol, rest) = value.split_once("://").ok_or_else(|| {
+            RemoteError::InvalidRemoteRef(
+                value.to_string(),
+                "remote association address must start with protocol://".to_string(),
+            )
+        })?;
+        if rest.contains('/') {
+            return Err(RemoteError::InvalidRemoteRef(
+                value.to_string(),
+                "remote association address must not include an actor path".to_string(),
+            ));
+        }
+        let authority = rest;
+        let (system, host_port) = authority.split_once('@').ok_or_else(|| {
+            RemoteError::InvalidRemoteRef(
+                value.to_string(),
+                "remote association address must include system@host".to_string(),
+            )
+        })?;
+        let (host, port) = if let Some((host, port)) = host_port.rsplit_once(':') {
+            let port = port.parse::<u16>().map_err(|_| {
+                RemoteError::InvalidRemoteRef(
+                    value.to_string(),
+                    "remote association port must fit in u16".to_string(),
+                )
+            })?;
+            (host, Some(port))
+        } else {
+            (host_port, None)
+        };
+        Self::new(protocol, system, host, port)
     }
 }
 
@@ -195,6 +234,42 @@ mod tests {
                 .push(envelope);
             Ok(())
         }
+    }
+
+    #[test]
+    fn association_address_parses_contact_string() {
+        let address: RemoteAssociationAddress =
+            "kairo://cluster@seed.example.test:25520".parse().unwrap();
+
+        assert_eq!(address.protocol(), "kairo");
+        assert_eq!(address.system(), "cluster");
+        assert_eq!(address.host(), "seed.example.test");
+        assert_eq!(address.port(), Some(25520));
+        assert_eq!(
+            address.to_string(),
+            "kairo://cluster@seed.example.test:25520"
+        );
+
+        let without_port: RemoteAssociationAddress =
+            "kairo://cluster@seed.example.test".parse().unwrap();
+        assert_eq!(without_port.port(), None);
+    }
+
+    #[test]
+    fn association_address_rejects_actor_paths_and_invalid_ports() {
+        assert!(matches!(
+            "kairo://cluster@seed.example.test:25520/system/cluster"
+                .parse::<RemoteAssociationAddress>(),
+            Err(RemoteError::InvalidRemoteRef(_, _))
+        ));
+        assert!(matches!(
+            "kairo://cluster@seed.example.test:25520/".parse::<RemoteAssociationAddress>(),
+            Err(RemoteError::InvalidRemoteRef(_, _))
+        ));
+        assert!(matches!(
+            "kairo://cluster@seed.example.test:not-a-port".parse::<RemoteAssociationAddress>(),
+            Err(RemoteError::InvalidRemoteRef(_, _))
+        ));
     }
 
     fn envelope(recipient: &str, value: u8) -> RemoteEnvelope {

@@ -202,6 +202,25 @@ down_if_alone = true
 }
 
 #[test]
+fn toml_config_rejects_empty_seed_node() {
+    let error = parse_toml_str(
+        r#"
+[cluster.seed]
+nodes = [""]
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "cluster.seed.nodes[0]".to_string(),
+            reason: "must not be empty".to_string(),
+        }
+    );
+}
+
+#[test]
 fn toml_config_loads_from_file() {
     let mut path = std::env::temp_dir();
     let nonce = SystemTime::now()
@@ -333,6 +352,12 @@ fn config_converts_remote_and_cluster_settings() {
 canonical_hostname = "127.0.0.42"
 canonical_port = 26666
 
+[cluster.seed]
+nodes = [
+  "kairo://cluster@seed-a.example.test:25520",
+  "kairo://cluster@seed-b.example.test",
+]
+
 [cluster.heartbeat]
 monitored_by_nr_of_members = 3
 interval = "2s"
@@ -345,6 +370,17 @@ expected_response_after = "750ms"
     let remote = settings.remote.transport.to_remote_settings().unwrap();
     assert_eq!(remote.canonical_hostname, "127.0.0.42");
     assert_eq!(remote.canonical_port, 26666);
+    let seeds = settings
+        .cluster
+        .seed
+        .to_remote_association_addresses()
+        .unwrap();
+    assert_eq!(seeds.len(), 2);
+    assert_eq!(seeds[0].system(), "cluster");
+    assert_eq!(seeds[0].host(), "seed-a.example.test");
+    assert_eq!(seeds[0].port(), Some(25520));
+    assert_eq!(seeds[1].host(), "seed-b.example.test");
+    assert_eq!(seeds[1].port(), None);
 
     let failure_detector = settings
         .cluster
@@ -700,6 +736,23 @@ fn config_validate_checks_all_format_neutral_sections() {
         ConfigError::InvalidValue {
             path: "cluster.sharding.rebalance_interval".to_string(),
             reason: "must be greater than zero".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        cluster: super::ClusterConfig {
+            seed: super::ClusterSeedConfig {
+                nodes: vec![String::new()],
+            },
+            ..Default::default()
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "cluster.seed.nodes[0]".to_string(),
+            reason: "must not be empty".to_string(),
         }
     );
 

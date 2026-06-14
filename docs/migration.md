@@ -50,6 +50,20 @@ Use TOML for file-backed configuration:
 ```toml
 [actor.dispatchers.default]
 throughput = 16
+
+[cluster.seed]
+nodes = ["kairo://cluster@seed-a.example.test:25520"]
+
+[cluster.sharding]
+number_of_shards = 128
+rebalance_interval = "30s"
+
+[cluster.tools.singleton]
+role = "backend"
+
+[cluster.tools.pubsub]
+gossip_interval = "500ms"
+max_delta_entries = 250
 ```
 
 Load it through the facade and map the format-neutral settings into builders:
@@ -57,6 +71,14 @@ Load it through the facade and map the format-neutral settings into builders:
 ```rust
 let settings = kairo::prelude::load_toml_file("kairo.local.toml")?;
 let system = settings.actor.actor_system_builder("app")?.build()?;
+```
+
+Seed nodes are contact addresses only, not membership truth. When remoting is
+enabled, convert them into remote association addresses for dial/bootstrap
+code:
+
+```rust
+let seed_contacts = settings.cluster.seed.to_remote_association_addresses()?;
 ```
 
 Cluster downing settings can be mapped into runtime hooks for `none`,
@@ -71,6 +93,15 @@ application:
 
 ```rust
 let lease_hook = settings.cluster.downing.to_lease_majority_hook(my_lease)?;
+```
+
+Sharding and cluster-tools settings also expose runtime helpers:
+
+```rust
+let shard = settings.cluster.sharding.shard_id_for("account-42")?;
+let rebalance_every = settings.cluster.sharding.to_rebalance_interval()?;
+let singleton_scope = settings.cluster.tools.to_singleton_scope()?;
+let gossip_every = settings.cluster.tools.to_pubsub_gossip_interval()?;
 ```
 
 Do not add HOCON or `hocon-rs` until that parser is intentionally adopted.
