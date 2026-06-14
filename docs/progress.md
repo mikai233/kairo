@@ -2386,8 +2386,10 @@ Implemented:
 - `kairo-cluster-tools` TCP peer bootstrap coverage now pins the same
   sender-side route reduction for pubsub delivery: after one of two remote
   peers leaves the sender's cluster membership view, the remaining tools route
-  continues to deliver stable-manifest remote publish envelopes, and the sender
-  cache drops from two routes to one before coordinated shutdown clears it.
+  continues to deliver stable-manifest remote publish envelopes, sends to the
+  removed peer reject through the association cache without another mediator
+  delivery, and the sender cache drops from two routes to one before
+  coordinated shutdown clears it.
 - `kairo-distributed-data` TCP peer bootstrap two-node route coverage now
   pins coordinated shutdown cleanup of installed association routes on both
   peers after cluster membership installs them.
@@ -3052,5 +3054,10 @@ cargo test -p kairo-distributed-data bootstrap_sender_keeps_remaining_route_deli
 cargo test -p kairo-distributed-data tcp_peer_bootstrap --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_bootstrap --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```

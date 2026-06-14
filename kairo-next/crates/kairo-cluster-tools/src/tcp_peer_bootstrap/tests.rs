@@ -658,6 +658,25 @@ fn bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed()
     await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
     assert_eq!(first_cache.route_count(), 1);
 
+    let removed_peer_error = third_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("invoices"),
+            message: TestMessage { value: 89 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("removed peer route should reject sends");
+    assert!(
+        removed_peer_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected removed-peer send error: {removed_peer_error:?}"
+    );
+    third_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
     second_outbound
         .tell(LocalPubSubMsg::Publish {
             topic: TopicName::new("orders"),
