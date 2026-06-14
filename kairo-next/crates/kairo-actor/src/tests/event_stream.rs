@@ -14,6 +14,10 @@ struct EventStreamProbe {
     observed: mpsc::Sender<&'static str>,
 }
 
+struct DeadLetterSubscriber {
+    stopped: mpsc::Sender<()>,
+}
+
 impl Actor for EventStreamProbe {
     type Msg = EventStreamProbeMsg;
 
@@ -38,6 +42,20 @@ impl Actor for EventStreamProbe {
             }
         }
         Ok(())
+    }
+}
+
+impl Actor for DeadLetterSubscriber {
+    type Msg = DeadLetter;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.stopped
+            .send(())
+            .map_err(|error| ActorError::Message(error.to_string()))
     }
 }
 
@@ -170,4 +188,51 @@ fn dead_letters_are_published_to_event_stream() {
     assert_eq!(event.recipient(), missing.path());
     assert_eq!(event.reason(), "actor does not exist");
     assert_eq!(event.message_type(), std::any::type_name::<CounterMsg>());
+}
+
+#[test]
+fn event_stream_prunes_failed_dead_letter_subscribers() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (stopped_tx, stopped_rx) = mpsc::channel();
+    let subscriber = system
+        .spawn(
+            "dead-letter-subscriber",
+            Props::new(move || DeadLetterSubscriber {
+                stopped: stopped_tx,
+            }),
+        )
+        .unwrap();
+    assert!(system.event_stream().subscribe(subscriber.clone()));
+    system.stop(&subscriber);
+    assert!(subscriber.wait_for_stop(Duration::from_secs(1)));
+    stopped_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let missing: ActorRef<CounterMsg> = system.missing_ref("kairo://test/user/missing#404");
+    missing.tell(CounterMsg::Increment).unwrap_err();
+
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(2, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert_eq!(records[0].recipient(), missing.path());
+    assert_eq!(
+        records[0].message_type(),
+        std::any::type_name::<CounterMsg>()
+    );
+    assert_eq!(records[1].recipient(), subscriber.path());
+    assert_eq!(
+        records[1].message_type(),
+        std::any::type_name::<DeadLetter>()
+    );
+
+    missing.tell(CounterMsg::Increment).unwrap_err();
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(3, Duration::from_secs(1))
+    );
+    thread::sleep(Duration::from_millis(50));
+    assert_eq!(system.dead_letters().len(), 3);
 }
