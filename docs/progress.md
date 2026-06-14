@@ -171,6 +171,9 @@ Implemented:
 - Distributed-data TCP peer connector coverage now pins that a failed dial's
   pending reconnect is cleared when the peer leaves cluster membership before
   a retry succeeds, so removed peers do not keep stale retry state.
+- Cluster TCP peer connector coverage now pins the same stale pending-reconnect
+  cleanup when a peer leaves membership before retry, keeping socket route
+  lifecycle behavior aligned with distributed-data.
 - Coordinated-shutdown phase metadata, run state, and task execution now live
   in focused submodules instead of one mixed implementation file.
 - Focused coordinated-shutdown tests now pin `run_from` phase selection and
@@ -2104,6 +2107,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster connector_clears_pending_reconnect_when_peer_leaves_membership
 cargo test -p kairo-distributed-data connector_clears_pending_reconnect_when_peer_leaves_membership
 cargo test -p kairo-actor actor_system_terminate_waits_for_descendant_children_before_terminated
 cargo test -p kairo-remote tcp_remote_actor_system_resolver_trait_resolves_local_and_remote_refs
