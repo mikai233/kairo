@@ -1,4 +1,4 @@
-#[cfg(feature = "remote")]
+#[cfg(any(feature = "cluster", feature = "remote"))]
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -505,6 +505,19 @@ impl DiagnosticsConfig {
         diagnostics: Arc<dyn kairo_remote::RemoteInboundDiagnostics>,
     ) -> Option<Arc<dyn kairo_remote::RemoteInboundDiagnostics>> {
         self.remote_inbound_diagnostic_filter().wrap(diagnostics)
+    }
+
+    #[cfg(feature = "cluster")]
+    pub fn cluster_diagnostic_filter(&self) -> kairo_cluster::ClusterDiagnosticFilter {
+        kairo_cluster::ClusterDiagnosticFilter::new(self.gossip_state_changes)
+    }
+
+    #[cfg(feature = "cluster")]
+    pub fn cluster_diagnostics(
+        &self,
+        diagnostics: Arc<dyn kairo_cluster::ClusterDiagnostics>,
+    ) -> Option<Arc<dyn kairo_cluster::ClusterDiagnostics>> {
+        self.cluster_diagnostic_filter().wrap(diagnostics)
     }
 }
 

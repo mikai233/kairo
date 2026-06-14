@@ -2849,3 +2849,11 @@ caller-provided observer. If both categories are disabled, the helper returns
 no observer; otherwise it installs either the original observer or a filtering
 wrapper. This keeps configuration backend-neutral while letting runtime
 composition honor diagnostic category settings.
+
+`ClusterEventPublisher::with_diagnostics` follows the same observer pattern for
+gossip state changes. It records a backend-neutral `GossipStateChanged`
+diagnostic with the previous gossip, current gossip, and computed cluster-event
+diff only when the gossip value actually changes. The facade
+`DiagnosticsConfig::cluster_diagnostics` helper maps
+`gossip_state_changes` to this observer without introducing logging or metrics
+dependencies.

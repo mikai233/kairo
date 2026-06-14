@@ -1,10 +1,34 @@
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kairo_actor::{ActorRef, Address, Props};
-use kairo_testkit::ActorSystemTestKit;
+use kairo_testkit::{ActorSystemTestKit, await_assert};
 
 use super::*;
 use crate::{Member, MemberEvent, MemberStatus, Reachability};
+
+#[derive(Default)]
+struct CollectingDiagnostics {
+    records: Mutex<Vec<ClusterDiagnostic>>,
+}
+
+impl CollectingDiagnostics {
+    fn records(&self) -> Vec<ClusterDiagnostic> {
+        self.records
+            .lock()
+            .expect("cluster diagnostics poisoned")
+            .clone()
+    }
+}
+
+impl ClusterDiagnostics for CollectingDiagnostics {
+    fn record(&self, diagnostic: ClusterDiagnostic) {
+        self.records
+            .lock()
+            .expect("cluster diagnostics poisoned")
+            .push(diagnostic);
+    }
+}
 
 #[test]
 fn publisher_delivers_explicit_events_to_subscribers() {
@@ -75,6 +99,121 @@ fn publisher_publishes_gossip_diffs_and_stores_current_state() {
     assert_eq!(state.members.len(), 2);
     assert_eq!(state.unreachable[0].unique_address, node_b);
     assert!(state.seen_by.contains(&self_node));
+}
+
+#[test]
+fn publisher_reports_gossip_state_change_diagnostics() {
+    let kit = ActorSystemTestKit::new("cluster-event-publisher-diagnostics").unwrap();
+    let self_node = node("self", 1);
+    let node_b = node("b", 2);
+    let diagnostics = Arc::new(CollectingDiagnostics::default());
+    let publisher = kit
+        .system()
+        .spawn(
+            "publisher",
+            Props::new({
+                let self_node = self_node.clone();
+                let diagnostics = diagnostics.clone();
+                move || {
+                    ClusterEventPublisher::new(self_node.clone())
+                        .with_diagnostics(diagnostics.clone() as Arc<dyn ClusterDiagnostics>)
+                }
+            }),
+        )
+        .unwrap();
+    let gossip = Gossip::from_members([
+        member(self_node.clone(), MemberStatus::Up),
+        member(node_b.clone(), MemberStatus::Up),
+    ]);
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
+        .unwrap();
+
+    let records = await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<Vec<ClusterDiagnostic>, String> {
+            let records = diagnostics.records();
+            if records.len() == 1 {
+                Ok(records)
+            } else {
+                Err(format!("expected one diagnostic, got {}", records.len()))
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(records.len(), 1);
+    let ClusterDiagnostic::GossipStateChanged {
+        previous,
+        current,
+        events,
+    } = &records[0];
+    assert_eq!(previous, &Gossip::new());
+    assert_eq!(current, &gossip);
+    assert!(events.len() >= 2);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, ClusterEvent::Member(MemberEvent::Up(_))))
+            .count(),
+        2
+    );
+}
+
+#[test]
+fn publisher_skips_gossip_diagnostic_when_state_is_unchanged() {
+    let kit = ActorSystemTestKit::new("cluster-event-publisher-no-diagnostics").unwrap();
+    let self_node = node("self", 1);
+    let diagnostics = Arc::new(CollectingDiagnostics::default());
+    let state_probe = kit.create_probe::<CurrentClusterState>("state").unwrap();
+    let publisher = kit
+        .system()
+        .spawn(
+            "publisher",
+            Props::new({
+                let self_node = self_node.clone();
+                let diagnostics = diagnostics.clone();
+                move || {
+                    ClusterEventPublisher::new(self_node.clone())
+                        .with_diagnostics(diagnostics.clone() as Arc<dyn ClusterDiagnostics>)
+                }
+            }),
+        )
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(Gossip::new()))
+        .unwrap();
+    publisher
+        .tell(ClusterEventPublisherMsg::SendCurrentState {
+            reply_to: state_probe.actor_ref(),
+        })
+        .unwrap();
+    state_probe.expect_msg(Duration::from_secs(1)).unwrap();
+
+    assert!(diagnostics.records().is_empty());
+}
+
+#[test]
+fn cluster_diagnostic_filter_controls_gossip_state_changes() {
+    let diagnostics = Arc::new(CollectingDiagnostics::default());
+    assert!(
+        ClusterDiagnosticFilter::disabled()
+            .wrap(diagnostics.clone() as Arc<dyn ClusterDiagnostics>)
+            .is_none()
+    );
+
+    let observer = ClusterDiagnosticFilter::all()
+        .wrap(diagnostics.clone() as Arc<dyn ClusterDiagnostics>)
+        .expect("gossip diagnostic observer should be installed");
+    observer.record(ClusterDiagnostic::GossipStateChanged {
+        previous: Gossip::new(),
+        current: Gossip::from_members([member(node("self", 1), MemberStatus::Up)]),
+        events: Vec::new(),
+    });
+
+    assert_eq!(diagnostics.records().len(), 1);
 }
 
 #[test]

@@ -370,6 +370,11 @@ Implemented:
   `[observability.diagnostics]` serialization and remote-delivery flags onto
   caller-provided remote inbound observers, returning no observer when both
   categories are disabled and preserving backend-neutral diagnostics.
+- `ClusterEventPublisher::with_diagnostics`,
+  `ClusterDiagnosticFilter`, and `DiagnosticsConfig::cluster_diagnostics` now
+  surface backend-neutral gossip state-change diagnostics with previous gossip,
+  current gossip, and computed cluster-event diff data, while honoring the
+  `[observability.diagnostics].gossip_state_changes` flag.
 - `kairo-serialization::WireWriter` and `WireReader` provide a small shared
   stable binary helper for explicit system-protocol codecs, using
   length-prefixed UTF-8 strings and byte payloads, optional strings, boolean

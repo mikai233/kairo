@@ -71,7 +71,8 @@
 //! Observability settings stay backend-neutral. The dead-letter flag maps into
 //! the actor-system builder, while remote inbound diagnostics can be filtered
 //! with `DiagnosticsConfig::remote_inbound_diagnostics` before installing a
-//! caller-provided observer.
+//! caller-provided observer. Cluster gossip diagnostics use the same pattern
+//! through `DiagnosticsConfig::cluster_diagnostics`.
 //!
 //! `kairo::prelude` exports the common typed actor API plus enabled facade
 //! features. For subsystem-specific protocols and lower-level test fixtures,
@@ -114,9 +115,9 @@ pub mod prelude {
     pub use kairo_actor_macros::*;
     #[cfg(feature = "cluster")]
     pub use kairo_cluster::{
-        Cluster, ClusterError, ClusterEvent, ClusterSubscriptionEvent,
-        ClusterSubscriptionInitialState, CurrentClusterState, Member, MemberEvent, MemberStatus,
-        ReachabilityEvent, UniqueAddress,
+        Cluster, ClusterDiagnostic, ClusterDiagnosticFilter, ClusterDiagnostics, ClusterError,
+        ClusterEvent, ClusterSubscriptionEvent, ClusterSubscriptionInitialState,
+        CurrentClusterState, Member, MemberEvent, MemberStatus, ReachabilityEvent, UniqueAddress,
     };
     #[cfg(feature = "cluster-sharding")]
     pub use kairo_cluster_sharding::{

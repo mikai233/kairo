@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 #[cfg(feature = "actor")]
 use std::sync::mpsc;
-#[cfg(feature = "remote")]
+#[cfg(any(feature = "cluster", feature = "remote"))]
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -40,6 +40,32 @@ impl kairo_remote::RemoteInboundDiagnostics for CollectingRemoteDiagnostics {
 #[cfg(feature = "remote")]
 fn remote_diagnostic_recipient() -> kairo_serialization::ActorRefWireData {
     kairo_serialization::ActorRefWireData::new("kairo://receiver/user/target").unwrap()
+}
+
+#[cfg(feature = "cluster")]
+#[derive(Default)]
+struct CollectingClusterDiagnostics {
+    records: Mutex<Vec<kairo_cluster::ClusterDiagnostic>>,
+}
+
+#[cfg(feature = "cluster")]
+impl CollectingClusterDiagnostics {
+    fn records(&self) -> Vec<kairo_cluster::ClusterDiagnostic> {
+        self.records
+            .lock()
+            .expect("cluster diagnostics poisoned")
+            .clone()
+    }
+}
+
+#[cfg(feature = "cluster")]
+impl kairo_cluster::ClusterDiagnostics for CollectingClusterDiagnostics {
+    fn record(&self, diagnostic: kairo_cluster::ClusterDiagnostic) {
+        self.records
+            .lock()
+            .expect("cluster diagnostics poisoned")
+            .push(diagnostic);
+    }
 }
 
 #[test]
@@ -269,6 +295,53 @@ serialization_failures = false
             .remote_inbound_diagnostics(
                 diagnostics as Arc<dyn kairo_remote::RemoteInboundDiagnostics>
             )
+            .is_none()
+    );
+}
+
+#[cfg(feature = "cluster")]
+#[test]
+fn diagnostics_config_filters_cluster_gossip_state_changes() {
+    let settings = parse_toml_str(
+        r#"
+[observability.diagnostics]
+gossip_state_changes = true
+"#,
+    )
+    .unwrap();
+    let diagnostics = Arc::new(CollectingClusterDiagnostics::default());
+    let observer = settings
+        .observability
+        .diagnostics
+        .cluster_diagnostics(diagnostics.clone() as Arc<dyn kairo_cluster::ClusterDiagnostics>)
+        .expect("gossip diagnostics should install observer");
+
+    observer.record(kairo_cluster::ClusterDiagnostic::GossipStateChanged {
+        previous: kairo_cluster::Gossip::new(),
+        current: kairo_cluster::Gossip::new(),
+        events: Vec::new(),
+    });
+
+    assert_eq!(diagnostics.records().len(), 1);
+}
+
+#[cfg(feature = "cluster")]
+#[test]
+fn diagnostics_config_omits_cluster_observer_when_gossip_diagnostics_disabled() {
+    let settings = parse_toml_str(
+        r#"
+[observability.diagnostics]
+gossip_state_changes = false
+"#,
+    )
+    .unwrap();
+    let diagnostics = Arc::new(CollectingClusterDiagnostics::default());
+
+    assert!(
+        settings
+            .observability
+            .diagnostics
+            .cluster_diagnostics(diagnostics as Arc<dyn kairo_cluster::ClusterDiagnostics>)
             .is_none()
     );
 }

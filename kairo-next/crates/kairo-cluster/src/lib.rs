@@ -12,6 +12,9 @@
 //! observations are local inputs, and remoting only transports already
 //! addressed cluster protocol messages. Kairo deliberately does not use etcd,
 //! Kubernetes leases, or any other central source of cluster truth.
+//! `ClusterEventPublisher::with_diagnostics` can attach a backend-neutral
+//! observer for gossip state-change diagnostics without selecting a logging or
+//! metrics dependency.
 //!
 //! ```
 //! use kairo_actor::Address;
@@ -106,8 +109,9 @@ pub use downing::{
 };
 pub use downing_provider::{DowningProviderActor, DowningProviderMsg, DowningProviderSnapshot};
 pub use event_publisher::{
-    ClusterEventPublisher, ClusterEventPublisherMsg, ClusterSubscriptionEvent,
-    ClusterSubscriptionInitialState, CurrentClusterState, SubscriptionInitialState,
+    ClusterDiagnostic, ClusterDiagnosticFilter, ClusterDiagnostics, ClusterEventPublisher,
+    ClusterEventPublisherMsg, ClusterSubscriptionEvent, ClusterSubscriptionInitialState,
+    CurrentClusterState, SubscriptionInitialState,
 };
 pub use events::{ClusterEvent, ClusterEvents, MemberEvent, ReachabilityEvent};
 pub use failure_detector::{

@@ -211,6 +211,22 @@ Discovery may provide seed or contact addresses only. Do not migrate old
 membership flows to etcd, Kubernetes leases, or another central authoritative
 store.
 
+Cluster gossip diagnostics use the same backend-neutral observer style:
+
+```rust
+if let Some(diagnostics) = settings
+    .observability
+    .diagnostics
+    .cluster_diagnostics(diagnostics)
+{
+    let publisher = ClusterEventPublisher::new(self_node)
+        .with_diagnostics(diagnostics);
+}
+```
+
+The observer receives previous gossip, current gossip, and the computed
+cluster-event diff for each real gossip state change.
+
 ## Validation
 
 Run focused validation for the area you touch first, then widen as needed:

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use kairo_actor::{Actor, ActorRef, ActorResult, Context};
 
 mod subscription;
@@ -8,6 +10,92 @@ pub use subscription::{
 };
 
 use crate::{ClusterEvent, ClusterEvents, Gossip, UniqueAddress};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClusterDiagnostic {
+    GossipStateChanged {
+        previous: Gossip,
+        current: Gossip,
+        events: Vec<ClusterEvent>,
+    },
+}
+
+pub trait ClusterDiagnostics: Send + Sync + 'static {
+    fn record(&self, diagnostic: ClusterDiagnostic);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClusterDiagnosticFilter {
+    gossip_state_changes: bool,
+}
+
+impl ClusterDiagnosticFilter {
+    pub fn new(gossip_state_changes: bool) -> Self {
+        Self {
+            gossip_state_changes,
+        }
+    }
+
+    pub fn all() -> Self {
+        Self::new(true)
+    }
+
+    pub fn disabled() -> Self {
+        Self::new(false)
+    }
+
+    pub fn gossip_state_changes(&self) -> bool {
+        self.gossip_state_changes
+    }
+
+    pub fn observes(&self, diagnostic: &ClusterDiagnostic) -> bool {
+        match diagnostic {
+            ClusterDiagnostic::GossipStateChanged { .. } => self.gossip_state_changes,
+        }
+    }
+
+    pub fn wrap(
+        self,
+        diagnostics: Arc<dyn ClusterDiagnostics>,
+    ) -> Option<Arc<dyn ClusterDiagnostics>> {
+        if self == Self::disabled() {
+            None
+        } else {
+            Some(Arc::new(FilteredClusterDiagnostics {
+                filter: self,
+                diagnostics,
+            }))
+        }
+    }
+}
+
+impl Default for ClusterDiagnosticFilter {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
+struct FilteredClusterDiagnostics {
+    filter: ClusterDiagnosticFilter,
+    diagnostics: Arc<dyn ClusterDiagnostics>,
+}
+
+impl ClusterDiagnostics for FilteredClusterDiagnostics {
+    fn record(&self, diagnostic: ClusterDiagnostic) {
+        if self.filter.observes(&diagnostic) {
+            self.diagnostics.record(diagnostic);
+        }
+    }
+}
+
+impl<F> ClusterDiagnostics for F
+where
+    F: Fn(ClusterDiagnostic) + Send + Sync + 'static,
+{
+    fn record(&self, diagnostic: ClusterDiagnostic) {
+        self(diagnostic);
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum ClusterEventPublisherMsg {
@@ -37,6 +125,7 @@ pub struct ClusterEventPublisher {
     gossip: Gossip,
     subscribers: Vec<ActorRef<ClusterEvent>>,
     cluster_subscribers: Vec<ActorRef<ClusterSubscriptionEvent>>,
+    diagnostics: Option<Arc<dyn ClusterDiagnostics>>,
 }
 
 impl ClusterEventPublisher {
@@ -46,7 +135,13 @@ impl ClusterEventPublisher {
             gossip: Gossip::new(),
             subscribers: Vec::new(),
             cluster_subscribers: Vec::new(),
+            diagnostics: None,
         }
+    }
+
+    pub fn with_diagnostics(mut self, diagnostics: Arc<dyn ClusterDiagnostics>) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self
     }
 
     fn subscribe(
@@ -111,6 +206,13 @@ impl ClusterEventPublisher {
 
     fn publish_changes(&mut self, new_gossip: Gossip) {
         let events = ClusterEvents::diff(&self.gossip, &new_gossip, &self.self_node);
+        if self.gossip != new_gossip {
+            self.record_diagnostic(ClusterDiagnostic::GossipStateChanged {
+                previous: self.gossip.clone(),
+                current: new_gossip.clone(),
+                events: events.clone(),
+            });
+        }
         self.gossip = new_gossip;
         for event in events {
             self.publish(event);
@@ -125,6 +227,12 @@ impl ClusterEventPublisher {
                 .tell(ClusterSubscriptionEvent::Event(event.clone()))
                 .is_ok()
         });
+    }
+
+    fn record_diagnostic(&self, diagnostic: ClusterDiagnostic) {
+        if let Some(diagnostics) = &self.diagnostics {
+            diagnostics.record(diagnostic);
+        }
     }
 }
 
