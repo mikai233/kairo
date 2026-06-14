@@ -114,6 +114,66 @@ pub(super) fn await_connector_no_routes(
     .unwrap();
 }
 
+pub(super) fn await_connector_no_routes_or_pending(
+    connector: &ActorRef<ReplicatorTcpPeerConnectorMsg>,
+    snapshots: &TestProbe<ReplicatorTcpPeerConnectorSnapshot>,
+) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            connector
+                .tell(ReplicatorTcpPeerConnectorMsg::Snapshot {
+                    reply_to: snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            if snapshot.route_count == 0
+                && snapshot.active_targets.is_empty()
+                && snapshot.pending_reconnects.is_empty()
+            {
+                Ok(())
+            } else {
+                Err(format!("unexpected connector snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
+}
+
+pub(super) fn await_connector_pending_reconnect(
+    connector: &ActorRef<ReplicatorTcpPeerConnectorMsg>,
+    snapshots: &TestProbe<ReplicatorTcpPeerConnectorSnapshot>,
+    expected_peer: &UniqueAddress,
+) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            connector
+                .tell(ReplicatorTcpPeerConnectorMsg::Snapshot {
+                    reply_to: snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            let has_expected_pending = snapshot
+                .pending_reconnects
+                .iter()
+                .any(|pending| pending.target.node() == expected_peer);
+            if snapshot.route_count == 0 && has_expected_pending {
+                Ok(())
+            } else {
+                Err(format!("unexpected connector snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
+}
+
 pub(super) fn bind_runtime(
     system: &str,
     node_uid: u64,
