@@ -4,9 +4,7 @@ mod sections;
 use std::fs;
 use std::path::Path;
 
-use toml::Value;
-
-use self::primitives::{expect_table, reject_unknown};
+use self::primitives::reject_unknown;
 use self::sections::{parse_actor, parse_cluster, parse_remote};
 use super::error::ConfigError;
 use super::settings::KairoSettings;
@@ -21,13 +19,12 @@ pub fn load_toml_file(path: impl AsRef<Path>) -> Result<KairoSettings, ConfigErr
 }
 
 pub fn parse_toml_str(input: &str) -> Result<KairoSettings, ConfigError> {
-    let value = input
-        .parse::<Value>()
+    let table = input
+        .parse::<toml::Table>()
         .map_err(|error| ConfigError::ParseFailed {
             reason: error.to_string(),
         })?;
-    let table = expect_table(&value, "<root>")?;
-    reject_unknown(table, "", &["actor", "remote", "cluster"])?;
+    reject_unknown(&table, "", &["actor", "remote", "cluster"])?;
 
     let mut settings = KairoSettings::default();
     if let Some(actor) = table.get("actor") {

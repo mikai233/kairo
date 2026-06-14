@@ -2003,6 +2003,10 @@ Implemented:
   TOML configuration, remote-message wire metadata, sharding routing, cluster
   membership constraints, and validation commands. `docs/blocked.md` now
   records that there are no current external blockers.
+- The `kairo` facade TOML loader now parses configuration input as a document
+  table instead of a single TOML value, restoring empty-config defaults, file
+  loading, unknown-key validation, and structured runtime settings tests with
+  the current `toml` crate.
 
 Not yet implemented:
 
@@ -2029,6 +2033,17 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster bootstrap_binds_connector_and_registers_coordinated_shutdown_stop
+cargo test -p kairo-distributed-data bootstrap_binds_connector_and_registers_coordinated_shutdown_stop
+cargo test -p kairo-cluster-tools bootstrap_binds_connector_and_registers_coordinated_shutdown_stop
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
+git diff --check
 cargo test -p kairo-actor restart_supervision_unwatches_children_before_restart_stop
 cargo test -p kairo-actor supervision
 cargo fmt --all -- --check
