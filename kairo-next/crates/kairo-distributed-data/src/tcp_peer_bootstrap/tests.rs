@@ -37,14 +37,24 @@ fn send_read_until_received(
     read: ReplicatorRead,
     timeout: Duration,
 ) -> Vec<(ReplicaId, kairo_serialization::RemoteEnvelope)> {
+    send_read_until_count_received(outbound, requests, read, 1, timeout)
+}
+
+fn send_read_until_count_received(
+    outbound: &impl Recipient<ReplicatorRead>,
+    requests: &RecordingRequests,
+    read: ReplicatorRead,
+    expected_count: usize,
+    timeout: Duration,
+) -> Vec<(ReplicaId, kairo_serialization::RemoteEnvelope)> {
     let deadline = Instant::now() + timeout;
     let mut last_error = None;
     while Instant::now() < deadline {
         if let Err(error) = outbound.tell(read.clone()) {
             last_error = Some(error.reason().to_string());
         }
-        let received = requests.wait_for_len(1, Duration::from_millis(50));
-        if !received.is_empty() {
+        let received = requests.wait_for_len(expected_count, Duration::from_millis(50));
+        if received.len() >= expected_count {
             return received;
         }
         thread::sleep(Duration::from_millis(10));
@@ -530,6 +540,161 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     old_receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
     new_receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed() {
+    let _guard = bootstrap_socket_test_lock();
+    let registry = registry();
+    let first_kit = ActorSystemTestKit::new("ddata-bootstrap-reduce-first").unwrap();
+    let second_kit = ActorSystemTestKit::new("ddata-bootstrap-reduce-second").unwrap();
+    let third_kit = ActorSystemTestKit::new("ddata-bootstrap-reduce-third").unwrap();
+    let first_runtime = bind_runtime(
+        "ddata-bootstrap-reduce-first",
+        1,
+        11,
+        ReplicaId::new("first"),
+    );
+    let first_cache = first_runtime.association_cache().clone();
+    let first_node = first_runtime.self_node().clone();
+    let first_settings = first_runtime.runtime().settings().clone();
+    let second_requests = Arc::new(RecordingRequests::default());
+    let third_requests = Arc::new(RecordingRequests::default());
+    let second_runtime = bind_runtime_with_requests(
+        "ddata-bootstrap-reduce-second",
+        2,
+        22,
+        ReplicaId::from(&first_node),
+        second_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let second_node = second_runtime.self_node().clone();
+    let second_settings = second_runtime.runtime().settings().clone();
+    let third_runtime = bind_runtime_with_requests(
+        "ddata-bootstrap-reduce-third",
+        3,
+        33,
+        ReplicaId::from(&first_node),
+        third_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let third_node = third_runtime.self_node().clone();
+    let third_settings = third_runtime.runtime().settings().clone();
+    let first_publisher = spawn_publisher(&first_kit, "first-publisher", first_node.clone());
+    let first_cluster = Cluster::new(first_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
+        .with_connector_settings(
+            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        );
+
+    let first_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        first_kit.system(),
+        first_cluster,
+        first_runtime,
+        settings.with_connector_name("first-ddata-peer"),
+    )
+    .unwrap();
+    let first_snapshots = first_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("first-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &first_publisher,
+        up_gossip([first_node.clone(), second_node.clone(), third_node.clone()]),
+    );
+    await_connector_routes(
+        first_bootstrap.connector(),
+        &first_snapshots,
+        &[second_node.clone(), third_node.clone()],
+    );
+
+    let first_ref = replicator_actor_ref_for("ddata-bootstrap-reduce-first", &first_settings)
+        .expect("first ref should be serializable");
+    let second_ref = replicator_actor_ref_for("ddata-bootstrap-reduce-second", &second_settings)
+        .expect("second ref should be serializable");
+    let third_ref = replicator_actor_ref_for("ddata-bootstrap-reduce-third", &third_settings)
+        .expect("third ref should be serializable");
+    let to_second = outbound(
+        ReplicaId::from(&second_node),
+        second_ref.clone(),
+        first_ref.clone(),
+        registry.clone(),
+        first_cache.clone(),
+    );
+    let to_third = outbound(
+        ReplicaId::from(&third_node),
+        third_ref,
+        first_ref.clone(),
+        registry.clone(),
+        first_cache,
+    );
+
+    let second_received = send_read_until_received(
+        &to_second,
+        &second_requests,
+        ReplicatorRead {
+            key: "counter-second-before-removal".to_string(),
+            from: Some(ReplicaId::from(&first_node)),
+        },
+        Duration::from_secs(1),
+    );
+    let third_received = send_read_until_received(
+        &to_third,
+        &third_requests,
+        ReplicatorRead {
+            key: "counter-third-before-removal".to_string(),
+            from: Some(ReplicaId::from(&first_node)),
+        },
+        Duration::from_secs(1),
+    );
+    assert_eq!(second_received[0].0, ReplicaId::from(&first_node));
+    assert_eq!(third_received[0].0, ReplicaId::from(&first_node));
+
+    publish_gossip(
+        &first_publisher,
+        up_gossip([first_node.clone(), second_node.clone()]),
+    );
+    await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
+
+    let second_received_after_removal = send_read_until_count_received(
+        &to_second,
+        &second_requests,
+        ReplicatorRead {
+            key: "counter-second-after-removal".to_string(),
+            from: Some(ReplicaId::from(&first_node)),
+        },
+        2,
+        Duration::from_secs(1),
+    );
+    assert_eq!(second_received_after_removal.len(), 2);
+    assert_eq!(
+        second_received_after_removal[1].0,
+        ReplicaId::from(&first_node)
+    );
+    assert_eq!(
+        second_received_after_removal[1].1.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    let second_read_after_removal = registry
+        .deserialize::<ReplicatorRead>(second_received_after_removal[1].1.message.clone())
+        .unwrap();
+    assert_eq!(
+        second_read_after_removal.from,
+        Some(ReplicaId::from(&first_node))
+    );
+    assert_eq!(
+        second_read_after_removal.key,
+        "counter-second-after-removal"
+    );
+    assert_eq!(second_received_after_removal[1].1.recipient, second_ref);
+    assert_eq!(second_received_after_removal[1].1.sender, Some(first_ref));
+
+    run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
+    second_runtime.shutdown().unwrap();
+    third_runtime.shutdown().unwrap();
+    first_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

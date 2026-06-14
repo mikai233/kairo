@@ -2070,6 +2070,10 @@ Implemented:
   route-preservation path: one membership receiver can mark and down a sender
   as unreachable while the sender keeps its remaining TCP route live and
   delivers a later join to a second receiver.
+- `kairo-distributed-data` TCP peer bootstrap coverage now pins sender-side
+  route reduction with live delivery: after one of two remote peers leaves the
+  sender's cluster membership view, the remaining replicator route continues
+  to deliver stable-manifest remote read envelopes.
 - `kairo-distributed-data` TCP peer bootstrap two-node route coverage now
   pins coordinated shutdown cleanup of installed association routes on both
   peers after cluster membership installs them.
@@ -2107,8 +2111,8 @@ Not yet implemented:
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
-  two-node example smoke test and three-node bootstrap route/request-delivery
-  validation.
+  two-node example smoke test, three-node bootstrap route/request-delivery
+  validation, and focused sender-side route-reduction delivery coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level coverage and the
   multi-node graceful-shutdown validation that now proves remembered entity
@@ -2126,6 +2130,7 @@ Not yet implemented:
 
 ```bash
 cargo test -p kairo-cluster-tools bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
+cargo test -p kairo-distributed-data bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed
 cargo test -p kairo-cluster tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender
 cargo test -p kairo-distributed-data bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
 cargo test -p kairo-cluster bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
