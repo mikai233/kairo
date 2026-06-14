@@ -422,6 +422,32 @@ mod tests {
     }
 
     #[test]
+    fn provider_maps_owned_canonical_missing_path_to_local_missing_ref_without_codec() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_empty_registry(system.clone());
+
+        let resolved = provider
+            .resolve_actor_ref::<LocalCmd>("kairo://local@127.0.0.1:25520/user/missing#42")
+            .unwrap();
+
+        assert!(resolved.is_local());
+        assert_eq!(resolved.path().as_str(), "kairo://local/user/missing#42");
+        let error = resolved
+            .tell(LocalCmd { value: 9 })
+            .expect_err("missing canonical local ref should reject");
+        assert_eq!(error.reason(), "actor does not exist");
+        assert!(
+            system
+                .dead_letters()
+                .wait_for_len(1, Duration::from_secs(1))
+        );
+        assert_eq!(
+            system.dead_letters().records()[0].recipient().as_str(),
+            "kairo://local/user/missing#42"
+        );
+    }
+
+    #[test]
     fn provider_resolve_actor_ref_keeps_foreign_paths_remote() {
         let system = ActorSystem::builder("local").build().unwrap();
         let provider = provider_with_system(system);

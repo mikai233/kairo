@@ -464,8 +464,10 @@ Implemented:
   owned paths, and preserves remote refs for foreign addresses.
 - `RemoteActorRefProvider` tests now pin that local `ResolvedActorRef<M>`
   delivery does not require a registered codec even when the ref was resolved
-  through the remote provider, preserving the local-message/no-serialization
-  boundary while keeping remote sends codec-backed.
+  through the remote provider, and that owned canonical remote paths for
+  missing local actors normalize back to missing local refs without a codec,
+  preserving the local-message/no-serialization boundary while keeping remote
+  sends codec-backed.
 - `kairo-remote` now has a focused remote death-watch state module that tracks
   watched remote actor pairs and watched addresses, plans heartbeat
   start/stop/send effects, re-watches after remote UID changes, emits
@@ -2027,6 +2029,7 @@ cargo fmt --all -- --check
 cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote provider_local_resolution_does_not_require_registered_codec
+cargo test -p kairo-remote provider_maps_owned_canonical_missing_path_to_local_missing_ref_without_codec
 cargo fmt --all -- --check
 cargo test -p kairo-remote --all-targets --all-features
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
