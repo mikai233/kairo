@@ -1969,10 +1969,12 @@ Implemented:
   entity to disappear from shard state, and prove routing through the same
   `EntityRef` starts a fresh entity instance afterward.
 - The local cluster-sharding example now also has a two-region graceful
-  shutdown validation: it starts with a remembered shard hosted on
-  `region-a`, sends a coordinator graceful-shutdown request for that region,
-  and waits until the coordinator and `region-b` snapshots show the shard has
-  moved to the surviving local region.
+  shutdown validation: it starts with a remembered shard backed by a shared
+  remember store and hosted on `region-a`, sends a coordinator
+  graceful-shutdown request for that region,
+  waits until coordinator state and `region-b` shard lookup show the shard has
+  moved to the surviving local region, and reads the replacement shard state
+  to prove the remembered `entity-1` is active after handoff.
 - `kairo-examples` now has integration smoke tests for the reusable
   `local_counter`, `ask_pipe_to_self`, and `cluster_sharding_local` modules,
   validating the example crate from the same public module boundary used by
@@ -2830,6 +2832,11 @@ cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_clears_pending_rec
 cargo fmt --all -- --check
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples cluster_sharding_local_example_gracefully_moves_region_shard --all-targets --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 ```

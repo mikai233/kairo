@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 use kairo::actor::{ActorRef, ActorSystem};
 use kairo::cluster_sharding::{
     CoordinatorEvent, CoordinatorStateSnapshot, HandoffRegionTarget, HostShardPlan,
-    LeastShardAllocationStrategy, RegionShutdownPlan, ShardCoordinatorActor,
-    ShardCoordinatorBootstrap, ShardCoordinatorMsg, ShardRegionActor, ShardRegionMsg,
-    ShardRegionSnapshot,
+    LeastShardAllocationStrategy, RegionShutdownPlan, RememberShardStoreActor,
+    RememberShardStoreState, ShardCoordinatorActor, ShardCoordinatorBootstrap, ShardCoordinatorMsg,
+    ShardMsg, ShardRegionActor, ShardRegionMsg, ShardSnapshot,
 };
 
 use crate::reply::spawn_one_shot_reply;
@@ -23,6 +23,7 @@ pub struct GracefulRegionShutdownObservation {
     pub shutdown_started: bool,
     pub old_owner_has_shard: bool,
     pub new_owner_has_shard: bool,
+    pub recovered_entities: Vec<String>,
 }
 
 pub fn run_local_graceful_region_shutdown(
@@ -32,25 +33,31 @@ pub fn run_local_graceful_region_shutdown(
     let shard = "shard-1".to_string();
     let from_region = "region-a".to_string();
     let to_region = "region-b".to_string();
+    let remember_store = system.spawn(
+        "remember-store-shard-1",
+        RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+            "orders",
+            shard.clone(),
+            ["entity-1".to_string()],
+        )),
+    )?;
     let region_a = system.spawn(
         "region-a",
-        ShardRegionActor::<String>::props_with_local_remember_store_shards(
+        ShardRegionActor::<String>::props_with_remember_store_shards(
             from_region.clone(),
-            "orders",
             10,
             10,
-            BTreeMap::from([(shard.clone(), BTreeSet::from(["entity-1".to_string()]))]),
+            BTreeMap::from([(shard.clone(), remember_store.clone())]),
             Duration::from_millis(500),
         ),
     )?;
     let region_b = system.spawn(
         "region-b",
-        ShardRegionActor::<String>::props_with_local_remember_store_shards(
+        ShardRegionActor::<String>::props_with_remember_store_shards(
             to_region.clone(),
-            "orders",
             10,
             10,
-            BTreeMap::new(),
+            BTreeMap::from([(shard.clone(), remember_store)]),
             Duration::from_millis(500),
         ),
     )?;
@@ -107,15 +114,22 @@ pub fn run_local_graceful_region_shutdown(
         .allocations
         .get(&from_region)
         .is_some_and(|shards| shards.contains(&shard));
-    let new_owner_has_shard =
-        wait_for_region_shard(&system, &region_b, &shard, Duration::from_secs(2))?;
+    let new_owner_shard =
+        wait_for_region_shard_ref(&system, &region_b, &shard, Duration::from_secs(2))?;
+    let recovered_snapshot = wait_for_shard_entity(
+        &system,
+        &new_owner_shard,
+        "entity-1",
+        Duration::from_secs(2),
+    )?;
     let observation = GracefulRegionShutdownObservation {
         shard,
         from_region,
         to_region,
         shutdown_started,
         old_owner_has_shard,
-        new_owner_has_shard,
+        new_owner_has_shard: true,
+        recovered_entities: recovered_snapshot.active_entities,
     };
 
     system.terminate(Duration::from_secs(1))?;
@@ -151,23 +165,51 @@ fn wait_for_coordinator_shard_owner(
     }
 }
 
-fn wait_for_region_shard(
+fn wait_for_region_shard_ref(
     system: &ActorSystem,
     region: &ActorRef<ShardRegionMsg<String>>,
     shard: &str,
     timeout: Duration,
-) -> Result<bool, Box<dyn Error>> {
+) -> Result<ActorRef<ShardMsg<String>>, Box<dyn Error>> {
     let deadline = Instant::now() + timeout;
     loop {
         let id = next_reply_id();
-        let (reply_to, replies) = spawn_one_shot_reply(system, format!("region-state-{id}"))?;
-        region.tell(ShardRegionMsg::GetState { reply_to })?;
-        let snapshot: ShardRegionSnapshot = replies.recv_timeout(Duration::from_millis(100))?;
-        if snapshot.local_shards.contains(shard) {
-            return Ok(true);
+        let (reply_to, replies) = spawn_one_shot_reply(system, format!("region-shard-{id}"))?;
+        region.tell(ShardRegionMsg::GetLocalShard {
+            shard: shard.to_string(),
+            reply_to,
+        })?;
+        if let Some(shard_ref) = replies.recv_timeout(Duration::from_millis(100))? {
+            return Ok(shard_ref);
         }
         if Instant::now() >= deadline {
-            return Ok(false);
+            return Err(format!("timed out waiting for local shard `{shard}`").into());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_for_shard_entity(
+    system: &ActorSystem,
+    shard: &ActorRef<ShardMsg<String>>,
+    entity_id: &str,
+    timeout: Duration,
+) -> Result<ShardSnapshot, Box<dyn Error>> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let id = next_reply_id();
+        let (reply_to, replies) = spawn_one_shot_reply(system, format!("shard-state-{id}"))?;
+        shard.tell(ShardMsg::GetState { reply_to })?;
+        let snapshot: ShardSnapshot = replies.recv_timeout(Duration::from_millis(100))?;
+        if snapshot
+            .active_entities
+            .iter()
+            .any(|entity| entity == entity_id)
+        {
+            return Ok(snapshot);
+        }
+        if Instant::now() >= deadline {
+            return Err(format!("timed out waiting for recovered entity `{entity_id}`").into());
         }
         thread::sleep(Duration::from_millis(10));
     }

@@ -186,6 +186,7 @@ fn cluster_sharding_local_example_gracefully_moves_region_shard()
     assert!(observation.shutdown_started);
     assert!(!observation.old_owner_has_shard);
     assert!(observation.new_owner_has_shard);
+    assert_eq!(observation.recovered_entities, vec!["entity-1".to_string()]);
     Ok(())
 }
 
