@@ -1,11 +1,11 @@
 use std::fmt::{self, Display, Formatter};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 
 use crate::error::{ActorError, SendError};
 use crate::refs::{ActorRef, TerminationLatch};
+use crate::scheduler::Cancellable;
 use crate::system::ActorSystem;
 
 pub type AskResult<M> = Result<M, AskError>;
@@ -62,11 +62,13 @@ pub(crate) struct AskRegistration {
     state: Arc<AskState>,
     stopped: Arc<AtomicBool>,
     terminated: Arc<TerminationLatch>,
+    timeout: Cancellable,
 }
 
 impl AskRegistration {
     fn cancel(self) {
         if self.state.complete() {
+            self.timeout.cancel();
             self.stopped.store(true, Ordering::Release);
             self.terminated.mark_stopped();
             self.system.unregister_temp_ref(&self.path);
@@ -104,6 +106,7 @@ where
     let stopped = Arc::new(AtomicBool::new(false));
     let terminated = Arc::new(TerminationLatch::default());
     let map_response = Arc::new(Mutex::new(Some(map_response)));
+    let timeout_handle = Arc::new(Mutex::new(None::<Cancellable>));
 
     let reply_ref = {
         let ask_path = path.clone();
@@ -115,6 +118,7 @@ where
         let mailbox = owner_mailbox.clone();
         let owner_stopped = Arc::clone(&owner_stopped);
         let temp_registry = temp_registry.clone();
+        let timeout_handle = Arc::clone(&timeout_handle);
         ActorRef::function(
             path,
             dead_letters.clone(),
@@ -138,6 +142,13 @@ where
                     });
                 }
 
+                if let Some(timeout) = timeout_handle
+                    .lock()
+                    .expect("ask timeout handle poisoned")
+                    .take()
+                {
+                    timeout.cancel();
+                }
                 reply_stopped.store(true, Ordering::Release);
                 reply_terminated.mark_stopped();
                 temp_registry.unregister_temp_ref(&ask_path);
@@ -161,15 +172,7 @@ where
         )
     };
     system.register_temp_ref(reply_ref.clone());
-    scope.register(AskRegistration {
-        system: system.clone(),
-        path: reply_ref.path().clone(),
-        state: Arc::clone(&state),
-        stopped: Arc::clone(&stopped),
-        terminated: Arc::clone(&terminated),
-    });
-
-    spawn_timeout(TimeoutTask {
+    let timeout_task = TimeoutTask {
         timeout,
         owner_mailbox,
         owner_path: owner.path().clone(),
@@ -182,12 +185,27 @@ where
         temp_path: reply_ref.path().clone(),
         map_response,
         _response: std::marker::PhantomData,
-    })?;
+    };
+    let timeout = schedule_timeout(system, timeout_task);
+    *timeout_handle.lock().expect("ask timeout handle poisoned") = Some(timeout.clone());
+    scope.register(AskRegistration {
+        system: system.clone(),
+        path: reply_ref.path().clone(),
+        state: Arc::clone(&state),
+        stopped: Arc::clone(&stopped),
+        terminated: Arc::clone(&terminated),
+        timeout: timeout.clone(),
+    });
 
     match target.tell(create_request(reply_ref.clone())) {
         Ok(()) => Ok(()),
         Err(error) => {
             state.complete();
+            timeout.cancel();
+            let _ = timeout_handle
+                .lock()
+                .expect("ask timeout handle poisoned")
+                .take();
             stopped.store(true, Ordering::Release);
             terminated.mark_stopped();
             system.unregister_temp_ref(reply_ref.path());
@@ -211,39 +229,37 @@ struct TimeoutTask<M, Res, Map> {
     _response: std::marker::PhantomData<fn(Res)>,
 }
 
-fn spawn_timeout<M, Res, Map>(task: TimeoutTask<M, Res, Map>) -> Result<(), ActorError>
+fn schedule_timeout<M, Res, Map>(
+    system: &ActorSystem,
+    task: TimeoutTask<M, Res, Map>,
+) -> Cancellable
 where
     M: Send + 'static,
     Res: Send + 'static,
     Map: FnOnce(AskResult<Res>) -> M + Send + 'static,
 {
-    thread::Builder::new()
-        .name("kairo-ask-timeout".to_string())
-        .spawn(move || {
-            thread::sleep(task.timeout);
-            if !task.state.complete() {
-                return;
-            }
+    system.schedule_action(task.timeout, move || {
+        if !task.state.complete() {
+            return;
+        }
 
-            task.stopped.store(true, Ordering::Release);
-            task.terminated.mark_stopped();
-            task.temp_registry.unregister_temp_ref(&task.temp_path);
-            if task.owner_stopped.load(Ordering::Acquire) {
-                return;
-            }
+        task.stopped.store(true, Ordering::Release);
+        task.terminated.mark_stopped();
+        task.temp_registry.unregister_temp_ref(&task.temp_path);
+        if task.owner_stopped.load(Ordering::Acquire) {
+            return;
+        }
 
-            let _ = enqueue_ask_result(
-                &task.owner_mailbox,
-                AskResult::Err(AskError::Timeout {
-                    timeout: task.timeout,
-                }),
-                task.map_response,
-                &task.dead_letters,
-                &task.owner_path,
-            );
-        })
-        .map_err(|error| ActorError::TaskSpawn(error.to_string()))?;
-    Ok(())
+        let _ = enqueue_ask_result(
+            &task.owner_mailbox,
+            AskResult::Err(AskError::Timeout {
+                timeout: task.timeout,
+            }),
+            task.map_response,
+            &task.dead_letters,
+            &task.owner_path,
+        );
+    })
 }
 
 fn enqueue_ask_result<M, Res, Map>(

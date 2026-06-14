@@ -232,6 +232,37 @@ fn ask_sends_request_and_maps_reply_through_owner_mailbox() {
 }
 
 #[test]
+fn ask_success_cancels_manual_timeout() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let target = system
+        .spawn("ask-target", Props::new(|| AskTarget))
+        .unwrap();
+    let probe = system
+        .spawn("ask-probe", Props::new(|| AskProbe { pre_restart: None }))
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    probe
+        .tell(AskProbeMsg::AskSuccess {
+            target,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Ok(42)
+    );
+    assert_eq!(scheduler.pending_count(), 0);
+    scheduler.advance(Duration::from_secs(1));
+    assert!(reply_rx.recv_timeout(Duration::from_millis(20)).is_err());
+}
+
+#[test]
 fn ask_timeout_maps_failure_through_owner_mailbox() {
     let system = ActorSystem::builder("test").build().unwrap();
     let target = system
@@ -253,6 +284,52 @@ fn ask_timeout_maps_failure_through_owner_mailbox() {
 
     let error = reply_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(matches!(error, Err(message) if message.contains("ask timed out")));
+}
+
+#[test]
+fn ask_timeout_is_driven_by_manual_scheduler() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let target = system
+        .spawn("ask-target", Props::new(|| AskTarget))
+        .unwrap();
+    let probe = system
+        .spawn("ask-probe", Props::new(|| AskProbe { pre_restart: None }))
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (captured_tx, captured_rx) = mpsc::channel();
+
+    probe
+        .tell(AskProbeMsg::AskTimeout {
+            target,
+            captured: captured_tx,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+    let reply_ref = captured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(scheduler.pending_count(), 1);
+
+    scheduler.advance(Duration::from_millis(19));
+    assert!(reply_rx.recv_timeout(Duration::from_millis(20)).is_err());
+    assert!(
+        system
+            .resolve_local::<AskReply>(reply_ref.path().as_str())
+            .is_some()
+    );
+
+    scheduler.advance(Duration::from_millis(1));
+    let error = reply_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert!(matches!(error, Err(message) if message.contains("ask timed out")));
+    assert_eq!(scheduler.pending_count(), 0);
+    assert!(
+        system
+            .resolve_local::<AskReply>(reply_ref.path().as_str())
+            .is_none()
+    );
 }
 
 #[test]

@@ -102,6 +102,14 @@ impl ActorSystem {
         self.inner.scheduler.schedule_once(delay, target, message)
     }
 
+    pub(crate) fn schedule_action(
+        &self,
+        delay: Duration,
+        action: impl FnOnce() + Send + 'static,
+    ) -> Cancellable {
+        self.inner.scheduler.schedule_action(delay, action)
+    }
+
     pub(crate) fn schedule_timer<M>(
         &self,
         delay: Duration,

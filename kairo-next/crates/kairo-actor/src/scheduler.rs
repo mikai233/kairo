@@ -88,6 +88,14 @@ impl Scheduler {
         )
     }
 
+    pub(crate) fn schedule_action(
+        &self,
+        delay: Duration,
+        action: impl FnOnce() + Send + 'static,
+    ) -> Cancellable {
+        self.backend.schedule_once(delay, Box::new(action))
+    }
+
     pub(crate) fn schedule_timer<M>(
         &self,
         delay: Duration,

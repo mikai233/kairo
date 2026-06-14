@@ -222,6 +222,9 @@ Implemented:
 - `Context::ask` creates a one-shot typed local reply ref, maps replies or
   `AskError::Timeout` back into the owning actor's mailbox, and rejects late
   replies after completion.
+- Ask timeouts now use the actor system scheduler instead of a dedicated
+  sleeping thread, so manual-scheduler tests can deterministically advance ask
+  timeout delivery and completed asks cancel their pending timeout task.
 - Ask state and timeout handling live in a focused `asks` module.
 - `ActorSystem::receptionist` and `Context::receptionist` expose a local typed
   receptionist with `ServiceKey<M>`, `Listing<M>`, register, deregister, find,
@@ -2141,6 +2144,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor ask_
 cargo test -p kairo-actor restart_supervision_rebuilds_actor_state_and_keeps_ref_path
 cargo test -p kairo-actor stopped_watcher_is_removed_from_subject_watchers
 cargo test -p kairo-cluster-tools bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
