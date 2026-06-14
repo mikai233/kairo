@@ -667,6 +667,10 @@ Implemented:
   recipient resolution, and actor-backed remote death watch so framed inbound
   bytes can reach typed local actors or system watch handlers without exposing
   erased messages as the user API.
+- Remote local-delivery coverage now also pins the owned canonical missing-ref
+  path: an inbound recipient addressed at this node's canonical host/port is
+  mapped back to the local actor path before the missing-ref dead-letter
+  diagnostic is recorded.
 - TCP actor-system runtime tests now cover the remote death-watch control-lane
   path across a bidirectional association: outbound watch registration reaches
   the peer as an inbound local-watchee registration, heartbeat messages are
@@ -2689,4 +2693,8 @@ cargo test -p kairo config_converts_lease_majority_with_explicit_lease --all-tar
 cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+cargo test -p kairo-remote local_delivery_maps_owned_canonical_missing_recipient_to_local_dead_letters --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 ```

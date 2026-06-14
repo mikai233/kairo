@@ -282,6 +282,42 @@ mod tests {
     }
 
     #[test]
+    fn local_delivery_maps_owned_canonical_missing_recipient_to_local_dead_letters() {
+        let system = ActorSystem::builder("receiver").build().unwrap();
+        let registry = registry();
+        let inbound = RemoteInbound::<Ping>::new(
+            registry.clone(),
+            Arc::new(LocalActorInboundDelivery::with_remote_settings(
+                system.clone(),
+                crate::RemoteSettings::new("127.0.0.1", 25520),
+            )),
+        );
+        let envelope = RemoteEnvelope::new(
+            ActorRefWireData::new("kairo://receiver@127.0.0.1:25520/user/missing#404").unwrap(),
+            None,
+            registry.serialize(&Ping { value: 7 }).unwrap(),
+        );
+
+        let error = inbound
+            .receive(envelope)
+            .expect_err("missing owned canonical recipient should be reported locally");
+
+        assert!(matches!(error, RemoteError::Inbound(_)));
+        assert!(error.to_string().contains("actor does not exist"));
+        assert!(
+            system
+                .dead_letters()
+                .wait_for_len(1, Duration::from_secs(1))
+        );
+        let records = system.dead_letters().records();
+        assert_eq!(
+            records[0].recipient().as_str(),
+            "kairo://receiver/user/missing#404"
+        );
+        assert_eq!(records[0].reason(), "actor does not exist");
+    }
+
+    #[test]
     fn local_delivery_type_mismatch_routes_to_missing_ref_diagnostics() {
         let system = ActorSystem::builder("receiver").build().unwrap();
         let registry = registry();
