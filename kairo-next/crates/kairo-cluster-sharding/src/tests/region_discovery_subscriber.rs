@@ -225,6 +225,168 @@ fn region_discovery_subscriber_reregisters_when_coordinator_moves() {
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn multi_node_region_discovery_registers_and_routes_via_coordinator_node() {
+    let nodes = kairo_testkit::MultiNodeTestKit::new([
+        "sharding-discovery-coordinator",
+        "sharding-discovery-region",
+    ])
+    .unwrap();
+    let coordinator_kit = nodes.kit("sharding-discovery-coordinator").unwrap();
+    let region_kit = nodes.kit("sharding-discovery-region").unwrap();
+    let region_node = remote_unique_node("sharding-discovery-region", "127.0.0.1", 2680, 31);
+    let coordinator_node =
+        remote_unique_node("sharding-discovery-coordinator", "127.0.0.1", 2681, 32);
+    let publisher = region_kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(region_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let coordinator = coordinator_kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    )
+    .with_local_coordinator(coordinator_node.clone(), coordinator.clone());
+    let region = region_kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_shards_and_coordinator_discovery(
+                "region-a", 10, 10, discovery,
+            ),
+        )
+        .unwrap();
+    let subscriber = region_kit
+        .system()
+        .spawn(
+            "region-discovery",
+            ShardRegionDiscoverySubscriber::<String>::props(cluster, region.clone()),
+        )
+        .unwrap();
+    let coordinator_state = nodes
+        .create_probe_on::<CoordinatorStateSnapshot>(
+            "sharding-discovery-coordinator",
+            "coordinator-state",
+        )
+        .unwrap();
+    let region_state = nodes
+        .create_probe_on::<ShardRegionSnapshot>("sharding-discovery-region", "region-state")
+        .unwrap();
+    let subscriber_state = nodes
+        .create_probe_on::<ShardRegionDiscoverySubscriberSnapshot>(
+            "sharding-discovery-region",
+            "subscriber-state",
+        )
+        .unwrap();
+    let routes = nodes
+        .create_probe_on::<RegionLocalRoutePlan<String>>(
+            "sharding-discovery-region",
+            "region-routes",
+        )
+        .unwrap();
+    let deliveries = nodes
+        .create_probe_on::<ShardDeliverPlan<String>>("sharding-discovery-region", "deliveries")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([cluster_member(
+                coordinator_node,
+                MemberStatus::Up,
+                ["backend"],
+                1,
+            )]),
+        ))
+        .unwrap();
+
+    let mut registered = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let state = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        registered = state.allocations.contains_key("region-a");
+        if registered {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        registered,
+        "multi-node region discovery should register with coordinator node"
+    );
+
+    region
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        region_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .registration_status,
+        RegionRegistrationStatus::Registered
+    );
+    subscriber
+        .tell(ShardRegionDiscoverySubscriberMsg::Snapshot {
+            reply_to: subscriber_state.actor_ref(),
+        })
+        .unwrap();
+    let state = subscriber_state
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert!(state.subscribed);
+    assert_eq!(state.forwarded_snapshots, 1);
+    assert_eq!(state.last_error, None);
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", "first".to_string()),
+        }
+    );
+
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 fn wait_for_coordinator_registration(
     kit: &kairo_testkit::ActorSystemTestKit,
     coordinator: &ActorRef<ShardCoordinatorMsg<String>>,

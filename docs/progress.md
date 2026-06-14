@@ -1896,6 +1896,10 @@ Implemented:
   local region.
 - `kairo-cluster-sharding` shard-region discovery subscriber cluster-snapshot
   forwarding tests now live in a focused sibling test module.
+- `kairo-cluster-sharding` now has multi-node harness coverage for shard-region
+  coordinator discovery: a region node subscribes to cluster state, discovers a
+  backend coordinator on another node, registers with that coordinator, and
+  routes a buffered entity message through the registered shard-home flow.
 - `kairo-cluster-sharding` region actor shard-home request, buffered
   post-registration replay, known remote-home forwarding, and decoded
   remote-home reply tests now live in a focused sibling test module.
@@ -1995,8 +1999,7 @@ Not yet implemented:
   two-node example smoke test and three-node bootstrap route validation.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration, including restart backoff policy integration and broader
-  multi-node validation of the discovery subscriber plus region/coordinator
-  flow, including graceful region shutdown across nodes.
+  multi-node validation of graceful region shutdown across nodes.
 - Cluster, distributed-data, and cluster-tools socket integration still need
   broader lifecycle tests around the bootstrap facades beyond the current
   localhost crate and example smoke tests.
@@ -2250,5 +2253,12 @@ cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnin
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo test -p kairo-cluster-sharding multi_node_region_discovery_registers_and_routes_via_coordinator_node
+cargo test -p kairo-cluster-sharding region_discovery
+cargo test -p kairo-cluster-sharding region_actor_requests_shard_home_from_registered_coordinator_for_local_route
+cargo test -p kairo-cluster-sharding region_actor_registers_with_discovered_local_coordinator
+cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
