@@ -1,4 +1,4 @@
-use std::any::{TypeId, type_name};
+use std::any::{Any, TypeId, type_name};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -22,6 +22,8 @@ pub trait SerializationRegistry {
         serializer_id: SerializerId,
         manifest: &Manifest,
     ) -> Result<&dyn DynCodec>;
+
+    fn deserialize_dyn(&self, message: SerializedMessage) -> Result<Box<dyn Any + Send>>;
 }
 
 #[derive(Default)]
@@ -55,14 +57,17 @@ impl Registry {
     where
         M: RemoteMessage,
     {
-        let codec = self.codec_for_wire(message.serializer_id, &message.manifest)?;
-        let decoded = codec.decode_dyn(message.payload, message.version)?;
-        decoded
+        self.deserialize_dyn(message)?
             .downcast::<M>()
             .map(|message| *message)
             .map_err(|_| SerializationError::TypeMismatch {
                 expected: type_name::<M>(),
             })
+    }
+
+    pub fn deserialize_dyn(&self, message: SerializedMessage) -> Result<Box<dyn Any + Send>> {
+        let codec = self.codec_for_wire(message.serializer_id, &message.manifest)?;
+        codec.decode_dyn(message.payload, message.version)
     }
 }
 
@@ -119,5 +124,9 @@ impl SerializationRegistry for Registry {
                 serializer_id,
                 manifest: manifest.as_str().to_string(),
             })
+    }
+
+    fn deserialize_dyn(&self, message: SerializedMessage) -> Result<Box<dyn Any + Send>> {
+        Registry::deserialize_dyn(self, message)
     }
 }

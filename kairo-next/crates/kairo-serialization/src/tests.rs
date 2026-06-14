@@ -271,6 +271,56 @@ fn codec_for_wire_uses_serializer_id_and_manifest_pair() {
 }
 
 #[test]
+fn registry_deserializes_wire_message_to_dynamic_boundary() {
+    let mut registry = Registry::new();
+    registry
+        .register::<CounterCommand, _>(SingleByteCodec { serializer_id: 41 })
+        .unwrap();
+
+    let wire = SerializedMessage::new(
+        41,
+        Manifest::new("kairo.test.CounterCommand"),
+        CounterCommand::VERSION,
+        Bytes::from_static(&[9]),
+    );
+    let decoded = registry
+        .deserialize_dyn(wire)
+        .expect("wire message should decode dynamically");
+
+    assert_eq!(
+        *decoded
+            .downcast::<CounterCommand>()
+            .expect("dynamic value should be CounterCommand"),
+        CounterCommand { amount: 9 }
+    );
+}
+
+#[test]
+fn dynamic_deserialize_receives_wire_version_for_rolling_compatibility() {
+    let mut registry = Registry::new();
+    registry
+        .register::<RollingCommand, _>(SingleByteCodec { serializer_id: 51 })
+        .unwrap();
+
+    let old_wire = SerializedMessage::new(
+        51,
+        Manifest::new("kairo.test.RollingCommand"),
+        1,
+        Bytes::from_static(&[8]),
+    );
+    let decoded = registry
+        .deserialize_dyn(old_wire)
+        .expect("old wire message should decode dynamically");
+
+    assert_eq!(
+        *decoded
+            .downcast::<RollingCommand>()
+            .expect("dynamic value should be RollingCommand"),
+        RollingCommand { amount: 8, tag: 0 }
+    );
+}
+
+#[test]
 fn enum_discriminants_are_not_wire_contracts() {
     let mut registry = Registry::new();
     registry

@@ -418,6 +418,9 @@ Implemented:
   markers, and big-endian numeric fields instead of Rust memory layout.
 - `Registry` implements explicit codec registration, outbound type lookup, and
   inbound `(serializer_id, manifest)` lookup.
+- `Registry::deserialize_dyn` now decodes wire messages through the registered
+  `(serializer_id, manifest)` codec into the dynamic runtime boundary while
+  preserving the wire version for rolling-compatible codecs.
 - Serialization registration rejects empty manifests, duplicate serializer ids,
   and duplicate manifests.
 - Focused serialization tests prove wire metadata includes serializer id,
@@ -2927,5 +2930,10 @@ cargo test -p kairo-actor receptionist --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-serialization deserialize --all-targets --all-features
+cargo test -p kairo-serialization --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
 git diff --check
 ```
