@@ -256,8 +256,9 @@ Implemented:
   probes remain quiet after a short dispatcher settle window.
 - `kairo-testkit::MultiNodeTestKit` now owns multiple named local actor systems
   for deterministic integration tests, can create typed probes on specific
-  nodes, wires optional manual time per node, and reports empty, duplicate,
-  unknown, or non-manual node errors explicitly without making cluster
+  nodes, wires optional manual time per node, can advance all manual-time node
+  clocks together for synchronized multi-node scenarios, and reports empty,
+  duplicate, unknown, or non-manual node errors explicitly without making cluster
   membership part of the testkit.
 - `kairo-testkit` crate docs now describe typed probes, batch/fishing
   assertions, await assertions, manual time, multi-node local harnesses, and
@@ -2190,6 +2191,7 @@ cargo test -p kairo-distributed-data --all-targets --all-features
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo test -p kairo-testkit test_probe
 cargo test -p kairo-testkit manual_time
+cargo test -p kairo-testkit multi_node
 cargo test -p kairo-testkit await_assert
 cargo test -p kairo-testkit --all-targets --all-features
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings

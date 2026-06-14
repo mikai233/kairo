@@ -115,6 +115,48 @@ fn multi_node_testkit_wires_manual_time_per_node() {
 }
 
 #[test]
+fn multi_node_testkit_can_advance_all_manual_time_nodes() {
+    let kit = MultiNodeTestKit::with_manual_time(["advance-a", "advance-b"])
+        .expect("manual-time nodes should build");
+    let probe_a = kit
+        .create_probe_on::<&'static str>("advance-a", "probe-a")
+        .expect("probe-a should spawn");
+    let probe_b = kit
+        .create_probe_on::<&'static str>("advance-b", "probe-b")
+        .expect("probe-b should spawn");
+
+    kit.system("advance-a").unwrap().schedule_once(
+        Duration::from_secs(1),
+        probe_a.actor_ref(),
+        "tick-a",
+    );
+    kit.system("advance-b").unwrap().schedule_once(
+        Duration::from_secs(1),
+        probe_b.actor_ref(),
+        "tick-b",
+    );
+
+    kit.advance_all(Duration::from_millis(999))
+        .expect("all nodes have manual time");
+    assert_eq!(probe_a.expect_no_msg(Duration::ZERO), Ok(()));
+    assert_eq!(probe_b.expect_no_msg(Duration::ZERO), Ok(()));
+
+    kit.advance_all(Duration::from_millis(1))
+        .expect("all nodes have manual time");
+    assert_eq!(
+        probe_a.expect_msg(Duration::from_millis(50)).unwrap(),
+        "tick-a"
+    );
+    assert_eq!(
+        probe_b.expect_msg(Duration::from_millis(50)).unwrap(),
+        "tick-b"
+    );
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
 fn multi_node_testkit_reports_manual_time_disabled() {
     let kit = MultiNodeTestKit::new(["plain"]).expect("node should build");
 
@@ -123,6 +165,13 @@ fn multi_node_testkit_reports_manual_time_disabled() {
         .expect_err("plain node should not expose manual time");
     assert!(matches!(
         error,
+        MultiNodeError::ManualTimeDisabled(name) if name == "plain"
+    ));
+    let advance_error = kit
+        .advance_all(Duration::from_secs(1))
+        .expect_err("plain node should not advance manual time");
+    assert!(matches!(
+        advance_error,
         MultiNodeError::ManualTimeDisabled(name) if name == "plain"
     ));
     kit.shutdown(Duration::from_secs(1))

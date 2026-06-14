@@ -102,6 +102,16 @@ impl MultiNodeTestKit {
             .ok_or_else(|| MultiNodeError::ManualTimeDisabled(node.name().to_string()))
     }
 
+    pub fn advance_all(&self, duration: Duration) -> MultiNodeResult<()> {
+        for node in &self.nodes {
+            let manual_time = node
+                .manual_time()
+                .ok_or_else(|| MultiNodeError::ManualTimeDisabled(node.name().to_string()))?;
+            manual_time.advance(duration);
+        }
+        Ok(())
+    }
+
     pub fn create_probe_on<M>(
         &self,
         node_name: impl AsRef<str>,
