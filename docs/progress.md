@@ -1981,6 +1981,10 @@ Implemented:
   cleanup: child watches owned by the restarting parent are removed before
   default restart teardown stops those children, so stale `watch_with`
   messages from restart-driven child stops do not re-enter the restarted actor.
+- `kairo-actor` tree-lifecycle tests now pin restart-time child termination
+  ordering: a restarting parent waits for children stopped by default restart
+  teardown before processing queued user messages, so replacement children
+  cannot observe the old child name as reusable until termination completes.
 - `kairo-actor` context spawn, parent/child introspection, direct-child stop,
   parent-before-child shutdown, actor-path metadata, and post-stop signal tests
   now live in a focused sibling test module.
@@ -2040,6 +2044,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor restart_supervision_waits_for_stopping_children_before_processing_messages
+cargo fmt --all -- --check
+cargo test -p kairo-actor --all-targets --all-features
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor ask_temp_ref_is_unregistered_when_actor_system_terminates
 cargo fmt --all -- --check
 cargo test -p kairo-actor --all-targets --all-features

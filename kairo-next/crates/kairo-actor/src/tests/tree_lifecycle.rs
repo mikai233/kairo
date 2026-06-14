@@ -201,6 +201,7 @@ enum ChildStopMsg {
     SpawnReplacement {
         reply_to: mpsc::Sender<Result<ActorPath, String>>,
     },
+    Fail,
     StopOther {
         other: ActorRef<()>,
         reply_to: mpsc::Sender<String>,
@@ -259,6 +260,9 @@ impl Actor for ChildStoppingParent {
                     .send(result)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
+            ChildStopMsg::Fail => {
+                return Err(ActorError::Message("restart parent".to_string()));
+            }
             ChildStopMsg::StopOther { other, reply_to } => {
                 let error = ctx.stop(other).unwrap_err();
                 reply_to
@@ -302,6 +306,69 @@ impl Actor for BlockingStopChild {
             .map_err(|error| ActorError::Message(error.to_string()))?;
         Ok(())
     }
+}
+
+#[test]
+fn restart_supervision_waits_for_stopping_children_before_processing_messages() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(|| ChildStoppingParent { child: None })
+                .with_supervisor(SupervisorStrategy::Restart),
+        )
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (replacement_tx, replacement_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+
+    parent.tell(ChildStopMsg::Fail).unwrap();
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    parent
+        .tell(ChildStopMsg::SpawnReplacement {
+            reply_to: replacement_tx,
+        })
+        .unwrap();
+    assert!(
+        replacement_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "parent must not process user messages while restart waits for child termination"
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    let replacement = replacement_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    assert!(
+        replacement
+            .as_str()
+            .starts_with(&format!("{}/child#", parent.path()))
+    );
+    assert_ne!(replacement, child_path);
+
+    parent.tell(ChildStopMsg::Ping(ping_tx)).unwrap();
+    assert_eq!(
+        ping_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "alive"
+    );
 }
 
 #[test]
