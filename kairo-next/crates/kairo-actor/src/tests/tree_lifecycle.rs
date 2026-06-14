@@ -747,6 +747,57 @@ fn parent_stop_does_not_process_user_messages_while_waiting_for_children() {
     assert!(parent.wait_for_stop(Duration::from_secs(1)));
 }
 
+#[test]
+fn actor_system_terminate_waits_for_descendant_children_before_terminated() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+
+    let terminating_system = system.clone();
+    let terminate_thread = std::thread::spawn(move || {
+        terminated_tx
+            .send(terminating_system.terminate(Duration::from_secs(1)))
+            .unwrap();
+    });
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "system termination must wait for descendants before completing"
+    );
+    assert!(system.is_terminating());
+    assert!(!system.is_terminated());
+
+    release_stop_tx.send(()).unwrap();
+    terminated_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    terminate_thread.join().unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
 #[derive(Debug)]
 struct PostStopSpawnResults {
     named: Result<(), String>,

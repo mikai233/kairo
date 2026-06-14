@@ -42,6 +42,9 @@ Implemented:
 - Stopping a local actor recursively requests child stops, rejects later user
   messages while child termination is still in progress, and runs the parent's
   `stopped` hook after children have terminated.
+- Actor-system termination now has focused coverage that top-level actor stop
+  waits recursively for descendant child termination before the system reports
+  `terminated`.
 - Sends after stop are rejected and recorded as dead letters.
 - Missing local actor refs reject user messages and record dead letters.
 - System stop drains queued user messages to dead letters before delivery.
@@ -2098,6 +2101,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor actor_system_terminate_waits_for_descendant_children_before_terminated
 cargo test -p kairo-remote tcp_remote_actor_system_resolver_trait_resolves_local_and_remote_refs
 cargo test -p kairo-cluster-sharding multi_node_passivated_entity_is_not_recovered_after_rehost
 cargo test -p kairo-cluster-sharding --all-targets --all-features
