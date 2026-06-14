@@ -174,6 +174,10 @@ Implemented:
 - Cluster TCP peer connector coverage now pins the same stale pending-reconnect
   cleanup when a peer leaves membership before retry, keeping socket route
   lifecycle behavior aligned with distributed-data.
+- Cluster-tools TCP peer connector coverage now pins the same stale
+  pending-reconnect cleanup when a peer leaves membership before retry, keeping
+  pubsub and singleton socket route lifecycle behavior aligned with cluster and
+  distributed-data.
 - Coordinated-shutdown phase metadata, run state, and task execution now live
   in focused submodules instead of one mixed implementation file.
 - Focused coordinated-shutdown tests now pin `run_from` phase selection and
@@ -2107,6 +2111,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-tools connector_clears_pending_reconnect_when_peer_leaves_membership
 cargo test -p kairo-cluster connector_clears_pending_reconnect_when_peer_leaves_membership
 cargo test -p kairo-distributed-data connector_clears_pending_reconnect_when_peer_leaves_membership
 cargo test -p kairo-actor actor_system_terminate_waits_for_descendant_children_before_terminated
