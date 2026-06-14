@@ -168,6 +168,9 @@ Implemented:
   their framework-owned connector actors under `/system` with
   `ActorSystem::spawn_system`, keeping internal socket services out of `/user`
   while preserving their coordinated-shutdown stop tasks.
+- Distributed-data TCP peer connector coverage now pins that a failed dial's
+  pending reconnect is cleared when the peer leaves cluster membership before
+  a retry succeeds, so removed peers do not keep stale retry state.
 - Coordinated-shutdown phase metadata, run state, and task execution now live
   in focused submodules instead of one mixed implementation file.
 - Focused coordinated-shutdown tests now pin `run_from` phase selection and
@@ -2101,6 +2104,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data connector_clears_pending_reconnect_when_peer_leaves_membership
 cargo test -p kairo-actor actor_system_terminate_waits_for_descendant_children_before_terminated
 cargo test -p kairo-remote tcp_remote_actor_system_resolver_trait_resolves_local_and_remote_refs
 cargo test -p kairo-cluster-sharding multi_node_passivated_entity_is_not_recovered_after_rehost
