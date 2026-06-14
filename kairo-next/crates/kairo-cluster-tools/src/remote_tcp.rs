@@ -5,11 +5,12 @@ use std::time::Duration;
 use kairo_actor::Address;
 use kairo_cluster::UniqueAddress;
 use kairo_remote::{
-    RemoteAssociationAddress, RemoteAssociationCache, RemoteAssociationRegistry,
-    RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration, RemoteError,
-    RemoteLaneClassifier, RemoteSettings, Result as RemoteResult, TcpAssociationDialer,
-    TcpAssociationIdentity, TcpAssociationListener, TcpAssociationListenerHandle,
-    TcpAssociationListenerReport, TcpAssociationReaderHandle, TcpAssociationStreamReader,
+    AssociationOutboundPipeline, RemoteAssociationAddress, RemoteAssociationCache,
+    RemoteAssociationRegistry, RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration,
+    RemoteError, RemoteLaneClassifier, RemoteSettings, Result as RemoteResult,
+    TcpAssociationDialer, TcpAssociationIdentity, TcpAssociationListener,
+    TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReaderHandle,
+    TcpAssociationStreamReader,
 };
 use kairo_serialization::RemoteMessage;
 
@@ -33,6 +34,7 @@ where
     dialer: TcpAssociationDialer,
     outbound_reader: TcpAssociationStreamReader,
     outbound_readers: Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
+    outbound_pipelines: Arc<Mutex<Vec<AssociationOutboundPipeline>>>,
     listener: TcpAssociationListenerHandle,
     _message: std::marker::PhantomData<fn(M)>,
 }
@@ -104,6 +106,7 @@ where
             dialer,
             outbound_reader,
             outbound_readers: Arc::new(Mutex::new(Vec::new())),
+            outbound_pipelines: Arc::new(Mutex::new(Vec::new())),
             listener,
             _message: std::marker::PhantomData,
         })
@@ -136,6 +139,10 @@ where
         let (registration, reader_handle) = self
             .dialer
             .dial_with_reader(address, self.outbound_reader.clone())?;
+        self.outbound_pipelines
+            .lock()
+            .expect("cluster-tools tcp outbound pipelines lock poisoned")
+            .push(registration.pipeline().clone());
         self.outbound_readers
             .lock()
             .expect("cluster-tools tcp outbound readers lock poisoned")
@@ -157,6 +164,15 @@ where
     ) -> RemoteResult<TcpAssociationListenerReport> {
         self.association_cache.clear_routes();
         self.listener.stop();
+        let outbound_pipelines = self
+            .outbound_pipelines
+            .lock()
+            .expect("cluster-tools tcp outbound pipelines lock poisoned")
+            .drain(..)
+            .collect::<Vec<_>>();
+        for pipeline in outbound_pipelines {
+            let _ = pipeline.close("cluster-tools tcp association runtime shutdown");
+        }
         let outbound_readers = self
             .outbound_readers
             .lock()
@@ -419,11 +435,11 @@ mod tests {
             .expect_no_msg(Duration::from_millis(50))
             .unwrap();
 
-        drop(registration);
         let expected_sender_identity =
             cluster_tools_association_identity_for("sender", sender.settings(), 11).unwrap();
         let sender_report = sender.shutdown().unwrap();
         assert_eq!(sender_report.accepted_associations, 0);
+        assert_eq!(registration.address(), receiver.local_address());
         let receiver_report = receiver.shutdown().unwrap();
         assert_eq!(receiver_report.accepted_associations, 1);
         assert_eq!(

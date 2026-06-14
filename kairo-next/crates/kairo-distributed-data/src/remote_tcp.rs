@@ -3,11 +3,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kairo_remote::{
-    RemoteAssociationAddress, RemoteAssociationCache, RemoteAssociationRegistry,
-    RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration, RemoteError,
-    RemoteSettings, Result as RemoteResult, TcpAssociationDialer, TcpAssociationIdentity,
-    TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
-    TcpAssociationReaderHandle, TcpAssociationStreamReader,
+    AssociationOutboundPipeline, RemoteAssociationAddress, RemoteAssociationCache,
+    RemoteAssociationRegistry, RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration,
+    RemoteError, RemoteSettings, Result as RemoteResult, TcpAssociationDialer,
+    TcpAssociationIdentity, TcpAssociationListener, TcpAssociationListenerHandle,
+    TcpAssociationListenerReport, TcpAssociationReaderHandle, TcpAssociationStreamReader,
 };
 
 use crate::{
@@ -27,6 +27,7 @@ pub struct ReplicatorTcpAssociationRuntime {
     dialer: TcpAssociationDialer,
     outbound_reader: TcpAssociationStreamReader,
     outbound_readers: Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
+    outbound_pipelines: Arc<Mutex<Vec<AssociationOutboundPipeline>>>,
     listener: TcpAssociationListenerHandle,
 }
 
@@ -91,6 +92,7 @@ impl ReplicatorTcpAssociationRuntime {
             dialer,
             outbound_reader,
             outbound_readers: Arc::new(Mutex::new(Vec::new())),
+            outbound_pipelines: Arc::new(Mutex::new(Vec::new())),
             listener,
         })
     }
@@ -131,6 +133,10 @@ impl ReplicatorTcpAssociationRuntime {
         let (registration, reader_handle) = self
             .dialer
             .dial_with_reader(address, self.outbound_reader.clone())?;
+        self.outbound_pipelines
+            .lock()
+            .expect("replicator tcp outbound pipelines lock poisoned")
+            .push(registration.pipeline().clone());
         self.outbound_readers
             .lock()
             .expect("replicator tcp outbound readers lock poisoned")
@@ -152,6 +158,15 @@ impl ReplicatorTcpAssociationRuntime {
     ) -> RemoteResult<TcpAssociationListenerReport> {
         self.association_cache.clear_routes();
         self.listener.stop();
+        let outbound_pipelines = self
+            .outbound_pipelines
+            .lock()
+            .expect("replicator tcp outbound pipelines lock poisoned")
+            .drain(..)
+            .collect::<Vec<_>>();
+        for pipeline in outbound_pipelines {
+            let _ = pipeline.close("replicator tcp association runtime shutdown");
+        }
         let outbound_readers = self
             .outbound_readers
             .lock()
@@ -407,9 +422,9 @@ mod tests {
             ReplicatorReadResult::MANIFEST
         );
 
-        drop(registration);
         let sender_report = sender.shutdown().unwrap();
         assert_eq!(sender_report.accepted_associations, 0);
+        assert_eq!(registration.address(), receiver.local_address());
         let receiver_report = receiver.shutdown().unwrap();
         assert_eq!(receiver_report.accepted_associations, 1);
         assert_eq!(receiver_report.remote_identities, vec![sender_identity]);

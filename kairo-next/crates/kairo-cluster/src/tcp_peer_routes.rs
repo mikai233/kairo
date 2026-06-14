@@ -125,12 +125,9 @@ impl ClusterTcpPeerRoutes {
         report: &mut ClusterTcpPeerRouteReport,
     ) {
         if let Some(entry) = self.registrations.remove(&peer_key(&target)) {
-            entry
+            let _ = entry
                 .registration
                 .pipeline()
-                .association()
-                .lock()
-                .expect("cluster tcp peer association lock poisoned")
                 .close("cluster peer route removed");
             runtime.remove_route(entry.registration.address());
             report.removed.push(target);

@@ -432,6 +432,10 @@ Implemented:
   lane stream clones, dialers can spawn dialing-side lane readers, and the TCP
   runtime keeps those reader handles so a single dial can carry typed messages
   in both directions before shutdown joins the readers.
+- Cluster, distributed-data, and cluster-tools TCP association runtimes now
+  track dial-created outbound pipelines and close their lane sinks during
+  shutdown before joining dialing-side readers, so live route registrations
+  cannot keep socket lanes open after routes have been cleared.
 - `kairo-remote` now has a focused `RemoteAssociationRegistry` with
   address-indexed associations and a stable UID index. Validated TCP handshakes
   can complete associations into the registry, repeated handshakes for the
@@ -779,11 +783,14 @@ Implemented:
   dialing-side lane readers, and routes bidirectional `/system/ddata`
   request/reply envelopes through the same socket association primitives used
   by actor remoting.
+- The distributed-data TCP association runtime now explicitly closes active
+  dialed outbound lane pipelines during shutdown, with coverage retaining a
+  live route registration across shutdown to prove reader joins complete.
 - `kairo-distributed-data` now has a focused TCP peer-route owner that consumes
   cluster membership-derived dial/remove plans, applies them to
   `ReplicatorTcpAssociationRuntime`, keeps route registrations separate from
-  membership state, and closes/removes cached ddata routes when peers become
-  locally unreachable or leave.
+  membership state, and closes full outbound pipelines plus cached ddata routes
+  when peers become locally unreachable or leave.
 - `kairo-distributed-data` now has a pure TCP peer-reconnect state machine for
   distributed-data peer routes, with validated retry settings, per-peer attempt
   counts, deterministic due-time selection, and clear-on-success/remove
@@ -1382,6 +1389,9 @@ Implemented:
   join/welcome/gossip and heartbeat request/response envelopes through live
   socket associations, and keeps cluster membership truth in gossip plus local
   failure-detector observations rather than remoting.
+- The cluster TCP association runtime now explicitly closes active dialed
+  outbound lane pipelines during shutdown, with integration coverage retaining
+  a live route registration across shutdown to prove reader joins complete.
 - `kairo-cluster` now has a focused cluster-derived association peer planner
   that consumes `CurrentClusterState` snapshots and cluster events, excludes
   self, follows Pekko's local-observer reachability rule for gossip peer
@@ -1390,8 +1400,9 @@ Implemented:
   membership authority.
 - `kairo-cluster` now has a focused TCP peer-route owner that applies
   cluster-derived dial/remove plans to `ClusterTcpAssociationRuntime`, keeps
-  per-peer route registrations separate from membership state, and closes and
-  removes cached routes when peers become locally unreachable or leave.
+  per-peer route registrations separate from membership state, and closes full
+  outbound pipelines plus cached routes when peers become locally unreachable
+  or leave.
 - `kairo-cluster` now has a focused TCP peer runtime lifecycle owner that
   composes the cluster TCP socket runtime, membership-derived peer planner, and
   peer-route table, applies cluster snapshots/events to live routes, and clears
@@ -1610,11 +1621,15 @@ Implemented:
   registry, route installer, dialer, and dialing-side lane readers, and routes
   pubsub gossip, pubsub publish envelopes, and singleton handover messages
   through live socket associations to the existing system inbound handlers.
+- The cluster-tools TCP association runtime now explicitly closes active
+  dialed outbound lane pipelines during shutdown, with integration coverage
+  retaining a live route registration across shutdown to prove reader joins
+  complete.
 - `kairo-cluster-tools` now has a focused TCP peer-route owner that consumes
   cluster membership-derived dial/remove plans, applies them to
   `ClusterToolsTcpAssociationRuntime`, keeps route registrations separate from
-  membership state, and closes/removes cached routes when peers are removed by
-  local reachability or membership changes.
+  membership state, and closes full outbound pipelines plus cached routes when
+  peers are removed by local reachability or membership changes.
 - `kairo-cluster-tools` now has a focused TCP peer runtime lifecycle owner
   that composes the cluster-tools TCP socket runtime, membership-derived peer
   planner, peer-route table, and dedicated reconnect state module. It applies
@@ -2048,6 +2063,16 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster tcp_runtime_routes_membership_and_heartbeat_over_bidirectional_association
+cargo test -p kairo-distributed-data tcp_runtime_routes_replicator_requests_and_replies_over_bidirectional_association
+cargo test -p kairo-cluster-tools tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally
+cargo fmt --all -- --check
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-remote tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once
 cargo fmt --all -- --check
 cargo test -p kairo-remote tcp_runtime

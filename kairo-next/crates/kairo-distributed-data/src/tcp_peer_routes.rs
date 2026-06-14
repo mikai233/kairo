@@ -125,12 +125,9 @@ impl ReplicatorTcpPeerRoutes {
         report: &mut ReplicatorTcpPeerRouteReport,
     ) {
         if let Some(entry) = self.registrations.remove(&peer_key(&target)) {
-            entry
+            let _ = entry
                 .registration
                 .pipeline()
-                .association()
-                .lock()
-                .expect("distributed-data tcp peer association lock poisoned")
                 .close("distributed-data peer route removed");
             runtime.remove_route(entry.registration.address());
             report.removed.push(target);

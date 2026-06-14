@@ -134,12 +134,9 @@ impl ClusterToolsTcpPeerRoutes {
         M: RemoteMessage + Send + 'static,
     {
         if let Some(entry) = self.registrations.remove(&peer_key(&target)) {
-            entry
+            let _ = entry
                 .registration
                 .pipeline()
-                .association()
-                .lock()
-                .expect("cluster-tools tcp peer association lock poisoned")
                 .close("cluster-tools peer route removed");
             runtime.remove_route(entry.registration.address());
             report.removed.push(target);
