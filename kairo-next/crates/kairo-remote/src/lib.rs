@@ -110,6 +110,8 @@
 //! [`RemoteInbound::with_diagnostics`] can attach a backend-neutral
 //! [`RemoteInboundDiagnostics`] sink to record structured serialization and
 //! delivery failures without choosing a logging or metrics dependency.
+//! [`RemoteInboundDiagnosticFilter`] can wrap that observer when configuration
+//! enables only a subset of remote inbound diagnostic categories.
 //! [`ActorSystemRemoteInbound::with_diagnostics`] and
 //! [`ActorSystemRemoteInbound::with_remote_settings_and_diagnostics`] carry the
 //! same observer through actor-system inbound frame routing.
@@ -165,7 +167,7 @@ pub use error::{RemoteError, Result};
 pub use frame::{decode_remote_envelope_frame, encode_remote_envelope_frame};
 pub use inbound::{
     InboundMessage, RemoteInbound, RemoteInboundDelivery, RemoteInboundDiagnostic,
-    RemoteInboundDiagnostics,
+    RemoteInboundDiagnosticFilter, RemoteInboundDiagnostics,
 };
 pub use inbound_router::{RemoteInboundFrameRouter, is_remote_death_watch_manifest};
 pub use kairo_actor::ActorPath;

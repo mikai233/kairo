@@ -175,6 +175,18 @@ let inbound = ActorSystemRemoteInbound::<CounterCommand>::with_diagnostics(
 );
 ```
 
+Facade settings can filter a caller-provided observer before installation:
+
+```rust
+if let Some(diagnostics) = settings
+    .observability
+    .diagnostics
+    .remote_inbound_diagnostics(diagnostics)
+{
+    inbound = inbound.with_diagnostics(diagnostics);
+}
+```
+
 The diagnostic sink receives structured recipient, optional sender, manifest,
 version, serializer id, and reason data, so applications can route failures to
 logs, metrics, tests, or event streams without changing the wire contract.

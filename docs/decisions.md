@@ -2841,3 +2841,11 @@ Follow-up:
 the same observer into its business-message `RemoteInbound`, so actor-system
 runtime composition can report serialization and local-delivery failures
 without changing the remote death-watch system-control path.
+
+`RemoteInboundDiagnosticFilter` and the facade
+`DiagnosticsConfig::remote_inbound_diagnostics` helper map the
+`serialization_failures` and `remote_delivery_failures` flags onto a
+caller-provided observer. If both categories are disabled, the helper returns
+no observer; otherwise it installs either the original observer or a filtering
+wrapper. This keeps configuration backend-neutral while letting runtime
+composition honor diagnostic category settings.

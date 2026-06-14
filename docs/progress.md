@@ -365,6 +365,11 @@ Implemented:
   router, so runtime-composed business message decode and local-delivery
   failures emit structured diagnostics before TCP socket wiring selects a
   concrete logging or metrics backend.
+- `RemoteInboundDiagnosticFilter` and
+  `DiagnosticsConfig::remote_inbound_diagnostics` now map the
+  `[observability.diagnostics]` serialization and remote-delivery flags onto
+  caller-provided remote inbound observers, returning no observer when both
+  categories are disabled and preserving backend-neutral diagnostics.
 - `kairo-serialization::WireWriter` and `WireReader` provide a small shared
   stable binary helper for explicit system-protocol codecs, using
   length-prefixed UTF-8 strings and byte payloads, optional strings, boolean

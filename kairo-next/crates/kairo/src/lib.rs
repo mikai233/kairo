@@ -68,6 +68,11 @@
 //! # }
 //! ```
 //!
+//! Observability settings stay backend-neutral. The dead-letter flag maps into
+//! the actor-system builder, while remote inbound diagnostics can be filtered
+//! with `DiagnosticsConfig::remote_inbound_diagnostics` before installing a
+//! caller-provided observer.
+//!
 //! `kairo::prelude` exports the common typed actor API plus enabled facade
 //! features. For subsystem-specific protocols and lower-level test fixtures,
 //! import the focused crates or feature-gated modules directly.
@@ -134,7 +139,8 @@ pub mod prelude {
     #[cfg(feature = "remote")]
     pub use kairo_remote::{
         RemoteActorRef, RemoteActorRefProvider, RemoteError, RemoteInboundDiagnostic,
-        RemoteInboundDiagnostics, RemoteOutbound, RemoteSettings, TcpRemoteActorSystem,
+        RemoteInboundDiagnosticFilter, RemoteInboundDiagnostics, RemoteOutbound, RemoteSettings,
+        TcpRemoteActorSystem,
     };
     #[cfg(feature = "serialization")]
     pub use kairo_serialization::{

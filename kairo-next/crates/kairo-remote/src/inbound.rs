@@ -35,6 +35,79 @@ pub trait RemoteInboundDiagnostics: Send + Sync + 'static {
     fn record(&self, diagnostic: RemoteInboundDiagnostic);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteInboundDiagnosticFilter {
+    serialization_failures: bool,
+    delivery_failures: bool,
+}
+
+impl RemoteInboundDiagnosticFilter {
+    pub fn new(serialization_failures: bool, delivery_failures: bool) -> Self {
+        Self {
+            serialization_failures,
+            delivery_failures,
+        }
+    }
+
+    pub fn all() -> Self {
+        Self::new(true, true)
+    }
+
+    pub fn disabled() -> Self {
+        Self::new(false, false)
+    }
+
+    pub fn serialization_failures(&self) -> bool {
+        self.serialization_failures
+    }
+
+    pub fn delivery_failures(&self) -> bool {
+        self.delivery_failures
+    }
+
+    pub fn observes(&self, diagnostic: &RemoteInboundDiagnostic) -> bool {
+        match diagnostic {
+            RemoteInboundDiagnostic::SerializationFailure { .. } => self.serialization_failures,
+            RemoteInboundDiagnostic::DeliveryFailure { .. } => self.delivery_failures,
+        }
+    }
+
+    pub fn wrap(
+        self,
+        diagnostics: Arc<dyn RemoteInboundDiagnostics>,
+    ) -> Option<Arc<dyn RemoteInboundDiagnostics>> {
+        if self == Self::disabled() {
+            None
+        } else if self == Self::all() {
+            Some(diagnostics)
+        } else {
+            Some(Arc::new(FilteredRemoteInboundDiagnostics {
+                filter: self,
+                diagnostics,
+            }))
+        }
+    }
+}
+
+impl Default for RemoteInboundDiagnosticFilter {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
+struct FilteredRemoteInboundDiagnostics {
+    filter: RemoteInboundDiagnosticFilter,
+    diagnostics: Arc<dyn RemoteInboundDiagnostics>,
+}
+
+impl RemoteInboundDiagnostics for FilteredRemoteInboundDiagnostics {
+    fn record(&self, diagnostic: RemoteInboundDiagnostic) {
+        if self.filter.observes(&diagnostic) {
+            self.diagnostics.record(diagnostic);
+        }
+    }
+}
+
 impl<F> RemoteInboundDiagnostics for F
 where
     F: Fn(RemoteInboundDiagnostic) + Send + Sync + 'static,
@@ -232,6 +305,60 @@ mod tests {
             Some(ActorRefWireData::new("kairo://remote@127.0.0.1:25520/user/source").unwrap()),
             registry.serialize(&Ping { value }).unwrap(),
         )
+    }
+
+    fn serialization_diagnostic() -> RemoteInboundDiagnostic {
+        RemoteInboundDiagnostic::SerializationFailure {
+            recipient: ActorRefWireData::new("kairo://local/user/target").unwrap(),
+            sender: None,
+            serializer_id: 99,
+            manifest: Ping::MANIFEST.to_string(),
+            version: Ping::VERSION,
+            reason: "decode failed".to_string(),
+        }
+    }
+
+    fn delivery_diagnostic() -> RemoteInboundDiagnostic {
+        RemoteInboundDiagnostic::DeliveryFailure {
+            recipient: ActorRefWireData::new("kairo://local/user/target").unwrap(),
+            sender: None,
+            reason: "delivery failed".to_string(),
+        }
+    }
+
+    #[test]
+    fn diagnostic_filter_observes_configured_categories() {
+        let serialization_only = RemoteInboundDiagnosticFilter::new(true, false);
+        let delivery_only = RemoteInboundDiagnosticFilter::new(false, true);
+
+        assert!(serialization_only.observes(&serialization_diagnostic()));
+        assert!(!serialization_only.observes(&delivery_diagnostic()));
+        assert!(!delivery_only.observes(&serialization_diagnostic()));
+        assert!(delivery_only.observes(&delivery_diagnostic()));
+    }
+
+    #[test]
+    fn diagnostic_filter_wraps_and_drops_disabled_categories() {
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+        let observer = RemoteInboundDiagnosticFilter::new(true, false)
+            .wrap(diagnostics.clone() as Arc<dyn RemoteInboundDiagnostics>)
+            .expect("serialization diagnostic observer should be installed");
+
+        observer.record(serialization_diagnostic());
+        observer.record(delivery_diagnostic());
+
+        assert_eq!(diagnostics.records(), vec![serialization_diagnostic()]);
+    }
+
+    #[test]
+    fn diagnostic_filter_returns_none_when_disabled() {
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+
+        assert!(
+            RemoteInboundDiagnosticFilter::disabled()
+                .wrap(diagnostics as Arc<dyn RemoteInboundDiagnostics>)
+                .is_none()
+        );
     }
 
     #[test]

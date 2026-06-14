@@ -2,12 +2,45 @@ use std::collections::BTreeMap;
 use std::fs;
 #[cfg(feature = "actor")]
 use std::sync::mpsc;
+#[cfg(feature = "remote")]
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{
     ActorConfig, ClusterDowningStrategyConfig, ConfigError, DiagnosticsConfig, DispatcherConfig,
     KairoSettings, MailboxConfig, load_toml_file, parse_toml_str,
 };
+
+#[cfg(feature = "remote")]
+#[derive(Default)]
+struct CollectingRemoteDiagnostics {
+    records: Mutex<Vec<kairo_remote::RemoteInboundDiagnostic>>,
+}
+
+#[cfg(feature = "remote")]
+impl CollectingRemoteDiagnostics {
+    fn records(&self) -> Vec<kairo_remote::RemoteInboundDiagnostic> {
+        self.records
+            .lock()
+            .expect("remote diagnostics poisoned")
+            .clone()
+    }
+}
+
+#[cfg(feature = "remote")]
+impl kairo_remote::RemoteInboundDiagnostics for CollectingRemoteDiagnostics {
+    fn record(&self, diagnostic: kairo_remote::RemoteInboundDiagnostic) {
+        self.records
+            .lock()
+            .expect("remote diagnostics poisoned")
+            .push(diagnostic);
+    }
+}
+
+#[cfg(feature = "remote")]
+fn remote_diagnostic_recipient() -> kairo_serialization::ActorRefWireData {
+    kairo_serialization::ActorRefWireData::new("kairo://receiver/user/target").unwrap()
+}
 
 #[test]
 fn toml_config_parses_structured_runtime_settings() {
@@ -162,6 +195,81 @@ gossip_state_changes = false
             .observability
             .diagnostics
             .publishes_runtime_failures()
+    );
+}
+
+#[cfg(feature = "remote")]
+#[test]
+fn diagnostics_config_filters_remote_inbound_categories() {
+    let settings = parse_toml_str(
+        r#"
+[observability.diagnostics]
+remote_delivery_failures = false
+serialization_failures = true
+"#,
+    )
+    .unwrap();
+    let diagnostics = Arc::new(CollectingRemoteDiagnostics::default());
+    let observer = settings
+        .observability
+        .diagnostics
+        .remote_inbound_diagnostics(
+            diagnostics.clone() as Arc<dyn kairo_remote::RemoteInboundDiagnostics>
+        )
+        .expect("serialization diagnostics should install observer");
+
+    observer.record(
+        kairo_remote::RemoteInboundDiagnostic::SerializationFailure {
+            recipient: remote_diagnostic_recipient(),
+            sender: None,
+            serializer_id: 17,
+            manifest: "example.Manifest".to_string(),
+            version: 1,
+            reason: "decode failed".to_string(),
+        },
+    );
+    observer.record(kairo_remote::RemoteInboundDiagnostic::DeliveryFailure {
+        recipient: remote_diagnostic_recipient(),
+        sender: None,
+        reason: "delivery failed".to_string(),
+    });
+
+    assert_eq!(
+        diagnostics.records(),
+        vec![
+            kairo_remote::RemoteInboundDiagnostic::SerializationFailure {
+                recipient: remote_diagnostic_recipient(),
+                sender: None,
+                serializer_id: 17,
+                manifest: "example.Manifest".to_string(),
+                version: 1,
+                reason: "decode failed".to_string(),
+            }
+        ]
+    );
+}
+
+#[cfg(feature = "remote")]
+#[test]
+fn diagnostics_config_omits_remote_inbound_observer_when_disabled() {
+    let settings = parse_toml_str(
+        r#"
+[observability.diagnostics]
+remote_delivery_failures = false
+serialization_failures = false
+"#,
+    )
+    .unwrap();
+    let diagnostics = Arc::new(CollectingRemoteDiagnostics::default());
+
+    assert!(
+        settings
+            .observability
+            .diagnostics
+            .remote_inbound_diagnostics(
+                diagnostics as Arc<dyn kairo_remote::RemoteInboundDiagnostics>
+            )
+            .is_none()
     );
 }
 

@@ -1,3 +1,5 @@
+#[cfg(feature = "remote")]
+use std::sync::Arc;
 use std::time::Duration;
 
 use super::error::ConfigError;
@@ -487,6 +489,22 @@ impl DiagnosticsConfig {
             || self.serialization_failures
             || self.quarantine_events
             || self.gossip_state_changes
+    }
+
+    #[cfg(feature = "remote")]
+    pub fn remote_inbound_diagnostic_filter(&self) -> kairo_remote::RemoteInboundDiagnosticFilter {
+        kairo_remote::RemoteInboundDiagnosticFilter::new(
+            self.serialization_failures,
+            self.remote_delivery_failures,
+        )
+    }
+
+    #[cfg(feature = "remote")]
+    pub fn remote_inbound_diagnostics(
+        &self,
+        diagnostics: Arc<dyn kairo_remote::RemoteInboundDiagnostics>,
+    ) -> Option<Arc<dyn kairo_remote::RemoteInboundDiagnostics>> {
+        self.remote_inbound_diagnostic_filter().wrap(diagnostics)
     }
 }
 
