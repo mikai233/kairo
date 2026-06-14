@@ -1264,6 +1264,10 @@ Implemented:
   decision-delay timers when reachability changes, gates decisions to the
   reachable leader, and sends structured `ApplyDowningDecision` commands to the
   membership actor after the stable period.
+- `kairo-cluster` downing-provider coverage now includes a synchronized
+  multi-node manual-time scenario: two local node systems observe the same
+  reachability snapshot, `MultiNodeTestKit::advance_all` advances their clocks
+  together, and only the responsible leader provider emits a downing decision.
 - `kairo-cluster` downing-provider actor tests now live in a focused sibling
   test module instead of the production downing-provider file.
 - `kairo-cluster::ClusterMembership` can register a typed
@@ -2212,6 +2216,7 @@ cargo test -p kairo-cluster-tools pubsub_delivery
 cargo test -p kairo-cluster-tools distributed_pubsub_mediator
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster multi_node_downing_providers_advance_together_and_only_leader_decides
 cargo test -p kairo-actor startup_failure
 cargo test -p kairo-actor bounded_restart_supervision
 cargo test -p kairo-actor startup_failure_escalates_to_parent_supervision

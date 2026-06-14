@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use kairo_actor::{ActorRef, Address};
-use kairo_testkit::{ActorSystemTestKit, await_assert};
+use kairo_testkit::{ActorSystemTestKit, MultiNodeTestKit, await_assert};
 
 use super::*;
 use crate::{Member, Reachability, StaticDowningHook};
@@ -209,6 +209,134 @@ fn downing_provider_only_applies_decision_when_self_is_leader() {
     membership
         .expect_no_msg(Duration::from_millis(100))
         .expect("non-leader downing provider must not apply decisions");
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn multi_node_downing_providers_advance_together_and_only_leader_decides() {
+    let kit = MultiNodeTestKit::with_manual_time([
+        "multi-node-downing-provider-leader",
+        "multi-node-downing-provider-follower",
+    ])
+    .expect("manual-time nodes should build");
+    let leader = node("a-leader", 1);
+    let follower = node("z-follower", 2);
+    let leader_membership = kit
+        .create_probe_on::<ClusterMembershipMsg>(
+            "multi-node-downing-provider-leader",
+            "leader-membership",
+        )
+        .unwrap();
+    let follower_membership = kit
+        .create_probe_on::<ClusterMembershipMsg>(
+            "multi-node-downing-provider-follower",
+            "follower-membership",
+        )
+        .unwrap();
+    let leader_snapshots = kit
+        .create_probe_on::<DowningProviderSnapshot>(
+            "multi-node-downing-provider-leader",
+            "leader-snapshots",
+        )
+        .unwrap();
+    let follower_snapshots = kit
+        .create_probe_on::<DowningProviderSnapshot>(
+            "multi-node-downing-provider-follower",
+            "follower-snapshots",
+        )
+        .unwrap();
+    let leader_provider = kit
+        .system("multi-node-downing-provider-leader")
+        .unwrap()
+        .spawn(
+            "downing-provider",
+            DowningProviderActor::props(
+                leader.clone(),
+                StaticDowningHook::new(DowningDecision::DownUnreachable),
+                leader_membership.actor_ref(),
+                Duration::from_secs(1),
+            ),
+        )
+        .unwrap();
+    let follower_provider = kit
+        .system("multi-node-downing-provider-follower")
+        .unwrap()
+        .spawn(
+            "downing-provider",
+            DowningProviderActor::props(
+                follower.clone(),
+                StaticDowningHook::new(DowningDecision::DownUnreachable),
+                follower_membership.actor_ref(),
+                Duration::from_secs(1),
+            ),
+        )
+        .unwrap();
+    let gossip = reachable_gossip(&leader, &follower)
+        .with_reachability(Reachability::new().unreachable(leader, follower));
+
+    leader_provider
+        .tell(DowningProviderMsg::ObserveGossip(gossip.clone()))
+        .unwrap();
+    follower_provider
+        .tell(DowningProviderMsg::ObserveGossip(gossip))
+        .unwrap();
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            leader_provider
+                .tell(DowningProviderMsg::Snapshot {
+                    reply_to: leader_snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = leader_snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            if snapshot.responsible && snapshot.stable_timer_active {
+                Ok(())
+            } else {
+                Err(format!("unexpected leader snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            follower_provider
+                .tell(DowningProviderMsg::Snapshot {
+                    reply_to: follower_snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = follower_snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            if !snapshot.responsible
+                && !snapshot.stable_timer_active
+                && snapshot.relevant_unreachable.is_empty()
+            {
+                Ok(())
+            } else {
+                Err(format!("unexpected follower snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
+
+    kit.advance_all(Duration::from_secs(1))
+        .expect("all nodes use manual time");
+
+    let ClusterMembershipMsg::ApplyDowningDecision(decision) = leader_membership
+        .expect_msg(Duration::from_secs(1))
+        .unwrap()
+    else {
+        panic!("expected leader downing decision");
+    };
+    assert_eq!(decision, DowningDecision::DownUnreachable);
+    follower_membership
+        .expect_no_msg(Duration::from_millis(100))
+        .expect("follower must not apply leader-only downing decision");
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
