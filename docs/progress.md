@@ -143,6 +143,10 @@ Implemented:
   registration survives an unrelated actor restart and still delivers the
   custom termination message to the rebuilt actor instance, matching Pekko's
   cell-owned death-watch state.
+- Default `Signal::PreRestart` handling now invokes the actor's `stopped`
+  cleanup hook before the actor instance is replaced, matching Pekko's default
+  restart cleanup expectation while still allowing actors to override
+  `signal` for custom pre-restart behavior.
 - Watching an already stopped local actor now has focused integration coverage:
   plain `watch` immediately delivers `Signal::Terminated`, while `watch_with`
   immediately delivers the caller's typed custom message.

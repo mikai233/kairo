@@ -29,8 +29,8 @@ pub trait Actor: Send + 'static {
 
     fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
         match signal {
-            Signal::PostStop => self.stopped(ctx),
-            Signal::PreRestart | Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
+            Signal::PostStop | Signal::PreRestart => self.stopped(ctx),
+            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
         }
     }
 

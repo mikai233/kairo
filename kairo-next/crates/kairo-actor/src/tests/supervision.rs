@@ -422,6 +422,62 @@ fn restart_supervision_rebuilds_actor_state_and_keeps_ref_path() {
     assert!(!actor.is_stopped());
 }
 
+enum RestartCleanupMsg {
+    Fail,
+    Ping(mpsc::Sender<()>),
+}
+
+struct RestartCleanupProbe {
+    stopped: mpsc::Sender<&'static str>,
+}
+
+impl Actor for RestartCleanupProbe {
+    type Msg = RestartCleanupMsg;
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.stopped
+            .send("stopped")
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RestartCleanupMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            RestartCleanupMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
+#[test]
+fn default_pre_restart_invokes_stopped_cleanup_hook() {
+    let system = ActorSystem::builder("restart-default-cleanup")
+        .build()
+        .unwrap();
+    let (stopped_tx, stopped_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "supervised",
+            Props::restartable(move || RestartCleanupProbe {
+                stopped: stopped_tx.clone(),
+            }),
+        )
+        .unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    actor.tell(RestartCleanupMsg::Fail).unwrap();
+    assert_eq!(
+        stopped_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "stopped"
+    );
+
+    actor.tell(RestartCleanupMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(!actor.is_stopped());
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
 #[test]
 fn restart_supervision_stops_when_restart_limit_is_exceeded() {
     let system = ActorSystem::builder("test").build().unwrap();
