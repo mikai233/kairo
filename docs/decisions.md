@@ -2753,3 +2753,31 @@ Consequences:
   used as shared system services, registries, handles, or integration points.
 - Future config-driven eager loading can layer explicit registrar functions on
   top of the same registry without introducing HOCON or JVM reflection.
+
+## ADR-0097: Observability Configuration Starts Backend-Neutral
+
+Status: Accepted
+
+Context:
+M11 requires runtime diagnostics for dead letters, quarantine, serialization,
+remote delivery, and gossip, plus logging/tracing and metrics hooks where
+useful. The rewrite already exposes several diagnostic events and failure
+paths, but choosing a concrete logging, tracing, or metrics backend too early
+would add broad dependencies before the runtime needs them.
+
+Decision:
+The facade configuration introduces `ObservabilityConfig` and
+`DiagnosticsConfig` as format-neutral settings. TOML maps
+`[observability.diagnostics]` into explicit boolean flags for dead letters,
+remote delivery failures, serialization failures, quarantine events, and gossip
+state changes. The settings describe which diagnostic categories should be
+published or surfaced; concrete logging, tracing, and metrics integrations will
+be layered later by runtime modules that own the relevant events.
+
+Consequences:
+- Applications can configure diagnostic intent without depending on a specific
+  logging or metrics crate.
+- Runtime crates can add adapters from these flags to their existing event
+  streams and failure paths in focused follow-up slices.
+- The TOML schema remains stable while preserving the constraint against broad
+  third-party dependencies before implementing code needs them.

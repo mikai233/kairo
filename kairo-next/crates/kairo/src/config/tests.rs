@@ -3,8 +3,8 @@ use std::fs;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{
-    ActorConfig, ClusterDowningStrategyConfig, ConfigError, DispatcherConfig, KairoSettings,
-    MailboxConfig, load_toml_file, parse_toml_str,
+    ActorConfig, ClusterDowningStrategyConfig, ConfigError, DiagnosticsConfig, DispatcherConfig,
+    KairoSettings, MailboxConfig, load_toml_file, parse_toml_str,
 };
 
 #[test]
@@ -54,6 +54,13 @@ role = "backend"
 [cluster.tools.pubsub]
 gossip_interval = "500ms"
 max_delta_entries = 250
+
+[observability.diagnostics]
+dead_letters = true
+remote_delivery_failures = false
+serialization_failures = true
+quarantine_events = false
+gossip_state_changes = true
 "#,
     )
     .unwrap();
@@ -99,6 +106,11 @@ max_delta_entries = 250
         Duration::from_millis(500)
     );
     assert_eq!(settings.cluster.tools.pubsub_max_delta_entries, 250);
+    assert!(settings.observability.diagnostics.dead_letters);
+    assert!(!settings.observability.diagnostics.remote_delivery_failures);
+    assert!(settings.observability.diagnostics.serialization_failures);
+    assert!(!settings.observability.diagnostics.quarantine_events);
+    assert!(settings.observability.diagnostics.gossip_state_changes);
 }
 
 #[test]
@@ -110,6 +122,82 @@ fn toml_config_defaults_missing_sections_without_toml_specific_state() {
     assert_eq!(settings.actor.mailboxes["default"].capacity, None);
     assert_eq!(settings.remote.transport.canonical_port, 25520);
     assert_eq!(settings.cluster.sharding.number_of_shards, 100);
+    assert!(settings.observability.diagnostics.dead_letters);
+    assert!(
+        settings
+            .observability
+            .diagnostics
+            .publishes_runtime_failures()
+    );
+}
+
+#[test]
+fn toml_config_parses_observability_diagnostics() {
+    let settings = parse_toml_str(
+        r#"
+[observability.diagnostics]
+dead_letters = false
+remote_delivery_failures = false
+serialization_failures = false
+quarantine_events = false
+gossip_state_changes = false
+"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        settings.observability.diagnostics,
+        DiagnosticsConfig {
+            dead_letters: false,
+            remote_delivery_failures: false,
+            serialization_failures: false,
+            quarantine_events: false,
+            gossip_state_changes: false,
+        }
+    );
+    assert!(
+        !settings
+            .observability
+            .diagnostics
+            .publishes_runtime_failures()
+    );
+}
+
+#[test]
+fn toml_config_rejects_invalid_observability_diagnostics_type() {
+    let error = parse_toml_str(
+        r#"
+[observability.diagnostics]
+dead_letters = "yes"
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidType {
+            path: "observability.diagnostics.dead_letters".to_string(),
+            expected: "a boolean".to_string(),
+        }
+    );
+}
+
+#[test]
+fn toml_config_rejects_unknown_observability_keys() {
+    let error = parse_toml_str(
+        r#"
+[observability]
+logging = true
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::UnknownKey {
+            path: "observability.logging".to_string(),
+        }
+    );
 }
 
 #[test]

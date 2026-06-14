@@ -11,7 +11,8 @@ pub use runtime::ConfiguredDowningHook;
 pub use settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-    DispatcherConfig, KairoSettings, MailboxConfig, RemoteConfig, RemoteTransportConfig,
+    DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig, ObservabilityConfig,
+    RemoteConfig, RemoteTransportConfig,
 };
 pub use toml_loader::{load_toml_file, parse_toml_str};
 

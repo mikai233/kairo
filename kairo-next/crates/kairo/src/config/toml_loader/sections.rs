@@ -6,7 +6,8 @@ use toml::Value;
 use crate::config::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-    ConfigError, DispatcherConfig, MailboxConfig, RemoteConfig, RemoteTransportConfig,
+    ConfigError, DiagnosticsConfig, DispatcherConfig, MailboxConfig, ObservabilityConfig,
+    RemoteConfig, RemoteTransportConfig,
 };
 
 use super::primitives::{
@@ -59,6 +60,16 @@ pub(super) fn parse_cluster(value: &Value) -> Result<ClusterConfig, ConfigError>
     }
     if let Some(tools) = table.get("tools") {
         config.tools = parse_cluster_tools(tools)?;
+    }
+    Ok(config)
+}
+
+pub(super) fn parse_observability(value: &Value) -> Result<ObservabilityConfig, ConfigError> {
+    let table = expect_table(value, "observability")?;
+    reject_unknown(table, "observability", &["diagnostics"])?;
+    let mut config = ObservabilityConfig::default();
+    if let Some(diagnostics) = table.get("diagnostics") {
+        config.diagnostics = parse_diagnostics(diagnostics)?;
     }
     Ok(config)
 }
@@ -395,4 +406,56 @@ fn parse_cluster_pubsub_tool(
         }
     }
     Ok(())
+}
+
+fn parse_diagnostics(value: &Value) -> Result<DiagnosticsConfig, ConfigError> {
+    let table = expect_table(value, "observability.diagnostics")?;
+    reject_unknown(
+        table,
+        "observability.diagnostics",
+        &[
+            "dead_letters",
+            "remote_delivery_failures",
+            "serialization_failures",
+            "quarantine_events",
+            "gossip_state_changes",
+        ],
+    )?;
+    let mut config = DiagnosticsConfig::default();
+    if let Some(enabled) = optional_bool(
+        table,
+        "dead_letters",
+        "observability.diagnostics.dead_letters",
+    )? {
+        config.dead_letters = enabled;
+    }
+    if let Some(enabled) = optional_bool(
+        table,
+        "remote_delivery_failures",
+        "observability.diagnostics.remote_delivery_failures",
+    )? {
+        config.remote_delivery_failures = enabled;
+    }
+    if let Some(enabled) = optional_bool(
+        table,
+        "serialization_failures",
+        "observability.diagnostics.serialization_failures",
+    )? {
+        config.serialization_failures = enabled;
+    }
+    if let Some(enabled) = optional_bool(
+        table,
+        "quarantine_events",
+        "observability.diagnostics.quarantine_events",
+    )? {
+        config.quarantine_events = enabled;
+    }
+    if let Some(enabled) = optional_bool(
+        table,
+        "gossip_state_changes",
+        "observability.diagnostics.gossip_state_changes",
+    )? {
+        config.gossip_state_changes = enabled;
+    }
+    Ok(config)
 }

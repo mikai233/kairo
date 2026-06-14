@@ -6,6 +6,7 @@ pub struct KairoSettings {
     pub actor: ActorConfig,
     pub remote: RemoteConfig,
     pub cluster: ClusterConfig,
+    pub observability: ObservabilityConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +156,32 @@ impl Default for ClusterToolsConfig {
             singleton_role: None,
             pubsub_gossip_interval: Duration::from_secs(1),
             pubsub_max_delta_entries: 1000,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ObservabilityConfig {
+    pub diagnostics: DiagnosticsConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticsConfig {
+    pub dead_letters: bool,
+    pub remote_delivery_failures: bool,
+    pub serialization_failures: bool,
+    pub quarantine_events: bool,
+    pub gossip_state_changes: bool,
+}
+
+impl Default for DiagnosticsConfig {
+    fn default() -> Self {
+        Self {
+            dead_letters: true,
+            remote_delivery_failures: true,
+            serialization_failures: true,
+            quarantine_events: true,
+            gossip_state_changes: true,
         }
     }
 }

@@ -1809,6 +1809,10 @@ Implemented:
   `KairoSettings` structs and a TOML loader for the initial `[actor]`,
   `[remote]`, `[cluster]`, `[cluster.sharding]`, and `[cluster.tools]`
   sections, including explicit type/value validation and unknown-key rejection.
+- The `kairo` facade TOML loader now also parses
+  `[observability.diagnostics]` into backend-neutral diagnostic category flags
+  for dead letters, remote delivery failures, serialization failures,
+  quarantine events, and gossip state changes.
 - The TOML loader now parses `[actor.mailboxes.*]` capacity settings into
   format-neutral `MailboxConfig` values, rejects zero capacities, and maps the
   default mailbox capacity into `ActorSystemBuilder::mailbox_capacity`.

@@ -81,6 +81,13 @@ role = "backend"
 [cluster.tools.pubsub]
 gossip_interval = "500ms"
 max_delta_entries = 250
+
+[observability.diagnostics]
+dead_letters = true
+remote_delivery_failures = true
+serialization_failures = true
+quarantine_events = true
+gossip_state_changes = true
 ```
 
 Load it through the facade and map the format-neutral settings into builders:
@@ -119,6 +126,16 @@ let shard = settings.cluster.sharding.shard_id_for("account-42")?;
 let rebalance_every = settings.cluster.sharding.to_rebalance_interval()?;
 let singleton_scope = settings.cluster.tools.to_singleton_scope()?;
 let gossip_every = settings.cluster.tools.to_pubsub_gossip_interval()?;
+```
+
+Observability settings are backend-neutral. Use
+`settings.observability.diagnostics` to decide which diagnostic categories an
+application or runtime integration should publish:
+
+```rust
+let diagnostics = &settings.observability.diagnostics;
+assert!(diagnostics.dead_letters);
+assert!(diagnostics.publishes_runtime_failures());
 ```
 
 Do not add HOCON or `hocon-rs` until that parser is intentionally adopted.

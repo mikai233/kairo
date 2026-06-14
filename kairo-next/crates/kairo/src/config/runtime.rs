@@ -4,7 +4,8 @@ use super::error::ConfigError;
 use super::settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-    DispatcherConfig, KairoSettings, MailboxConfig, RemoteConfig, RemoteTransportConfig,
+    DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig, ObservabilityConfig,
+    RemoteConfig, RemoteTransportConfig,
 };
 
 #[cfg(feature = "cluster")]
@@ -55,6 +56,7 @@ impl KairoSettings {
         self.actor.validate()?;
         self.remote.validate()?;
         self.cluster.validate()?;
+        self.observability.validate()?;
         Ok(())
     }
 }
@@ -455,6 +457,25 @@ impl ClusterToolsConfig {
         self.validate()?;
         Ok(kairo_cluster_tools::PubSubGossipActor::new(self_node)
             .with_max_delta_entries(self.to_pubsub_max_delta_entries()?))
+    }
+}
+
+impl ObservabilityConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        self.diagnostics.validate()
+    }
+}
+
+impl DiagnosticsConfig {
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        Ok(())
+    }
+
+    pub fn publishes_runtime_failures(&self) -> bool {
+        self.remote_delivery_failures
+            || self.serialization_failures
+            || self.quarantine_events
+            || self.gossip_state_changes
     }
 }
 

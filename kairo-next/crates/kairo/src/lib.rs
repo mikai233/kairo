@@ -50,6 +50,10 @@
 //! [cluster.sharding]
 //! number_of_shards = 100
 //! rebalance_interval = "10s"
+//!
+//! [observability.diagnostics]
+//! dead_letters = true
+//! remote_delivery_failures = true
 //! "#,
 //! )?;
 //!
@@ -59,6 +63,7 @@
 //! assert_eq!(settings.cluster.seed.nodes.len(), 1);
 //! assert_eq!(settings.cluster.heartbeat.interval, Duration::from_millis(500));
 //! assert_eq!(settings.cluster.sharding.number_of_shards, 100);
+//! assert!(settings.observability.diagnostics.dead_letters);
 //! # Ok(())
 //! # }
 //! ```
@@ -95,8 +100,8 @@ pub mod prelude {
     pub use crate::config::{
         ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
         ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingConfig, ClusterToolsConfig,
-        ConfigError, DispatcherConfig, KairoSettings, MailboxConfig, RemoteConfig,
-        RemoteTransportConfig, load_toml_file, parse_toml_str,
+        ConfigError, DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig,
+        ObservabilityConfig, RemoteConfig, RemoteTransportConfig, load_toml_file, parse_toml_str,
     };
     #[cfg(feature = "actor")]
     pub use kairo_actor::prelude::*;
