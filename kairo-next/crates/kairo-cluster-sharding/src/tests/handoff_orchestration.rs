@@ -397,6 +397,24 @@ fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
         })
         .unwrap();
     host.expect_msg(Duration::from_millis(500)).unwrap();
+    assert!(
+        !nodes
+            .enter_barrier("initial-shard-hosted", "sharding-graceful-region-a")
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        !nodes
+            .enter_barrier("initial-shard-hosted", "sharding-graceful-region-b")
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        nodes
+            .enter_barrier("initial-shard-hosted", "sharding-graceful-coordinator")
+            .unwrap()
+            .passed()
+    );
 
     let bootstrap = ShardCoordinatorBootstrap::local_regions([
         HandoffRegionTarget::new("region-a", region_a.clone()),
@@ -450,6 +468,24 @@ fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
             "region-b-delivery",
         )
         .unwrap();
+    assert!(
+        !nodes
+            .enter_barrier("coordinator-ready", "sharding-graceful-coordinator")
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        !nodes
+            .enter_barrier("coordinator-ready", "sharding-graceful-region-a")
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        nodes
+            .enter_barrier("coordinator-ready", "sharding-graceful-region-b")
+            .unwrap()
+            .passed()
+    );
 
     coordinator
         .tell(ShardCoordinatorMsg::GracefulShutdownReq {
@@ -488,6 +524,27 @@ fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
     assert!(
         completed,
         "multi-node graceful shutdown should hand off and reallocate region-a shard"
+    );
+    assert!(
+        !nodes
+            .enter_barrier(
+                "graceful-shutdown-complete",
+                "sharding-graceful-coordinator"
+            )
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        !nodes
+            .enter_barrier("graceful-shutdown-complete", "sharding-graceful-region-a")
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        nodes
+            .enter_barrier("graceful-shutdown-complete", "sharding-graceful-region-b")
+            .unwrap()
+            .passed()
     );
 
     region_a

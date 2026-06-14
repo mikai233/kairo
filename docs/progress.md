@@ -2099,7 +2099,10 @@ Implemented:
   region node to another through the typed handoff transport, clears the
   shutting-down region, starts the shard on the replacement region, and proves
   the replacement shard recovers remembered entities from the shared store
-  before subsequent delivery.
+  before subsequent delivery. The scenario now uses
+  `MultiNodeTestKit::enter_barrier` to mark initial shard hosting,
+  coordinator readiness, and graceful-shutdown completion across the
+  coordinator and region node systems.
 - `kairo-cluster-sharding` now also has multi-node remember-store
   passivation validation: a store-backed shard hosted on one region passivates
   and terminates a remembered entity, removes it from the shared remember
