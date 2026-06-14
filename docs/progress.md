@@ -117,6 +117,10 @@ Implemented:
 - `Signal::Terminated` is delivered once to local watchers after the watched
   actor terminates; `watch_with` delivers a typed custom protocol message, and
   `unwatch` suppresses later local termination notification.
+- Local death-watch cleanup now has focused coverage that a watcher stopped
+  before its watched subject is removed from the subject's watcher set, so
+  later subject termination does not enqueue stale termination traffic or dead
+  letters for the stopped watcher.
 - Watching an already stopped local actor now has focused integration coverage:
   plain `watch` immediately delivers `Signal::Terminated`, while `watch_with`
   immediately delivers the caller's typed custom message.
@@ -2134,6 +2138,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor stopped_watcher_is_removed_from_subject_watchers
 cargo test -p kairo-cluster-tools bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
 cargo test -p kairo-cluster-tools bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed
 cargo test -p kairo-distributed-data bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed

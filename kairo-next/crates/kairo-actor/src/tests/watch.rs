@@ -544,6 +544,49 @@ fn unwatch_suppresses_later_termination_signal() {
 }
 
 #[test]
+fn stopped_watcher_is_removed_from_subject_watchers() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchTwice {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&watcher);
+    assert!(watcher.wait_for_stop(Duration::from_secs(1)));
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+    assert!(
+        !system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_millis(100)),
+        "stopped watcher should have been removed before subject termination"
+    );
+    assert!(system.dead_letters().is_empty());
+}
+
+#[test]
 fn parent_watch_receives_child_failed_when_child_stops_from_failure() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (observed_tx, observed_rx) = mpsc::channel();
