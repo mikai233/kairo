@@ -370,6 +370,12 @@ Implemented:
   `[observability.diagnostics]` serialization and remote-delivery flags onto
   caller-provided remote inbound observers, returning no observer when both
   categories are disabled and preserving backend-neutral diagnostics.
+- `RemoteAssociation::with_diagnostics`,
+  `RemoteAssociationDiagnosticFilter`, and
+  `DiagnosticsConfig::remote_association_diagnostics` now surface structured
+  association quarantine diagnostics with remote address, optional remote UID,
+  and reason, while honoring the
+  `[observability.diagnostics].quarantine_events` flag.
 - `ClusterEventPublisher::with_diagnostics`,
   `ClusterDiagnosticFilter`, and `DiagnosticsConfig::cluster_diagnostics` now
   surface backend-neutral gossip state-change diagnostics with previous gossip,

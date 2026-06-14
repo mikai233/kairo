@@ -191,6 +191,22 @@ The diagnostic sink receives structured recipient, optional sender, manifest,
 version, serializer id, and reason data, so applications can route failures to
 logs, metrics, tests, or event streams without changing the wire contract.
 
+Remote associations can report quarantine transitions through the same
+backend-neutral observer style:
+
+```rust
+if let Some(diagnostics) = settings
+    .observability
+    .diagnostics
+    .remote_association_diagnostics(diagnostics)
+{
+    association = association.with_diagnostics(diagnostics);
+}
+```
+
+The observer receives the remote address, optional remote UID, and quarantine
+reason after the association enters the quarantined state.
+
 ## Sharding
 
 Prefer routing through `EntityRef<M>` or `ShardingEnvelope<M>`:

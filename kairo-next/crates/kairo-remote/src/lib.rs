@@ -115,6 +115,8 @@
 //! [`ActorSystemRemoteInbound::with_diagnostics`] and
 //! [`ActorSystemRemoteInbound::with_remote_settings_and_diagnostics`] carry the
 //! same observer through actor-system inbound frame routing.
+//! [`RemoteAssociation::with_diagnostics`] can attach the same style of
+//! backend-neutral observer for quarantine transitions.
 
 mod association;
 mod association_cache;
@@ -150,7 +152,10 @@ mod tcp;
 mod tcp_runtime;
 mod transport;
 
-pub use association::{AssociationState, RemoteAssociation};
+pub use association::{
+    AssociationState, RemoteAssociation, RemoteAssociationDiagnostic,
+    RemoteAssociationDiagnosticFilter, RemoteAssociationDiagnostics,
+};
 pub use association_cache::{RemoteAssociationAddress, RemoteAssociationCache};
 pub use association_inbound::AssociationRemoteInbound;
 pub use association_outbound::AssociationRemoteOutbound;

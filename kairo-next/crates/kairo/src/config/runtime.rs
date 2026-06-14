@@ -507,6 +507,22 @@ impl DiagnosticsConfig {
         self.remote_inbound_diagnostic_filter().wrap(diagnostics)
     }
 
+    #[cfg(feature = "remote")]
+    pub fn remote_association_diagnostic_filter(
+        &self,
+    ) -> kairo_remote::RemoteAssociationDiagnosticFilter {
+        kairo_remote::RemoteAssociationDiagnosticFilter::new(self.quarantine_events)
+    }
+
+    #[cfg(feature = "remote")]
+    pub fn remote_association_diagnostics(
+        &self,
+        diagnostics: Arc<dyn kairo_remote::RemoteAssociationDiagnostics>,
+    ) -> Option<Arc<dyn kairo_remote::RemoteAssociationDiagnostics>> {
+        self.remote_association_diagnostic_filter()
+            .wrap(diagnostics)
+    }
+
     #[cfg(feature = "cluster")]
     pub fn cluster_diagnostic_filter(&self) -> kairo_cluster::ClusterDiagnosticFilter {
         kairo_cluster::ClusterDiagnosticFilter::new(self.gossip_state_changes)

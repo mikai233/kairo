@@ -38,6 +38,32 @@ impl kairo_remote::RemoteInboundDiagnostics for CollectingRemoteDiagnostics {
 }
 
 #[cfg(feature = "remote")]
+#[derive(Default)]
+struct CollectingAssociationDiagnostics {
+    records: Mutex<Vec<kairo_remote::RemoteAssociationDiagnostic>>,
+}
+
+#[cfg(feature = "remote")]
+impl CollectingAssociationDiagnostics {
+    fn records(&self) -> Vec<kairo_remote::RemoteAssociationDiagnostic> {
+        self.records
+            .lock()
+            .expect("association diagnostics poisoned")
+            .clone()
+    }
+}
+
+#[cfg(feature = "remote")]
+impl kairo_remote::RemoteAssociationDiagnostics for CollectingAssociationDiagnostics {
+    fn record(&self, diagnostic: kairo_remote::RemoteAssociationDiagnostic) {
+        self.records
+            .lock()
+            .expect("association diagnostics poisoned")
+            .push(diagnostic);
+    }
+}
+
+#[cfg(feature = "remote")]
 fn remote_diagnostic_recipient() -> kairo_serialization::ActorRefWireData {
     kairo_serialization::ActorRefWireData::new("kairo://receiver/user/target").unwrap()
 }
@@ -294,6 +320,64 @@ serialization_failures = false
             .diagnostics
             .remote_inbound_diagnostics(
                 diagnostics as Arc<dyn kairo_remote::RemoteInboundDiagnostics>
+            )
+            .is_none()
+    );
+}
+
+#[cfg(feature = "remote")]
+#[test]
+fn diagnostics_config_filters_remote_association_quarantine_events() {
+    let settings = parse_toml_str(
+        r#"
+[observability.diagnostics]
+quarantine_events = true
+"#,
+    )
+    .unwrap();
+    let diagnostics = Arc::new(CollectingAssociationDiagnostics::default());
+    let observer = settings
+        .observability
+        .diagnostics
+        .remote_association_diagnostics(
+            diagnostics.clone() as Arc<dyn kairo_remote::RemoteAssociationDiagnostics>
+        )
+        .expect("quarantine diagnostics should install observer");
+
+    observer.record(kairo_remote::RemoteAssociationDiagnostic::Quarantined {
+        remote: "kairo://remote@127.0.0.1:25520".to_string(),
+        remote_uid: Some(12),
+        reason: "uid mismatch".to_string(),
+    });
+
+    assert_eq!(
+        diagnostics.records(),
+        vec![kairo_remote::RemoteAssociationDiagnostic::Quarantined {
+            remote: "kairo://remote@127.0.0.1:25520".to_string(),
+            remote_uid: Some(12),
+            reason: "uid mismatch".to_string(),
+        }]
+    );
+}
+
+#[cfg(feature = "remote")]
+#[test]
+fn diagnostics_config_omits_remote_association_observer_when_disabled() {
+    let settings = parse_toml_str(
+        r#"
+[observability.diagnostics]
+quarantine_events = false
+"#,
+    )
+    .unwrap();
+    let diagnostics = Arc::new(CollectingAssociationDiagnostics::default());
+
+    assert!(
+        settings
+            .observability
+            .diagnostics
+            .remote_association_diagnostics(
+                diagnostics as Arc<dyn kairo_remote::RemoteAssociationDiagnostics>
             )
             .is_none()
     );

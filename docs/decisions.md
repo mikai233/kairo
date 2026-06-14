@@ -2857,3 +2857,12 @@ diff only when the gossip value actually changes. The facade
 `DiagnosticsConfig::cluster_diagnostics` helper maps
 `gossip_state_changes` to this observer without introducing logging or metrics
 dependencies.
+
+`RemoteAssociation::with_diagnostics` follows the same backend-neutral observer
+pattern for quarantine transitions. A quarantine emits a structured
+`RemoteAssociationDiagnostic::Quarantined` value with the remote address,
+optional remote UID, and reason after the association enters the quarantined
+state. `RemoteAssociationDiagnosticFilter` and
+`DiagnosticsConfig::remote_association_diagnostics` map the
+`quarantine_events` flag onto caller-provided observers, returning no observer
+when quarantine diagnostics are disabled.
