@@ -53,7 +53,10 @@ impl Actor for PatternCoordinator {
                 ctx.ask(
                     self.service.clone(),
                     Duration::from_secs(1),
-                    move |reply_to| CalculationServiceMsg::Double { value, reply_to },
+                    move |reply_to| CalculationServiceMsg::Double {
+                        value,
+                        reply_to: Box::new(reply_to),
+                    },
                     move |result| PatternCoordinatorMsg::Asked {
                         result,
                         observe: asked_observer,

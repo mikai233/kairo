@@ -9,7 +9,7 @@ pub struct CalculationReply {
 pub enum CalculationServiceMsg {
     Double {
         value: i64,
-        reply_to: ActorRef<CalculationReply>,
+        reply_to: Box<ActorRef<CalculationReply>>,
     },
     Stop,
 }
@@ -22,7 +22,7 @@ impl Actor for CalculationService {
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             CalculationServiceMsg::Double { value, reply_to } => {
-                reply_to
+                (*reply_to)
                     .tell(CalculationReply {
                         input: value,
                         output: value * 2,
