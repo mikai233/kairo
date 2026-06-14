@@ -1909,6 +1909,9 @@ Implemented:
   focused sibling test module.
 - `kairo-actor` pipe-to-self success/failure and spawn-task send-back tests
   now live in a focused sibling test module.
+- `kairo-actor` task integration tests now also pin stop/restart scoped
+  delivery: stale `spawn_task` and `pipe_to_self` completions after owner stop
+  or restart are rejected and do not re-enter the actor mailbox.
 - `kairo-actor` message-adapter mapping and stopped-owner rejection tests now
   live in a focused sibling test module.
 - `kairo-actor` watch, watch_with, self-watch rejection, duplicate-watch
@@ -1974,6 +1977,10 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor --test tasks
+cargo fmt --all -- --check
+cargo test -p kairo-actor --all-targets --all-features
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster bootstrap_two_nodes_install_peer_routes_from_cluster_membership
 cargo fmt --all -- --check
 cargo test -p kairo-cluster --all-targets --all-features
