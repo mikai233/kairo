@@ -151,8 +151,13 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
 fn bootstrap_installed_peer_route_delivers_remote_request_to_receiver() {
     let _guard = bootstrap_socket_test_lock();
     let registry = registry();
-    let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-deliver-sender").unwrap();
-    let receiver_kit = ActorSystemTestKit::new("ddata-bootstrap-deliver-receiver").unwrap();
+    let nodes = MultiNodeTestKit::new([
+        "ddata-bootstrap-deliver-sender",
+        "ddata-bootstrap-deliver-receiver",
+    ])
+    .unwrap();
+    let sender_kit = nodes.kit("ddata-bootstrap-deliver-sender").unwrap();
+    let receiver_kit = nodes.kit("ddata-bootstrap-deliver-receiver").unwrap();
     let receiver_requests = Arc::new(RecordingRequests::default());
     let sender_runtime = bind_runtime(
         "ddata-bootstrap-deliver-sender",
@@ -172,9 +177,9 @@ fn bootstrap_installed_peer_route_delivers_remote_request_to_receiver() {
     let receiver_node = receiver_runtime.self_node().clone();
     let sender_settings = sender_runtime.runtime().settings().clone();
     let receiver_settings = receiver_runtime.runtime().settings().clone();
-    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_publisher = spawn_publisher(sender_kit, "sender-publisher", sender_node.clone());
     let receiver_publisher =
-        spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+        spawn_publisher(receiver_kit, "receiver-publisher", receiver_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
     let receiver_cluster = Cluster::new(receiver_publisher.clone());
     let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
@@ -261,10 +266,9 @@ fn bootstrap_installed_peer_route_delivers_remote_request_to_receiver() {
     assert_eq!(received[0].1.recipient, receiver_ref);
     assert_eq!(received[0].1.sender, Some(sender_ref));
 
-    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
-    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
-    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
-    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

@@ -807,7 +807,9 @@ Implemented:
   installed membership-derived peer route: a real bootstrap-owned sender
   association cache carries a stable-codec `ReplicatorRead` envelope to the
   remote inbound request receiver, preserving addressed refs and sender
-  replica metadata before coordinated shutdown.
+  replica metadata before coordinated shutdown. The delivery scenario now uses
+  `kairo-testkit::MultiNodeTestKit` so both live bootstrap-owned actor systems
+  and their final shutdown are owned by the structured multi-node harness.
 - Distributed-data TCP peer bootstrap now also has a three-node full-mesh
   socket validation: three real bound runtimes are spawned through the
   bootstrap facade, one shared gossip snapshot is published to all connector
@@ -1620,7 +1622,10 @@ Implemented:
 - Cluster-tools TCP peer bootstrap now validates payload delivery over an
   installed membership-derived peer route: a real bootstrap-owned sender
   association cache carries a stable-codec pubsub publish envelope to the
-  remote mediator inbound handler before coordinated shutdown.
+  remote mediator inbound handler before coordinated shutdown. The delivery
+  scenario now uses `kairo-testkit::MultiNodeTestKit` so both live
+  bootstrap-owned actor systems and their final shutdown are owned by the
+  structured multi-node harness.
 - Cluster-tools TCP peer bootstrap lifecycle coverage now validates membership
   removal: after a two-node socket route is installed through published cluster
   gossip, publishing sender-local membership without the remote peer removes
@@ -2236,5 +2241,14 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-distributed-data bootstrap_installed_peer_route_delivers_remote_request_to_receiver
+cargo test -p kairo-cluster-tools bootstrap_installed_peer_route_delivers_pubsub_publish_to_receiver
+cargo test -p kairo-distributed-data bootstrap
+cargo test -p kairo-cluster-tools bootstrap
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
 git diff --check
 ```

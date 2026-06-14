@@ -165,14 +165,21 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
 #[test]
 fn bootstrap_installed_peer_route_delivers_pubsub_publish_to_receiver() {
     let _guard = bootstrap_socket_test_lock();
-    let sender_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-deliver-sender").unwrap();
-    let receiver_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-deliver-receiver").unwrap();
+    let nodes = MultiNodeTestKit::new([
+        "cluster-tools-bootstrap-deliver-sender",
+        "cluster-tools-bootstrap-deliver-receiver",
+    ])
+    .unwrap();
+    let sender_kit = nodes.kit("cluster-tools-bootstrap-deliver-sender").unwrap();
+    let receiver_kit = nodes
+        .kit("cluster-tools-bootstrap-deliver-receiver")
+        .unwrap();
     let registry = registry();
     let sender_runtime = bind_runtime(
         "cluster-tools-bootstrap-deliver-sender",
         1,
         11,
-        &sender_kit,
+        sender_kit,
         registry.clone(),
     );
     let sender_cache = sender_runtime.association_cache().clone();
@@ -180,14 +187,14 @@ fn bootstrap_installed_peer_route_delivers_pubsub_publish_to_receiver() {
         "cluster-tools-bootstrap-deliver-receiver",
         2,
         22,
-        &receiver_kit,
+        receiver_kit,
         registry.clone(),
     );
     let sender_node = sender_runtime.self_node().clone();
     let receiver_node = receiver_runtime.self_node().clone();
-    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_publisher = spawn_publisher(sender_kit, "sender-publisher", sender_node.clone());
     let receiver_publisher =
-        spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+        spawn_publisher(receiver_kit, "receiver-publisher", receiver_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
     let receiver_cluster = Cluster::new(receiver_publisher.clone());
     let settings = ClusterToolsTcpPeerBootstrapSettings::new().with_connector_settings(
@@ -272,10 +279,9 @@ fn bootstrap_installed_peer_route_delivers_pubsub_publish_to_receiver() {
         _ => panic!("expected pubsub publish delivery"),
     }
 
-    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
-    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
-    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
-    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]
