@@ -409,6 +409,10 @@ fn actor_ref_resolution_goes_through_provider_trait() {
     impl ActorRefResolver for Resolver {
         type Ref = String;
 
+        fn actor_ref_to_wire_data(&self, actor_ref: &Self::Ref) -> crate::Result<ActorRefWireData> {
+            ActorRefWireData::new(actor_ref)
+        }
+
         fn resolve_actor_ref(&self, wire: &ActorRefWireData) -> crate::Result<Self::Ref> {
             Ok(format!(
                 "{}:{}:{}",
@@ -420,11 +424,15 @@ fn actor_ref_resolution_goes_through_provider_trait() {
     }
 
     let wire = ActorRefWireData::new("kairo://system/user/counter#9").unwrap();
+    let formatted = Resolver
+        .actor_ref_to_wire_data(&"kairo://system/user/worker#10".to_string())
+        .unwrap();
 
     assert_eq!(
         Resolver.resolve_actor_ref(&wire).unwrap(),
         "kairo:system:kairo://system/user/counter#9"
     );
+    assert_eq!(formatted.path(), "kairo://system/user/worker#10");
 }
 
 #[test]

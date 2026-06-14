@@ -361,7 +361,7 @@ Implemented:
   compile-checked manifest/version example.
 - `ActorRefWireData` stores serialized actor-ref paths with explicit protocol,
   system, host, and port metadata, and `ActorRefResolver` defines the provider
-  boundary for resolving those refs later.
+  boundary for formatting and resolving those refs later.
 - `ActorRefWireData` now rejects addressed remote paths that omit a port, and
   rejects structured host/port metadata where only one side is present, keeping
   actor-ref wire addresses aligned with Pekko's `system@host:port` remote
@@ -393,6 +393,10 @@ Implemented:
   `ActorRefResolver` adapter for deserialization-style actor-ref resolution,
   mapping owned canonical addresses back to local `ResolvedActorRef<M>` values
   and preserving foreign addressed paths as remote refs.
+- `RemoteActorRefProvider` now formats local `ResolvedActorRef<M>` values with
+  the provider's canonical `system@host:port` address, preserves existing
+  remote-recipient wire metadata for remote refs, and rejects local refs from
+  another actor system instead of producing a misleading remote address.
 - `RemoteAssociation` records the initial association state transitions for
   idle, handshaking, active, quarantined, and closed remoting links.
 - `kairo-remote::register_remote_protocol_codecs` registers stable explicit
@@ -2517,5 +2521,10 @@ cargo test -p kairo-actor bounded_restart_supervision_retries_restarted_startup_
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo test -p kairo-serialization actor_ref_resolution_goes_through_provider_trait
+cargo test -p kairo-remote provider_
+cargo test -p kairo-serialization --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo clippy -p kairo-serialization -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```

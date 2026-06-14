@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use kairo_actor::{ActorSystem, LocalActorRefProvider};
+use kairo_actor::{ActorRef, ActorSystem, LocalActorRefProvider};
 use kairo_serialization::{
     ActorRefResolver, ActorRefWireData, Registry, RemoteMessage, SerializationError,
 };
@@ -115,6 +115,46 @@ impl RemoteActorRefProvider {
         RemoteActorRefResolver::new(self.clone())
     }
 
+    pub fn actor_ref_to_wire_data<M>(
+        &self,
+        actor_ref: &ResolvedActorRef<M>,
+    ) -> Result<ActorRefWireData>
+    where
+        M: RemoteMessage,
+    {
+        match actor_ref {
+            ResolvedActorRef::Local(actor_ref) => self.local_actor_ref_to_wire_data(actor_ref),
+            ResolvedActorRef::Remote(actor_ref) => Ok(actor_ref.recipient().clone()),
+        }
+    }
+
+    pub fn local_actor_ref_to_wire_data<M>(
+        &self,
+        actor_ref: &ActorRef<M>,
+    ) -> Result<ActorRefWireData>
+    where
+        M: RemoteMessage,
+    {
+        let path = actor_ref.path().as_str();
+        let canonical_path = self
+            .canonical_address
+            .as_ref()
+            .ok_or_else(|| {
+                RemoteError::InvalidRemoteRef(
+                    path.to_string(),
+                    "local actor ref serialization requires a local actor system".to_string(),
+                )
+            })?
+            .canonical_recipient_path(path)
+            .ok_or_else(|| {
+                RemoteError::InvalidRemoteRef(
+                    path.to_string(),
+                    "actor ref is not owned by this provider".to_string(),
+                )
+            })?;
+        Ok(ActorRefWireData::new(canonical_path)?)
+    }
+
     pub fn resolve_wire<M>(&self, wire: ActorRefWireData) -> Result<RemoteActorRef<M>>
     where
         M: RemoteMessage,
@@ -180,6 +220,15 @@ where
     M: RemoteMessage,
 {
     type Ref = ResolvedActorRef<M>;
+
+    fn actor_ref_to_wire_data(
+        &self,
+        actor_ref: &Self::Ref,
+    ) -> kairo_serialization::Result<ActorRefWireData> {
+        self.provider
+            .actor_ref_to_wire_data(actor_ref)
+            .map_err(remote_error_to_serialization)
+    }
 
     fn resolve_actor_ref(&self, wire: &ActorRefWireData) -> kairo_serialization::Result<Self::Ref> {
         self.provider
@@ -548,6 +597,84 @@ mod tests {
             received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
             21
         );
+    }
+
+    #[test]
+    fn provider_resolver_trait_serializes_local_ref_with_canonical_address() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_empty_registry(system.clone());
+        let resolver = provider.resolver::<LocalCmd>();
+        let (received_tx, received_rx) = mpsc::channel();
+        let target = system
+            .spawn(
+                "target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+        let resolved = ResolvedActorRef::Local(target);
+
+        let wire = resolver.actor_ref_to_wire_data(&resolved).unwrap();
+
+        assert_eq!(wire.protocol(), "kairo");
+        assert_eq!(wire.system(), "local");
+        assert_eq!(wire.host(), Some("127.0.0.1"));
+        assert_eq!(wire.port(), Some(25520));
+        assert!(
+            wire.path()
+                .starts_with("kairo://local@127.0.0.1:25520/user/target#")
+        );
+
+        let round_tripped = resolver.resolve_actor_ref(&wire).unwrap();
+        assert!(round_tripped.is_local());
+        round_tripped.tell(LocalCmd { value: 34 }).unwrap();
+        assert_eq!(
+            received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            34
+        );
+    }
+
+    #[test]
+    fn provider_resolver_trait_serializes_remote_ref_with_original_recipient() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_system(system);
+        let resolver = provider.resolver::<LocalCmd>();
+        let resolved = provider
+            .resolve_actor_ref::<LocalCmd>("kairo://remote@127.0.0.1:25521/user/worker#7")
+            .unwrap();
+
+        let wire = resolver.actor_ref_to_wire_data(&resolved).unwrap();
+
+        assert_eq!(wire.path(), "kairo://remote@127.0.0.1:25521/user/worker#7");
+        assert_eq!(wire.host(), Some("127.0.0.1"));
+        assert_eq!(wire.port(), Some(25521));
+    }
+
+    #[test]
+    fn provider_rejects_serializing_local_ref_from_another_system() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let other = ActorSystem::builder("other").build().unwrap();
+        let provider = provider_with_system(system);
+        let (received_tx, _received_rx) = mpsc::channel();
+        let target = other
+            .spawn(
+                "target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+
+        let error = provider
+            .local_actor_ref_to_wire_data(&target)
+            .expect_err("foreign local actor ref should be rejected");
+
+        assert!(matches!(
+            error,
+            RemoteError::InvalidRemoteRef(_, ref reason)
+                if reason == "actor ref is not owned by this provider"
+        ));
     }
 
     #[test]

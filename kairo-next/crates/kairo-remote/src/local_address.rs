@@ -26,6 +26,17 @@ impl CanonicalLocalAddress {
             .then(|| local_path_for_canonical_recipient(recipient))
     }
 
+    pub(crate) fn canonical_recipient_path(&self, local_path: &str) -> Option<String> {
+        let local_prefix = format!("{}://{}", self.protocol, self.system);
+        let canonical_prefix = format!(
+            "{}://{}@{}:{}",
+            self.protocol, self.system, self.host, self.port
+        );
+        local_path
+            .strip_prefix(&local_prefix)
+            .map(|suffix| format!("{canonical_prefix}{suffix}"))
+    }
+
     fn matches(&self, recipient: &ActorRefWireData) -> bool {
         recipient.protocol() == self.protocol
             && recipient.system() == self.system

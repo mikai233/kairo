@@ -71,6 +71,7 @@ impl ActorRefWireData {
 pub trait ActorRefResolver {
     type Ref;
 
+    fn actor_ref_to_wire_data(&self, actor_ref: &Self::Ref) -> Result<ActorRefWireData>;
     fn resolve_actor_ref(&self, wire: &ActorRefWireData) -> Result<Self::Ref>;
 }
 
