@@ -334,14 +334,28 @@ fn restart_supervision_rebuilds_actor_state_and_keeps_ref_path() {
         .unwrap();
     let path = actor.path().clone();
     let (reply_tx, reply_rx) = mpsc::channel();
+    let (resolved_reply_tx, resolved_reply_rx) = mpsc::channel();
 
     actor.tell(SupervisionMsg::Increment).unwrap();
     actor.tell(SupervisionMsg::Fail).unwrap();
     restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     actor.tell(SupervisionMsg::Get(reply_tx)).unwrap();
+    let resolved = system
+        .resolve_local::<SupervisionMsg>(path.as_str())
+        .unwrap();
+    resolved
+        .tell(SupervisionMsg::Get(resolved_reply_tx))
+        .unwrap();
 
     assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 0);
+    assert_eq!(
+        resolved_reply_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        0
+    );
     assert_eq!(actor.path(), &path);
+    assert_eq!(resolved.path(), &path);
     assert!(!actor.is_stopped());
 }
 

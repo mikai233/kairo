@@ -241,6 +241,9 @@ Implemented:
   `Signal::PreRestart` to the old actor value before default child teardown,
   removes death-watch registrations for children stopped by that restart,
   rebuilds actor state, reruns `started`, and preserves the actor ref path.
+- Restart supervision now has focused coverage that resolving the preserved
+  path through the local actor registry still reaches the rebuilt actor state,
+  matching Pekko's stable `self` reference across actor recreation.
 - Actor startup failures now enter the same supervision boundary: default and
   resume strategies stop the actor, escalation reports the failed child to the
   parent, and bounded restart retries startup through `Props::restartable`
@@ -2138,6 +2141,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor restart_supervision_rebuilds_actor_state_and_keeps_ref_path
 cargo test -p kairo-actor stopped_watcher_is_removed_from_subject_watchers
 cargo test -p kairo-cluster-tools bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry
 cargo test -p kairo-cluster-tools bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed
