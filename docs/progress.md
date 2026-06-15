@@ -453,6 +453,10 @@ Implemented:
   deterministic scheduler construction, manual clock access, cancellable
   scheduled delivery, shared no-message assertions across heterogeneous probes,
   due-work execution, and pending-work inspection at the method level.
+- `await_assert`, `AwaitAssertError`, and `FishingOutcome` now document
+  retry-until-timeout polling assertions, timeout metadata accessors, and
+  probe-message fishing classifications at the function, method, and variant
+  level.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.

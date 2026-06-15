@@ -2,6 +2,12 @@ use std::fmt::{self, Display, Formatter};
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// Re-runs a fallible assertion until it succeeds or a shared timeout expires.
+///
+/// The assertion returns `Ok(T)` when the expected condition is met and `Err(E)`
+/// while the condition is not ready yet. `await_assert` sleeps for at most
+/// `interval` between attempts, never past the `max` deadline, and reports the
+/// final error if the deadline expires.
 pub fn await_assert<T, E, F>(
     max: Duration,
     interval: Duration,
@@ -40,6 +46,7 @@ where
     }
 }
 
+/// Timeout report returned by [`await_assert`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AwaitAssertError<E> {
     attempts: usize,
@@ -48,18 +55,22 @@ pub struct AwaitAssertError<E> {
 }
 
 impl<E> AwaitAssertError<E> {
+    /// Returns how many times the assertion closure was called.
     pub fn attempts(&self) -> usize {
         self.attempts
     }
 
+    /// Returns how long the retry loop ran before timing out.
     pub fn elapsed(&self) -> Duration {
         self.elapsed
     }
 
+    /// Returns the last assertion error observed before timeout.
     pub fn last_error(&self) -> &E {
         &self.last_error
     }
 
+    /// Consumes the timeout report and returns the last assertion error.
     pub fn into_last_error(self) -> E {
         self.last_error
     }
