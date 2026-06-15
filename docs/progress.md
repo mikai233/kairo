@@ -496,6 +496,11 @@ Implemented:
 - `kairo-serialization` crate docs now explain that local actor messages do
   not need serialization, while remote messages require stable manifests,
   versions, serializer ids, registered codecs, and compile-checked examples.
+- The `kairo` facade invariant tests now pin that the core
+  `kairo-serialization` crate remains format-neutral and does not directly
+  depend on serde, bincode, prost, or other concrete codec formats; those
+  dependencies must stay in optional helper crates or intentionally selected
+  non-core features.
 - `RemoteMessage`, `MessageCodec<M>`, `DynCodec`, `SerializedMessage`, and
   `RemoteEnvelope` define the stable metadata and payload boundary for remote
   messages.
@@ -2753,6 +2758,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo core_serialization_crate_stays_format_neutral --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo distributed_crates_keep_architecture_dependency_boundaries --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check

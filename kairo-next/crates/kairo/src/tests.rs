@@ -146,6 +146,37 @@ fn foundational_crates_keep_architecture_dependency_boundaries()
 }
 
 #[test]
+fn core_serialization_crate_stays_format_neutral() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let manifest_path = repo_root
+        .join("kairo-next")
+        .join("crates")
+        .join("kairo-serialization")
+        .join("Cargo.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?.to_ascii_lowercase();
+    let forbidden_format_dependencies = [
+        "serde",
+        "serde_json",
+        "serde_cbor",
+        "bincode",
+        "prost",
+        "postcard",
+        "rmp-serde",
+        "ciborium",
+    ];
+
+    for dependency in forbidden_format_dependencies {
+        assert!(
+            !manifest.contains(dependency),
+            "{} must keep core serialization format-neutral; codec dependencies like `{dependency}` belong in optional helper crates or intentionally selected features outside the core crate",
+            manifest_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn distributed_crates_keep_architecture_dependency_boundaries()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
