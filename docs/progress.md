@@ -2565,6 +2565,9 @@ Implemented:
   pending buffered-delivery reply refs alive when a stale shard-home result is
   rejected during handoff, so the later valid shard home can still replay or
   forward buffered messages with their original replies.
+- `kairo-cluster-sharding` region actor coverage now pins the same
+  pending-reply preservation for decoded remote coordinator shard-home replies
+  during handoff, using the stable remote region wire path as the route target.
 - `kairo-cluster-sharding` handoff worker, coordinator handoff completion,
   and graceful shutdown orchestration tests now live in a focused sibling test
   module.

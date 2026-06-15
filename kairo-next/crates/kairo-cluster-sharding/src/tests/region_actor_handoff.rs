@@ -388,6 +388,176 @@ fn region_actor_direct_handoff_stops_routing_to_local_shard() {
 }
 
 #[test]
+fn region_actor_remote_shard_home_during_handoff_keeps_buffered_replies() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-remote-home-during-handoff").unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_shards("region-b", 10, 10),
+        )
+        .unwrap();
+    let host_b = kit.create_probe::<HostShardPlan<String>>("host-b").unwrap();
+    region_b
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host_b.actor_ref(),
+        })
+        .unwrap();
+    host_b.expect_msg(Duration::from_millis(500)).unwrap();
+
+    let remote_region =
+        ActorRefWireData::new("kairo://remote@127.0.0.1:2552/system/sharding/region").unwrap();
+    let stale_region =
+        ActorRefWireData::new("kairo://stale@127.0.0.1:2553/system/sharding/region").unwrap();
+    let mut route_transport = RegionRouteTransport::new();
+    route_transport.insert_target(RegionRouteTarget::new(
+        remote_region.path().to_string(),
+        region_b,
+    ));
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            Props::new(move || {
+                ShardRegionActor::<String>::new_with_local_remember_store_shards(
+                    "region-a",
+                    "orders",
+                    10,
+                    10,
+                    BTreeMap::from([(
+                        "shard-1".to_string(),
+                        BTreeSet::from(["entity-1".to_string()]),
+                    )]),
+                    Duration::from_millis(500),
+                )
+                .with_region_route_transport(route_transport)
+            }),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let handoff = kit
+        .create_probe::<RegionLocalHandOffPlan>("region-handoff")
+        .unwrap();
+    let shard_handoff = kit
+        .create_probe::<ShardHandOffPlan<String>>("shard-handoff")
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let completion = kit
+        .create_probe::<RegionLocalHandOffCompletionPlan>("completion")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    region
+        .tell(ShardRegionMsg::HandOffToLocalShard {
+            shard: "shard-1".to_string(),
+            stop_message: "stop".to_string(),
+            region_reply_to: handoff.actor_ref(),
+            shard_reply_to: shard_handoff.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        handoff.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalHandOffPlan::ForwardedToLocalShard { ref shard, .. } if shard == "shard-1"
+    ));
+    shard_handoff
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-handoff".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::RemoteCoordinatorShardHome {
+            home: ShardCoordinatorRemoteHome {
+                sender: None,
+                shard_id: "shard-1".to_string(),
+                region: stale_region,
+            },
+        })
+        .unwrap();
+    deliveries.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-stale-home".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: None,
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::CompleteLocalShardHandOff {
+            shard: "shard-1".to_string(),
+            timeout: Duration::from_millis(500),
+            reply_to: completion.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        completion.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalHandOffCompletionPlan::Completed { ref shard, .. } if shard == "shard-1"
+    ));
+
+    region
+        .tell(ShardRegionMsg::RemoteCoordinatorShardHome {
+            home: ShardCoordinatorRemoteHome {
+                sender: None,
+                shard_id: "shard-1".to_string(),
+                region: remote_region,
+            },
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", "after-handoff".to_string()),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-stale-home".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_completes_store_backed_shard_child_handoff() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("region-actor-local-handoff-complete").unwrap();
