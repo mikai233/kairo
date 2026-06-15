@@ -584,6 +584,9 @@ Implemented:
 - `kairo-remote` is split into focused modules for settings, errors, outbound
   delivery, association state, provider resolution, remote refs, and protocol
   metadata instead of concentrating remote logic in the crate root.
+- `kairo-remote` remote-watch/heartbeat protocol codecs and remote envelope
+  frame decoding now reject unread trailing bytes after the expected stable
+  wire fields have been decoded.
 - `kairo-remote` crate docs now describe typed remote refs, provider
   resolution, stable remote message metadata and codec registration,
   association/stream module boundaries, remote death-watch semantics, and a

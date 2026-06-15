@@ -46,6 +46,7 @@ pub fn decode_remote_envelope_frame(bytes: Bytes) -> Result<RemoteEnvelope> {
     let manifest = Manifest::new(reader.read_string()?);
     let version = reader.read_u16()?;
     let payload = reader.read_bytes()?;
+    reader.ensure_finished()?;
     Ok(RemoteEnvelope::new(
         recipient,
         sender,
@@ -146,5 +147,15 @@ mod tests {
         let error = decode_remote_envelope_frame(Bytes::from(frame)).unwrap_err();
 
         assert!(error.to_string().contains("ended early"));
+    }
+
+    #[test]
+    fn remote_envelope_frame_rejects_trailing_bytes() {
+        let mut frame = encode_remote_envelope_frame(&envelope()).unwrap().to_vec();
+        frame.push(0xff);
+
+        let error = decode_remote_envelope_frame(Bytes::from(frame)).unwrap_err();
+
+        assert!(error.to_string().contains("trailing byte"));
     }
 }

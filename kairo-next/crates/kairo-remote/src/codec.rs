@@ -39,10 +39,12 @@ impl MessageCodec<WatchRemote> for WatchRemoteCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<WatchRemote> {
         ensure_version::<WatchRemote>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(WatchRemote {
+        let message = WatchRemote {
             watchee: ActorRefWireData::new(reader.read_string()?)?,
             watcher: ActorRefWireData::new(reader.read_string()?)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -64,10 +66,12 @@ impl MessageCodec<UnwatchRemote> for UnwatchRemoteCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<UnwatchRemote> {
         ensure_version::<UnwatchRemote>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(UnwatchRemote {
+        let message = UnwatchRemote {
             watchee: ActorRefWireData::new(reader.read_string()?)?,
             watcher: ActorRefWireData::new(reader.read_string()?)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -88,9 +92,11 @@ impl MessageCodec<RemoteHeartbeat> for RemoteHeartbeatCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<RemoteHeartbeat> {
         ensure_version::<RemoteHeartbeat>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(RemoteHeartbeat {
+        let message = RemoteHeartbeat {
             from_uid: reader.read_u64()?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -115,9 +121,11 @@ impl MessageCodec<RemoteHeartbeatAck> for RemoteHeartbeatAckCodec {
     ) -> kairo_serialization::Result<RemoteHeartbeatAck> {
         ensure_version::<RemoteHeartbeatAck>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(RemoteHeartbeatAck {
+        let message = RemoteHeartbeatAck {
             uid: reader.read_u64()?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -143,10 +151,12 @@ impl MessageCodec<AddressTerminated> for AddressTerminatedCodec {
     ) -> kairo_serialization::Result<AddressTerminated> {
         ensure_version::<AddressTerminated>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(AddressTerminated {
+        let message = AddressTerminated {
             address: reader.read_string()?,
             uid: reader.read_optional_u64()?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -250,5 +260,22 @@ mod tests {
             .expect_err("unknown version should fail");
 
         assert!(error.to_string().contains("unsupported"));
+    }
+
+    #[test]
+    fn remote_protocol_codecs_reject_trailing_payload_bytes() {
+        let registry = registry();
+        let wire = SerializedMessage::new(
+            REMOTE_HEARTBEAT_SERIALIZER_ID,
+            Manifest::new(RemoteHeartbeat::MANIFEST),
+            RemoteHeartbeat::VERSION,
+            Bytes::from_static(&[0, 0, 0, 0, 0, 0, 0, 1, 0xff]),
+        );
+
+        let error = registry
+            .deserialize::<RemoteHeartbeat>(wire)
+            .expect_err("trailing payload byte should fail");
+
+        assert!(error.to_string().contains("trailing byte"));
     }
 }
