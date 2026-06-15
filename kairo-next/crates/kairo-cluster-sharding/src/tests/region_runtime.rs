@@ -233,6 +233,37 @@ fn region_runtime_handoff_drops_buffer_to_preserve_order_and_forwards_local_shar
 }
 
 #[test]
+fn region_runtime_handoff_without_begin_handoff_stops_routing_to_local_shard() {
+    let mut runtime = ShardRegionRuntime::new("region-a", 10);
+    runtime.host_shard("shard-1");
+    runtime.mark_shard_started("shard-1");
+
+    assert_eq!(
+        runtime.handoff("shard-1"),
+        HandOffPlan::ForwardToLocalShard {
+            shard: "shard-1".to_string(),
+            command: HandOff {
+                shard_id: "shard-1".to_string(),
+            },
+            dropped_buffered: 0,
+        }
+    );
+    assert_eq!(runtime.region_for_shard(&"shard-1".to_string()), None);
+    assert_eq!(
+        runtime.route(
+            "shard-1",
+            ShardingEnvelope::new("entity-1", "after-handoff")
+        ),
+        RegionRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+}
+
+#[test]
 fn region_runtime_handoff_replies_stopped_when_local_shard_is_absent() {
     let mut runtime = ShardRegionRuntime::new("region-a", 10);
     assert!(matches!(

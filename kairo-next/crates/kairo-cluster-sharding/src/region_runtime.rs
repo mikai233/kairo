@@ -336,6 +336,7 @@ impl<M> ShardRegionRuntime<M> {
     pub fn handoff(&mut self, shard: impl Into<ShardId>) -> HandOffPlan {
         let shard = shard.into();
         let dropped_buffered = self.drop_buffer(&shard);
+        self.unassign_shard(&shard);
 
         if self.local_shards.contains(&shard) {
             self.handing_off_shards.insert(shard.clone());

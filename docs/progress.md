@@ -1427,6 +1427,9 @@ Implemented:
   forwards buffered messages when a remote home is learned, starts local shards
   for local homes or `HostShard`, drops handoff buffers to preserve ordering,
   and emits explicit handoff ack/stopped plans.
+- `kairo-cluster-sharding` region handoff now clears the shard-home mapping
+  when `HandOff` is received directly, so later messages buffer and request a
+  fresh home instead of routing to a shard already entering handoff.
 - `kairo-cluster-sharding` now has an actor-backed shard-region boundary that
   wraps the focused region runtime in synchronous actor turns, accepts explicit
   route, host-shard, shard-home, shard-started, begin-handoff, handoff, and
