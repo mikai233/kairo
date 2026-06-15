@@ -71,6 +71,45 @@ fn configured_counter_example_smoke() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
+fn configured_counter_example_checked_in_layers() -> Result<(), Box<dyn std::error::Error>> {
+    let observation = run_configured_counter_layers(
+        "example-smoke-configured-counter-checked-in-layers",
+        example_config_paths(),
+        7,
+        Duration::from_secs(1),
+    )?;
+
+    assert_eq!(observation.value, 8);
+    assert_eq!(observation.dispatcher_throughput, 2);
+    assert!(observation.dead_letter_diagnostics_published);
+    assert_eq!(observation.remote_hostname, "127.0.0.1");
+    assert_eq!(observation.remote_port, 25521);
+    assert_eq!(
+        observation.remote_connect_timeout,
+        Some(Duration::from_millis(750))
+    );
+    assert_eq!(observation.sharding_shards, 128);
+    assert!(observation.remember_entities);
+    assert_eq!(observation.sharding_allocation_absolute_limit, 4);
+    assert_eq!(observation.sharding_allocation_relative_limit, 0.25);
+    assert_eq!(observation.sharding_retry_interval, Duration::from_secs(3));
+    assert_eq!(
+        observation.sharding_handoff_timeout,
+        Duration::from_secs(45)
+    );
+    assert_eq!(
+        observation.sharding_failure_backoff,
+        Duration::from_secs(12)
+    );
+    assert_eq!(
+        observation.sharding_rebalance_interval,
+        Duration::from_secs(30)
+    );
+    assert_eq!(observation.sharding_query_timeout, Duration::from_secs(4));
+    Ok(())
+}
+
+#[test]
 fn configured_counter_example_layers_config_files() -> Result<(), Box<dyn std::error::Error>> {
     let mut base_path = std::env::temp_dir();
     let nonce = std::time::SystemTime::now()
@@ -280,4 +319,12 @@ fn cluster_sharding_local_example_gracefully_moves_region_shard()
 
 fn example_config_path() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/kairo.local.toml")
+}
+
+fn example_config_paths() -> [std::path::PathBuf; 2] {
+    let examples = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
+    [
+        examples.join("kairo.toml"),
+        examples.join("kairo.local.toml"),
+    ]
 }

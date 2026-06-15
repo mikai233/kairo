@@ -2567,6 +2567,10 @@ Implemented:
 - `kairo-next/README.md` now describes the configured-counter example as a
   layered `kairo.toml` plus `kairo.local.toml` workflow and lists the
   diagnostics, remote transport, sharding, and allocation settings it validates.
+- Configured-counter smoke coverage now also runs the checked-in
+  `examples/kairo.toml` plus `examples/kairo.local.toml` layer pair through
+  the reusable example helper, keeping the binary, docs, and sample config
+  files coupled.
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
