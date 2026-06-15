@@ -29,11 +29,22 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, LitInt, LitStr, parse_macro_input};
 
+/// Marker attribute reserved for future actor protocol metadata.
+///
+/// The attribute currently leaves the annotated item unchanged. Local actor
+/// messages do not need macro-generated metadata, and remote-capable messages
+/// should use [`KairoRemoteMessage`] for stable manifest/version metadata.
 #[proc_macro_attribute]
 pub fn kairo_message(_attr: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
 
+/// Derives `kairo_serialization::RemoteMessage` metadata for a remote protocol type.
+///
+/// The derive reads `#[kairo(manifest = "...", version = N)]` attributes and
+/// emits only the stable manifest and version constants. It does not generate
+/// codecs, serializer ids, or registry calls, and it does not infer wire
+/// metadata from Rust type names, enum discriminants, or memory layout.
 #[proc_macro_derive(KairoRemoteMessage, attributes(kairo))]
 pub fn derive_kairo_remote_message(item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as DeriveInput);

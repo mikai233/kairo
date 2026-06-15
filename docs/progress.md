@@ -560,6 +560,9 @@ Implemented:
   metadata-only, local messages do not need macros or serialization,
   serializer ids/codecs remain explicit, and `KairoRemoteMessage` has a
   compile-checked manifest/version example.
+- `kairo-actor-macros` public proc macro items now document that
+  `kairo_message` is currently marker-only and `KairoRemoteMessage` derives
+  stable metadata only, leaving codec and registry choices explicit.
 - `ActorRefWireData` stores serialized actor-ref paths with explicit protocol,
   system, host, and port metadata, and `ActorRefResolver` defines the provider
   boundary for formatting and resolving those refs later.
