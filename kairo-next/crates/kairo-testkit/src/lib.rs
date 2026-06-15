@@ -29,6 +29,7 @@
 //!   retries polling assertions against that same deadline.
 //! - [`TestProbe::expect_msg_within`],
 //!   [`TestProbe::expect_msg_matching_within`],
+//!   [`TestProbe::expect_no_msg_for_within`],
 //!   [`TestProbe::receive_messages_within`], and
 //!   [`TestProbe::fish_for_message_within`] apply probe receive assertions to
 //!   the same shared [`Within`] deadline.
@@ -106,9 +107,10 @@
 //! probe.actor_ref().tell("first")?;
 //! probe.actor_ref().tell("second")?;
 //!
-//! let messages = probe.within(Duration::from_secs(1), |probe, scope| {
+//! let messages = probe.within(Duration::from_millis(50), |probe, scope| {
 //!     let first = probe.expect_msg_eq_within("first", scope)?;
 //!     let second = probe.expect_msg_matching_within(scope, |msg| msg.starts_with("sec"))?;
+//!     probe.expect_no_msg_for_within(Duration::from_millis(1), scope)?;
 //!     Ok::<_, kairo_testkit::ProbeError>(vec![first, second])
 //! })?;
 //!

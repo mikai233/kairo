@@ -160,6 +160,20 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    /// Asserts that no message arrives during `duration` under a shared
+    /// [`Within`] deadline.
+    ///
+    /// The wait is capped at the scope's remaining time so this helper can be
+    /// composed with other scoped probe assertions without granting a fresh
+    /// independent timeout budget.
+    pub fn expect_no_msg_for_within(
+        &self,
+        duration: Duration,
+        scope: &Within,
+    ) -> Result<(), ProbeError> {
+        self.expect_no_msg(duration.min(scope.remaining()))
+    }
+
     /// Receives exactly `count` messages under one timeout budget.
     ///
     /// The timeout is shared across the whole batch instead of being restarted

@@ -122,7 +122,7 @@ fn test_probe_within_helpers_use_shared_deadline() {
     }
 
     let messages = probe
-        .within(Duration::from_secs(1), |probe, scope| {
+        .within(Duration::from_millis(50), |probe, scope| {
             let first = probe.expect_msg_eq_within("first", scope)?;
             let second =
                 probe.expect_msg_matching_within(scope, |message| message.starts_with("sec"))?;
@@ -137,11 +137,42 @@ fn test_probe_within_helpers_use_shared_deadline() {
             let done = fished
                 .pop()
                 .expect("fishing should include terminal message");
+            probe.expect_no_msg_for_within(Duration::from_millis(1), scope)?;
             Ok::<_, ProbeError>(vec![first, second, third[0], done])
         })
         .expect("probe helpers should complete under the shared deadline");
 
     assert_eq!(messages, vec!["first", "second", "third", "done"]);
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_expect_no_msg_for_within_reports_unexpected_message() {
+    let kit = ActorSystemTestKit::new("test-probe-no-msg-within").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+
+    probe
+        .actor_ref()
+        .tell("unexpected")
+        .expect("probe tell should enqueue");
+
+    let error = probe
+        .within(Duration::from_millis(50), |probe, scope| {
+            probe.expect_no_msg_for_within(Duration::from_millis(10), scope)
+        })
+        .expect_err("queued message should fail quiet assertion");
+
+    assert_eq!(
+        error,
+        WithinError::Assertion(ProbeError::UnexpectedMessage {
+            expected: "no message".to_string(),
+            actual: std::any::type_name::<&'static str>().to_string(),
+        })
+    );
+
     kit.shutdown(Duration::from_secs(1))
         .expect("system should terminate");
 }
