@@ -2035,6 +2035,9 @@ Implemented:
 - The TOML loader now rejects an explicitly empty
   `[cluster.tools.singleton].role` instead of silently widening singleton scope
   to all members, matching the format-neutral `ClusterToolsConfig` validation.
+- The TOML loader now runs final `KairoSettings::validate` after projecting
+  all sections, so file-loaded settings cannot bypass format-neutral validation
+  rules such as rejecting whitespace-only singleton roles.
 - `KairoSettings::validate` now validates all format-neutral configuration
   sections, including programmatically constructed actor, remote, cluster
   heartbeat, downing, sharding, and cluster-tools settings.
@@ -3235,6 +3238,7 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo toml_config_rejects_empty_singleton_role --all-targets --all-features
+cargo test -p kairo toml_config_rejects_blank_singleton_role_after_projection --all-targets --all-features
 cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo --doc --all-features
 cargo fmt --all -- --check

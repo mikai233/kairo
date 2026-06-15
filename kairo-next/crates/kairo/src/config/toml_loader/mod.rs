@@ -39,5 +39,6 @@ pub fn parse_toml_str(input: &str) -> Result<KairoSettings, ConfigError> {
     if let Some(observability) = table.get("observability") {
         settings.observability = parse_observability(observability)?;
     }
+    settings.validate()?;
     Ok(settings)
 }
