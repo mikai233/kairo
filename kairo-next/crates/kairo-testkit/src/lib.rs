@@ -107,6 +107,41 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## Local multi-node barriers
+//!
+//! ```
+//! use std::sync::Arc;
+//! use std::thread;
+//! use std::time::Duration;
+//!
+//! use kairo_testkit::MultiNodeTestKit;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let kit = Arc::new(MultiNodeTestKit::new(["node-a", "node-b"])?);
+//! let waiting_kit = Arc::clone(&kit);
+//! let waiter = thread::spawn(move || {
+//!     waiting_kit.await_barriers(
+//!         ["started", "ready"],
+//!         "node-a",
+//!         Duration::from_secs(1),
+//!     )
+//! });
+//!
+//! let main_statuses =
+//!     kit.await_barriers(["started", "ready"], "node-b", Duration::from_secs(1))?;
+//! assert!(main_statuses.iter().all(|status| status.passed()));
+//!
+//! let waiter_statuses = waiter
+//!     .join()
+//!     .expect("waiting node should not panic")?;
+//! assert!(waiter_statuses.iter().all(|status| status.passed()));
+//!
+//! let kit = Arc::try_unwrap(kit).expect("all shared kit refs should be released");
+//! kit.shutdown(Duration::from_secs(1))?;
+//! # Ok(())
+//! # }
+//! ```
 
 mod actor_harness;
 mod assertions;

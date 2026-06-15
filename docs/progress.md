@@ -426,6 +426,10 @@ Implemented:
 - `kairo-testkit` crate docs now describe typed probes, batch/fishing
   assertions, await assertions, manual time, multi-node local harnesses, and
   compile-checked examples.
+- `kairo-testkit` crate docs now include a rustdoc-checked
+  `MultiNodeTestKit::await_barriers` example that coordinates ordered local
+  multi-node phases across two named actor systems and shuts the harness down
+  explicitly.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.
@@ -3194,5 +3198,11 @@ cargo test -p kairo-examples --test examples_smoke --all-features
 cargo test -p kairo-examples --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit --doc --all-features
+cargo test -p kairo-testkit await_barriers --all-targets --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```
