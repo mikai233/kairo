@@ -2032,6 +2032,9 @@ Implemented:
   interval, and stable `shard_id_for` helpers, while `ClusterToolsConfig` maps
   singleton role settings into `SingletonScope` and pubsub settings into
   gossip interval/max-delta values plus a configured `PubSubGossipActor`.
+- The TOML loader now rejects an explicitly empty
+  `[cluster.tools.singleton].role` instead of silently widening singleton scope
+  to all members, matching the format-neutral `ClusterToolsConfig` validation.
 - `KairoSettings::validate` now validates all format-neutral configuration
   sections, including programmatically constructed actor, remote, cluster
   heartbeat, downing, sharding, and cluster-tools settings.
@@ -3230,5 +3233,11 @@ cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo toml_config_rejects_empty_singleton_role --all-targets --all-features
+cargo test -p kairo config --all-targets --all-features
+cargo test -p kairo --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```

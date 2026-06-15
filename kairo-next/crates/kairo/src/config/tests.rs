@@ -846,6 +846,25 @@ capacity = 0
 }
 
 #[test]
+fn toml_config_rejects_empty_singleton_role() {
+    let error = parse_toml_str(
+        r#"
+[cluster.tools.singleton]
+role = ""
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "cluster.tools.singleton.role".to_string(),
+            reason: "must not be empty when set".to_string(),
+        }
+    );
+}
+
+#[test]
 #[cfg(feature = "actor")]
 fn config_converts_actor_settings_to_builder() {
     let settings = parse_toml_str(

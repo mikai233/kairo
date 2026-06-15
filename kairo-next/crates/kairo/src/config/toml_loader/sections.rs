@@ -448,7 +448,13 @@ fn parse_cluster_singleton_tool(
     reject_unknown(singleton, "cluster.tools.singleton", &["role"])?;
     if let Some(role) = singleton.get("role") {
         let role = parse_string(role, "cluster.tools.singleton.role")?;
-        config.singleton_role = (!role.is_empty()).then_some(role);
+        if role.is_empty() {
+            return Err(ConfigError::InvalidValue {
+                path: "cluster.tools.singleton.role".to_string(),
+                reason: "must not be empty when set".to_string(),
+            });
+        }
+        config.singleton_role = Some(role);
     }
     Ok(())
 }
