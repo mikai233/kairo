@@ -606,6 +606,9 @@ Implemented:
   rejects structured host/port metadata where only one side is present, keeping
   actor-ref wire addresses aligned with Pekko's `system@host:port` remote
   address shape.
+- `ActorRefWireData::from_parts` now verifies that separated protocol, system,
+  host, and port metadata match the canonical actor-ref path, and remote frame
+  decoding rejects mismatched actor-ref metadata before delivery.
 - `RemoteEnvelope` carries actor-ref wire data for recipient and optional
   sender rather than unstructured path strings.
 - `kairo-remote`, `kairo-cluster`, `kairo-distributed-data`, and

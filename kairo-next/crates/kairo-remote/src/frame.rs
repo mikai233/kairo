@@ -81,7 +81,9 @@ fn read_actor_ref(reader: &mut WireReader<'_>) -> Result<ActorRefWireData> {
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-    use kairo_serialization::{ActorRefWireData, Manifest, SerializedMessage};
+    use kairo_serialization::{
+        ActorRefWireData, Manifest, SerializationError, SerializedMessage, WireWriter,
+    };
 
     use super::*;
 
@@ -147,6 +149,32 @@ mod tests {
         let error = decode_remote_envelope_frame(Bytes::from(frame)).unwrap_err();
 
         assert!(error.to_string().contains("ended early"));
+    }
+
+    #[test]
+    fn remote_envelope_frame_rejects_mismatched_actor_ref_metadata() {
+        let mut writer = WireWriter::new();
+        writer.write_u64(REMOTE_ENVELOPE_FRAME_MAGIC);
+        writer.write_u16(REMOTE_ENVELOPE_FRAME_VERSION);
+        writer
+            .write_string("kairo://target@127.0.0.1:25520/user/receiver#1")
+            .unwrap();
+        writer.write_string("kairo").unwrap();
+        writer.write_string("wrong-target").unwrap();
+        writer.write_optional_string(Some("127.0.0.1")).unwrap();
+        writer.write_optional_u64(Some(25520));
+        writer.write_bool(false);
+        writer.write_u32(42);
+        writer.write_string("kairo.remote.test.Frame").unwrap();
+        writer.write_u16(7);
+        writer.write_bytes(&Bytes::from_static(&[1, 2, 3])).unwrap();
+
+        let error = decode_remote_envelope_frame(writer.finish()).unwrap_err();
+
+        assert!(matches!(
+            error,
+            RemoteError::Serialization(SerializationError::InvalidActorRefPath(_))
+        ));
     }
 
     #[test]

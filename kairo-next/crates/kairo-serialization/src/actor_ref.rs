@@ -33,7 +33,8 @@ impl ActorRefWireData {
 
     /// Builds wire data from already separated path and address parts.
     ///
-    /// `host` and `port` must either both be present or both be absent.
+    /// `host` and `port` must either both be present or both be absent, and
+    /// the separated address parts must match the canonical actor-ref path.
     pub fn from_parts(
         protocol: impl Into<String>,
         system: impl Into<String>,
@@ -44,10 +45,11 @@ impl ActorRefWireData {
         let protocol = protocol.into();
         let system = system.into();
         let path = path.into();
-        if protocol.is_empty() || system.is_empty() || path.is_empty() {
+        if host.is_some() != port.is_some() {
             return Err(SerializationError::InvalidActorRefPath(path));
         }
-        if host.is_some() != port.is_some() {
+        let parsed = parse_actor_ref_path(&path)?;
+        if parsed != (protocol.clone(), system.clone(), host.clone(), port) {
             return Err(SerializationError::InvalidActorRefPath(path));
         }
         Ok(Self {

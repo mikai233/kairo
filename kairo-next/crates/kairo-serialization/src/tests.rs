@@ -487,6 +487,78 @@ fn actor_ref_wire_data_rejects_mismatched_host_and_port_parts() {
 }
 
 #[test]
+fn actor_ref_wire_data_from_parts_requires_matching_path_metadata() {
+    let addressed = ActorRefWireData::from_parts(
+        "kairo",
+        "system",
+        Some("127.0.0.1".to_string()),
+        Some(25520),
+        "kairo://system@127.0.0.1:25520/user/counter#9",
+    )
+    .expect("matching addressed path parts should build");
+    assert_eq!(addressed.system(), "system");
+    assert_eq!(addressed.host(), Some("127.0.0.1"));
+    assert_eq!(addressed.port(), Some(25520));
+
+    let local = ActorRefWireData::from_parts(
+        "kairo",
+        "system",
+        None,
+        None,
+        "kairo://system/user/counter#9",
+    )
+    .expect("matching local path parts should build");
+    assert_eq!(local.system(), "system");
+    assert_eq!(local.host(), None);
+    assert_eq!(local.port(), None);
+
+    for (protocol, system, host, port, path) in [
+        (
+            "other",
+            "system",
+            Some("127.0.0.1".to_string()),
+            Some(25520),
+            "kairo://system@127.0.0.1:25520/user/counter#9",
+        ),
+        (
+            "kairo",
+            "other-system",
+            Some("127.0.0.1".to_string()),
+            Some(25520),
+            "kairo://system@127.0.0.1:25520/user/counter#9",
+        ),
+        (
+            "kairo",
+            "system",
+            Some("10.0.0.1".to_string()),
+            Some(25520),
+            "kairo://system@127.0.0.1:25520/user/counter#9",
+        ),
+        (
+            "kairo",
+            "system",
+            Some("127.0.0.1".to_string()),
+            Some(25521),
+            "kairo://system@127.0.0.1:25520/user/counter#9",
+        ),
+        (
+            "kairo",
+            "system",
+            Some("127.0.0.1".to_string()),
+            Some(25520),
+            "kairo://system/user/counter#9",
+        ),
+    ] {
+        let error = ActorRefWireData::from_parts(protocol, system, host, port, path)
+            .expect_err("mismatched path metadata should fail");
+        assert_eq!(
+            error,
+            SerializationError::InvalidActorRefPath(path.to_string())
+        );
+    }
+}
+
+#[test]
 fn remote_envelope_uses_actor_ref_wire_data() {
     let message = SerializedMessage::new(
         1,
