@@ -7,25 +7,40 @@ use crate::{
     SerializerId, codec::TypedCodec,
 };
 
+/// Codec registry API used by serialization-aware runtime boundaries.
+///
+/// The registry maps Rust message types to outbound codecs and maps stable
+/// wire metadata to inbound codecs. Implementations must reject duplicate
+/// serializer ids, duplicate manifests, and duplicate codecs for one Rust
+/// message type.
 pub trait SerializationRegistry {
+    /// Registers one typed codec for `M`.
     fn register<M, C>(&mut self, codec: C) -> Result<()>
     where
         M: RemoteMessage,
         C: MessageCodec<M>;
 
+    /// Resolves the outbound codec for a typed message.
     fn codec_for_type<M>(&self) -> Result<&dyn DynCodec>
     where
         M: RemoteMessage;
 
+    /// Resolves the inbound codec for a serializer id and manifest pair.
     fn codec_for_wire(
         &self,
         serializer_id: SerializerId,
         manifest: &Manifest,
     ) -> Result<&dyn DynCodec>;
 
+    /// Deserializes a wire message into a dynamic Rust message value.
     fn deserialize_dyn(&self, message: SerializedMessage) -> Result<Box<dyn Any + Send>>;
 }
 
+/// In-memory serialization registry.
+///
+/// `Registry` is the default registry implementation for local tests and
+/// runtime construction. It stores codecs by Rust `TypeId` for outbound sends
+/// and by `(serializer_id, manifest)` for inbound wire payloads.
 #[derive(Default)]
 pub struct Registry {
     by_type: HashMap<TypeId, Arc<dyn DynCodec>>,
@@ -35,10 +50,12 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// Creates an empty registry.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Serializes a typed remote message with its stable metadata.
     pub fn serialize<M>(&self, message: &M) -> Result<SerializedMessage>
     where
         M: RemoteMessage,
@@ -53,6 +70,10 @@ impl Registry {
         ))
     }
 
+    /// Deserializes a wire message as the expected typed message.
+    ///
+    /// The manifest is checked before payload decode so a registered codec for
+    /// another message type is not accidentally used as the typed result.
     pub fn deserialize<M>(&self, message: SerializedMessage) -> Result<M>
     where
         M: RemoteMessage,
@@ -73,6 +94,7 @@ impl Registry {
             })
     }
 
+    /// Deserializes a wire message to the dynamic inbound boundary.
     pub fn deserialize_dyn(&self, message: SerializedMessage) -> Result<Box<dyn Any + Send>> {
         let codec = self.codec_for_wire(message.serializer_id, &message.manifest)?;
         codec.decode_dyn(message.payload, message.version)

@@ -1,5 +1,10 @@
 use crate::{Result, SerializationError};
 
+/// Stable actor-reference data carried in serialized remote envelopes.
+///
+/// The full path string remains the canonical value, while parsed protocol,
+/// system, host, and port fields let remote and cluster code inspect address
+/// parts without reparsing the path at every boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ActorRefWireData {
     path: String,
@@ -10,6 +15,10 @@ pub struct ActorRefWireData {
 }
 
 impl ActorRefWireData {
+    /// Parses a canonical actor-ref path into wire data.
+    ///
+    /// Addressed paths must include both host and port. Local paths still use
+    /// the same `protocol://system/...` shape but omit the `@host:port` part.
     pub fn new(path: impl Into<String>) -> Result<Self> {
         let path = path.into();
         let (protocol, system, host, port) = parse_actor_ref_path(&path)?;
@@ -22,6 +31,9 @@ impl ActorRefWireData {
         })
     }
 
+    /// Builds wire data from already separated path and address parts.
+    ///
+    /// `host` and `port` must either both be present or both be absent.
     pub fn from_parts(
         protocol: impl Into<String>,
         system: impl Into<String>,
@@ -47,31 +59,43 @@ impl ActorRefWireData {
         })
     }
 
+    /// Returns the canonical actor-ref path string.
     pub fn path(&self) -> &str {
         &self.path
     }
 
+    /// Returns the actor path protocol, such as `kairo`.
     pub fn protocol(&self) -> &str {
         &self.protocol
     }
 
+    /// Returns the actor-system name from the path authority.
     pub fn system(&self) -> &str {
         &self.system
     }
 
+    /// Returns the remote host when the path is addressed.
     pub fn host(&self) -> Option<&str> {
         self.host.as_deref()
     }
 
+    /// Returns the remote port when the path is addressed.
     pub fn port(&self) -> Option<u16> {
         self.port
     }
 }
 
+/// Runtime bridge between typed actor refs and stable wire data.
+///
+/// Actor crates and remote providers implement this trait so serialization
+/// stays independent from the concrete actor-reference type.
 pub trait ActorRefResolver {
+    /// Concrete actor-reference type used by the owner.
     type Ref;
 
+    /// Converts a concrete actor ref into stable wire data.
     fn actor_ref_to_wire_data(&self, actor_ref: &Self::Ref) -> Result<ActorRefWireData>;
+    /// Resolves stable wire data back into a concrete actor ref.
     fn resolve_actor_ref(&self, wire: &ActorRefWireData) -> Result<Self::Ref>;
 }
 

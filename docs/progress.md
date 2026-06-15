@@ -492,6 +492,10 @@ Implemented:
 - `RemoteMessage`, `MessageCodec<M>`, `DynCodec`, `SerializedMessage`, and
   `RemoteEnvelope` define the stable metadata and payload boundary for remote
   messages.
+- `RemoteMessage`, `SerializerId`, `MessageCodec`, `DynCodec`, `Registry`,
+  `SerializationRegistry`, `SerializedMessage`, `RemoteEnvelope`,
+  `ActorRefWireData`, `ActorRefResolver`, and `Manifest` now document their
+  stable wire-contract roles at the type, field, and method level.
 - `RemoteInbound::with_diagnostics` can attach a backend-neutral
   `RemoteInboundDiagnostics` sink that records structured inbound
   serialization failures and delivery failures with recipient, optional sender,

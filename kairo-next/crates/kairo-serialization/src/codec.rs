@@ -5,26 +5,48 @@ use bytes::Bytes;
 
 use crate::{Manifest, RemoteMessage, Result, SerializationError, SerializerId};
 
+/// Typed codec for one [`RemoteMessage`] protocol.
+///
+/// A codec owns the concrete payload format for `M`. The framework supplies
+/// stable metadata through `RemoteMessage`; the codec supplies the serializer
+/// id plus encode/decode logic for the payload bytes.
 pub trait MessageCodec<M>: Send + Sync + 'static
 where
     M: RemoteMessage,
 {
+    /// Serializer id written into outbound wire payloads.
     fn serializer_id(&self) -> SerializerId;
 
+    /// Encodes a typed message into payload bytes.
     fn encode(&self, message: &M) -> Result<Bytes>;
 
+    /// Decodes payload bytes for the supplied wire version.
+    ///
+    /// `version` is the value read from [`crate::SerializedMessage`], not
+    /// necessarily the current `M::VERSION`, so codecs can support rolling
+    /// compatibility.
     fn decode(&self, payload: Bytes, version: u16) -> Result<M>;
 }
 
+/// Type-erased codec boundary used by registries and remote inbound paths.
+///
+/// User code normally implements [`MessageCodec`]. The registry wraps that
+/// typed codec behind `DynCodec` so it can resolve payloads by wire metadata
+/// before downcasting back to the expected message type.
 pub trait DynCodec: Send + Sync + 'static {
+    /// Serializer id owned by this codec.
     fn serializer_id(&self) -> SerializerId;
 
+    /// Stable manifest owned by this codec.
     fn manifest(&self) -> &'static str;
 
+    /// Rust type id for the typed message handled by this codec.
     fn message_type_id(&self) -> TypeId;
 
+    /// Encodes a dynamic value after verifying it has the expected Rust type.
     fn encode_dyn(&self, value: &dyn Any) -> Result<Bytes>;
 
+    /// Decodes payload bytes into an owned dynamic message value.
     fn decode_dyn(&self, payload: Bytes, version: u16) -> Result<Box<dyn Any + Send>>;
 }
 
