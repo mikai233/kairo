@@ -43,7 +43,7 @@ pub fn decode_remote_envelope_frame(bytes: Bytes) -> Result<RemoteEnvelope> {
         None
     };
     let serializer_id = reader.read_u32()?;
-    let manifest = Manifest::new(reader.read_string()?);
+    let manifest = Manifest::try_new(reader.read_string()?)?;
     let version = reader.read_u16()?;
     let payload = reader.read_bytes()?;
     reader.ensure_finished()?;
@@ -174,6 +174,26 @@ mod tests {
         assert!(matches!(
             error,
             RemoteError::Serialization(SerializationError::InvalidActorRefPath(_))
+        ));
+    }
+
+    #[test]
+    fn remote_envelope_frame_rejects_empty_manifest_metadata() {
+        let mut writer = WireWriter::new();
+        writer.write_u64(REMOTE_ENVELOPE_FRAME_MAGIC);
+        writer.write_u16(REMOTE_ENVELOPE_FRAME_VERSION);
+        write_actor_ref(&mut writer, &envelope().recipient).unwrap();
+        writer.write_bool(false);
+        writer.write_u32(42);
+        writer.write_string("   ").unwrap();
+        writer.write_u16(7);
+        writer.write_bytes(&Bytes::from_static(&[1, 2, 3])).unwrap();
+
+        let error = decode_remote_envelope_frame(writer.finish()).unwrap_err();
+
+        assert!(matches!(
+            error,
+            RemoteError::Serialization(SerializationError::InvalidManifest(_))
         ));
     }
 

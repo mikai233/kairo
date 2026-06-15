@@ -671,6 +671,10 @@ Implemented:
   version, and payload bytes using explicit big-endian fields and rejects
   invalid frame magic, unsupported frame versions, and truncated payloads before
   a concrete TCP transport is introduced.
+- Remote envelope frame decoding now validates the message manifest as
+  non-empty stable metadata before constructing `SerializedMessage`, so
+  whitespace-only manifests fail at the frame boundary instead of falling
+  through as missing codec lookups.
 - `kairo-remote` now has a focused transport bridge module that adapts
   `RemoteOutbound` envelope sends to framed byte sinks and adapts framed bytes
   back into the typed `RemoteInbound` delivery pipeline while preserving
