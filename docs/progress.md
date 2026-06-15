@@ -2688,6 +2688,9 @@ Implemented:
   example as a facade configuration path for both actor dispatcher settings
   and current `[cluster.sharding]` timing/remember-entity helpers, keeping
   user-facing docs aligned with the TOML loader and example smoke coverage.
+- `docs/migration.md` now points users at the runnable `ask_pipe_to_self`
+  example for local `Context::ask` and `Context::pipe_to_self` workflows,
+  keeping M12 example guidance aligned with existing smoke coverage.
 - `kairo-next/README.md` now describes the configured-counter example as a
   layered `kairo.toml` plus `kairo.local.toml` workflow and lists the
   diagnostics, remote transport, sharding, and allocation settings it validates.
@@ -2738,6 +2741,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-examples ask_pipe_to_self_example_smoke --test examples_smoke --all-features
+cargo test -p kairo-examples --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-testkit manual_time
 cargo test -p kairo-actor ask_
 cargo test -p kairo-actor restart_supervision_rebuilds_actor_state_and_keeps_ref_path

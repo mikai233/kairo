@@ -70,6 +70,14 @@ adapters. Do not introduce `AsyncActor` for the initial rewrite model.
 Local-only messages do not need serialization metadata. Add remote metadata only
 when a message crosses a remote boundary.
 
+The runnable `ask_pipe_to_self` example shows local request/reply and external
+work returning through the actor mailbox without borrowing actor state across
+an await point:
+
+```bash
+cargo run -p kairo-examples --example ask_pipe_to_self
+```
+
 ## Actor-System Extensions
 
 Use extensions for shared actor-system services that must be created once per
