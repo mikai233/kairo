@@ -192,6 +192,119 @@ fn crdt_codecs_round_trip_orset_string_delta_group() {
 }
 
 #[test]
+fn crdt_codecs_round_trip_ormap_string_gset_full_state() {
+    let data = ORMap::new()
+        .updated(replica("b"), "users".to_string(), GSet::new(), |set| {
+            set.add("bob".to_string())
+        })
+        .updated(replica("a"), "users".to_string(), GSet::new(), |set| {
+            set.add("alice".to_string())
+        })
+        .updated(replica("a"), "rooms".to_string(), GSet::new(), |set| {
+            set.add("green".to_string())
+        })
+        .reset_delta();
+
+    let serialized = ORMapStringGSetCodec.serialize(&data).unwrap();
+    let serialized_again = ORMapStringGSetCodec.serialize(&data).unwrap();
+
+    assert_eq!(serialized.manifest(), crate::ORMAP_STRING_GSET_MANIFEST);
+    assert_eq!(serialized.payload(), serialized_again.payload());
+
+    let decoded = ORMapStringGSetCodec.deserialize(serialized).unwrap();
+    assert_eq!(decoded.keys(), data.keys());
+    assert_eq!(
+        *decoded.get(&"users".to_string()).unwrap().elements(),
+        BTreeSet::from(["alice".to_string(), "bob".to_string()])
+    );
+    assert_eq!(
+        *decoded.get(&"rooms".to_string()).unwrap().elements(),
+        BTreeSet::from(["green".to_string()])
+    );
+}
+
+#[test]
+fn crdt_codecs_round_trip_ormap_string_gset_put_update_remove_and_group_deltas() {
+    let users = "users".to_string();
+    let rooms = "rooms".to_string();
+    let base = ORMap::new()
+        .updated(replica("a"), users.clone(), GSet::new(), |set| {
+            set.add("alice".to_string())
+        })
+        .reset_delta();
+    let put_delta = ORMap::new()
+        .put(
+            replica("a"),
+            rooms.clone(),
+            GSet::new().add("green".to_string()),
+        )
+        .delta()
+        .unwrap();
+    let update_delta = base
+        .updated(replica("b"), users.clone(), GSet::new(), |set| {
+            set.add("bob".to_string())
+        })
+        .delta()
+        .unwrap();
+    let remove_delta = base.remove(replica("c"), &users).delta().unwrap();
+    let group_delta = put_delta.clone().merge(&update_delta).merge(&remove_delta);
+
+    for delta in [&put_delta, &update_delta, &remove_delta, &group_delta] {
+        let serialized = ORMapStringGSetDeltaCodec.serialize(delta).unwrap();
+        let serialized_again = ORMapStringGSetDeltaCodec.serialize(delta).unwrap();
+
+        assert_eq!(
+            serialized.manifest(),
+            crate::ORMAP_STRING_GSET_DELTA_MANIFEST
+        );
+        assert_eq!(serialized.payload(), serialized_again.payload());
+    }
+
+    let decoded_put = ORMapStringGSetDeltaCodec
+        .deserialize(ORMapStringGSetDeltaCodec.serialize(&put_delta).unwrap())
+        .unwrap();
+    assert_eq!(
+        *decoded_put
+            .zero()
+            .merge_delta(&decoded_put)
+            .get(&rooms)
+            .unwrap()
+            .elements(),
+        BTreeSet::from(["green".to_string()])
+    );
+
+    let decoded_update = ORMapStringGSetDeltaCodec
+        .deserialize(ORMapStringGSetDeltaCodec.serialize(&update_delta).unwrap())
+        .unwrap();
+    assert_eq!(
+        *base
+            .merge_delta(&decoded_update)
+            .get(&users)
+            .unwrap()
+            .elements(),
+        BTreeSet::from(["alice".to_string(), "bob".to_string()])
+    );
+
+    let decoded_remove = ORMapStringGSetDeltaCodec
+        .deserialize(ORMapStringGSetDeltaCodec.serialize(&remove_delta).unwrap())
+        .unwrap();
+    assert!(!base.merge_delta(&decoded_remove).contains_key(&users));
+
+    let decoded_group = ORMapStringGSetDeltaCodec
+        .deserialize(ORMapStringGSetDeltaCodec.serialize(&group_delta).unwrap())
+        .unwrap();
+    let expected_merged = base.merge_delta(&group_delta);
+    let merged = base.merge_delta(&decoded_group);
+    assert_eq!(merged.keys(), expected_merged.keys());
+    for key in expected_merged.keys() {
+        assert_eq!(
+            merged.get(&key).unwrap().elements(),
+            expected_merged.get(&key).unwrap().elements()
+        );
+    }
+}
+
+#[test]
 fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
     let data = GCounter::new().increment(replica("a"), 1).unwrap();
     let serialized = GCounterCodec.serialize(&data).unwrap();
@@ -250,6 +363,45 @@ fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
             .to_string()
             .contains("unsupported")
     );
+
+    let ormap_delta_wrong_version = crate::SerializedCrdt::new(
+        crate::ORMAP_STRING_GSET_DELTA_MANIFEST,
+        crate::CRDT_CODEC_VERSION + 1,
+        ORMapStringGSetDeltaCodec
+            .serialize(
+                &ORMap::new()
+                    .put(
+                        replica("a"),
+                        "rooms".to_string(),
+                        GSet::new().add("green".to_string()),
+                    )
+                    .delta()
+                    .unwrap(),
+            )
+            .unwrap()
+            .payload()
+            .clone(),
+    );
+    assert!(
+        ORMapStringGSetDeltaCodec
+            .deserialize(ormap_delta_wrong_version)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported")
+    );
+
+    let invalid_ormap_delta_tag = crate::SerializedCrdt::new(
+        crate::ORMAP_STRING_GSET_DELTA_MANIFEST,
+        crate::CRDT_CODEC_VERSION,
+        Bytes::from_static(&[0xff]),
+    );
+    assert!(
+        ORMapStringGSetDeltaCodec
+            .deserialize(invalid_ormap_delta_tag)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown ORMap delta operation tag")
+    );
 }
 
 #[test]
@@ -278,6 +430,19 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
         .reset_delta();
     let or_set_delta = ORSet::new()
         .add(replica("a"), "delta".to_string())
+        .delta()
+        .unwrap();
+    let or_map = ORMap::new()
+        .updated(replica("a"), "key".to_string(), GSet::new(), |set| {
+            set.add("value".to_string())
+        })
+        .reset_delta();
+    let or_map_delta = ORMap::new()
+        .put(
+            replica("a"),
+            "key".to_string(),
+            GSet::new().add("value".to_string()),
+        )
         .delta()
         .unwrap();
 
@@ -326,5 +491,20 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
             ORSetStringDeltaCodec.serialize(&or_set_delta).unwrap(),
         ))
         .expect_err("trailing ORSet delta payload byte should fail");
+    assert!(error.to_string().contains("trailing byte"));
+
+    let error = ORMapStringGSetCodec
+        .deserialize(with_trailing_byte(
+            ORMapStringGSetCodec.serialize(&or_map).unwrap(),
+        ))
+        .err()
+        .expect("trailing ORMap payload byte should fail");
+    assert!(error.to_string().contains("trailing byte"));
+
+    let error = ORMapStringGSetDeltaCodec
+        .deserialize(with_trailing_byte(
+            ORMapStringGSetDeltaCodec.serialize(&or_map_delta).unwrap(),
+        ))
+        .expect_err("trailing ORMap delta payload byte should fail");
     assert!(error.to_string().contains("trailing byte"));
 }

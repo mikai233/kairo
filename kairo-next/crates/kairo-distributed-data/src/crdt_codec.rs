@@ -4,7 +4,8 @@ use bytes::Bytes;
 use kairo_serialization::{SerializationError, WireReader, WireWriter};
 
 use crate::{
-    GCounter, GSet, LWWRegister, ORSet, ORSetDelta, ORSetRemoveDelta, PNCounter, ReplicaId,
+    GCounter, GSet, LWWRegister, ORMap, ORMapDelta, ORSet, ORSetDelta, ORSetRemoveDelta, PNCounter,
+    ReplicaId,
 };
 
 pub const GSET_STRING_MANIFEST: &str = "kairo.ddata.gset-string";
@@ -14,11 +15,17 @@ pub const PNCOUNTER_MANIFEST: &str = "kairo.ddata.pncounter";
 pub const LWW_REGISTER_STRING_MANIFEST: &str = "kairo.ddata.lww-register-string";
 pub const ORSET_STRING_MANIFEST: &str = "kairo.ddata.orset-string";
 pub const ORSET_STRING_DELTA_MANIFEST: &str = "kairo.ddata.orset-string-delta";
+pub const ORMAP_STRING_GSET_MANIFEST: &str = "kairo.ddata.ormap-string-gset";
+pub const ORMAP_STRING_GSET_DELTA_MANIFEST: &str = "kairo.ddata.ormap-string-gset-delta";
 pub const CRDT_CODEC_VERSION: u16 = 1;
 
 const ORSET_DELTA_ADD_TAG: u8 = 1;
 const ORSET_DELTA_REMOVE_TAG: u8 = 2;
 const ORSET_DELTA_GROUP_TAG: u8 = 3;
+const ORMAP_DELTA_PUT_TAG: u8 = 1;
+const ORMAP_DELTA_UPDATE_TAG: u8 = 2;
+const ORMAP_DELTA_REMOVE_TAG: u8 = 3;
+const ORMAP_DELTA_GROUP_TAG: u8 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SerializedCrdt {
@@ -312,6 +319,78 @@ impl CrdtDataCodec<ORSetDelta<String>> for ORSetStringDeltaCodec {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ORMapStringGSetCodec;
+
+impl CrdtDataCodec<ORMap<String, GSet<String>>> for ORMapStringGSetCodec {
+    fn manifest(&self) -> &'static str {
+        ORMAP_STRING_GSET_MANIFEST
+    }
+
+    fn encode_payload(
+        &self,
+        data: &ORMap<String, GSet<String>>,
+    ) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_bytes(&ORSetStringCodec.encode_payload(data.key_set())?)?;
+        writer.write_u64(len_to_u64(data.entries().len())?);
+        for (key, value) in data.entries() {
+            writer.write_string(key)?;
+            writer.write_bytes(&GSetStringCodec.encode_payload(value)?)?;
+        }
+        Ok(writer.finish())
+    }
+
+    fn decode_payload(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<ORMap<String, GSet<String>>> {
+        ensure_version(self.manifest(), version)?;
+        let mut reader = WireReader::new(&payload);
+        let keys = ORSetStringCodec.decode_payload(reader.read_bytes()?, CRDT_CODEC_VERSION)?;
+        let len = reader.read_u64()?;
+        let mut values = BTreeMap::new();
+        for _ in 0..len {
+            let key = reader.read_string()?;
+            let value = GSetStringCodec.decode_payload(reader.read_bytes()?, CRDT_CODEC_VERSION)?;
+            values.insert(key, value);
+        }
+        reader.ensure_finished()?;
+        Ok(ORMap::from_wire_state(keys, values))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ORMapStringGSetDeltaCodec;
+
+impl CrdtDataCodec<ORMapDelta<String, GSet<String>>> for ORMapStringGSetDeltaCodec {
+    fn manifest(&self) -> &'static str {
+        ORMAP_STRING_GSET_DELTA_MANIFEST
+    }
+
+    fn encode_payload(
+        &self,
+        data: &ORMapDelta<String, GSet<String>>,
+    ) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        write_ormap_delta(&mut writer, data)?;
+        Ok(writer.finish())
+    }
+
+    fn decode_payload(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<ORMapDelta<String, GSet<String>>> {
+        ensure_version(self.manifest(), version)?;
+        let mut reader = WireReader::new(&payload);
+        let delta = read_ormap_delta(&mut reader)?;
+        reader.ensure_finished()?;
+        Ok(delta)
+    }
+}
+
 fn ensure_version(manifest: &str, version: u16) -> kairo_serialization::Result<()> {
     if version == CRDT_CODEC_VERSION {
         Ok(())
@@ -331,6 +410,85 @@ fn u64_to_len(len: u64) -> kairo_serialization::Result<usize> {
     usize::try_from(len).map_err(|_| {
         SerializationError::Message("CRDT collection length exceeds usize".to_string())
     })
+}
+
+fn write_ormap_delta(
+    writer: &mut WireWriter,
+    delta: &ORMapDelta<String, GSet<String>>,
+) -> kairo_serialization::Result<()> {
+    match delta {
+        ORMapDelta::Put { keys, key, value } => {
+            writer.write_u8(ORMAP_DELTA_PUT_TAG);
+            writer.write_bytes(&ORSetStringDeltaCodec.encode_payload(keys)?)?;
+            writer.write_string(key)?;
+            writer.write_bytes(&GSetStringCodec.encode_payload(value)?)?;
+        }
+        ORMapDelta::Update { keys, values } => {
+            writer.write_u8(ORMAP_DELTA_UPDATE_TAG);
+            writer.write_bytes(&ORSetStringDeltaCodec.encode_payload(keys)?)?;
+            writer.write_u64(len_to_u64(values.len())?);
+            for (key, value_delta) in values {
+                writer.write_string(key)?;
+                writer.write_bytes(&GSetStringDeltaCodec.encode_payload(value_delta)?)?;
+            }
+        }
+        ORMapDelta::Remove { keys } => {
+            writer.write_u8(ORMAP_DELTA_REMOVE_TAG);
+            writer.write_bytes(&ORSetStringDeltaCodec.encode_payload(keys)?)?;
+        }
+        ORMapDelta::Group(ops) => {
+            writer.write_u8(ORMAP_DELTA_GROUP_TAG);
+            writer.write_u64(len_to_u64(ops.len())?);
+            for op in ops {
+                write_ormap_delta(writer, op)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_ormap_delta(
+    reader: &mut WireReader<'_>,
+) -> kairo_serialization::Result<ORMapDelta<String, GSet<String>>> {
+    match reader.read_u8()? {
+        ORMAP_DELTA_PUT_TAG => {
+            let keys =
+                ORSetStringDeltaCodec.decode_payload(reader.read_bytes()?, CRDT_CODEC_VERSION)?;
+            let key = reader.read_string()?;
+            let value = GSetStringCodec.decode_payload(reader.read_bytes()?, CRDT_CODEC_VERSION)?;
+            Ok(ORMapDelta::Put { keys, key, value })
+        }
+        ORMAP_DELTA_UPDATE_TAG => {
+            let keys =
+                ORSetStringDeltaCodec.decode_payload(reader.read_bytes()?, CRDT_CODEC_VERSION)?;
+            let len = reader.read_u64()?;
+            let mut values = BTreeMap::new();
+            for _ in 0..len {
+                values.insert(
+                    reader.read_string()?,
+                    GSetStringDeltaCodec
+                        .decode_payload(reader.read_bytes()?, CRDT_CODEC_VERSION)?,
+                );
+            }
+            Ok(ORMapDelta::Update { keys, values })
+        }
+        ORMAP_DELTA_REMOVE_TAG => {
+            let keys =
+                ORSetStringDeltaCodec.decode_payload(reader.read_bytes()?, CRDT_CODEC_VERSION)?;
+            Ok(ORMapDelta::Remove { keys })
+        }
+        ORMAP_DELTA_GROUP_TAG => {
+            let len = reader.read_u64()?;
+            let mut ops = Vec::with_capacity(u64_to_len(len)?);
+            for _ in 0..len {
+                ops.push(read_ormap_delta(reader)?);
+            }
+            Ok(ORMapDelta::Group(ops))
+        }
+        other => Err(SerializationError::Message(format!(
+            "unknown ORMap delta operation tag {other}"
+        ))),
+    }
 }
 
 fn write_orset_delta(

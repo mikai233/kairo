@@ -166,9 +166,10 @@ pub use consistency::{ReadConsistency, WriteConsistency};
 pub use crdt_codec::{
     CRDT_CODEC_VERSION, CrdtDataCodec, GCOUNTER_MANIFEST, GCounterCodec,
     GSET_STRING_DELTA_MANIFEST, GSET_STRING_MANIFEST, GSetStringCodec, GSetStringDeltaCodec,
-    LWW_REGISTER_STRING_MANIFEST, LWWRegisterStringCodec, ORSET_STRING_DELTA_MANIFEST,
-    ORSET_STRING_MANIFEST, ORSetStringCodec, ORSetStringDeltaCodec, PNCOUNTER_MANIFEST,
-    PNCounterCodec, SerializedCrdt,
+    LWW_REGISTER_STRING_MANIFEST, LWWRegisterStringCodec, ORMAP_STRING_GSET_DELTA_MANIFEST,
+    ORMAP_STRING_GSET_MANIFEST, ORMapStringGSetCodec, ORMapStringGSetDeltaCodec,
+    ORSET_STRING_DELTA_MANIFEST, ORSET_STRING_MANIFEST, ORSetStringCodec, ORSetStringDeltaCodec,
+    PNCOUNTER_MANIFEST, PNCounterCodec, SerializedCrdt,
 };
 pub use data::{DeltaReplicatedData, RemovedNodePruning, ReplicatedData, ReplicatedDelta};
 pub use delta::{DeltaPropagation, DeltaPropagationEntry, DeltaPropagationLog};

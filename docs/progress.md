@@ -1011,9 +1011,14 @@ Implemented:
 - `kairo-distributed-data` now has a stable built-in string `GSet` delta codec
   with a distinct delta manifest, so add-only CRDT delta propagation does not
   reuse the full-state `GSet` manifest on the wire.
+- `kairo-distributed-data` now has stable built-in `ORMap<String,
+  GSet<String>>` full-state and delta codecs with distinct manifests, explicit
+  put/update/remove/group operation tags, nested ORSet key causality, and
+  nested GSet full-state or delta payloads for replicated map propagation.
 - Built-in distributed-data CRDT payload codecs now reject unread trailing
   bytes after decoding `GSet` full-state/delta, `GCounter`, `PNCounter`,
-  `LWWRegister`, and `ORSet` full-state/delta wire values.
+  `LWWRegister`, `ORSet` full-state/delta, and `ORMap<String, GSet<String>>`
+  full-state/delta wire values.
 - `kairo-distributed-data::DeltaPropagationLog` tracks per-key delta sequence
   numbers, merges unsent deltas per target, advances sequence numbers for
   no-payload updates, selects remote replicas by Pekko-style round-robin

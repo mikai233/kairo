@@ -37,6 +37,18 @@ where
         &self.values
     }
 
+    pub(crate) fn from_wire_state(keys: ORSet<K>, values: BTreeMap<K, V>) -> Self {
+        Self {
+            keys,
+            values,
+            delta: None,
+        }
+    }
+
+    pub(crate) fn key_set(&self) -> &ORSet<K> {
+        &self.keys
+    }
+
     pub fn get(&self, key: &K) -> Option<&V> {
         self.values.get(key)
     }
