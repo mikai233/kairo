@@ -338,6 +338,18 @@ impl ManualScheduler {
             .count()
     }
 
+    /// Returns the earliest active scheduled deadline on the manual clock.
+    pub fn next_deadline(&self) -> Option<Duration> {
+        self.inner
+            .lock()
+            .expect("manual scheduler poisoned")
+            .scheduled
+            .iter()
+            .filter(|scheduled| scheduled.cancellable.is_active())
+            .map(|scheduled| scheduled.deadline)
+            .min()
+    }
+
     pub(crate) fn into_scheduler(self) -> Scheduler {
         Scheduler {
             backend: Arc::new(self),
@@ -388,6 +400,7 @@ impl fmt::Debug for ManualScheduler {
         f.debug_struct("ManualScheduler")
             .field("now", &self.now())
             .field("pending_count", &self.pending_count())
+            .field("next_deadline", &self.next_deadline())
             .finish()
     }
 }

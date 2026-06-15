@@ -412,6 +412,9 @@ Implemented:
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.
+- `ManualTime::next_deadline` and `advance_to_next` expose the next active
+  scheduled deadline and jump the manual clock to it, skipping cancelled work
+  so deterministic tests do not need to hard-code exact timer deltas.
 - `ManualTime::expect_no_msg_for` advances manual time and verifies probes
   remain quiet after a short dispatcher settle window, including heterogeneous
   `TestProbe<M>` protocol types through the `NoMessageProbe` boundary.
@@ -2767,6 +2770,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-testkit manual_time_advance_to_next --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-actor scheduler --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-remote --doc --all-features
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check

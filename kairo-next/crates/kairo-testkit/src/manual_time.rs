@@ -57,6 +57,11 @@ impl ManualTime {
         self.scheduler.now()
     }
 
+    /// Returns the next active scheduled deadline on the manual clock.
+    pub fn next_deadline(&self) -> Option<Duration> {
+        self.scheduler.next_deadline()
+    }
+
     /// Schedules one message to be sent to an actor ref after `delay`.
     ///
     /// The message is delivered when the manual clock reaches the due time and
@@ -77,6 +82,17 @@ impl ManualTime {
     /// Moves the manual clock forward and runs all work due at or before the new time.
     pub fn advance(&self, amount: Duration) {
         self.scheduler.advance(amount);
+    }
+
+    /// Advances to the next active scheduled deadline and runs due work.
+    ///
+    /// Returns `false` when no active scheduled work exists.
+    pub fn advance_to_next(&self) -> bool {
+        let Some(deadline) = self.next_deadline() else {
+            return false;
+        };
+        self.advance(deadline.saturating_sub(self.now()));
+        true
     }
 
     /// Advances time and verifies that each supplied probe stays quiet.

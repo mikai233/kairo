@@ -29,6 +29,59 @@ fn manual_time_delivers_due_messages_in_advance_order() {
 }
 
 #[test]
+fn manual_time_advance_to_next_runs_earliest_active_deadline() {
+    let kit = ActorSystemTestKit::new("manual-time-advance-to-next").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let time = ManualTime::default();
+
+    time.schedule_once(Duration::from_secs(2), probe.actor_ref(), "second");
+    time.schedule_once(Duration::from_secs(1), probe.actor_ref(), "first");
+
+    assert_eq!(time.next_deadline(), Some(Duration::from_secs(1)));
+    assert!(time.advance_to_next());
+    assert_eq!(time.now(), Duration::from_secs(1));
+    assert_eq!(
+        probe.expect_msg(Duration::from_millis(50)).unwrap(),
+        "first"
+    );
+    assert_eq!(time.next_deadline(), Some(Duration::from_secs(2)));
+
+    assert!(time.advance_to_next());
+    assert_eq!(time.now(), Duration::from_secs(2));
+    assert_eq!(
+        probe.expect_msg(Duration::from_millis(50)).unwrap(),
+        "second"
+    );
+    assert_eq!(time.pending_count(), 0);
+    assert_eq!(time.next_deadline(), None);
+    assert!(!time.advance_to_next());
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn manual_time_advance_to_next_skips_cancelled_work() {
+    let kit = ActorSystemTestKit::new("manual-time-advance-to-next-cancelled")
+        .expect("system should build");
+    let probe = kit.create_probe::<u8>("probe").expect("probe should spawn");
+    let time = ManualTime::default();
+
+    let cancelled = time.schedule_once(Duration::from_secs(1), probe.actor_ref(), 1);
+    time.schedule_once(Duration::from_secs(2), probe.actor_ref(), 2);
+
+    assert!(cancelled.cancel());
+    assert_eq!(time.next_deadline(), Some(Duration::from_secs(2)));
+    assert!(time.advance_to_next());
+    assert_eq!(time.now(), Duration::from_secs(2));
+    assert_eq!(probe.expect_msg(Duration::from_millis(50)).unwrap(), 2);
+    assert_eq!(time.pending_count(), 0);
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn manual_time_cancel_suppresses_delivery() {
     let kit = ActorSystemTestKit::new("manual-time-cancel").expect("system should build");
     let probe = kit.create_probe::<u8>("probe").expect("probe should spawn");
