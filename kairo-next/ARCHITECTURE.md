@@ -20,8 +20,7 @@ must live under `kairo-next/`.
 
 ## Pekko Source Map
 
-The local Pekko checkout used for this design is
-`/Users/mikai/IdeaProjects/pekko`.
+The local Pekko checkout used for this design is `~/IdeaProjects/pekko`.
 
 - Typed public surface: `actor-typed/.../ActorRef.scala`,
   `Behavior.scala`, `ActorSystem.scala`, `Receptionist.scala`.
@@ -45,7 +44,7 @@ Reference discipline:
 
 - Before implementing behavior-sensitive actor, remote, cluster, distributed
   data, sharding, or cluster-tools logic, inspect the matching Pekko source in
-  `/Users/mikai/IdeaProjects/pekko`.
+  `~/IdeaProjects/pekko`.
 - Preserve externally observable semantics, state transitions, ordering rules,
   failure behavior, and wire-compatibility concepts.
 - Do not translate Scala inheritance, implicit APIs, builders, or DSL shape into

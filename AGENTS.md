@@ -32,7 +32,7 @@ implementation work belongs under `kairo-next/`.
 
 - Do not revive the old `crates/` workspace as active implementation. It is
   reference code only.
-- Use `/Users/mikai/IdeaProjects/pekko` as the local semantic reference for
+- Use `~/IdeaProjects/pekko` as the local semantic reference for
   Pekko/Akka behavior before implementing actor, remote, cluster, distributed
   data, sharding, or cluster-tools logic.
 - Preserve Pekko semantics where they define observable behavior, but do not
@@ -87,7 +87,7 @@ the crate boundary and architecture documents.
 ## Pekko Reference Discipline
 
 When a task touches behavior already solved by Pekko, inspect the relevant
-local files under `/Users/mikai/IdeaProjects/pekko` first.
+local files under `~/IdeaProjects/pekko` first.
 
 Default reference areas:
 
