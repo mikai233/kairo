@@ -337,6 +337,9 @@ Implemented:
   at the runtime boundary where possible and converted into explicit
   `ActorError` failures, so receive panics follow the configured supervision
   strategy and startup panics enter the startup supervision path.
+- Resume supervision now has focused receive-panic coverage: after the panic
+  boundary converts the panic into an actor failure, `SupervisorStrategy::Resume`
+  preserves actor state, keeps the ref live, and does not emit restart cleanup.
 - Actor signal handler errors now enter the configured supervision strategy
   instead of being discarded; death-watch signal failures can stop or restart
   the watching actor through the same local supervision boundary as receive
@@ -3608,5 +3611,11 @@ cargo test -p kairo next_sources_do_not_expose_dyn_message_primary_api --all-tar
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor resume_supervision_keeps_actor_state_after_failure --all-targets --all-features
+cargo test -p kairo-actor resume_supervision_keeps_actor_state_after_receive_panic --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```

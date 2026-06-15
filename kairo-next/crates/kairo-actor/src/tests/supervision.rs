@@ -383,6 +383,31 @@ fn resume_supervision_keeps_actor_state_after_failure() {
 }
 
 #[test]
+fn resume_supervision_keeps_actor_state_after_receive_panic() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (pre_restart_tx, pre_restart_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "supervised",
+            Props::new(move || SupervisionProbe {
+                value: 0,
+                restarted: Some(pre_restart_tx.clone()),
+            })
+            .with_supervisor(SupervisorStrategy::Resume),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor.tell(SupervisionMsg::Increment).unwrap();
+    actor.tell(SupervisionMsg::Panic).unwrap();
+    actor.tell(SupervisionMsg::Get(reply_tx)).unwrap();
+
+    assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+    assert!(pre_restart_rx.try_recv().is_err());
+    assert!(!actor.is_stopped());
+}
+
+#[test]
 fn restart_supervision_rebuilds_actor_state_and_keeps_ref_path() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (restarted_tx, restarted_rx) = mpsc::channel();
