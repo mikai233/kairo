@@ -393,6 +393,9 @@ Implemented:
 - `kairo-testkit::within` and `TestProbe::within` now provide a Rust-shaped
   shared-deadline scope with explicit remaining-time access for composing
   multiple probe assertions under one timeout.
+- `Within::await_assert` retries result-returning polling assertions against
+  the surrounding shared deadline, so nested probe and state assertions do not
+  accidentally receive fresh independent timeouts.
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.
@@ -3221,5 +3224,11 @@ cargo test -p kairo-serialization typed_deserialize_rejects_unexpected_manifest_
 cargo test -p kairo-serialization --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit within --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```

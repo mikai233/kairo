@@ -25,7 +25,8 @@
 //! - [`TestProbe::fish_for_message`] classifies incoming messages with
 //!   [`FishingOutcome`].
 //! - [`within`] runs a block against one shared deadline and exposes
-//!   [`Within::remaining`] for nested probe assertions.
+//!   [`Within::remaining`] for nested probe assertions; [`Within::await_assert`]
+//!   retries polling assertions against that same deadline.
 //! - [`await_assert`] retries result-returning assertions without relying on
 //!   panic recovery.
 //! - [`ManualTime`] drives systems built with the manual scheduler backend.

@@ -37,6 +37,48 @@ fn within_reports_elapsed_block() {
 }
 
 #[test]
+fn within_scoped_await_assert_retries_until_success() {
+    let mut attempts = 0;
+
+    let value = run_within(Duration::from_millis(50), |scope| {
+        scope.await_assert(Duration::from_millis(1), || {
+            attempts += 1;
+            if attempts < 3 {
+                Err("not ready")
+            } else {
+                Ok(attempts)
+            }
+        })
+    })
+    .expect("await assertion should complete inside within deadline");
+
+    assert_eq!(value, 3);
+    assert_eq!(attempts, 3);
+}
+
+#[test]
+fn within_scoped_await_assert_reports_last_error_under_shared_deadline() {
+    let mut attempts = 0;
+
+    let error = run_within(Duration::ZERO, |scope| {
+        scope.await_assert(Duration::from_millis(1), || {
+            attempts += 1;
+            Err::<(), _>("still waiting")
+        })
+    })
+    .expect_err("await assertion should time out under within deadline");
+
+    assert_eq!(attempts, 1);
+    match error {
+        WithinError::Assertion(error) => {
+            assert_eq!(error.attempts(), 1);
+            assert_eq!(error.last_error(), &"still waiting");
+        }
+        WithinError::Timeout { .. } => panic!("expected await assertion error"),
+    }
+}
+
+#[test]
 fn test_probe_within_uses_one_shared_deadline() {
     let kit = ActorSystemTestKit::new("test-probe-within").expect("system should build");
     let probe = kit

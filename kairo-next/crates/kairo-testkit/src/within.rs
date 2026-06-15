@@ -1,6 +1,8 @@
 use std::fmt::{self, Display, Formatter};
 use std::time::{Duration, Instant};
 
+use crate::assertions::{AwaitAssertError, await_assert};
+
 #[derive(Debug, Clone)]
 pub struct Within {
     timeout: Duration,
@@ -25,6 +27,17 @@ impl Within {
 
     pub fn is_elapsed(&self) -> bool {
         self.remaining().is_zero()
+    }
+
+    pub fn await_assert<T, E, F>(
+        &self,
+        interval: Duration,
+        assertion: F,
+    ) -> Result<T, AwaitAssertError<E>>
+    where
+        F: FnMut() -> Result<T, E>,
+    {
+        await_assert(self.remaining(), interval, assertion)
     }
 
     fn elapsed(&self) -> Duration {
