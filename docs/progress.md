@@ -2054,6 +2054,9 @@ Implemented:
 - The facade configuration module now explains the TOML-first but
   format-neutral settings boundary, and `parse_toml_str` has a
   compile-checked Rustdoc example for inline configuration text.
+- The top-level README now documents the facade configuration entry points for
+  single TOML files, layered TOML files, inline TOML text, and runtime builder
+  conversion through format-neutral `KairoSettings`.
 - The `kairo` facade prelude now re-exports common remote, distributed-data,
   sharding, cluster-tools, and testkit entry points behind their feature flags,
   with facade compile coverage that keeps the user entrypoint structured while

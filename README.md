@@ -92,6 +92,27 @@ EntityRef<String> -> ShardingEnvelope<String> -> ShardRegionActor
   -> EntityShardActor -> typed entity child
 ```
 
+## Configuration
+
+Kairo starts with TOML file loading while keeping runtime settings
+format-neutral. Applications can load one file, layer base and local overrides,
+or parse inline configuration text before converting the result into runtime
+builders:
+
+```rust
+use kairo::prelude::{load_toml_file, load_toml_files, parse_toml_str};
+
+let file_settings = load_toml_file("kairo.local.toml")?;
+let layered_settings = load_toml_files(["kairo.toml", "kairo.local.toml"])?;
+let inline_settings = parse_toml_str("[actor.dispatchers.default]\nthroughput = 8")?;
+
+let system = layered_settings.actor_system_builder("app")?.build()?;
+```
+
+`KairoSettings` stores actor, remote, cluster, sharding, cluster-tools, and
+diagnostics settings without exposing TOML-specific concepts, so future
+configuration loaders can project into the same runtime model.
+
 ## Validation
 
 Default full validation target:
