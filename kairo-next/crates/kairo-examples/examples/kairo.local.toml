@@ -1,6 +1,11 @@
 [actor.dispatchers.default]
 throughput = 2
 
+[remote.transport]
+canonical_hostname = "127.0.0.1"
+canonical_port = 25521
+connect_timeout = "750ms"
+
 [cluster.sharding]
 number_of_shards = 128
 remember_entities = true

@@ -10,6 +10,9 @@ use crate::counter::{CounterCmd, spawn_counter};
 pub struct ConfiguredCounterObservation {
     pub value: i64,
     pub dispatcher_throughput: usize,
+    pub remote_hostname: String,
+    pub remote_port: u16,
+    pub remote_connect_timeout: Option<Duration>,
     pub sharding_shards: u64,
     pub remember_entities: bool,
     pub sharding_allocation_absolute_limit: usize,
@@ -47,6 +50,9 @@ pub fn run_configured_counter(
         Ok(ConfiguredCounterObservation {
             value,
             dispatcher_throughput: system.dispatcher_settings().throughput(),
+            remote_hostname: settings.remote.transport.canonical_hostname.clone(),
+            remote_port: settings.remote.transport.canonical_port,
+            remote_connect_timeout: settings.remote.transport.connect_timeout,
             sharding_shards: settings.cluster.sharding.to_shard_count()?,
             remember_entities: settings.cluster.sharding.remember_entities_enabled(),
             sharding_allocation_absolute_limit: allocation_strategy.absolute_limit(),

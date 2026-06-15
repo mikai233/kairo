@@ -41,6 +41,12 @@ fn configured_counter_example_smoke() -> Result<(), Box<dyn std::error::Error>> 
 
     assert_eq!(observation.value, 11);
     assert_eq!(observation.dispatcher_throughput, 2);
+    assert_eq!(observation.remote_hostname, "127.0.0.1");
+    assert_eq!(observation.remote_port, 25521);
+    assert_eq!(
+        observation.remote_connect_timeout,
+        Some(Duration::from_millis(750))
+    );
     assert_eq!(observation.sharding_shards, 128);
     assert!(observation.remember_entities);
     assert_eq!(observation.sharding_allocation_absolute_limit, 4);
