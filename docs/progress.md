@@ -650,8 +650,8 @@ Implemented:
   actor-ref wire addresses aligned with Pekko's `system@host:port` remote
   address shape.
 - `ActorRefWireData::from_parts` now verifies that separated protocol, system,
-  host, and port metadata match the canonical actor-ref path, and remote frame
-  decoding rejects mismatched actor-ref metadata before delivery.
+  host, and port metadata match the canonical actor-ref path, keeping
+  actor-ref wire data internally consistent before delivery.
 - `RemoteEnvelope` carries actor-ref wire data for recipient and optional
   sender rather than unstructured path strings.
 - `kairo-remote`, `kairo-cluster`, `kairo-distributed-data`, and
@@ -710,10 +710,10 @@ Implemented:
   typed message, recipient wire data, and optional sender wire data to an
   explicit local delivery boundary.
 - `kairo-remote` now has a transport-neutral remote envelope frame codec that
-  encodes recipient/sender actor-ref wire data, serializer id, manifest,
-  version, and payload bytes using explicit big-endian fields and rejects
-  invalid frame magic, unsupported frame versions, and truncated payloads before
-  a concrete TCP transport is introduced.
+  wraps canonical `RemoteEnvelope::encode_wire` bytes with explicit frame
+  magic/version metadata and rejects invalid frame magic, unsupported frame
+  versions, and truncated payloads before a concrete TCP transport reads the
+  envelope.
 - Remote envelope frame decoding now validates the message manifest as
   non-empty stable metadata before constructing `SerializedMessage`, so
   whitespace-only manifests fail at the frame boundary instead of falling
@@ -2892,6 +2892,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-remote remote_envelope_frame --all-targets --all-features
+cargo test -p kairo-remote framed_ --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-testkit multi_node_testkit_can_advance_all_manual_time_nodes --all-targets --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 cargo test -p kairo-testkit --all-targets --all-features

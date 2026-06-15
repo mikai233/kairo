@@ -1,7 +1,5 @@
 use bytes::Bytes;
-use kairo_serialization::{
-    ActorRefWireData, Manifest, RemoteEnvelope, SerializedMessage, WireReader, WireWriter,
-};
+use kairo_serialization::{RemoteEnvelope, WireReader, WireWriter};
 
 use crate::{RemoteError, Result};
 
@@ -12,16 +10,9 @@ pub fn encode_remote_envelope_frame(envelope: &RemoteEnvelope) -> Result<Bytes> 
     let mut writer = WireWriter::new();
     writer.write_u64(REMOTE_ENVELOPE_FRAME_MAGIC);
     writer.write_u16(REMOTE_ENVELOPE_FRAME_VERSION);
-    write_actor_ref(&mut writer, &envelope.recipient)?;
-    writer.write_bool(envelope.sender.is_some());
-    if let Some(sender) = &envelope.sender {
-        write_actor_ref(&mut writer, sender)?;
-    }
-    writer.write_u32(envelope.message.serializer_id);
-    writer.write_string(envelope.message.manifest.as_str())?;
-    writer.write_u16(envelope.message.version);
-    writer.write_bytes(&envelope.message.payload)?;
-    Ok(writer.finish())
+    let mut frame = writer.finish().to_vec();
+    frame.extend_from_slice(&envelope.encode_wire()?);
+    Ok(Bytes::from(frame))
 }
 
 pub fn decode_remote_envelope_frame(bytes: Bytes) -> Result<RemoteEnvelope> {
@@ -36,46 +27,8 @@ pub fn decode_remote_envelope_frame(bytes: Bytes) -> Result<RemoteEnvelope> {
             "unsupported frame version {version}"
         )));
     }
-    let recipient = read_actor_ref(&mut reader)?;
-    let sender = if reader.read_bool()? {
-        Some(read_actor_ref(&mut reader)?)
-    } else {
-        None
-    };
-    let serializer_id = reader.read_u32()?;
-    let manifest = Manifest::try_new(reader.read_string()?)?;
-    let version = reader.read_u16()?;
-    let payload = reader.read_bytes()?;
-    reader.ensure_finished()?;
-    Ok(RemoteEnvelope::new(
-        recipient,
-        sender,
-        SerializedMessage::new(serializer_id, manifest, version, payload),
-    ))
-}
-
-fn write_actor_ref(writer: &mut WireWriter, wire: &ActorRefWireData) -> Result<()> {
-    writer.write_string(wire.path())?;
-    writer.write_string(wire.protocol())?;
-    writer.write_string(wire.system())?;
-    writer.write_optional_string(wire.host())?;
-    writer.write_optional_u64(wire.port().map(u64::from));
-    Ok(())
-}
-
-fn read_actor_ref(reader: &mut WireReader<'_>) -> Result<ActorRefWireData> {
-    let path = reader.read_string()?;
-    let protocol = reader.read_string()?;
-    let system = reader.read_string()?;
-    let host = reader.read_optional_string()?;
-    let port = reader
-        .read_optional_u64()?
-        .map(u16::try_from)
-        .transpose()
-        .map_err(|_| RemoteError::InvalidFrame("actor ref port exceeds u16".to_string()))?;
-    Ok(ActorRefWireData::from_parts(
-        protocol, system, host, port, path,
-    )?)
+    let envelope_bytes = Bytes::copy_from_slice(reader.read_exact(reader.remaining_len())?);
+    Ok(RemoteEnvelope::decode_wire(&envelope_bytes)?)
 }
 
 #[cfg(test)]
@@ -119,6 +72,19 @@ mod tests {
     }
 
     #[test]
+    fn remote_envelope_frame_uses_canonical_envelope_body() {
+        let envelope = envelope();
+        let frame = encode_remote_envelope_frame(&envelope).unwrap();
+        let mut header = WireWriter::new();
+        header.write_u64(REMOTE_ENVELOPE_FRAME_MAGIC);
+        header.write_u16(REMOTE_ENVELOPE_FRAME_VERSION);
+        let header = header.finish();
+
+        assert_eq!(&frame[..header.len()], &header[..]);
+        assert_eq!(&frame[header.len()..], &envelope.encode_wire().unwrap()[..]);
+    }
+
+    #[test]
     fn remote_envelope_frame_preserves_missing_sender() {
         let mut envelope = envelope();
         envelope.sender = None;
@@ -152,18 +118,12 @@ mod tests {
     }
 
     #[test]
-    fn remote_envelope_frame_rejects_mismatched_actor_ref_metadata() {
+    fn remote_envelope_frame_rejects_invalid_actor_ref_body() {
         let mut writer = WireWriter::new();
         writer.write_u64(REMOTE_ENVELOPE_FRAME_MAGIC);
         writer.write_u16(REMOTE_ENVELOPE_FRAME_VERSION);
-        writer
-            .write_string("kairo://target@127.0.0.1:25520/user/receiver#1")
-            .unwrap();
-        writer.write_string("kairo").unwrap();
-        writer.write_string("wrong-target").unwrap();
-        writer.write_optional_string(Some("127.0.0.1")).unwrap();
-        writer.write_optional_u64(Some(25520));
-        writer.write_bool(false);
+        writer.write_string("/user/receiver").unwrap();
+        writer.write_optional_string(None).unwrap();
         writer.write_u32(42);
         writer.write_string("kairo.remote.test.Frame").unwrap();
         writer.write_u16(7);
@@ -182,8 +142,10 @@ mod tests {
         let mut writer = WireWriter::new();
         writer.write_u64(REMOTE_ENVELOPE_FRAME_MAGIC);
         writer.write_u16(REMOTE_ENVELOPE_FRAME_VERSION);
-        write_actor_ref(&mut writer, &envelope().recipient).unwrap();
-        writer.write_bool(false);
+        writer
+            .write_string("kairo://target@127.0.0.1:25520/user/receiver#1")
+            .unwrap();
+        writer.write_optional_string(None).unwrap();
         writer.write_u32(42);
         writer.write_string("   ").unwrap();
         writer.write_u16(7);
