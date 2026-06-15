@@ -482,8 +482,31 @@ fn multi_node_testkit_can_advance_all_manual_time_nodes_until_idle() {
             .expect("all nodes have manual time")
     );
     assert_eq!(
+        kit.manual_time("idle-a").unwrap().now(),
+        Duration::from_secs(1)
+    );
+    assert_eq!(
+        kit.manual_time("idle-b").unwrap().now(),
+        Duration::from_secs(1)
+    );
+    assert_eq!(
         probe_a.expect_msg(Duration::from_millis(50)).unwrap(),
         "tick-a-1"
+    );
+    assert_eq!(probe_b.expect_no_msg(Duration::ZERO), Ok(()));
+    assert_eq!(probe_a.expect_no_msg(Duration::ZERO), Ok(()));
+
+    assert!(
+        !kit.advance_all_until_idle(1)
+            .expect("all nodes have manual time")
+    );
+    assert_eq!(
+        kit.manual_time("idle-a").unwrap().now(),
+        Duration::from_secs(2)
+    );
+    assert_eq!(
+        kit.manual_time("idle-b").unwrap().now(),
+        Duration::from_secs(2)
     );
     assert_eq!(
         probe_b.expect_msg(Duration::from_millis(50)).unwrap(),
@@ -492,8 +515,16 @@ fn multi_node_testkit_can_advance_all_manual_time_nodes_until_idle() {
     assert_eq!(probe_a.expect_no_msg(Duration::ZERO), Ok(()));
 
     assert!(
-        kit.advance_all_until_idle(4)
+        kit.advance_all_until_idle(1)
             .expect("all nodes have manual time")
+    );
+    assert_eq!(
+        kit.manual_time("idle-a").unwrap().now(),
+        Duration::from_secs(3)
+    );
+    assert_eq!(
+        kit.manual_time("idle-b").unwrap().now(),
+        Duration::from_secs(3)
     );
     assert_eq!(
         probe_a.expect_msg(Duration::from_millis(50)).unwrap(),

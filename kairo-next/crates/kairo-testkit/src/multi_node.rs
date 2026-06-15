@@ -212,24 +212,8 @@ impl MultiNodeTestKit {
     /// node clock advances by the same duration, and at least one node reaches
     /// its next scheduled deadline.
     pub fn advance_all_to_next(&self) -> MultiNodeResult<bool> {
-        let manual_times = self
-            .nodes
-            .iter()
-            .map(|node| {
-                node.manual_time()
-                    .ok_or_else(|| MultiNodeError::ManualTimeDisabled(node.name().to_string()))
-            })
-            .collect::<MultiNodeResult<Vec<_>>>()?;
-
-        let Some(next_delta) = manual_times
-            .iter()
-            .filter_map(|manual_time| {
-                manual_time
-                    .next_deadline()
-                    .map(|deadline| deadline.saturating_sub(manual_time.now()))
-            })
-            .min()
-        else {
+        let manual_times = self.manual_times()?;
+        let Some(next_delta) = Self::next_shared_delta(&manual_times) else {
             return Ok(false);
         };
 
@@ -245,14 +229,16 @@ impl MultiNodeTestKit {
     /// advancement. Repeated timers can keep a node non-idle, so callers must
     /// provide a bound.
     pub fn advance_all_until_idle(&self, max_steps: usize) -> MultiNodeResult<bool> {
-        let mut all_idle = true;
-        for node in &self.nodes {
-            let manual_time = node
-                .manual_time()
-                .ok_or_else(|| MultiNodeError::ManualTimeDisabled(node.name().to_string()))?;
-            all_idle &= manual_time.advance_until_idle(max_steps);
+        let manual_times = self.manual_times()?;
+        for _ in 0..max_steps {
+            let Some(next_delta) = Self::next_shared_delta(&manual_times) else {
+                return Ok(true);
+            };
+            for manual_time in &manual_times {
+                manual_time.advance(next_delta);
+            }
         }
-        Ok(all_idle)
+        Ok(Self::next_shared_delta(&manual_times).is_none())
     }
 
     /// Marks one node as having entered a named barrier without blocking.
@@ -486,6 +472,27 @@ impl MultiNodeTestKit {
 
     fn expected_barrier_nodes(&self) -> BTreeSet<String> {
         self.nodes.iter().map(|node| node.name.clone()).collect()
+    }
+
+    fn manual_times(&self) -> MultiNodeResult<Vec<&ManualTime>> {
+        self.nodes
+            .iter()
+            .map(|node| {
+                node.manual_time()
+                    .ok_or_else(|| MultiNodeError::ManualTimeDisabled(node.name().to_string()))
+            })
+            .collect()
+    }
+
+    fn next_shared_delta(manual_times: &[&ManualTime]) -> Option<Duration> {
+        manual_times
+            .iter()
+            .filter_map(|manual_time| {
+                manual_time
+                    .next_deadline()
+                    .map(|deadline| deadline.saturating_sub(manual_time.now()))
+            })
+            .min()
     }
 }
 

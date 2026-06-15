@@ -452,9 +452,10 @@ Implemented:
   same smallest next-deadline delta, so multi-node tests can step distributed
   timers in shared time order without hard-coding per-node durations.
 - `MultiNodeTestKit::advance_all_until_idle` can drain every manual-time node
-  through active scheduled deadlines with a caller-provided step bound,
+  through active scheduled deadlines with a caller-provided step bound by
+  reusing the same shared earliest-deadline stepping as `advance_all_to_next`,
   returning whether all nodes became idle so multi-node tests can settle
-  scheduled work without open-ended timer loops.
+  scheduled work without open-ended timer loops or per-node clock drift.
 - `MultiNodeTestKit` can now spawn typed user actors and framework-owned
   `/system` actors on specific named nodes, letting multi-node cluster,
   distributed-data, sharding, and cluster-tools tests create node-local
