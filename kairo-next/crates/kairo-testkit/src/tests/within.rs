@@ -148,6 +148,67 @@ fn test_probe_within_helpers_use_shared_deadline() {
 }
 
 #[test]
+fn test_probe_await_assert_within_retries_until_success_under_shared_deadline() {
+    let kit =
+        ActorSystemTestKit::new("test-probe-await-assert-within").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let mut attempts = 0;
+
+    probe
+        .actor_ref()
+        .tell("ready")
+        .expect("probe tell should enqueue");
+
+    let message = probe
+        .within(Duration::from_millis(50), |probe, scope| {
+            probe.await_assert_within(scope, Duration::from_millis(1), |probe| {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(ProbeError::Timeout(Duration::ZERO))
+                } else {
+                    probe.expect_msg_within(scope)
+                }
+            })
+        })
+        .expect("probe assertion should eventually succeed within the shared deadline");
+
+    assert_eq!(attempts, 2);
+    assert_eq!(message, "ready");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_await_assert_within_reports_last_error_under_shared_deadline() {
+    let kit = ActorSystemTestKit::new("test-probe-await-assert-within-timeout")
+        .expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+
+    let error = probe
+        .within(Duration::ZERO, |probe, scope| {
+            probe.await_assert_within(scope, Duration::from_millis(1), |probe| {
+                probe.expect_msg_within(scope)
+            })
+        })
+        .expect_err("probe assertion should time out under the shared deadline");
+
+    match error {
+        WithinError::Assertion(error) => {
+            assert_eq!(error.attempts(), 1);
+            assert_eq!(error.last_error(), &ProbeError::Timeout(Duration::ZERO));
+        }
+        WithinError::Timeout { .. } => panic!("expected await assertion error"),
+    }
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn test_probe_expect_no_msg_for_within_reports_unexpected_message() {
     let kit = ActorSystemTestKit::new("test-probe-no-msg-within").expect("system should build");
     let probe = kit

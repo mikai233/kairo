@@ -283,6 +283,23 @@ impl<M: Send + 'static> TestProbe<M> {
         await_assert(max, interval, || assertion(self))
     }
 
+    /// Re-runs a probe assertion under a shared [`Within`] deadline.
+    ///
+    /// This is the scoped form of [`Self::await_assert`]. Earlier work in the
+    /// same [`Within`] scope consumes part of the retry budget instead of
+    /// giving the probe assertion a fresh independent timeout.
+    pub fn await_assert_within<T, E, F>(
+        &self,
+        scope: &Within,
+        interval: Duration,
+        mut assertion: F,
+    ) -> Result<T, AwaitAssertError<E>>
+    where
+        F: FnMut(&Self) -> Result<T, E>,
+    {
+        scope.await_assert(interval, || assertion(self))
+    }
+
     /// Runs multiple probe assertions under one shared deadline.
     ///
     /// Use this when a test needs several receives to share a single timeout

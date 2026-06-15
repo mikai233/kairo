@@ -420,6 +420,9 @@ Implemented:
 - `Within::await_assert` retries result-returning polling assertions against
   the surrounding shared deadline, so nested probe and state assertions do not
   accidentally receive fresh independent timeouts.
+- `TestProbe::await_assert_within` retries probe-centered assertions against
+  an existing `Within` deadline, preserving the same structured last-error
+  report without granting a fresh timeout budget.
 - `TestProbe` now has `expect_msg_within`, `expect_msg_eq_within`,
   `expect_msg_matching_within`, `expect_no_msg_for_within`,
   `receive_messages_within`, and `fish_for_message_within` helpers, so
@@ -3666,6 +3669,13 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
+cargo test -p kairo-testkit probe --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit within --all-targets --all-features
 cargo test -p kairo-testkit probe --all-targets --all-features
 cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features

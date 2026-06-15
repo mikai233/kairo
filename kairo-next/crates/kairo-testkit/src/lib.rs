@@ -28,7 +28,8 @@
 //!   structured last-error report.
 //! - [`within`] runs a block against one shared deadline and exposes
 //!   [`Within::remaining`] for nested probe assertions; [`Within::await_assert`]
-//!   retries polling assertions against that same deadline.
+//!   and [`TestProbe::await_assert_within`] retry polling assertions against
+//!   that same deadline.
 //! - [`TestProbe::expect_msg_within`],
 //!   [`TestProbe::expect_msg_matching_within`],
 //!   [`TestProbe::expect_no_msg_for_within`],
