@@ -9,12 +9,33 @@ use self::sections::{parse_actor, parse_cluster, parse_observability, parse_remo
 use super::error::ConfigError;
 use super::settings::KairoSettings;
 
+/// Loads one TOML configuration file into format-neutral [`KairoSettings`].
+///
+/// The loader validates the projected settings after parsing, so invalid
+/// values are reported before they reach runtime builders.
 pub fn load_toml_file(path: impl AsRef<Path>) -> Result<KairoSettings, ConfigError> {
     let path = path.as_ref();
     let table = read_toml_table(path)?;
     parse_toml_table(table)
 }
 
+/// Loads layered TOML configuration files into format-neutral [`KairoSettings`].
+///
+/// Files are applied in iterator order. Tables are merged recursively, while
+/// later scalar values and arrays replace earlier values. This supports a
+/// base `kairo.toml` plus a local override such as `kairo.local.toml` without
+/// exposing TOML-specific concepts in the resulting settings model.
+///
+/// ```no_run
+/// use kairo::prelude::load_toml_files;
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let settings = load_toml_files(["kairo.toml", "kairo.local.toml"])?;
+/// let system = settings.actor_system_builder("app")?.build()?;
+/// system.terminate(std::time::Duration::from_secs(1))?;
+/// # Ok(())
+/// # }
+/// ```
 pub fn load_toml_files<I, P>(paths: I) -> Result<KairoSettings, ConfigError>
 where
     I: IntoIterator<Item = P>,

@@ -2020,6 +2020,10 @@ Implemented:
 - The TOML loader now supports layered file loading through `load_toml_files`;
   later files recursively merge tables and override scalar/array values before
   the final document is validated and projected into format-neutral settings.
+- Layered TOML coverage now pins recursive nested-table merging for
+  `[cluster.sharding]`, `[cluster.sharding.least_shard_allocation]`, and
+  `[observability.diagnostics]`, including preservation of base values when a
+  later file overrides only selected nested keys.
 - The `kairo` facade crate docs now describe feature-gated module boundaries,
   the prelude, local-vs-remote serialization requirements, TOML-first
   configuration, and a compile-checked settings parse example.

@@ -744,6 +744,108 @@ nodes = ["kairo://app@127.0.0.1:26666"]
 }
 
 #[test]
+fn toml_config_layered_files_merge_nested_tables_recursively() {
+    let mut base_path = std::env::temp_dir();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    base_path.push(format!("kairo-config-nested-base-{nonce}.toml"));
+    let mut local_path = std::env::temp_dir();
+    local_path.push(format!("kairo-config-nested-local-{nonce}.toml"));
+
+    fs::write(
+        &base_path,
+        r#"
+[cluster.sharding]
+number_of_shards = 64
+remember_entities = false
+retry_interval = "2s"
+handoff_timeout = "60s"
+shard_failure_backoff = "10s"
+rebalance_interval = "10s"
+shard_region_query_timeout = "3s"
+
+[cluster.sharding.least_shard_allocation]
+rebalance_absolute_limit = 10
+rebalance_relative_limit = 0.1
+
+[observability.diagnostics]
+dead_letters = true
+remote_delivery_failures = true
+serialization_failures = true
+quarantine_events = true
+gossip_state_changes = true
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &local_path,
+        r#"
+[cluster.sharding]
+number_of_shards = 128
+remember_entities = true
+
+[cluster.sharding.least_shard_allocation]
+rebalance_absolute_limit = 4
+
+[observability.diagnostics]
+dead_letters = false
+quarantine_events = false
+"#,
+    )
+    .unwrap();
+
+    let settings = load_toml_files([base_path.as_path(), local_path.as_path()]).unwrap();
+    fs::remove_file(base_path).unwrap();
+    fs::remove_file(local_path).unwrap();
+
+    assert_eq!(settings.cluster.sharding.number_of_shards, 128);
+    assert!(settings.cluster.sharding.remember_entities);
+    assert_eq!(
+        settings.cluster.sharding.retry_interval,
+        Duration::from_secs(2)
+    );
+    assert_eq!(
+        settings.cluster.sharding.handoff_timeout,
+        Duration::from_secs(60)
+    );
+    assert_eq!(
+        settings.cluster.sharding.shard_failure_backoff,
+        Duration::from_secs(10)
+    );
+    assert_eq!(
+        settings.cluster.sharding.rebalance_interval,
+        Duration::from_secs(10)
+    );
+    assert_eq!(
+        settings.cluster.sharding.shard_region_query_timeout,
+        Duration::from_secs(3)
+    );
+    assert_eq!(
+        settings
+            .cluster
+            .sharding
+            .least_shard_allocation
+            .rebalance_absolute_limit,
+        4
+    );
+    assert_eq!(
+        settings
+            .cluster
+            .sharding
+            .least_shard_allocation
+            .rebalance_relative_limit,
+        0.1
+    );
+    assert!(!settings.observability.diagnostics.dead_letters);
+    assert!(settings.observability.diagnostics.remote_delivery_failures);
+    assert!(settings.observability.diagnostics.serialization_failures);
+    assert!(!settings.observability.diagnostics.quarantine_events);
+    assert!(settings.observability.diagnostics.gossip_state_changes);
+}
+
+#[test]
 fn toml_config_rejects_unknown_keys() {
     let error = parse_toml_str(
         r#"
