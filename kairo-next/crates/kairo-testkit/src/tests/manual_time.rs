@@ -82,6 +82,77 @@ fn manual_time_advance_to_next_skips_cancelled_work() {
 }
 
 #[test]
+fn manual_time_advance_until_idle_runs_all_active_one_shots() {
+    let kit =
+        ActorSystemTestKit::new("manual-time-advance-until-idle").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let time = ManualTime::default();
+
+    time.schedule_once(Duration::from_secs(3), probe.actor_ref(), "third");
+    time.schedule_once(Duration::from_secs(1), probe.actor_ref(), "first");
+
+    assert!(time.advance_until_idle(4));
+    assert_eq!(time.now(), Duration::from_secs(3));
+    assert_eq!(
+        probe.expect_msg(Duration::from_millis(50)).unwrap(),
+        "first"
+    );
+    assert_eq!(
+        probe.expect_msg(Duration::from_millis(50)).unwrap(),
+        "third"
+    );
+    assert_eq!(time.pending_count(), 0);
+    assert_eq!(time.next_deadline(), None);
+    assert!(time.advance_until_idle(0));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn manual_time_advance_until_idle_stops_at_bound_for_repeated_work() {
+    let (kit, time) = ActorSystemTestKit::with_manual_time("manual-time-advance-until-idle-bound")
+        .expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let actor = kit
+        .system()
+        .spawn("timer", Props::new(|| ManualTimerProbe))
+        .expect("timer actor should spawn");
+    let (start_tx, start_rx) = mpsc::channel();
+
+    actor
+        .tell(ManualTimerMsg::StartRepeated {
+            reply_to: probe.actor_ref(),
+            ack: start_tx,
+        })
+        .expect("start should enqueue");
+    start_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("timer should be scheduled");
+
+    assert!(!time.advance_until_idle(2));
+    assert_eq!(time.now(), Duration::from_secs(2));
+    assert_eq!(probe.expect_msg(Duration::from_millis(50)).unwrap(), "tick");
+    assert_eq!(probe.expect_msg(Duration::from_millis(50)).unwrap(), "tick");
+    assert_eq!(time.next_deadline(), Some(Duration::from_secs(3)));
+
+    let (cancel_tx, cancel_rx) = mpsc::channel();
+    actor
+        .tell(ManualTimerMsg::Cancel { ack: cancel_tx })
+        .expect("cancel should enqueue");
+    cancel_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("timer should be cancelled");
+    assert!(time.advance_until_idle(4));
+    assert_eq!(probe.expect_no_msg(Duration::ZERO), Ok(()));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn manual_time_cancel_suppresses_delivery() {
     let kit = ActorSystemTestKit::new("manual-time-cancel").expect("system should build");
     let probe = kit.create_probe::<u8>("probe").expect("probe should spawn");

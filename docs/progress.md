@@ -415,6 +415,9 @@ Implemented:
 - `ManualTime::next_deadline` and `advance_to_next` expose the next active
   scheduled deadline and jump the manual clock to it, skipping cancelled work
   so deterministic tests do not need to hard-code exact timer deltas.
+- `ManualTime::advance_until_idle` can drain active scheduled deadlines with a
+  caller-provided step bound, so tests can settle one-shot timer work without
+  risking an infinite loop on repeated timers.
 - `ManualTime::expect_no_msg_for` advances manual time and verifies probes
   remain quiet after a short dispatcher settle window, including heterogeneous
   `TestProbe<M>` protocol types through the `NoMessageProbe` boundary.
@@ -2770,6 +2773,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-testkit manual_time_advance_until_idle --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-testkit manual_time_advance_to_next --all-targets --all-features
 cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-actor scheduler --all-targets --all-features

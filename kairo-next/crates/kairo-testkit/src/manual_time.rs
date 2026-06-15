@@ -95,6 +95,19 @@ impl ManualTime {
         true
     }
 
+    /// Advances through scheduled deadlines until idle or `max_steps` is reached.
+    ///
+    /// Returns `true` when no active scheduled work remains. Repeated timers can
+    /// keep the scheduler non-idle, so callers must provide a bound.
+    pub fn advance_until_idle(&self, max_steps: usize) -> bool {
+        for _ in 0..max_steps {
+            if !self.advance_to_next() {
+                return true;
+            }
+        }
+        self.next_deadline().is_none()
+    }
+
     /// Advances time and verifies that each supplied probe stays quiet.
     ///
     /// The probe slice may contain heterogeneous [`TestProbe<M>`] protocol

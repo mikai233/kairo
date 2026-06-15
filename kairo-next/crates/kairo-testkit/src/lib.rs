@@ -35,7 +35,8 @@
 //!   the same shared [`Within`] deadline.
 //! - [`await_assert`] retries result-returning assertions without relying on
 //!   panic recovery.
-//! - [`ManualTime`] drives systems built with the manual scheduler backend.
+//! - [`ManualTime`] drives systems built with the manual scheduler backend,
+//!   including bounded advancement through scheduled deadlines.
 //! - [`MultiNodeTestKit`] owns named actor systems for local multi-node
 //!   integration tests without making cluster membership part of the testkit.
 //! - [`MultiNodeTestKit::spawn_on`] and
