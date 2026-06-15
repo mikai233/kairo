@@ -496,6 +496,9 @@ Implemented:
   `SerializationRegistry`, `SerializedMessage`, `RemoteEnvelope`,
   `ActorRefWireData`, `ActorRefResolver`, and `Manifest` now document their
   stable wire-contract roles at the type, field, and method level.
+- `WireWriter`, `WireReader`, `SerializationError`, and the serialization
+  `Result` alias now document deterministic binary helper encoding,
+  sequential decoding, and structured metadata/codec/wire failure cases.
 - `RemoteInbound::with_diagnostics` can attach a backend-neutral
   `RemoteInboundDiagnostics` sink that records structured inbound
   serialization failures and delivery failures with recipient, optional sender,
