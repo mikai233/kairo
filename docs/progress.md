@@ -1946,6 +1946,8 @@ Implemented:
 - Cluster-tools protocol codec implementation is split into focused
   registration, pubsub codec, singleton codec, wire-helper, and codec-test
   modules instead of concentrating stable wire logic and fixtures in one file.
+- Cluster-tools pubsub and singleton protocol codecs now reject unread trailing
+  bytes after decoding the expected stable wire fields.
 - `kairo-cluster-tools` now has a focused transport-neutral pubsub gossip wire
   bridge that maps actor-local status/delta gossip messages to serialized
   stable pubsub wire messages, carries target-node routing metadata for future

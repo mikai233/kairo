@@ -29,6 +29,26 @@ fn unique(system: &str, uid: u64) -> UniqueAddress {
     )
 }
 
+fn assert_rejects_trailing_payload_bytes<M>(registry: &Registry, message: &M)
+where
+    M: RemoteMessage,
+{
+    let mut wire = registry.serialize(message).unwrap();
+    let mut payload = wire.payload.to_vec();
+    payload.push(0xff);
+    wire.payload = Bytes::from(payload);
+
+    let error = match registry.deserialize::<M>(wire) {
+        Ok(_) => panic!("trailing payload byte should fail"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error.to_string().contains("trailing"),
+        "expected trailing-byte error, got {error}"
+    );
+}
+
 #[test]
 fn cluster_tools_codecs_round_trip_pubsub_status() {
     let registry = registry();
@@ -183,4 +203,49 @@ fn cluster_tools_codecs_reject_unknown_versions() {
         .expect_err("unknown version should fail");
 
     assert!(error.to_string().contains("unsupported"));
+}
+
+#[test]
+fn cluster_tools_codecs_reject_trailing_payload_bytes() {
+    let registry = registry();
+    let node = unique("tools", 9);
+    let mut state = PubSubRegistryState::new(node.clone());
+    state.register_local_topic(TopicName::new("orders"));
+    state.register_local_group(TopicName::new("jobs"), "workers");
+
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &PubSubStatus {
+            from: node.clone(),
+            versions: BTreeMap::from([(node.ordering_key(), 7)]),
+            reply: true,
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &PubSubDelta {
+            from: node.clone(),
+            delta: state.collect_delta(&BTreeMap::new(), 10),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &PubSubPublishEnvelope {
+            topic: TopicName::new("orders"),
+            group: Some("workers".to_string()),
+            message: SerializedMessage::new(
+                77,
+                Manifest::new("example.business.message"),
+                3,
+                Bytes::from_static(&[1, 2, 3]),
+            ),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(&registry, &SingletonHandOverToMe { from: node.clone() });
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &SingletonHandOverInProgress { from: node.clone() },
+    );
+    assert_rejects_trailing_payload_bytes(&registry, &SingletonHandOverDone { from: node.clone() });
+    assert_rejects_trailing_payload_bytes(&registry, &SingletonTakeOverFromMe { from: node });
 }

@@ -32,11 +32,13 @@ impl MessageCodec<PubSubStatus> for PubSubStatusCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<PubSubStatus> {
         ensure_version::<PubSubStatus>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(PubSubStatus {
+        let status = PubSubStatus {
             from: read_unique_address(&mut reader)?,
             reply: reader.read_bool()?,
             versions: read_versions(&mut reader)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(status)
     }
 }
 
@@ -58,10 +60,12 @@ impl MessageCodec<PubSubDelta> for PubSubDeltaCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<PubSubDelta> {
         ensure_version::<PubSubDelta>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(PubSubDelta {
+        let delta = PubSubDelta {
             from: read_unique_address(&mut reader)?,
             delta: read_delta(&mut reader)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(delta)
     }
 }
 
@@ -88,10 +92,12 @@ impl MessageCodec<PubSubPublishEnvelope> for PubSubPublishEnvelopeCodec {
     ) -> kairo_serialization::Result<PubSubPublishEnvelope> {
         ensure_version::<PubSubPublishEnvelope>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(PubSubPublishEnvelope {
+        let envelope = PubSubPublishEnvelope {
             topic: read_topic(&mut reader)?,
             group: reader.read_optional_string()?,
             message: read_serialized_message(&mut reader)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(envelope)
     }
 }

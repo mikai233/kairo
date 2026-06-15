@@ -118,5 +118,7 @@ fn encode_singleton_handover(from: &UniqueAddress) -> kairo_serialization::Resul
 
 fn decode_singleton_handover(payload: Bytes) -> kairo_serialization::Result<UniqueAddress> {
     let mut reader = WireReader::new(&payload);
-    read_unique_address(&mut reader)
+    let from = read_unique_address(&mut reader)?;
+    reader.ensure_finished()?;
+    Ok(from)
 }
