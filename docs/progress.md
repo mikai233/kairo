@@ -1262,6 +1262,10 @@ Implemented:
   peer route for the other node through the actor-backed connector boundary;
   the same validation now runs coordinated shutdown afterward and asserts the
   live-route connector stops through the registered bootstrap shutdown task.
+- Distributed-data TCP peer bootstrap now also validates the higher-level
+  `ActorSystem::run_coordinated_shutdown` facade after a live
+  membership-derived route is installed, proving the registered connector stop
+  task clears the sender association cache before system termination.
 - The two-node distributed-data TCP peer bootstrap validation now uses
   `kairo-testkit::MultiNodeTestKit` to own named node systems and create
   per-node connector snapshot probes through the structured local multi-node
@@ -2885,11 +2889,12 @@ Not yet implemented:
   multi-node graceful-shutdown validation that now proves remembered entity
   recovery after handoff plus passivated-entity removal before rehost through
   a shared remember store.
-- Distributed-data and cluster-tools socket integration still need broader
+- Cluster-tools socket integration still needs broader
   lifecycle tests around the bootstrap facades beyond the current localhost
   crate, focused sender-side route-reduction delivery coverage, and example
-  routeful coordinated-shutdown smoke tests; cluster bootstrap now has
-  crate-level routeful `run_coordinated_shutdown` coverage.
+  routeful coordinated-shutdown smoke tests; cluster and distributed-data
+  bootstraps now have crate-level routeful `run_coordinated_shutdown`
+  coverage.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation and focused three-node
@@ -2898,6 +2903,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data bootstrap_coordinated_shutdown_stops_connector_after_live_route --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_bootstrap --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster bootstrap_coordinated_shutdown_stops_connector_after_live_route --all-targets --all-features
 cargo test -p kairo-cluster tcp_peer_bootstrap --all-targets --all-features
 cargo test -p kairo-cluster --all-targets --all-features
