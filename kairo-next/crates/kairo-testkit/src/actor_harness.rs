@@ -5,6 +5,12 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorSystem, DeadLetter, Props, S
 
 use crate::{ActorSystemTestKit, ManualTime, TestProbe};
 
+/// Spawn-backed harness for tests centered on one actor under a real actor system.
+///
+/// `ActorHarness` owns an [`ActorSystemTestKit`] plus the subject actor ref. It
+/// is useful when a test wants to drive one actor through normal runtime
+/// semantics while still creating typed probes, event probes, dead-letter
+/// probes, and optional manual time from the same system.
 #[derive(Debug)]
 pub struct ActorHarness<M> {
     kit: ActorSystemTestKit,
@@ -12,6 +18,11 @@ pub struct ActorHarness<M> {
 }
 
 impl<M: Send + 'static> ActorHarness<M> {
+    /// Creates a new actor-system testkit and spawns the subject actor under `/user`.
+    ///
+    /// The returned harness owns both the actor system and the subject ref. Use
+    /// [`Self::shutdown`] at the end of the test to terminate the system
+    /// explicitly.
     pub fn spawn<A>(
         system_name: impl Into<String>,
         actor_name: impl AsRef<str>,
@@ -25,6 +36,11 @@ impl<M: Send + 'static> ActorHarness<M> {
         Ok(Self { kit, actor_ref })
     }
 
+    /// Creates a harness whose actor system uses the manual scheduler backend.
+    ///
+    /// The returned [`ManualTime`] handle drives timers, scheduled self
+    /// messages, and other scheduler-backed actor operations for the subject
+    /// system.
     pub fn with_manual_time<A>(
         system_name: impl Into<String>,
         actor_name: impl AsRef<str>,
@@ -38,18 +54,22 @@ impl<M: Send + 'static> ActorHarness<M> {
         Ok((Self { kit, actor_ref }, manual_time))
     }
 
+    /// Returns the actor system that owns the subject and any probes.
     pub fn system(&self) -> &ActorSystem {
         self.kit.system()
     }
 
+    /// Returns a clone of the subject actor ref.
     pub fn actor_ref(&self) -> ActorRef<M> {
         self.actor_ref.clone()
     }
 
+    /// Sends one message to the subject actor.
     pub fn tell(&self, message: M) -> Result<(), SendError<M>> {
         self.actor_ref.tell(message)
     }
 
+    /// Creates a typed probe actor in the same actor system as the subject.
     pub fn create_probe<N>(&self, name: impl AsRef<str>) -> Result<TestProbe<N>, ActorError>
     where
         N: Send + 'static,
@@ -57,6 +77,7 @@ impl<M: Send + 'static> ActorHarness<M> {
         self.kit.create_probe(name)
     }
 
+    /// Creates and subscribes a typed event-stream probe in the subject system.
     pub fn create_event_probe<N>(&self, name: impl AsRef<str>) -> Result<TestProbe<N>, ActorError>
     where
         N: Clone + Send + 'static,
@@ -64,6 +85,7 @@ impl<M: Send + 'static> ActorHarness<M> {
         self.kit.create_event_probe(name)
     }
 
+    /// Creates and subscribes a dead-letter probe in the subject system.
     pub fn create_dead_letter_probe(
         &self,
         name: impl AsRef<str>,
@@ -71,10 +93,12 @@ impl<M: Send + 'static> ActorHarness<M> {
         self.kit.create_dead_letter_probe(name)
     }
 
+    /// Requests the subject actor to stop.
     pub fn stop(&self) {
         self.kit.system().stop(&self.actor_ref);
     }
 
+    /// Waits for the subject actor to terminate.
     pub fn expect_stopped(&self, timeout: Duration) -> Result<(), ActorHarnessError> {
         if self.actor_ref.wait_for_stop(timeout) {
             Ok(())
@@ -86,13 +110,16 @@ impl<M: Send + 'static> ActorHarness<M> {
         }
     }
 
+    /// Terminates the harness-owned actor system.
     pub fn shutdown(self, timeout: Duration) -> Result<(), ActorError> {
         self.kit.shutdown(timeout)
     }
 }
 
+/// Errors returned by [`ActorHarness`] assertions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorHarnessError {
+    /// The subject actor did not stop before the timeout expired.
     StopTimeout { actor: String, timeout: Duration },
 }
 

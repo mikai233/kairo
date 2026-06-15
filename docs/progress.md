@@ -446,6 +446,9 @@ Implemented:
   `MultiNodeError` now document local node construction, manual-time access,
   node lookup, barrier synchronization, node-local probe/actor helpers, and
   explicit shutdown at the method and variant level.
+- `ActorHarness` and `ActorHarnessError` now document spawn-backed subject
+  setup, manual-time setup, probe creation, subject stop assertions, and
+  explicit harness shutdown at the method and variant level.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.
