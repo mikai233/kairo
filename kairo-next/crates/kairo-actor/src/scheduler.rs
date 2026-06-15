@@ -25,6 +25,12 @@ impl Cancellable {
         }
     }
 
+    pub(crate) fn cancelled() -> Self {
+        Self {
+            state: Arc::new(AtomicU8::new(CANCELLED)),
+        }
+    }
+
     pub fn cancel(&self) -> bool {
         self.state
             .compare_exchange(SCHEDULED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)

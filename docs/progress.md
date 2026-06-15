@@ -90,6 +90,9 @@ Implemented:
   targets, local death-watch signals, custom watch messages, and unwatch.
 - Focused scheduler tests cover delayed delivery, cancellation, and scheduled
   self messages re-entering the actor mailbox.
+- Actor-system scheduler entry points now return already-cancelled handles
+  after termination has started, so post-termination scheduling does not retain
+  delayed work or enqueue dead letters.
 - Focused timer tests cover single timers, active-key cleanup, replacement,
   cancellation after enqueue, and actor-stop timer cleanup.
 - Focused fixed-delay timer tests cover repeated delivery, cancellation, and
@@ -3139,6 +3142,8 @@ cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnin
 git diff --check
 cargo test -p kairo-actor actor_system_terminate_uses_one_timeout_across_user_and_system_guardians --all-targets --all-features
 cargo test -p kairo-actor actor_system_terminate_requests_system_stop_even_when_user_stop_times_out --all-targets --all-features
+cargo test -p kairo-actor actor_system_schedule_once_after_termination_is_cancelled --all-targets --all-features
+cargo test -p kairo-actor scheduler --all-targets --all-features
 cargo test -p kairo-actor local_core --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check

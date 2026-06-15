@@ -133,6 +133,9 @@ impl ActorSystem {
     where
         M: Send + 'static,
     {
+        if self.is_terminating() {
+            return Cancellable::cancelled();
+        }
         self.inner.scheduler.schedule_once(delay, target, message)
     }
 
@@ -141,6 +144,9 @@ impl ActorSystem {
         delay: Duration,
         action: impl FnOnce() + Send + 'static,
     ) -> Cancellable {
+        if self.is_terminating() {
+            return Cancellable::cancelled();
+        }
         self.inner.scheduler.schedule_action(delay, action)
     }
 
@@ -155,6 +161,9 @@ impl ActorSystem {
     where
         M: Send + 'static,
     {
+        if self.is_terminating() {
+            return Cancellable::cancelled();
+        }
         self.inner
             .scheduler
             .schedule_timer(delay, target, key, generation, message)
@@ -169,6 +178,9 @@ impl ActorSystem {
     where
         M: Send + 'static,
     {
+        if self.is_terminating() {
+            return Cancellable::cancelled();
+        }
         self.inner
             .scheduler
             .schedule_receive_timeout(delay, target, timeout)
@@ -186,6 +198,9 @@ impl ActorSystem {
     where
         M: Clone + Send + 'static,
     {
+        if self.is_terminating() {
+            return Cancellable::cancelled();
+        }
         self.inner.scheduler.schedule_timer_with_fixed_delay(
             initial_delay,
             delay,
@@ -208,6 +223,9 @@ impl ActorSystem {
     where
         M: Clone + Send + 'static,
     {
+        if self.is_terminating() {
+            return Cancellable::cancelled();
+        }
         self.inner.scheduler.schedule_timer_at_fixed_rate(
             initial_delay,
             interval,
