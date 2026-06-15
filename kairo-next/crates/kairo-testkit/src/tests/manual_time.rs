@@ -268,13 +268,15 @@ fn manual_time_can_drive_actor_receive_timeout() {
     wait_for_manual_time_pending(&time, 1);
 
     time.advance(Duration::from_secs(1));
-    assert_eq!(probe.expect_msg(Duration::from_millis(50)).unwrap(), "idle");
+    wait_for_manual_time_pending(&time, 1);
+    assert_eq!(probe.expect_msg(Duration::from_secs(1)).unwrap(), "idle");
     kit.shutdown(Duration::from_secs(1))
         .expect("system should terminate");
 }
 
 fn wait_for_manual_time_pending(time: &ManualTime, expected: usize) {
-    for _ in 0..100 {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
         if time.pending_count() == expected {
             return;
         }

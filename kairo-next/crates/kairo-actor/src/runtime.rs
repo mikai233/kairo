@@ -63,6 +63,8 @@ pub(crate) fn run_actor<A>(
         actor_ref.target.stopped.store(true, Ordering::Release);
     } else if context.stop_requested {
         actor_ref.target.stopped.store(true, Ordering::Release);
+    } else {
+        context.after_influencing_message();
     }
 
     let mailbox = actor_ref

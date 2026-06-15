@@ -348,8 +348,7 @@ impl<M: Send + 'static> Context<M> {
     where
         M: Clone,
     {
-        self.receive_timeout
-            .set(timeout, message, &self.system, self.myself.clone());
+        self.receive_timeout.set(timeout, message);
     }
 
     pub fn cancel_receive_timeout(&mut self) {

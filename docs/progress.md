@@ -426,6 +426,10 @@ Implemented:
 - Manual time now drives `ActorSystem::schedule_once`, single actor timers, and
   repeated fixed-delay/fixed-rate timer backends, and actor receive timeouts
   without real sleeps.
+- Receive-timeout scheduling now happens after actor startup or a completed
+  influencing message turn rather than inside `set_receive_timeout`, preventing
+  stale timeout generations when manual time advances immediately after an
+  in-callback acknowledgement.
 - `kairo-serialization` is split into focused `message`, `manifest`, `codec`,
   `registry`, `envelope`, and `errors` modules.
 - `kairo-serialization` crate docs now explain that local actor messages do
@@ -3150,4 +3154,7 @@ cargo test -p kairo-actor local_core --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo test -p kairo-actor receive_timeout --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
 ```

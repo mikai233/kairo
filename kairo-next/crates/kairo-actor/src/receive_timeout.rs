@@ -70,13 +70,8 @@ impl<M> ReceiveTimeoutState<M>
 where
     M: Send + 'static,
 {
-    pub(crate) fn set(
-        &mut self,
-        timeout: Duration,
-        message: M,
-        system: &ActorSystem,
-        target: ActorRef<M>,
-    ) where
+    pub(crate) fn set(&mut self, timeout: Duration, message: M)
+    where
         M: Clone,
     {
         let message = Arc::new(Mutex::new(message));
@@ -87,7 +82,8 @@ where
                 .expect("receive timeout message poisoned")
                 .clone()
         }));
-        self.reschedule(system, target);
+        self.generation = self.generation.wrapping_add(1);
+        self.cancel_task();
     }
 
     pub(crate) fn reschedule(&mut self, system: &ActorSystem, target: ActorRef<M>) {

@@ -1,7 +1,8 @@
 use super::*;
 
 fn wait_for_manual_pending(scheduler: &ManualScheduler, expected: usize) {
-    for _ in 0..100 {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
         if scheduler.pending_count() == expected {
             return;
         }
@@ -59,6 +60,60 @@ impl Actor for ReceiveTimeoutProbe {
         }
         Ok(())
     }
+}
+
+#[derive(Clone)]
+enum StartedReceiveTimeoutMsg {
+    Timeout,
+}
+
+struct StartedReceiveTimeoutProbe {
+    observed: mpsc::Sender<&'static str>,
+}
+
+impl Actor for StartedReceiveTimeoutProbe {
+    type Msg = StartedReceiveTimeoutMsg;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        ctx.set_receive_timeout(Duration::from_secs(1), StartedReceiveTimeoutMsg::Timeout);
+        Ok(())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            StartedReceiveTimeoutMsg::Timeout => {
+                self.observed
+                    .send("timeout")
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn receive_timeout_can_be_armed_from_started() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let _actor = system
+        .spawn(
+            "receive-timeout",
+            Props::new(move || StartedReceiveTimeoutProbe {
+                observed: observed_tx.clone(),
+            }),
+        )
+        .unwrap();
+
+    wait_for_manual_pending(&scheduler, 1);
+    scheduler.advance(Duration::from_secs(1));
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "timeout"
+    );
 }
 
 #[test]
