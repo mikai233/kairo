@@ -41,12 +41,15 @@ pub(crate) fn stop_children_with_timeout(
     stop_child_handles_until_deadline(children, deadline_after(timeout))
 }
 
-pub(crate) fn stop_children_until_deadline(
+pub(crate) fn stop_child_roots_until_deadline(
     system_inner: &ActorSystemInner,
-    parent_path: &str,
+    parent_paths: &[&str],
     deadline: Instant,
 ) -> Result<(), ActorError> {
-    let children = system_inner.registry.child_handles(parent_path);
+    let children = parent_paths
+        .iter()
+        .flat_map(|parent_path| system_inner.registry.child_handles(parent_path))
+        .collect();
     stop_child_handles_until_deadline(children, deadline)
 }
 

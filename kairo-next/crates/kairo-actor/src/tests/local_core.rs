@@ -490,6 +490,48 @@ fn actor_system_terminate_uses_one_timeout_across_user_and_system_guardians() {
 }
 
 #[test]
+fn actor_system_terminate_requests_system_stop_even_when_user_stop_times_out() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (user_entered_tx, user_entered_rx) = mpsc::channel();
+    let (user_release_tx, user_release_rx) = mpsc::channel();
+    let (system_stopped_tx, system_stopped_rx) = mpsc::channel();
+    let user_actor = system
+        .spawn(
+            "user-blocked-stop",
+            Props::new(move || BlockingStopProbe {
+                entered_stop: user_entered_tx,
+                release_stop: user_release_rx,
+            }),
+        )
+        .unwrap();
+    let system_actor = system
+        .spawn_system(
+            "system-stop-probe",
+            Props::new(move || StopProbe {
+                stopped: system_stopped_tx,
+            }),
+        )
+        .unwrap();
+
+    let result = system.terminate(Duration::from_millis(20));
+
+    assert!(matches!(result, Err(ActorError::TerminationTimeout)));
+    user_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    system_stopped_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("system actor should receive stop request during first termination attempt");
+    assert!(system_actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(!system.is_terminated());
+
+    user_release_tx.send(()).unwrap();
+    system.terminate(Duration::from_secs(1)).unwrap();
+    assert!(user_actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
+#[test]
 fn actor_system_provider_exposes_guardian_refs_and_resolves_local_paths() {
     let system = ActorSystem::builder("test").build().unwrap();
     let provider = system.provider();

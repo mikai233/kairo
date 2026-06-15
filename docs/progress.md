@@ -62,6 +62,10 @@ Implemented:
   and `/system` guardians, so a blocked framework-owned actor cannot receive a
   fresh full timeout after user-guardian shutdown has already consumed part of
   the caller's budget.
+- Actor-system termination now requests stops for both `/user` and `/system`
+  guardian children before waiting, so a timed-out user actor cannot prevent
+  framework-owned system actors from entering shutdown during the same
+  termination attempt.
 - Sends after stop are rejected and recorded as dead letters.
 - Missing local actor refs reject user messages and record dead letters.
 - Dead letters are now also published to the local typed event stream as
@@ -3134,6 +3138,7 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor actor_system_terminate_uses_one_timeout_across_user_and_system_guardians --all-targets --all-features
+cargo test -p kairo-actor actor_system_terminate_requests_system_stop_even_when_user_stop_times_out --all-targets --all-features
 cargo test -p kairo-actor local_core --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check

@@ -21,7 +21,7 @@ use crate::receive_timeout::ReceiveTimeoutEnvelope;
 use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef};
 use crate::registry::ActorRegistry;
-use crate::runtime::stop_children_until_deadline;
+use crate::runtime::stop_child_roots_until_deadline;
 use crate::scheduler::{Cancellable, Scheduler};
 use crate::signal::Signal;
 
@@ -236,9 +236,12 @@ impl ActorSystem {
             .checked_add(timeout)
             .unwrap_or_else(|| Instant::now() + Duration::from_secs(60 * 60 * 24 * 365));
         let user_root = self.user_root_path();
-        stop_children_until_deadline(&self.inner, user_root.as_str(), deadline)?;
         let system_root = self.system_root_path();
-        stop_children_until_deadline(&self.inner, system_root.as_str(), deadline)?;
+        stop_child_roots_until_deadline(
+            &self.inner,
+            &[user_root.as_str(), system_root.as_str()],
+            deadline,
+        )?;
         self.inner.terminated.store(true, Ordering::Release);
         Ok(())
     }
