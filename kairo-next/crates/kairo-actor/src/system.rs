@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod builder;
 mod spawn;
@@ -21,7 +21,7 @@ use crate::receive_timeout::ReceiveTimeoutEnvelope;
 use crate::receptionist::Receptionist;
 use crate::refs::{ActorRef, AnyActorRef};
 use crate::registry::ActorRegistry;
-use crate::runtime::stop_children_with_timeout;
+use crate::runtime::stop_children_until_deadline;
 use crate::scheduler::{Cancellable, Scheduler};
 use crate::signal::Signal;
 
@@ -232,10 +232,13 @@ impl ActorSystem {
 
     pub fn terminate(&self, timeout: Duration) -> Result<(), ActorError> {
         self.inner.terminating.store(true, Ordering::Release);
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .unwrap_or_else(|| Instant::now() + Duration::from_secs(60 * 60 * 24 * 365));
         let user_root = self.user_root_path();
-        stop_children_with_timeout(&self.inner, user_root.as_str(), timeout)?;
+        stop_children_until_deadline(&self.inner, user_root.as_str(), deadline)?;
         let system_root = self.system_root_path();
-        stop_children_with_timeout(&self.inner, system_root.as_str(), timeout)?;
+        stop_children_until_deadline(&self.inner, system_root.as_str(), deadline)?;
         self.inner.terminated.store(true, Ordering::Release);
         Ok(())
     }

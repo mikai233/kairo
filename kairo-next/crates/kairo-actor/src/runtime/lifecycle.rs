@@ -38,20 +38,33 @@ pub(crate) fn stop_children_with_timeout(
     timeout: Duration,
 ) -> Result<(), ActorError> {
     let children = system_inner.registry.child_handles(parent_path);
-    stop_child_handles_with_timeout(children, timeout)
+    stop_child_handles_until_deadline(children, deadline_after(timeout))
+}
+
+pub(crate) fn stop_children_until_deadline(
+    system_inner: &ActorSystemInner,
+    parent_path: &str,
+    deadline: Instant,
+) -> Result<(), ActorError> {
+    let children = system_inner.registry.child_handles(parent_path);
+    stop_child_handles_until_deadline(children, deadline)
 }
 
 fn stop_child_handles_with_timeout(
     children: Vec<LocalActorHandle>,
     timeout: Duration,
 ) -> Result<(), ActorError> {
+    stop_child_handles_until_deadline(children, deadline_after(timeout))
+}
+
+fn stop_child_handles_until_deadline(
+    children: Vec<LocalActorHandle>,
+    deadline: Instant,
+) -> Result<(), ActorError> {
     for child in &children {
         child.request_stop();
     }
 
-    let deadline = Instant::now()
-        .checked_add(timeout)
-        .unwrap_or_else(|| Instant::now() + Duration::from_secs(60 * 60 * 24 * 365));
     for child in children {
         let remaining = deadline
             .checked_duration_since(Instant::now())
@@ -61,4 +74,10 @@ fn stop_child_handles_with_timeout(
         }
     }
     Ok(())
+}
+
+fn deadline_after(timeout: Duration) -> Instant {
+    Instant::now()
+        .checked_add(timeout)
+        .unwrap_or_else(|| Instant::now() + Duration::from_secs(60 * 60 * 24 * 365))
 }

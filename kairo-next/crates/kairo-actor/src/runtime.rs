@@ -21,7 +21,7 @@ use crate::supervision::{SupervisionFailure, SupervisionState, SupervisorStrateg
 use crate::system::{ActorSystem, ActorSystemInner};
 use crate::timers::TimerState;
 
-pub(crate) use lifecycle::stop_children_with_timeout;
+pub(crate) use lifecycle::stop_children_until_deadline;
 use lifecycle::{stop_adapter_refs, stop_children, stop_children_for_restart};
 
 pub(crate) fn run_actor<A>(

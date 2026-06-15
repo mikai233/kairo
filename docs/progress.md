@@ -58,6 +58,10 @@ Implemented:
 - Actor-system termination retries now keep timed-out child handles visible,
   so a later `terminate` attempt cannot report `terminated` while a
   previously requested child stop is still blocked.
+- Actor-system termination now uses one timeout deadline across both `/user`
+  and `/system` guardians, so a blocked framework-owned actor cannot receive a
+  fresh full timeout after user-guardian shutdown has already consumed part of
+  the caller's budget.
 - Sends after stop are rejected and recorded as dead letters.
 - Missing local actor refs reject user messages and record dead letters.
 - Dead letters are now also published to the local typed event stream as
@@ -3129,4 +3133,9 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
+cargo test -p kairo-actor actor_system_terminate_uses_one_timeout_across_user_and_system_guardians --all-targets --all-features
+cargo test -p kairo-actor local_core --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 ```

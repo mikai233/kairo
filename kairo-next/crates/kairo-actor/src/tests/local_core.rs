@@ -409,6 +409,86 @@ fn actor_system_terminate_stops_system_actors() {
     assert!(system.is_terminated());
 }
 
+struct BlockingStopProbe {
+    entered_stop: mpsc::Sender<()>,
+    release_stop: mpsc::Receiver<()>,
+}
+
+impl Actor for BlockingStopProbe {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.entered_stop
+            .send(())
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        self.release_stop
+            .recv()
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+#[test]
+fn actor_system_terminate_uses_one_timeout_across_user_and_system_guardians() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (user_entered_tx, user_entered_rx) = mpsc::channel();
+    let (user_release_tx, user_release_rx) = mpsc::channel();
+    let (system_entered_tx, system_entered_rx) = mpsc::channel();
+    let (system_release_tx, system_release_rx) = mpsc::channel();
+    let user_actor = system
+        .spawn(
+            "user-blocked-stop",
+            Props::new(move || BlockingStopProbe {
+                entered_stop: user_entered_tx,
+                release_stop: user_release_rx,
+            }),
+        )
+        .unwrap();
+    let system_actor = system
+        .spawn_system(
+            "system-blocked-stop",
+            Props::new(move || BlockingStopProbe {
+                entered_stop: system_entered_tx,
+                release_stop: system_release_rx,
+            }),
+        )
+        .unwrap();
+
+    let terminating_system = system.clone();
+    let timeout = Duration::from_millis(200);
+    let started = std::time::Instant::now();
+    let terminate_thread = std::thread::spawn(move || {
+        let result = terminating_system.terminate(timeout);
+        (started.elapsed(), result)
+    });
+
+    user_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(150));
+    user_release_tx.send(()).unwrap();
+    system_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    let (elapsed, result) = terminate_thread.join().unwrap();
+    assert!(matches!(result, Err(ActorError::TerminationTimeout)));
+    assert!(
+        elapsed < Duration::from_millis(300),
+        "termination should share one deadline across guardians, elapsed {elapsed:?}"
+    );
+    assert!(user_actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(!system.is_terminated());
+
+    system_release_tx.send(()).unwrap();
+    system.terminate(Duration::from_secs(1)).unwrap();
+    assert!(system_actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
 #[test]
 fn actor_system_provider_exposes_guardian_refs_and_resolves_local_paths() {
     let system = ActorSystem::builder("test").build().unwrap();
