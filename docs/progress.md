@@ -439,6 +439,9 @@ Implemented:
   `MultiNodeTestKit::await_barriers` example that coordinates ordered local
   multi-node phases across two named actor systems and shuts the harness down
   explicitly.
+- `ActorSystemTestKit` and the core `TestProbe` receive, matching, batch,
+  fishing, within, and death-watch helpers now have focused Rustdoc comments
+  so the deterministic local testkit API is documented at the method level.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.

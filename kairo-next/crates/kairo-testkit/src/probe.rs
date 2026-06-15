@@ -16,6 +16,11 @@ pub struct TestProbe<M> {
 }
 
 impl<M: Send + 'static> TestProbe<M> {
+    /// Spawns a probe actor under `system`.
+    ///
+    /// The probe actor forwards every received `M` into a test-side queue so
+    /// assertions can remain typed while code under test only sees an
+    /// [`ActorRef<M>`].
     pub fn spawn(system: &ActorSystem, name: impl AsRef<str>) -> Result<Self, ActorError> {
         let (sender, receiver) = mpsc::channel();
         let actor_ref = system.spawn(
@@ -31,14 +36,17 @@ impl<M: Send + 'static> TestProbe<M> {
         })
     }
 
+    /// Returns the typed actor ref for code under test.
     pub fn actor_ref(&self) -> ActorRef<M> {
         self.actor_ref.clone()
     }
 
+    /// Requests probe actor stop through the owning actor system.
     pub fn stop(&self) {
         self.system.stop(&self.actor_ref);
     }
 
+    /// Waits until the backing probe actor stops.
     pub fn expect_stopped(&self, timeout: Duration) -> Result<(), ProbeError> {
         if self.actor_ref.wait_for_stop(timeout) {
             Ok(())
@@ -50,15 +58,20 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    /// Watches `subject` and delivers `message` to this probe on termination.
+    ///
+    /// This uses the same local death-watch path as actor `Context::watch_with`.
     pub fn watch_with<N: Send + 'static>(&self, subject: &ActorRef<N>, message: M) -> ActorResult {
         self.system
             .watch_with(self.actor_ref.clone(), subject.clone(), message)
     }
 
+    /// Removes a previous watch registration for `subject`.
     pub fn unwatch<N: Send + 'static>(&self, subject: &ActorRef<N>) {
         self.system.unwatch(&self.actor_ref, subject);
     }
 
+    /// Receives one message within `timeout`.
     pub fn expect_msg(&self, timeout: Duration) -> Result<M, ProbeError> {
         match self.receiver.recv_timeout(timeout) {
             Ok(message) => Ok(message),
@@ -67,10 +80,13 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    /// Receives one message using the remaining time from a shared
+    /// [`Within`] deadline.
     pub fn expect_msg_within(&self, scope: &Within) -> Result<M, ProbeError> {
         self.expect_msg(scope.remaining())
     }
 
+    /// Receives one message and checks it for exact equality.
     pub fn expect_msg_eq(&self, expected: M, timeout: Duration) -> Result<M, ProbeError>
     where
         M: fmt::Debug + PartialEq,
@@ -86,6 +102,8 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    /// Receives one message under a shared [`Within`] deadline and checks it
+    /// for exact equality.
     pub fn expect_msg_eq_within(&self, expected: M, scope: &Within) -> Result<M, ProbeError>
     where
         M: fmt::Debug + PartialEq,
@@ -93,6 +111,7 @@ impl<M: Send + 'static> TestProbe<M> {
         self.expect_msg_eq(expected, scope.remaining())
     }
 
+    /// Receives one message and checks it with `predicate`.
     pub fn expect_msg_matching<F>(&self, timeout: Duration, predicate: F) -> Result<M, ProbeError>
     where
         M: fmt::Debug,
@@ -109,6 +128,8 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    /// Receives one message under a shared [`Within`] deadline and checks it
+    /// with `predicate`.
     pub fn expect_msg_matching_within<F>(
         &self,
         scope: &Within,
@@ -121,6 +142,7 @@ impl<M: Send + 'static> TestProbe<M> {
         self.expect_msg_matching(scope.remaining(), predicate)
     }
 
+    /// Asserts that no message arrives during `duration`.
     pub fn expect_no_msg(&self, duration: Duration) -> Result<(), ProbeError> {
         match self.receiver.recv_timeout(duration) {
             Ok(_message) => Err(ProbeError::UnexpectedMessage {
@@ -132,6 +154,10 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    /// Receives exactly `count` messages under one timeout budget.
+    ///
+    /// The timeout is shared across the whole batch instead of being restarted
+    /// for each message.
     pub fn receive_messages(&self, count: usize, timeout: Duration) -> Result<Vec<M>, ProbeError> {
         let deadline = std::time::Instant::now() + timeout;
         let mut messages = Vec::with_capacity(count);
@@ -154,6 +180,7 @@ impl<M: Send + 'static> TestProbe<M> {
         Ok(messages)
     }
 
+    /// Receives exactly `count` messages under a shared [`Within`] deadline.
     pub fn receive_messages_within(
         &self,
         count: usize,
@@ -162,6 +189,10 @@ impl<M: Send + 'static> TestProbe<M> {
         self.receive_messages(count, scope.remaining())
     }
 
+    /// Receives messages until `fisher` completes or fails.
+    ///
+    /// The returned vector contains messages that were not ignored by the
+    /// [`FishingOutcome`] classifier.
     pub fn fish_for_message<F>(
         &self,
         timeout: Duration,
@@ -198,6 +229,9 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    /// Runs [`fish_for_message`] under a shared [`Within`] deadline.
+    ///
+    /// [`fish_for_message`]: Self::fish_for_message
     pub fn fish_for_message_within<F>(
         &self,
         scope: &Within,
@@ -209,6 +243,10 @@ impl<M: Send + 'static> TestProbe<M> {
         self.fish_for_message(scope.remaining(), fisher)
     }
 
+    /// Runs multiple probe assertions under one shared deadline.
+    ///
+    /// Use this when a test needs several receives to share a single timeout
+    /// budget instead of giving each assertion a fresh full timeout.
     pub fn within<T, E, F>(&self, timeout: Duration, assertion: F) -> Result<T, WithinError<E>>
     where
         F: FnOnce(&Self, &Within) -> Result<T, E>,
@@ -218,6 +256,7 @@ impl<M: Send + 'static> TestProbe<M> {
 }
 
 impl TestProbe<AnyActorRef> {
+    /// Watches `subject` and expects its erased ref as the termination message.
     pub fn watch_terminated<N: Send + 'static>(
         &self,
         subject: &ActorRef<N>,
@@ -225,6 +264,7 @@ impl TestProbe<AnyActorRef> {
         self.watch_with(subject, subject.as_any())
     }
 
+    /// Watches `subject` and waits for its termination notification.
     pub fn expect_terminated<N: Send + 'static>(
         &self,
         subject: &ActorRef<N>,
