@@ -1327,6 +1327,10 @@ Implemented:
 - `kairo-distributed-data` CRDT foundation tests for replica ids, GSet, ORSet,
   GCounter, PNCounter, deltas, pruning, and overflow now live in a focused
   sibling test module.
+- Distributed-data ORMap pruning cleanup coverage now pins the Pekko-style
+  removed-node cleanup path: cleaning a removed replica from the map's key
+  causality removes that replica from modified-node tracking while preserving
+  surviving nested CRDT values and clearing transient delta state.
 - `kairo-distributed-data` built-in CRDT codec round-trip and rejection tests
   now live in a focused sibling test module.
 - `kairo-distributed-data` delta propagation log versioning, node selection,
@@ -2932,6 +2936,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data ormap_pruning_cleanup_removes_removed_replica_from_key_causality --all-targets --all-features
+cargo test -p kairo-distributed-data crdt_foundation --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-tools peer_runtime_keeps_remaining_route_when_one_peer_is_removed --all-targets --all-features
 cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features

@@ -406,3 +406,24 @@ fn ormap_prunes_keys_and_values_modified_by_removed_replica() {
     assert!(pruned.modified_by_replica_ids().contains(&survivor));
     assert_eq!(pruned.get(&"register").unwrap().node(), &survivor);
 }
+
+#[test]
+fn ormap_pruning_cleanup_removes_removed_replica_from_key_causality() {
+    let removed = replica("removed");
+    let map = ORMap::new()
+        .put(removed.clone(), "key", GSet::new().add("value"))
+        .reset_delta();
+
+    assert!(map.need_pruning_from(&removed));
+    assert!(map.modified_by_replica_ids().contains(&removed));
+
+    let cleaned = map.pruning_cleanup(&removed);
+
+    assert_eq!(
+        cleaned.get(&"key").unwrap().elements(),
+        &BTreeSet::from(["value"])
+    );
+    assert!(!cleaned.need_pruning_from(&removed));
+    assert!(!cleaned.modified_by_replica_ids().contains(&removed));
+    assert_eq!(cleaned.delta(), None);
+}
