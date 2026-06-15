@@ -210,6 +210,64 @@ fn peer_runtime_applies_snapshot_and_reachability_event_to_live_routes() {
 }
 
 #[test]
+fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
+    let sender_kit = ActorSystemTestKit::new("cluster-peer-runtime-reduce-sender").unwrap();
+    let second_kit = ActorSystemTestKit::new("cluster-peer-runtime-reduce-second").unwrap();
+    let third_kit = ActorSystemTestKit::new("cluster-peer-runtime-reduce-third").unwrap();
+    let registry = registry();
+    let mut sender = bind_peer_runtime("reduce-sender", 1, 11, &sender_kit, registry.clone());
+    let second = bind_association_runtime("reduce-second", 2, 22, &second_kit, registry.clone());
+    let third = bind_association_runtime("reduce-third", 3, 33, &third_kit, registry);
+    let sender_node = sender.self_node().clone();
+    let second_node = second.self_node().clone();
+    let third_node = third.self_node().clone();
+
+    let report = sender
+        .apply_snapshot(state(
+            vec![
+                member(sender_node.clone()),
+                member(second_node.clone()),
+                member(third_node.clone()),
+            ],
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(report.dialed.len(), 2);
+    assert_eq!(sender.peer_route_count(), 2);
+    assert_eq!(sender.association_cache().route_count(), 2);
+    wait_for_reverse_route(&second);
+    wait_for_reverse_route(&third);
+
+    let report = sender
+        .apply_snapshot(state(
+            vec![member(sender_node), member(second_node.clone())],
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(report.removed.len(), 1);
+    assert_eq!(report.removed[0].node(), &third_node);
+    assert_eq!(sender.peer_route_count(), 1);
+    assert_eq!(sender.association_cache().route_count(), 1);
+    assert!(
+        sender
+            .active_peer_targets()
+            .iter()
+            .any(|target| target.node() == &second_node)
+    );
+
+    let sender_report = sender.shutdown().unwrap();
+    assert_eq!(sender_report.peer_routes.removed.len(), 1);
+    assert_eq!(sender_report.listener.accepted_associations, 0);
+    let second_report = second.shutdown().unwrap();
+    assert_eq!(second_report.accepted_associations, 1);
+    let third_report = third.shutdown().unwrap();
+    assert_eq!(third_report.accepted_associations, 1);
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
     let sender_kit = ActorSystemTestKit::new("cluster-peer-runtime-shutdown-sender").unwrap();
     let receiver_kit = ActorSystemTestKit::new("cluster-peer-runtime-shutdown-receiver").unwrap();
