@@ -73,6 +73,32 @@ fn next_crate_manifests_do_not_depend_on_legacy_crates() -> Result<(), Box<dyn s
 }
 
 #[test]
+fn active_manifests_do_not_introduce_hocon() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let next_crates = repo_root.join("kairo-next").join("crates");
+    let mut manifest_paths = vec![repo_root.join("Cargo.toml")];
+
+    for entry in std::fs::read_dir(next_crates)? {
+        let entry = entry?;
+        let manifest_path = entry.path().join("Cargo.toml");
+        if manifest_path.is_file() {
+            manifest_paths.push(manifest_path);
+        }
+    }
+
+    for manifest_path in manifest_paths {
+        let manifest = std::fs::read_to_string(&manifest_path)?.to_ascii_lowercase();
+        assert!(
+            !manifest.contains("hocon"),
+            "{} must keep TOML as the first config file format and must not add HOCON or hocon-rs before that parser is intentionally selected",
+            manifest_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn next_sources_do_not_expose_dyn_message_primary_api() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let next_crates = repo_root.join("kairo-next").join("crates");

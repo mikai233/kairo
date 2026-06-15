@@ -2139,6 +2139,10 @@ Implemented:
 - The facade configuration tests now pin the dependency boundary that TOML is
   the selected optional config parser and HOCON/`hocon-rs` is not introduced
   before an explicit parser decision.
+- The `kairo` facade invariant tests now scan every active
+  `kairo-next/crates/*/Cargo.toml` manifest plus the root workspace manifest
+  for HOCON references, keeping the TOML-first configuration constraint pinned
+  across the full rewrite workspace instead of only the facade crate.
 - The top-level README now documents the facade configuration entry points for
   single TOML files, layered TOML files, inline TOML text, and runtime builder
   conversion through format-neutral `KairoSettings`.
@@ -2741,6 +2745,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo active_manifests_do_not_introduce_hocon --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-examples ask_pipe_to_self_example_smoke --test examples_smoke --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo fmt --all -- --check
