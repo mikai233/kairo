@@ -2643,6 +2643,9 @@ Implemented:
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
+- `docs/migration.md` now points users at the runnable local sharding example
+  and the three loopback TCP peer bootstrap examples for cluster,
+  distributed-data, and cluster-tools routes.
 - The `kairo` facade TOML loader now parses configuration input as a document
   table instead of a single TOML value, restoring empty-config defaults, file
   loading, unknown-key validation, and structured runtime settings tests with

@@ -269,6 +269,15 @@ Business messages should not need embedded entity ids by default. Shard ids use
 the documented stable FNV-1a hash exposed by `stable_hash_entity_id` and
 `shard_id_for`; do not use Rust `DefaultHasher` for cross-node routing.
 
+The runnable `cluster_sharding_local` example wires a local coordinator,
+shard region, `ShardingEnvelopeRouter`, and `EntityRef<String>` through the
+current actor-backed sharding path. It also demonstrates passivation/restart
+and graceful local shard movement:
+
+```bash
+cargo run -p kairo-examples --example cluster_sharding_local
+```
+
 ## Cluster Membership
 
 Cluster truth is gossip membership plus local failure-detector observations.
@@ -298,6 +307,16 @@ subscription model end to end: initial state snapshot, `MemberUp` event,
 
 ```bash
 cargo run -p kairo-examples --example cluster_membership
+```
+
+The TCP peer bootstrap examples exercise the current cluster-derived route
+owners for cluster membership, distributed-data, and cluster-tools system
+traffic over loopback remoting:
+
+```bash
+cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
+cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
+cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
 ```
 
 The runnable `cluster_tools_local` example shows local cluster-tools usage:
