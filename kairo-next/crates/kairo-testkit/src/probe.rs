@@ -9,6 +9,12 @@ use kairo_actor::{
 use crate::fishing::{FishingOutcome, remaining_until};
 use crate::within::{Within, WithinError, within};
 
+/// Typed test probe backed by a local actor.
+///
+/// A probe exposes an [`ActorRef<M>`] to code under test and collects delivered
+/// messages in a test-side queue. Assertions then stay typed while exercising
+/// the same local actor send, death-watch, and stop paths used by production
+/// actors.
 pub struct TestProbe<M> {
     system: ActorSystem,
     actor_ref: ActorRef<M>,
@@ -299,27 +305,51 @@ impl<M: Send + 'static> Actor for ProbeActor<M> {
     }
 }
 
+/// Error returned by probe assertions.
+///
+/// Probe errors keep timeout budgets, expected counts, actor paths, and
+/// mismatch details available so tests can assert on failure causes without
+/// parsing formatted messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeError {
+    /// No single message arrived before the timeout elapsed.
     Timeout(Duration),
+    /// A fixed-size receive batch timed out before all expected messages
+    /// arrived.
     ReceiveMessagesTimeout {
+        /// Timeout budget shared by the whole batch receive.
         timeout: Duration,
+        /// Number of messages the assertion expected.
         expected: usize,
+        /// Number of messages collected before the timeout.
         received: usize,
     },
+    /// A fishing assertion timed out before the classifier returned
+    /// [`FishingOutcome::Complete`].
     FishTimeout {
+        /// Timeout budget shared by the whole fishing operation.
         timeout: Duration,
+        /// Number of non-ignored messages seen before the timeout.
         seen: usize,
     },
+    /// The probe actor did not stop before the timeout elapsed.
     StopTimeout {
+        /// Actor path for the backing probe actor.
         actor: String,
+        /// Timeout budget used while waiting for termination.
         timeout: Duration,
     },
+    /// The test-side receive channel closed before the expected observation.
     Closed,
+    /// Registering a death-watch expectation failed.
     WatchFailed(String),
+    /// The fishing classifier rejected the observed stream with a reason.
     FishingFailed(String),
+    /// A probe assertion received a message different from the expected value.
     UnexpectedMessage {
+        /// Human-readable expected value, predicate, or actor path.
         expected: String,
+        /// Human-readable actual value or actor path.
         actual: String,
     },
 }

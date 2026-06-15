@@ -461,6 +461,9 @@ Implemented:
   construction, remaining-time access, scoped await assertions, block timeout
   semantics, and assertion-vs-timeout errors at the function, method, and
   variant level.
+- `TestProbe` and `ProbeError` now document typed probe ownership plus
+  timeout, batch receive, fishing, stop, watch, channel-closure, and mismatch
+  error variants so failed probe assertions have readable API docs.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.
