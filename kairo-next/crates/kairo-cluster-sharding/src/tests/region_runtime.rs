@@ -264,6 +264,44 @@ fn region_runtime_handoff_without_begin_handoff_stops_routing_to_local_shard() {
 }
 
 #[test]
+fn region_runtime_rejects_shard_home_while_handing_off() {
+    let mut runtime = ShardRegionRuntime::new("region-a", 10);
+    runtime.host_shard("shard-1");
+    runtime.mark_shard_started("shard-1");
+    runtime.handoff("shard-1");
+
+    assert!(matches!(
+        runtime.route(
+            "shard-1",
+            ShardingEnvelope::new("entity-1", "after-handoff")
+        ),
+        RegionRoutePlan::Buffered { .. }
+    ));
+
+    assert_eq!(
+        runtime
+            .record_shard_home("shard-1", "region-a")
+            .unwrap_err(),
+        ShardingError::ShardHomeDuringHandOff {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        }
+    );
+    assert_eq!(
+        runtime
+            .record_shard_home("shard-1", "region-b")
+            .unwrap_err(),
+        ShardingError::ShardHomeDuringHandOff {
+            shard: "shard-1".to_string(),
+            region: "region-b".to_string(),
+        }
+    );
+    assert_eq!(runtime.region_for_shard(&"shard-1".to_string()), None);
+    assert_eq!(runtime.buffered_count(&"shard-1".to_string()), 1);
+    assert!(runtime.handing_off_shards().contains("shard-1"));
+}
+
+#[test]
 fn region_runtime_handoff_replies_stopped_when_local_shard_is_absent() {
     let mut runtime = ShardRegionRuntime::new("region-a", 10);
     assert!(matches!(

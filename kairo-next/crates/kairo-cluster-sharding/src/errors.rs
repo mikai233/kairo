@@ -29,6 +29,10 @@ pub enum ShardingError {
         current_region: String,
         new_region: String,
     },
+    ShardHomeDuringHandOff {
+        shard: String,
+        region: String,
+    },
 }
 
 impl Display for ShardingError {
@@ -78,6 +82,9 @@ impl Display for ShardingError {
                 f,
                 "shard {shard} home changed unexpectedly from {current_region} to {new_region}"
             ),
+            Self::ShardHomeDuringHandOff { shard, region } => {
+                write!(f, "shard {shard} home {region} arrived during handoff")
+            }
         }
     }
 }

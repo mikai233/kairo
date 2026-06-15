@@ -244,6 +244,9 @@ fn region_actor_direct_handoff_stops_routing_to_local_shard() {
     let deliveries = kit
         .create_probe::<ShardDeliverPlan<String>>("deliveries")
         .unwrap();
+    let homes = kit
+        .create_probe::<Result<ShardHomePlan<String>, ShardingError>>("homes")
+        .unwrap();
 
     region
         .tell(ShardRegionMsg::HostShard {
@@ -288,6 +291,38 @@ fn region_actor_direct_handoff_stops_routing_to_local_shard() {
             request: Some(GetShardHome {
                 shard_id: "shard-1".to_string(),
             }),
+        }
+    );
+    deliveries.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    region
+        .tell(ShardRegionMsg::RecordShardHome {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+            reply_to: homes.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        homes.expect_msg(Duration::from_millis(500)).unwrap(),
+        Err(ShardingError::ShardHomeDuringHandOff {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        })
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-stale-home".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: None,
         }
     );
     deliveries.expect_no_msg(Duration::from_millis(50)).unwrap();

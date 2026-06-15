@@ -267,6 +267,9 @@ impl<M> ShardRegionRuntime<M> {
     ) -> Result<ShardHomePlan<M>, ShardingError> {
         let shard = shard.into();
         let region = region.into();
+        if self.handing_off_shards.contains(&shard) {
+            return Err(ShardingError::ShardHomeDuringHandOff { shard, region });
+        }
         if self
             .region_by_shard
             .get(&shard)

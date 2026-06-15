@@ -2558,6 +2558,9 @@ Implemented:
 - `kairo-cluster-sharding` region actor handoff coverage now pins that direct
   local handoff stops later messages from routing to the handing-off shard and
   buffers them for a fresh shard-home lookup.
+- `kairo-cluster-sharding` region handoff now rejects stale shard-home results
+  while a shard is handing off, preserving buffered messages and preventing the
+  old local shard from being reselected before `ShardStopped`.
 - `kairo-cluster-sharding` handoff worker, coordinator handoff completion,
   and graceful shutdown orchestration tests now live in a focused sibling test
   module.
