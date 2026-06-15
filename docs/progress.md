@@ -561,6 +561,9 @@ Implemented:
 - `Registry::deserialize_dyn` now decodes wire messages through the registered
   `(serializer_id, manifest)` codec into the dynamic runtime boundary while
   preserving the wire version for rolling-compatible codecs.
+- Focused serialization tests now pin missing-codec diagnostics for both
+  unregistered outbound Rust message types and unregistered inbound
+  `(serializer_id, manifest)` wire metadata.
 - Serialization registration rejects empty manifests, duplicate serializer ids,
   and duplicate manifests.
 - Typed deserialization now rejects unexpected wire manifests before dynamic
@@ -2773,6 +2776,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-serialization registry_reports_missing --all-targets --all-features
+cargo test -p kairo-serialization --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-testkit manual_time_advance_until_idle --all-targets --all-features
 cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features

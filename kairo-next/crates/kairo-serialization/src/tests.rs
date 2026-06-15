@@ -256,6 +256,40 @@ fn registry_rejects_empty_manifest() {
 }
 
 #[test]
+fn registry_reports_missing_outbound_type_codec() {
+    let registry = Registry::new();
+
+    let error = registry
+        .serialize(&CounterCommand { amount: 5 })
+        .expect_err("unregistered outbound message type should fail");
+
+    assert!(matches!(error, SerializationError::MissingTypeCodec(_)));
+}
+
+#[test]
+fn registry_reports_missing_inbound_wire_codec_with_metadata() {
+    let registry = Registry::new();
+
+    let wire = SerializedMessage::new(
+        41,
+        Manifest::new("kairo.test.CounterCommand"),
+        CounterCommand::VERSION,
+        Bytes::from_static(&[5]),
+    );
+    let error = registry
+        .deserialize_dyn(wire)
+        .expect_err("unregistered inbound wire metadata should fail");
+
+    assert_eq!(
+        error,
+        SerializationError::MissingWireCodec {
+            serializer_id: 41,
+            manifest: "kairo.test.CounterCommand".to_string(),
+        }
+    );
+}
+
+#[test]
 fn codec_for_wire_uses_serializer_id_and_manifest_pair() {
     let mut registry = Registry::new();
     registry
