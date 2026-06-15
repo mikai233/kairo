@@ -2,7 +2,10 @@ use super::*;
 
 enum HarnessMsg {
     Ping(ActorRef<&'static str>),
-    StartTimer(ActorRef<&'static str>),
+    StartTimer {
+        reply_to: ActorRef<&'static str>,
+        ack: mpsc::Sender<()>,
+    },
     TimerFired(ActorRef<&'static str>),
 }
 
@@ -16,8 +19,10 @@ impl Actor for HarnessActor {
             HarnessMsg::Ping(reply_to) => reply_to
                 .tell("pong")
                 .map_err(|error| ActorError::Message(error.to_string())),
-            HarnessMsg::StartTimer(reply_to) => {
+            HarnessMsg::StartTimer { reply_to, ack } => {
                 ctx.schedule_once_self(Duration::from_secs(1), HarnessMsg::TimerFired(reply_to));
+                ack.send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
                 Ok(())
             }
             HarnessMsg::TimerFired(reply_to) => reply_to
@@ -75,11 +80,17 @@ fn actor_harness_manual_time_drives_subject_scheduler() {
     let probe = harness
         .create_probe::<&'static str>("probe")
         .expect("probe should spawn");
+    let (ack_tx, ack_rx) = mpsc::channel();
 
     harness
-        .tell(HarnessMsg::StartTimer(probe.actor_ref()))
+        .tell(HarnessMsg::StartTimer {
+            reply_to: probe.actor_ref(),
+            ack: ack_tx,
+        })
         .expect("timer start should enqueue");
-    wait_for_manual_time_pending(&time, 1);
+    ack_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("timer should be scheduled");
 
     time.expect_no_msg_for(Duration::from_millis(999), &[&probe])
         .expect("probe should stay quiet before timer deadline");
@@ -89,14 +100,4 @@ fn actor_harness_manual_time_drives_subject_scheduler() {
     harness
         .shutdown(Duration::from_secs(1))
         .expect("system should terminate");
-}
-
-fn wait_for_manual_time_pending(time: &ManualTime, expected: usize) {
-    for _ in 0..100 {
-        if time.pending_count() == expected {
-            return;
-        }
-        thread::yield_now();
-    }
-    assert_eq!(time.pending_count(), expected);
 }

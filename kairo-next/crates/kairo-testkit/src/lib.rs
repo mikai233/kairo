@@ -14,6 +14,8 @@
 //!   [`TestProbe::expect_no_msg`] assert direct probe traffic.
 //! - [`ActorHarness`] spawns one actor with owned probes, stop assertions, and
 //!   optional manual time while preserving normal actor-system semantics.
+//! - [`ActorSystemTestKit::create_dead_letter_probe`] subscribes a typed probe
+//!   to local dead-letter events.
 //! - [`TestProbe::receive_messages`] collects a fixed batch under one shared
 //!   deadline.
 //! - [`TestProbe::watch_with`] and [`TestProbe::unwatch`] register and remove

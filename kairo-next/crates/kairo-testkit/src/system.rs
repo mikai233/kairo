@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use kairo_actor::{ActorError, ActorSystem};
+use kairo_actor::{ActorError, ActorSystem, DeadLetter};
 
 use crate::{ManualTime, TestProbe};
 
@@ -33,6 +33,15 @@ impl ActorSystemTestKit {
         M: Send + 'static,
     {
         TestProbe::spawn(&self.system, name)
+    }
+
+    pub fn create_dead_letter_probe(
+        &self,
+        name: impl AsRef<str>,
+    ) -> Result<TestProbe<DeadLetter>, ActorError> {
+        let probe = self.create_probe(name)?;
+        self.system.event_stream().subscribe(probe.actor_ref());
+        Ok(probe)
     }
 
     pub fn shutdown(self, timeout: Duration) -> Result<(), ActorError> {
