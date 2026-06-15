@@ -26,11 +26,31 @@ const DEFAULT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 pub struct TcpAssociationListener {
     listener: TcpListener,
     reader: TcpAssociationStreamReader,
+    handler_factory: Option<Arc<dyn TcpAssociationFrameHandlerFactory>>,
     expected_streams: usize,
     accept_poll_interval: Duration,
     local_address: Option<RemoteAssociationAddress>,
     association_registry: Option<RemoteAssociationRegistry>,
     route_installer: Option<RemoteAssociationRouteInstaller>,
+}
+
+pub trait TcpAssociationFrameHandlerFactory: Send + Sync + 'static {
+    fn handler_for(
+        &self,
+        remote_identity: Option<&TcpAssociationIdentity>,
+    ) -> Arc<dyn RemoteFrameHandler>;
+}
+
+impl<F> TcpAssociationFrameHandlerFactory for F
+where
+    F: Fn(Option<&TcpAssociationIdentity>) -> Arc<dyn RemoteFrameHandler> + Send + Sync + 'static,
+{
+    fn handler_for(
+        &self,
+        remote_identity: Option<&TcpAssociationIdentity>,
+    ) -> Arc<dyn RemoteFrameHandler> {
+        self(remote_identity)
+    }
 }
 
 impl TcpAssociationListener {
@@ -44,6 +64,7 @@ impl TcpAssociationListener {
         Self {
             listener,
             reader: TcpAssociationStreamReader::new(handler),
+            handler_factory: None,
             expected_streams: DEFAULT_EXPECTED_LANE_STREAMS,
             accept_poll_interval: DEFAULT_ACCEPT_POLL_INTERVAL,
             local_address: None,
@@ -69,6 +90,14 @@ impl TcpAssociationListener {
 
     pub fn with_route_installer(mut self, installer: RemoteAssociationRouteInstaller) -> Self {
         self.route_installer = Some(installer);
+        self
+    }
+
+    pub fn with_handler_factory(
+        mut self,
+        handler_factory: Arc<dyn TcpAssociationFrameHandlerFactory>,
+    ) -> Self {
+        self.handler_factory = Some(handler_factory);
         self
     }
 
@@ -114,7 +143,7 @@ impl TcpAssociationListener {
         self.register_remote_identity(&remote_identity)?;
         self.install_reverse_route(&remote_identity, &streams)?;
         Ok(TcpAcceptedAssociation {
-            reader: self.reader.clone(),
+            reader: self.reader_for(&remote_identity),
             remote_identity,
             streams,
         })
@@ -227,7 +256,7 @@ impl TcpAssociationListener {
         self.register_remote_identity(&remote_identity)?;
         self.install_reverse_route(&remote_identity, &streams)?;
         Ok(Some(TcpAcceptedAssociation {
-            reader: self.reader.clone(),
+            reader: self.reader_for(&remote_identity),
             remote_identity,
             streams,
         }))
@@ -285,6 +314,15 @@ impl TcpAssociationListener {
         let large = clone_lane_sink(streams, RemoteStreamId::Large, identity.address())?;
         installer.insert_stream_pipeline(identity.address().clone(), control, ordinary, large);
         Ok(())
+    }
+
+    fn reader_for(&self, identity: &Option<TcpAssociationIdentity>) -> TcpAssociationStreamReader {
+        match &self.handler_factory {
+            Some(factory) => self
+                .reader
+                .with_handler(factory.handler_for(identity.as_ref())),
+            None => self.reader.clone(),
+        }
     }
 }
 

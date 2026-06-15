@@ -1,10 +1,11 @@
+use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use kairo_remote::{
-    RemoteError, RemoteFrameHandler, RemoteStreamId, Result as RemoteResult,
-    decode_remote_envelope_frame,
+    RemoteAssociationAddress, RemoteError, RemoteFrameHandler, RemoteStreamId,
+    Result as RemoteResult, decode_remote_envelope_frame,
 };
 use kairo_serialization::{RemoteEnvelope, RemoteMessage};
 
@@ -45,6 +46,8 @@ pub trait ReplicatorRemoteReplyReceiver: Send + Sync + 'static {
         envelope: RemoteEnvelope,
     ) -> Result<(), ReplicatorRemoteReplyError>;
 }
+
+pub type ReplicatorRemoteSourceMap = Arc<Mutex<BTreeMap<RemoteAssociationAddress, ReplicaId>>>;
 
 impl ReplicatorRemoteReplyReceiver for ReplicatorRemoteReplyInbound {
     fn receive_reply_from(
@@ -89,9 +92,37 @@ impl std::error::Error for ReplicatorRemoteAssociationInboundError {}
 
 #[derive(Clone)]
 pub struct ReplicatorRemoteAssociationInbound {
-    from: ReplicaId,
+    source: ReplicatorRemoteAssociationSource,
     requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
     replies: Arc<dyn ReplicatorRemoteReplyReceiver>,
+}
+
+#[derive(Clone)]
+enum ReplicatorRemoteAssociationSource {
+    Fixed(ReplicaId),
+    Address {
+        address: RemoteAssociationAddress,
+        replicas: ReplicatorRemoteSourceMap,
+        fallback: ReplicaId,
+    },
+}
+
+impl ReplicatorRemoteAssociationSource {
+    fn replica(&self) -> ReplicaId {
+        match self {
+            Self::Fixed(replica) => replica.clone(),
+            Self::Address {
+                address,
+                replicas,
+                fallback,
+            } => replicas
+                .lock()
+                .expect("replicator remote source map lock poisoned")
+                .get(address)
+                .cloned()
+                .unwrap_or_else(|| fallback.clone()),
+        }
+    }
 }
 
 impl ReplicatorRemoteAssociationInbound {
@@ -101,14 +132,35 @@ impl ReplicatorRemoteAssociationInbound {
         replies: Arc<dyn ReplicatorRemoteReplyReceiver>,
     ) -> Self {
         Self {
-            from,
+            source: ReplicatorRemoteAssociationSource::Fixed(from),
             requests,
             replies,
         }
     }
 
     pub fn from(&self) -> &ReplicaId {
-        &self.from
+        match &self.source {
+            ReplicatorRemoteAssociationSource::Fixed(from) => from,
+            ReplicatorRemoteAssociationSource::Address { fallback, .. } => fallback,
+        }
+    }
+
+    pub fn from_address(
+        address: RemoteAssociationAddress,
+        replicas: ReplicatorRemoteSourceMap,
+        fallback: ReplicaId,
+        requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
+        replies: Arc<dyn ReplicatorRemoteReplyReceiver>,
+    ) -> Self {
+        Self {
+            source: ReplicatorRemoteAssociationSource::Address {
+                address,
+                replicas,
+                fallback,
+            },
+            requests,
+            replies,
+        }
     }
 
     pub fn receive_envelope(
@@ -116,6 +168,7 @@ impl ReplicatorRemoteAssociationInbound {
         stream_id: RemoteStreamId,
         envelope: RemoteEnvelope,
     ) -> Result<(), ReplicatorRemoteAssociationInboundError> {
+        let from = self.source.replica();
         let manifest = envelope.message.manifest.as_str();
         if stream_id == RemoteStreamId::Control {
             return Err(
@@ -126,11 +179,11 @@ impl ReplicatorRemoteAssociationInbound {
         }
         if is_replicator_request_manifest(manifest) {
             self.requests
-                .receive_request_from(self.from.clone(), envelope)
+                .receive_request_from(from, envelope)
                 .map_err(ReplicatorRemoteAssociationInboundError::Request)
         } else if is_replicator_reply_manifest(manifest) {
             self.replies
-                .receive_reply_from(self.from.clone(), envelope)
+                .receive_reply_from(from, envelope)
                 .map_err(ReplicatorRemoteAssociationInboundError::Reply)
         } else {
             Err(

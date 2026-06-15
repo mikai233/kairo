@@ -222,8 +222,8 @@ pub use remote_association::{
 };
 pub use remote_association_inbound::{
     ReplicatorRemoteAssociationInbound, ReplicatorRemoteAssociationInboundError,
-    ReplicatorRemoteReplyReceiver, ReplicatorRemoteRequestReceiver, is_replicator_reply_manifest,
-    is_replicator_request_manifest,
+    ReplicatorRemoteReplyReceiver, ReplicatorRemoteRequestReceiver, ReplicatorRemoteSourceMap,
+    is_replicator_reply_manifest, is_replicator_request_manifest,
 };
 pub use remote_envelope::{
     ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeError, ReplicatorRemoteEnvelopeInbound,

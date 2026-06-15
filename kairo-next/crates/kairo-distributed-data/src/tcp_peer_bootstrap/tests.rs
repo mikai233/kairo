@@ -62,6 +62,42 @@ fn send_read_until_count_received(
     panic!("remote request was not delivered before timeout; last send error: {last_error:?}");
 }
 
+fn send_read_until_key_received(
+    outbound: &impl Recipient<ReplicatorRead>,
+    requests: &RecordingRequests,
+    registry: &kairo_serialization::Registry,
+    read: ReplicatorRead,
+    key: &str,
+    timeout: Duration,
+) -> (
+    ReplicaId,
+    kairo_serialization::RemoteEnvelope,
+    ReplicatorRead,
+) {
+    let deadline = Instant::now() + timeout;
+    let mut last_error = None;
+    while Instant::now() < deadline {
+        if let Err(error) = outbound.tell(read.clone()) {
+            last_error = Some(error.reason().to_string());
+        }
+        for (from, envelope) in requests.wait_for_len(1, Duration::from_millis(50)) {
+            if envelope.message.manifest.as_str() != ReplicatorRead::MANIFEST {
+                continue;
+            }
+            let decoded = registry
+                .deserialize::<ReplicatorRead>(envelope.message.clone())
+                .expect("recorded read request should decode");
+            if decoded.key == key {
+                return (from, envelope, decoded);
+            }
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    panic!(
+        "remote request `{key}` was not delivered before timeout; last send error: {last_error:?}"
+    );
+}
+
 #[test]
 fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
     let _guard = bootstrap_socket_test_lock();
@@ -398,7 +434,7 @@ fn bootstrap_installed_peer_route_delivers_remote_request_to_receiver() {
 
     let received = receiver_requests.wait_for_len(1, Duration::from_secs(1));
     assert_eq!(received.len(), 1);
-    assert_eq!(received[0].0, ReplicaId::new("sender"));
+    assert_eq!(received[0].0, ReplicaId::from(&sender_node));
     assert_eq!(
         received[0].1.message.manifest.as_str(),
         ReplicatorRead::MANIFEST
@@ -1089,6 +1125,70 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &[first_node.clone(), second_node.clone()],
     );
     assert_eq!(third_cache.route_count(), 2);
+
+    let second_to_third = outbound(
+        ReplicaId::from(&third_node),
+        third_ref.clone(),
+        second_ref.clone(),
+        registry.clone(),
+        second_cache.clone(),
+    );
+    let (third_from_second, third_envelope_from_second, third_read_from_second) =
+        send_read_until_key_received(
+            &second_to_third,
+            &third_requests,
+            &registry,
+            ReplicatorRead {
+                key: "counter-third-from-second".to_string(),
+                from: Some(ReplicaId::from(&second_node)),
+            },
+            "counter-third-from-second",
+            Duration::from_secs(1),
+        );
+    assert_eq!(third_from_second, ReplicaId::from(&second_node));
+    assert_eq!(
+        third_envelope_from_second.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    assert_eq!(
+        third_read_from_second.from,
+        Some(ReplicaId::from(&second_node))
+    );
+    assert_eq!(third_read_from_second.key, "counter-third-from-second");
+    assert_eq!(third_envelope_from_second.recipient, third_ref.clone());
+    assert_eq!(third_envelope_from_second.sender, Some(second_ref.clone()));
+
+    let third_to_second = outbound(
+        ReplicaId::from(&second_node),
+        second_ref.clone(),
+        third_ref.clone(),
+        registry.clone(),
+        third_cache.clone(),
+    );
+    let (second_from_third, second_envelope_from_third, second_read_from_third) =
+        send_read_until_key_received(
+            &third_to_second,
+            &second_requests,
+            &registry,
+            ReplicatorRead {
+                key: "counter-second-from-third".to_string(),
+                from: Some(ReplicaId::from(&third_node)),
+            },
+            "counter-second-from-third",
+            Duration::from_secs(1),
+        );
+    assert_eq!(second_from_third, ReplicaId::from(&third_node));
+    assert_eq!(
+        second_envelope_from_third.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    assert_eq!(
+        second_read_from_third.from,
+        Some(ReplicaId::from(&third_node))
+    );
+    assert_eq!(second_read_from_third.key, "counter-second-from-third");
+    assert_eq!(second_envelope_from_third.recipient, second_ref.clone());
+    assert_eq!(second_envelope_from_third.sender, Some(third_ref));
 
     let reduced_gossip = Gossip::from_members([
         Member::new(first_node.clone(), Vec::new()).with_status(MemberStatus::Up),

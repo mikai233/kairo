@@ -29,6 +29,13 @@ impl TcpAssociationStreamReader {
         self
     }
 
+    pub fn with_handler(&self, handler: Arc<dyn RemoteFrameHandler>) -> Self {
+        Self {
+            handler,
+            read_chunk_len: self.read_chunk_len,
+        }
+    }
+
     pub fn read_stream(
         &self,
         peer: impl Into<String>,

@@ -265,12 +265,12 @@ pub use stream_inbound::{RemoteFrameHandler, StreamFrameInbound};
 pub use stream_sink::{RemoteByteSink, RemoteStreamWriter, StreamLaneSink, stream_send_failure};
 pub use system_inbound::ActorSystemRemoteInbound;
 pub use tcp::{
-    TcpAcceptedAssociation, TcpAssociationDialer, TcpAssociationHandshake, TcpAssociationIdentity,
-    TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
-    TcpAssociationReadReport, TcpAssociationReaderFailure, TcpAssociationReaderHandle,
-    TcpAssociationReaderRestartSettings, TcpAssociationReaderSupervisionDecision,
-    TcpAssociationReaderSupervisor, TcpAssociationStreamReader, TcpAssociationSupervisedReadReport,
-    TcpRemoteByteSink,
+    TcpAcceptedAssociation, TcpAssociationDialer, TcpAssociationFrameHandlerFactory,
+    TcpAssociationHandshake, TcpAssociationIdentity, TcpAssociationListener,
+    TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReadReport,
+    TcpAssociationReaderFailure, TcpAssociationReaderHandle, TcpAssociationReaderRestartSettings,
+    TcpAssociationReaderSupervisionDecision, TcpAssociationReaderSupervisor,
+    TcpAssociationStreamReader, TcpAssociationSupervisedReadReport, TcpRemoteByteSink,
 };
 pub use tcp_runtime::TcpRemoteActorSystem;
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};

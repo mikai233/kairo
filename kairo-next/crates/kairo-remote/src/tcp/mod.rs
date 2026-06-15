@@ -10,9 +10,9 @@ pub use self::handshake::{
     read_tcp_association_handshake, validate_tcp_association_handshakes,
 };
 pub use self::inbound::{
-    TcpAcceptedAssociation, TcpAssociationListener, TcpAssociationListenerHandle,
-    TcpAssociationListenerReport, TcpAssociationReadReport, TcpAssociationReaderHandle,
-    TcpAssociationStreamReader, TcpAssociationSupervisedReadReport,
+    TcpAcceptedAssociation, TcpAssociationFrameHandlerFactory, TcpAssociationListener,
+    TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReadReport,
+    TcpAssociationReaderHandle, TcpAssociationStreamReader, TcpAssociationSupervisedReadReport,
 };
 pub use self::sink::TcpRemoteByteSink;
 pub use self::supervision::{

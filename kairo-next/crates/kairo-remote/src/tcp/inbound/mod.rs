@@ -5,7 +5,9 @@ mod reports;
 mod stream_reader;
 
 pub use self::accepted::{TcpAcceptedAssociation, TcpAssociationReaderHandle};
-pub use self::listener::{TcpAssociationListener, TcpAssociationListenerHandle};
+pub use self::listener::{
+    TcpAssociationFrameHandlerFactory, TcpAssociationListener, TcpAssociationListenerHandle,
+};
 pub use self::reports::{
     TcpAssociationListenerReport, TcpAssociationReadReport, TcpAssociationSupervisedReadReport,
 };

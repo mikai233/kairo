@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -5,14 +6,14 @@ use std::time::{Duration, Instant};
 use kairo_remote::{
     AssociationOutboundPipeline, RemoteAssociationAddress, RemoteAssociationCache,
     RemoteAssociationRegistry, RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration,
-    RemoteError, RemoteSettings, Result as RemoteResult, TcpAssociationDialer,
+    RemoteError, RemoteFrameHandler, RemoteSettings, Result as RemoteResult, TcpAssociationDialer,
     TcpAssociationIdentity, TcpAssociationListener, TcpAssociationListenerHandle,
     TcpAssociationListenerReport, TcpAssociationReaderHandle, TcpAssociationStreamReader,
 };
 
 use crate::{
     ReplicaId, ReplicatorRemoteAssociationInbound, ReplicatorRemoteReplyReceiver,
-    ReplicatorRemoteRequestReceiver,
+    ReplicatorRemoteRequestReceiver, ReplicatorRemoteSourceMap,
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -22,8 +23,11 @@ pub struct ReplicatorTcpAssociationRuntime {
     remote_replica: ReplicaId,
     local_address: RemoteAssociationAddress,
     settings: RemoteSettings,
+    requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
+    replies: Arc<dyn ReplicatorRemoteReplyReceiver>,
     association_cache: RemoteAssociationCache,
     association_registry: RemoteAssociationRegistry,
+    source_replicas: ReplicatorRemoteSourceMap,
     dialer: TcpAssociationDialer,
     outbound_reader: TcpAssociationStreamReader,
     outbound_readers: Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
@@ -67,17 +71,41 @@ impl ReplicatorTcpAssociationRuntime {
         )?;
         let association_cache = RemoteAssociationCache::new();
         let association_registry = RemoteAssociationRegistry::new();
+        let source_replicas = Arc::new(Mutex::new(BTreeMap::new()));
         let installer = RemoteAssociationRouteInstaller::new(association_cache.clone());
+        let listener_requests = Arc::clone(&requests);
+        let listener_replies = Arc::clone(&replies);
+        let listener_fallback_replica = remote_replica.clone();
+        let listener_source_replicas = Arc::clone(&source_replicas);
+        let handler_factory = Arc::new(
+            move |identity: Option<&TcpAssociationIdentity>| -> Arc<dyn RemoteFrameHandler> {
+                match identity {
+                    Some(identity) => Arc::new(ReplicatorRemoteAssociationInbound::from_address(
+                        identity.address().clone(),
+                        Arc::clone(&listener_source_replicas),
+                        listener_fallback_replica.clone(),
+                        Arc::clone(&listener_requests),
+                        Arc::clone(&listener_replies),
+                    )) as Arc<dyn RemoteFrameHandler>,
+                    None => Arc::new(ReplicatorRemoteAssociationInbound::new(
+                        listener_fallback_replica.clone(),
+                        Arc::clone(&listener_requests),
+                        Arc::clone(&listener_replies),
+                    )) as Arc<dyn RemoteFrameHandler>,
+                }
+            },
+        );
         let inbound = Arc::new(ReplicatorRemoteAssociationInbound::new(
             remote_replica.clone(),
-            requests,
-            replies,
+            Arc::clone(&requests),
+            Arc::clone(&replies),
         ));
         let outbound_reader = TcpAssociationStreamReader::new(inbound.clone());
         let listener = TcpAssociationListener::from_listener(listener, inbound)
             .with_local_address(local_address.clone())
             .with_association_registry(association_registry.clone())
             .with_route_installer(installer.clone())
+            .with_handler_factory(handler_factory)
             .spawn_accept_loop()?;
         let dialer = TcpAssociationDialer::new(installer)
             .with_local_identity(local_address.clone(), local_system_uid)
@@ -88,8 +116,11 @@ impl ReplicatorTcpAssociationRuntime {
             remote_replica,
             local_address,
             settings: effective_settings,
+            requests,
+            replies,
             association_cache,
             association_registry,
+            source_replicas,
             dialer,
             outbound_reader,
             outbound_readers: Arc::new(Mutex::new(Vec::new())),
@@ -145,7 +176,63 @@ impl ReplicatorTcpAssociationRuntime {
         Ok(registration)
     }
 
+    pub fn dial_peer(
+        &self,
+        address: RemoteAssociationAddress,
+        replica: ReplicaId,
+    ) -> RemoteResult<RemoteAssociationRouteRegistration> {
+        self.register_source_replica(address.clone(), replica.clone());
+        let inbound = Arc::new(ReplicatorRemoteAssociationInbound::new(
+            replica,
+            Arc::clone(&self.requests),
+            Arc::clone(&self.replies),
+        ));
+        let reader = TcpAssociationStreamReader::new(inbound);
+        match self.dial_with_reader(address.clone(), reader) {
+            Ok(registration) => Ok(registration),
+            Err(error) => {
+                self.unregister_source_replica(&address);
+                Err(error)
+            }
+        }
+    }
+
+    fn dial_with_reader(
+        &self,
+        address: RemoteAssociationAddress,
+        reader: TcpAssociationStreamReader,
+    ) -> RemoteResult<RemoteAssociationRouteRegistration> {
+        let (registration, reader_handle) = self.dialer.dial_with_reader(address, reader)?;
+        self.outbound_pipelines
+            .lock()
+            .expect("replicator tcp outbound pipelines lock poisoned")
+            .push(registration.pipeline().clone());
+        self.outbound_readers
+            .lock()
+            .expect("replicator tcp outbound readers lock poisoned")
+            .push(reader_handle);
+        Ok(registration)
+    }
+
+    pub fn register_source_replica(&self, address: RemoteAssociationAddress, replica: ReplicaId) {
+        self.source_replicas
+            .lock()
+            .expect("replicator remote source map lock poisoned")
+            .insert(address, replica);
+    }
+
+    pub fn unregister_source_replica(
+        &self,
+        address: &RemoteAssociationAddress,
+    ) -> Option<ReplicaId> {
+        self.source_replicas
+            .lock()
+            .expect("replicator remote source map lock poisoned")
+            .remove(address)
+    }
+
     pub fn remove_route(&self, address: &RemoteAssociationAddress) -> bool {
+        self.unregister_source_replica(address);
         self.association_cache.remove_route(address).is_some()
     }
 

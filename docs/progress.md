@@ -1340,6 +1340,13 @@ Implemented:
   marker deadline, reports each changed key, deduplicates the forgotten removed
   replica, preserves already-collapsed owner data, and marks those keys as
   changed for later flushes.
+- Distributed-data TCP bootstrap full-mesh coverage now verifies non-first
+  peers can deliver stable-manifest read requests to each other after all
+  three connectors install cluster-derived routes. The TCP association runtime
+  now binds inbound source attribution to the peer route's cluster
+  `ReplicaId`, including reverse routes from peer-initiated associations, so
+  full-mesh delivery no longer reports every accepted request as the
+  constructor fallback peer.
 - `kairo-distributed-data` built-in CRDT codec round-trip and rejection tests
   now live in a focused sibling test module.
 - `kairo-distributed-data` delta propagation log versioning, node selection,
@@ -2945,6 +2952,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_bootstrap --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-distributed-data replicator_state_removes_obsolete_performed_pruning_markers --all-targets --all-features
 cargo test -p kairo-distributed-data replicator_state --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features

@@ -150,7 +150,10 @@ impl ReplicatorTcpPeerRoutes {
         }
 
         let registration = runtime
-            .dial(target.association().clone())
+            .dial_peer(
+                target.association().clone(),
+                crate::ReplicaId::from(target.node()),
+            )
             .map_err(|source| ReplicatorTcpPeerRouteError::Dial {
                 target: Box::new(target.clone()),
                 source: Box::new(source),
