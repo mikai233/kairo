@@ -304,6 +304,7 @@ fn stopped_actor_name_can_be_reused_with_new_incarnation() {
     first_stopped_rx
         .recv_timeout(Duration::from_secs(1))
         .unwrap();
+    assert!(first.wait_for_stop(Duration::from_secs(1)));
 
     let (second_stopped_tx, _second_stopped_rx) = mpsc::channel();
     let second = system

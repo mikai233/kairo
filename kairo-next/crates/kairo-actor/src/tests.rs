@@ -22,6 +22,62 @@ mod timers;
 mod tree_lifecycle;
 mod watch;
 
+#[test]
+fn actor_crate_does_not_expose_async_actor_api() -> Result<(), Box<dyn std::error::Error>> {
+    let crate_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let forbidden_declarations = [
+        "pub trait AsyncActor",
+        "trait AsyncActor",
+        "pub struct AsyncActor",
+        "struct AsyncActor",
+        "pub enum AsyncActor",
+        "enum AsyncActor",
+        "pub type AsyncActor",
+        "type AsyncActor",
+        "pub use AsyncActor",
+        "pub use crate::AsyncActor",
+    ];
+
+    let mut files = Vec::new();
+    collect_rs_files(&crate_src, &mut files)?;
+
+    for file in files {
+        let source = std::fs::read_to_string(&file)?.replace("\r\n", "\n");
+        for declaration in forbidden_declarations {
+            assert!(
+                !source.contains(declaration),
+                "{} must not expose `{declaration}`; async work should re-enter actors through mailbox messages",
+                file.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_rs_files(
+    directory: &std::path::Path,
+    files: &mut Vec<std::path::PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = path.file_name().and_then(|name| name.to_str());
+        if path.is_dir() {
+            if file_name == Some("tests") {
+                continue;
+            }
+            collect_rs_files(&path, files)?;
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs")
+            && file_name != Some("tests.rs")
+        {
+            files.push(path);
+        }
+    }
+
+    Ok(())
+}
+
 enum CounterMsg {
     Increment,
     Get(mpsc::Sender<usize>),

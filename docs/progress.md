@@ -111,6 +111,12 @@ Implemented:
   `Actor::receive` is synchronous, why local messages do not need
   serialization, and how external work returns through mailbox messages with a
   compile-checked example.
+- `kairo-actor` now has a source-level API guard that scans active Rust sources
+  for `AsyncActor` declarations, keeping the initial actor model centered on
+  synchronous `Actor::receive` turns and mailbox-returning async work.
+- The stopped-name reuse regression test now waits for the actor ref
+  termination latch after the `stopped` hook, so it observes local registry
+  cleanup before respawning the same logical name.
 - Local actor name and child-tree bookkeeping now lives in a focused registry
   module instead of being embedded in the system runtime loop.
 - Local actor spawning, reserved-name validation, worker-thread launch, and
@@ -3431,5 +3437,11 @@ cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 cargo fmt --all -- --check
+git diff --check
+cargo test -p kairo-actor actor_crate_does_not_expose_async_actor_api --all-targets --all-features
+cargo test -p kairo-actor stopped_actor_name_can_be_reused_with_new_incarnation --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```
