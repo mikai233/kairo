@@ -449,6 +449,10 @@ Implemented:
 - `ActorHarness` and `ActorHarnessError` now document spawn-backed subject
   setup, manual-time setup, probe creation, subject stop assertions, and
   explicit harness shutdown at the method and variant level.
+- `ManualTime`, `ManualTimeHandle`, and `NoMessageProbe` now document
+  deterministic scheduler construction, manual clock access, cancellable
+  scheduled delivery, shared no-message assertions across heterogeneous probes,
+  due-work execution, and pending-work inspection at the method level.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.
