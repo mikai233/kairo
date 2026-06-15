@@ -1925,6 +1925,11 @@ Implemented:
   for the other node through the actor-backed connector boundary; the same
   validation now runs coordinated shutdown afterward and asserts the live-route
   connector stops through the registered bootstrap shutdown task.
+- Cluster TCP peer bootstrap lifecycle coverage now also drives the full
+  `ActorSystem::run_coordinated_shutdown` facade after a live membership route
+  has been installed, proving the bootstrap-registered connector stop task
+  terminates the actor and clears the sender association cache during normal
+  actor-system shutdown.
 - The two-node cluster TCP peer bootstrap validation now uses
   `kairo-testkit::MultiNodeTestKit` to own named node systems and create
   per-node snapshot probes, exercising the structured local multi-node harness
@@ -2880,10 +2885,11 @@ Not yet implemented:
   multi-node graceful-shutdown validation that now proves remembered entity
   recovery after handoff plus passivated-entity removal before rehost through
   a shared remember store.
-- Cluster, distributed-data, and cluster-tools socket integration still need
-  broader lifecycle tests around the bootstrap facades beyond the current
-  localhost crate, focused sender-side route-reduction delivery coverage, and
-  example routeful coordinated-shutdown smoke tests.
+- Distributed-data and cluster-tools socket integration still need broader
+  lifecycle tests around the bootstrap facades beyond the current localhost
+  crate, focused sender-side route-reduction delivery coverage, and example
+  routeful coordinated-shutdown smoke tests; cluster bootstrap now has
+  crate-level routeful `run_coordinated_shutdown` coverage.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation and focused three-node
@@ -2892,6 +2898,9 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster bootstrap_coordinated_shutdown_stops_connector_after_live_route --all-targets --all-features
+cargo test -p kairo-cluster tcp_peer_bootstrap --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
 cargo test -p kairo-remote remote_envelope_frame --all-targets --all-features
 cargo test -p kairo-remote framed_ --all-targets --all-features
 cargo test -p kairo-remote --all-targets --all-features
