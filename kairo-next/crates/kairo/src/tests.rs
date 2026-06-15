@@ -2,6 +2,36 @@
 #[derive(Debug)]
 struct PreludeRemoteMsg;
 
+#[test]
+fn root_workspace_members_stay_on_kairo_next() -> Result<(), Box<dyn std::error::Error>> {
+    let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = crate_dir
+        .ancestors()
+        .nth(3)
+        .ok_or("kairo crate should live under kairo-next/crates/kairo")?;
+    let root_manifest = std::fs::read_to_string(repo_root.join("Cargo.toml"))?;
+    let root_manifest = root_manifest.replace("\r\n", "\n");
+
+    assert!(
+        root_manifest.contains("[workspace]\n"),
+        "root Cargo.toml must define the active workspace"
+    );
+    assert!(
+        root_manifest.contains("members = [\"kairo-next/crates/*\"]"),
+        "normal workspace builds must include only kairo-next crates"
+    );
+    assert!(
+        !root_manifest.contains("\"crates/"),
+        "legacy crates/ must remain reference-only, not workspace members"
+    );
+    assert!(
+        !root_manifest.contains("path = \"crates/"),
+        "workspace dependencies must not point at legacy crates/"
+    );
+
+    Ok(())
+}
+
 #[cfg(feature = "remote")]
 impl crate::prelude::RemoteMessage for PreludeRemoteMsg {
     const MANIFEST: &'static str = "kairo.facade.test.PreludeRemoteMsg";

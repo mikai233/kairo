@@ -2649,6 +2649,9 @@ Implemented:
   Rust-first rewrite workspace, the old `crates/` implementation as
   reference-only, the gossip-not-etcd cluster constraint, typed actor and
   sharding APIs, and the current runnable examples.
+- The `kairo` facade test suite now pins the root workspace boundary so normal
+  Cargo builds include only `kairo-next/crates/*` and do not point members or
+  workspace dependencies at the legacy `crates/` reference tree.
 - `docs/migration.md` now documents the current migration path from the old
   reference crates to the `kairo` facade, including typed actor protocols,
   TOML configuration, remote-message wire metadata, sharding routing, cluster
