@@ -1,4 +1,14 @@
 //! Format-neutral Kairo settings and TOML loading.
+//!
+//! The initial file format is TOML, but the public settings structs in this
+//! module deliberately avoid TOML-specific concepts. File loaders project TOML
+//! documents into [`KairoSettings`], validate the result, and the runtime
+//! helpers convert those settings into actor, remote, cluster, sharding, and
+//! diagnostics builder values.
+//!
+//! Use [`load_toml_file`] or [`load_toml_files`] for configuration files, and
+//! [`parse_toml_str`] when tests, embedded defaults, or higher-level discovery
+//! already provide configuration text.
 
 mod error;
 mod runtime;

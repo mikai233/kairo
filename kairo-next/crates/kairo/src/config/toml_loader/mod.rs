@@ -67,6 +67,26 @@ fn read_toml_table(path: &Path) -> Result<toml::Table, ConfigError> {
     parse_toml_document(&contents)
 }
 
+/// Parses TOML configuration text into format-neutral [`KairoSettings`].
+///
+/// This helper is useful for tests, embedded defaults, and callers that
+/// already own file discovery or layering.
+///
+/// ```
+/// use kairo::prelude::parse_toml_str;
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let settings = parse_toml_str(
+///     r#"
+/// [actor.dispatchers.default]
+/// throughput = 8
+/// "#,
+/// )?;
+///
+/// assert_eq!(settings.actor.default_dispatcher()?.throughput, 8);
+/// # Ok(())
+/// # }
+/// ```
 pub fn parse_toml_str(input: &str) -> Result<KairoSettings, ConfigError> {
     parse_toml_table(parse_toml_document(input)?)
 }
