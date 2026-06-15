@@ -2098,6 +2098,9 @@ Implemented:
   `KairoSettings` facade helper, and smoke coverage proves layered
   `[observability.diagnostics]` dead-letter settings affect the runtime event
   stream instead of being ignored by the example.
+- The runnable configured-counter binary now loads `examples/kairo.toml` plus
+  `examples/kairo.local.toml`, so the command-line example demonstrates the
+  same base-and-local TOML layering path as the reusable smoke-test helper.
 - The configured-counter example TOML now also exercises the facade
   `[cluster.sharding]` settings, and its reusable observation verifies shard
   count, remember-entity enablement, retry, handoff, failure-backoff,

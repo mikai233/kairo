@@ -1,0 +1,23 @@
+[actor.dispatchers.default]
+throughput = 1
+
+[remote.transport]
+canonical_hostname = "0.0.0.0"
+canonical_port = 25520
+connect_timeout = "1s"
+
+[cluster.sharding]
+number_of_shards = 64
+remember_entities = false
+retry_interval = "2s"
+handoff_timeout = "60s"
+shard_failure_backoff = "10s"
+rebalance_interval = "10s"
+shard_region_query_timeout = "3s"
+
+[cluster.sharding.least_shard_allocation]
+rebalance_absolute_limit = 10
+rebalance_relative_limit = 0.1
+
+[observability.diagnostics]
+dead_letters = false

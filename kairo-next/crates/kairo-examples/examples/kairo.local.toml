@@ -18,3 +18,6 @@ shard_region_query_timeout = "4s"
 [cluster.sharding.least_shard_allocation]
 rebalance_absolute_limit = 4
 rebalance_relative_limit = 0.25
+
+[observability.diagnostics]
+dead_letters = true

@@ -99,11 +99,15 @@ quarantine_events = true
 gossip_state_changes = true
 ```
 
-Load it through the facade and map the format-neutral settings into builders:
+Load one file or a layered stack through the facade, then map the
+format-neutral settings into builders:
 
 ```rust
 let settings = kairo::prelude::load_toml_file("kairo.local.toml")?;
 let system = settings.actor_system_builder("app")?.build()?;
+
+let layered = kairo::prelude::load_toml_files(["kairo.toml", "kairo.local.toml"])?;
+let layered_system = layered.actor_system_builder("app-local")?.build()?;
 ```
 
 Seed nodes are contact addresses only, not membership truth. When remoting is
@@ -147,10 +151,11 @@ let gossip_every = settings.cluster.tools.to_pubsub_gossip_interval()?;
 ```
 
 These settings are format-neutral Rust values after loading. The current
-`configured_counter` example uses `examples/kairo.local.toml` to validate
-actor-system builder configuration, remote transport settings, sharding timing
-values, and least-shard allocation settings through the facade without making
-TOML syntax part of the runtime API.
+`configured_counter` example uses `examples/kairo.toml` plus
+`examples/kairo.local.toml` to validate base-and-local layering, actor-system
+builder configuration, dead-letter diagnostics, remote transport settings,
+sharding timing values, and least-shard allocation settings through the facade
+without making TOML syntax part of the runtime API.
 
 Observability settings are backend-neutral. Use
 `settings.observability.diagnostics` to decide which diagnostic categories an
