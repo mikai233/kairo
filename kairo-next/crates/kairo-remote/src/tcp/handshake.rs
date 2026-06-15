@@ -156,6 +156,7 @@ fn decode_tcp_association_handshake_payload(bytes: Bytes) -> Result<TcpAssociati
     let stream_id = RemoteStreamId::try_from_u8(reader.read_u8()?)?;
     let from = read_identity(&mut reader)?;
     let to = read_address(&mut reader)?;
+    reader.ensure_finished()?;
     Ok(TcpAssociationHandshake::new(stream_id, from, to))
 }
 
@@ -215,6 +216,23 @@ mod tests {
         let decoded = read_tcp_association_handshake(&mut bytes).unwrap();
 
         assert_eq!(decoded, handshake);
+    }
+
+    #[test]
+    fn tcp_handshake_rejects_trailing_payload_bytes() {
+        let handshake = TcpAssociationHandshake::new(
+            RemoteStreamId::Ordinary,
+            TcpAssociationIdentity::new(address("sender", 25521), 22),
+            address("receiver", 25520),
+        );
+        let encoded = encode_tcp_association_handshake(&handshake).unwrap();
+        let mut payload = encoded[TCP_HANDSHAKE_PREFIX_LEN..].to_vec();
+        payload.push(0xff);
+
+        let error = decode_tcp_association_handshake_payload(Bytes::from(payload))
+            .expect_err("trailing handshake payload byte should fail");
+
+        assert!(error.to_string().contains("trailing byte"));
     }
 
     #[test]

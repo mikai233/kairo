@@ -707,6 +707,8 @@ Implemented:
   those handshakes so accepted control, ordinary, and large lanes are
   addressed to the local canonical node and come from one remote association
   incarnation.
+- TCP association handshake payload decoding now rejects unread trailing bytes
+  after the stable lane id, remote identity, and target address fields.
 - TCP listener lifecycle reports now retain accepted handshaken remote
   identities, including address and UID, so later association-registry,
   quarantine, and diagnostics work can build on explicit peer incarnation
