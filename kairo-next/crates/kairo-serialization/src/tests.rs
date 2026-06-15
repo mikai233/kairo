@@ -583,6 +583,115 @@ fn remote_envelope_uses_actor_ref_wire_data() {
 }
 
 #[test]
+fn serialized_message_wire_round_trip_preserves_metadata_tuple() {
+    let message = SerializedMessage::new(
+        0x0102_0304,
+        Manifest::new("kairo.test.CounterCommand"),
+        0x1122,
+        Bytes::from_static(&[0xaa, 0xbb]),
+    );
+
+    let bytes = message.encode_wire().unwrap();
+    assert_eq!(
+        bytes.as_ref(),
+        &[
+            1, 2, 3, 4, 0, 0, 0, 25, b'k', b'a', b'i', b'r', b'o', b'.', b't', b'e', b's', b't',
+            b'.', b'C', b'o', b'u', b'n', b't', b'e', b'r', b'C', b'o', b'm', b'm', b'a', b'n',
+            b'd', 0x11, 0x22, 0, 0, 0, 2, 0xaa, 0xbb,
+        ]
+    );
+
+    let decoded = SerializedMessage::decode_wire(&bytes).unwrap();
+
+    assert_eq!(decoded, message);
+}
+
+#[test]
+fn serialized_message_wire_decode_rejects_invalid_manifest_and_trailing_bytes() {
+    let mut writer = WireWriter::new();
+    writer.write_u32(41);
+    writer.write_string(" ").unwrap();
+    writer.write_u16(1);
+    writer.write_bytes(&Bytes::new()).unwrap();
+    let bytes = writer.finish();
+
+    assert_eq!(
+        SerializedMessage::decode_wire(&bytes).unwrap_err(),
+        SerializationError::InvalidManifest(" ".to_string())
+    );
+
+    let mut valid = SerializedMessage::new(
+        41,
+        Manifest::new("kairo.test.CounterCommand"),
+        1,
+        Bytes::new(),
+    )
+    .encode_wire()
+    .unwrap()
+    .to_vec();
+    valid.push(0xff);
+    let valid = Bytes::from(valid);
+
+    assert_eq!(
+        SerializedMessage::decode_wire(&valid).unwrap_err(),
+        SerializationError::Message("wire payload has 1 trailing byte(s)".to_string())
+    );
+}
+
+#[test]
+fn remote_envelope_wire_round_trip_preserves_refs_and_message() {
+    let message = SerializedMessage::new(
+        7,
+        Manifest::new("kairo.test.CounterCommand"),
+        3,
+        Bytes::from_static(&[1, 2, 3]),
+    );
+    let envelope = RemoteEnvelope::from_paths(
+        "kairo://system@127.0.0.1:25520/user/counter#9",
+        Some("kairo://system/user/sender#10".to_string()),
+        message,
+    )
+    .unwrap();
+
+    let bytes = envelope.encode_wire().unwrap();
+    let decoded = RemoteEnvelope::decode_wire(&bytes).unwrap();
+
+    assert_eq!(decoded, envelope);
+    assert_eq!(decoded.recipient.protocol(), "kairo");
+    assert_eq!(decoded.recipient.system(), "system");
+    assert_eq!(decoded.recipient.host(), Some("127.0.0.1"));
+    assert_eq!(decoded.recipient.port(), Some(25520));
+    assert_eq!(
+        decoded.sender.as_ref().map(ActorRefWireData::path),
+        Some("kairo://system/user/sender#10")
+    );
+    assert_eq!(
+        decoded.message.manifest.as_str(),
+        "kairo.test.CounterCommand"
+    );
+}
+
+#[test]
+fn remote_envelope_wire_decode_rejects_invalid_actor_ref_path() {
+    let message = SerializedMessage::new(
+        7,
+        Manifest::new("kairo.test.CounterCommand"),
+        3,
+        Bytes::from_static(&[1, 2, 3]),
+    );
+    let mut writer = WireWriter::new();
+    writer.write_string("/user/counter").unwrap();
+    writer.write_optional_string(None).unwrap();
+    message.write_wire(&mut writer).unwrap();
+    let bytes = writer.finish();
+
+    assert_eq!(
+        RemoteEnvelope::decode_wire(&bytes).unwrap_err(),
+        SerializationError::InvalidActorRefPath("/user/counter".to_string())
+    );
+}
+
+#[test]
 fn actor_ref_resolution_goes_through_provider_trait() {
     struct Resolver;
 

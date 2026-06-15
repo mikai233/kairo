@@ -2866,3 +2866,34 @@ state. `RemoteAssociationDiagnosticFilter` and
 `DiagnosticsConfig::remote_association_diagnostics` map the
 `quarantine_events` flag onto caller-provided observers, returning no observer
 when quarantine diagnostics are disabled.
+
+## ADR-0100: Serialized Remote Envelopes Use Explicit Wire Helpers
+
+Status: Accepted
+
+Context:
+M3 requires stable remote message metadata and remote envelopes before TCP
+remoting, cluster, distributed-data, sharding, and cluster-tools system
+protocols depend on them. Pekko carries serializer id, manifest, and payload
+bytes explicitly, with sender and recipient metadata at the envelope boundary.
+Kairo already has `WireWriter` and `WireReader` helpers for hand-written
+system protocol bytes, but `SerializedMessage` and `RemoteEnvelope` did not yet
+own a canonical byte round-trip.
+
+Decision:
+`SerializedMessage::encode_wire` writes serializer id, manifest, version, and
+payload bytes using `WireWriter`. `RemoteEnvelope::encode_wire` writes the
+recipient actor-ref path, optional sender actor-ref path, and the serialized
+message tuple. Decode uses `WireReader`, validates manifests with
+`Manifest::try_new`, validates actor refs through `ActorRefWireData`, and
+rejects unread trailing bytes. Payload-specific encoding remains owned by
+registered `MessageCodec<M>` implementations.
+
+Consequences:
+- Remote and system protocol tests can assert a stable byte contract without
+  adding serde, prost, bincode, or another broad serialization dependency.
+- Actor-ref metadata remains validated at the serialization boundary instead
+  of being treated as arbitrary strings after decode.
+- Business payload codecs stay explicit and version-aware, preserving the rule
+  that Rust type names, enum discriminants, and memory layout are not wire
+  contracts.

@@ -545,6 +545,11 @@ Implemented:
 - `RemoteMessage`, `MessageCodec<M>`, `DynCodec`, `SerializedMessage`, and
   `RemoteEnvelope` define the stable metadata and payload boundary for remote
   messages.
+- `SerializedMessage::encode_wire`/`decode_wire` and
+  `RemoteEnvelope::encode_wire`/`decode_wire` now provide canonical
+  dependency-free byte round-trips for the stable serializer-id, manifest,
+  version, payload, recipient, and optional sender metadata used by remote and
+  system protocols.
 - `RemoteMessage`, `SerializerId`, `MessageCodec`, `DynCodec`, `Registry`,
   `SerializationRegistry`, `SerializedMessage`, `RemoteEnvelope`,
   `ActorRefWireData`, `ActorRefResolver`, and `Manifest` now document their
