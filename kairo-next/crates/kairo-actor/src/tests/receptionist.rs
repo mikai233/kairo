@@ -19,6 +19,40 @@ impl Actor for ListingProbe {
     }
 }
 
+struct RegisteredProbe {
+    observed: mpsc::Sender<(String, ActorPath)>,
+}
+
+impl Actor for RegisteredProbe {
+    type Msg = Registered<()>;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        self.observed
+            .send((
+                msg.key().id().to_string(),
+                msg.service_instance().path().clone(),
+            ))
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+struct DeregisteredProbe {
+    observed: mpsc::Sender<(String, ActorPath)>,
+}
+
+impl Actor for DeregisteredProbe {
+    type Msg = Deregistered<()>;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        self.observed
+            .send((
+                msg.key().id().to_string(),
+                msg.service_instance().path().clone(),
+            ))
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
 #[test]
 fn receptionist_subscribe_gets_initial_listing_and_updates() {
     let system = ActorSystem::builder("test").build().unwrap();
@@ -59,6 +93,87 @@ fn receptionist_subscribe_gets_initial_listing_and_updates() {
         listing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         Vec::<ActorPath>::new()
     );
+}
+
+#[test]
+fn receptionist_register_with_ack_confirms_processed_registration() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let key = ServiceKey::<()>::new("svc");
+    let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
+    let (ack_tx, ack_rx) = mpsc::channel();
+    let reply_to = system
+        .spawn(
+            "registered-probe",
+            Props::new(move || RegisteredProbe { observed: ack_tx }),
+        )
+        .unwrap();
+
+    assert!(
+        system
+            .receptionist()
+            .register_with_ack(key.clone(), service.clone(), reply_to.clone())
+            .unwrap()
+    );
+    assert_eq!(
+        ack_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("svc".to_string(), service.path().clone())
+    );
+
+    assert!(
+        !system
+            .receptionist()
+            .register_with_ack(key.clone(), service.clone(), reply_to)
+            .unwrap()
+    );
+    assert_eq!(
+        ack_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("svc".to_string(), service.path().clone())
+    );
+    assert_eq!(
+        system.receptionist().find(&key).service_instances().len(),
+        1
+    );
+}
+
+#[test]
+fn receptionist_deregister_with_ack_confirms_removed_registration() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let key = ServiceKey::<()>::new("svc");
+    let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
+    let (ack_tx, ack_rx) = mpsc::channel();
+    let reply_to = system
+        .spawn(
+            "deregistered-probe",
+            Props::new(move || DeregisteredProbe { observed: ack_tx }),
+        )
+        .unwrap();
+
+    assert!(system.receptionist().register(key.clone(), service.clone()));
+    assert!(
+        system
+            .receptionist()
+            .deregister_with_ack(&key, &service, reply_to.clone())
+            .unwrap()
+    );
+    assert_eq!(
+        ack_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("svc".to_string(), service.path().clone())
+    );
+    assert!(
+        system
+            .receptionist()
+            .find(&key)
+            .service_instances()
+            .is_empty()
+    );
+
+    assert!(
+        !system
+            .receptionist()
+            .deregister_with_ack(&key, &service, reply_to)
+            .unwrap()
+    );
+    assert!(ack_rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 
 #[test]

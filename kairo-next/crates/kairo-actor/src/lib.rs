@@ -132,7 +132,7 @@ pub use extensions::{Extension, ExtensionRegistry};
 pub use mailbox::MailboxSettings;
 pub use path::{ActorPath, Address};
 pub use provider::{ActorRefProvider, ActorRefResolveResult, LocalActorRefProvider};
-pub use receptionist::{Listing, Receptionist, ServiceKey};
+pub use receptionist::{Deregistered, Listing, Receptionist, Registered, ServiceKey};
 pub use refs::{ActorRef, AnyActorRef, IgnoreRef, Recipient};
 pub use scheduler::{Cancellable, ManualScheduler};
 pub use signal::Signal;
@@ -146,15 +146,15 @@ pub mod prelude {
         Actor, ActorError, ActorPath, ActorRef, ActorRefProvider, ActorRefResolveResult,
         ActorResult, ActorSystem, AskError, AskResult, BackoffReset, BackoffSettingsError,
         BackoffSupervisor, BackoffSupervisorMsg, BackoffSupervisorSettings, Cancellable, Context,
-        CoordinatedShutdown, CurrentChild, DeadLetter, DeadLetters, DispatcherSettings,
-        EventStream, Extension, ExtensionRegistry, IgnoreRef, Listing, LocalActorRefProvider,
-        MailboxSettings, ManualScheduler, PHASE_ACTOR_SYSTEM_TERMINATE,
+        CoordinatedShutdown, CurrentChild, DeadLetter, DeadLetters, Deregistered,
+        DispatcherSettings, EventStream, Extension, ExtensionRegistry, IgnoreRef, Listing,
+        LocalActorRefProvider, MailboxSettings, ManualScheduler, PHASE_ACTOR_SYSTEM_TERMINATE,
         PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE, PHASE_BEFORE_CLUSTER_SHUTDOWN,
         PHASE_BEFORE_SERVICE_UNBIND, PHASE_CLUSTER_EXITING, PHASE_CLUSTER_EXITING_DONE,
         PHASE_CLUSTER_LEAVE, PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION, PHASE_CLUSTER_SHUTDOWN,
         PHASE_SERVICE_REQUESTS_DONE, PHASE_SERVICE_STOP, PHASE_SERVICE_UNBIND, Props, Receptionist,
-        Recipient, RestartCount, ServiceKey, ShutdownTaskHandle, Signal, SupervisorStrategy,
-        TaskHandle, TimerKey,
+        Recipient, Registered, RestartCount, ServiceKey, ShutdownTaskHandle, Signal,
+        SupervisorStrategy, TaskHandle, TimerKey,
     };
 }
 

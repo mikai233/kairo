@@ -5,6 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
 
+use crate::error::ActorError;
 use crate::path::ActorPath;
 use crate::refs::ActorRef;
 
@@ -95,6 +96,72 @@ impl<M> fmt::Debug for Listing<M> {
     }
 }
 
+pub struct Registered<M> {
+    key: ServiceKey<M>,
+    service_instance: ActorRef<M>,
+}
+
+impl<M> Registered<M> {
+    pub fn key(&self) -> &ServiceKey<M> {
+        &self.key
+    }
+
+    pub fn service_instance(&self) -> &ActorRef<M> {
+        &self.service_instance
+    }
+}
+
+impl<M> Clone for Registered<M> {
+    fn clone(&self) -> Self {
+        Self {
+            key: self.key.clone(),
+            service_instance: self.service_instance.clone(),
+        }
+    }
+}
+
+impl<M> fmt::Debug for Registered<M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Registered")
+            .field("key", &self.key)
+            .field("service_instance", &self.service_instance)
+            .finish()
+    }
+}
+
+pub struct Deregistered<M> {
+    key: ServiceKey<M>,
+    service_instance: ActorRef<M>,
+}
+
+impl<M> Deregistered<M> {
+    pub fn key(&self) -> &ServiceKey<M> {
+        &self.key
+    }
+
+    pub fn service_instance(&self) -> &ActorRef<M> {
+        &self.service_instance
+    }
+}
+
+impl<M> Clone for Deregistered<M> {
+    fn clone(&self) -> Self {
+        Self {
+            key: self.key.clone(),
+            service_instance: self.service_instance.clone(),
+        }
+    }
+}
+
+impl<M> fmt::Debug for Deregistered<M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Deregistered")
+            .field("key", &self.key)
+            .field("service_instance", &self.service_instance)
+            .finish()
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Receptionist {
     inner: Arc<ReceptionistInner>,
@@ -125,6 +192,29 @@ impl Receptionist {
         registered
     }
 
+    pub fn register_with_ack<M>(
+        &self,
+        key: ServiceKey<M>,
+        service: ActorRef<M>,
+        reply_to: ActorRef<Registered<M>>,
+    ) -> Result<bool, ActorError>
+    where
+        M: Send + 'static,
+    {
+        let mut buckets = self.inner.buckets.lock().expect("receptionist poisoned");
+        let bucket = bucket_mut(&mut buckets, &key);
+        let registered = bucket.register(service.clone());
+        let ack = reply_to.tell(Registered {
+            key,
+            service_instance: service,
+        });
+        if registered {
+            bucket.publish_listing();
+        }
+        ack.map(|()| registered)
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+
     pub fn deregister<M>(&self, key: &ServiceKey<M>, service: &ActorRef<M>) -> bool
     where
         M: Send + 'static,
@@ -138,6 +228,32 @@ impl Receptionist {
             bucket.publish_listing();
         }
         deregistered
+    }
+
+    pub fn deregister_with_ack<M>(
+        &self,
+        key: &ServiceKey<M>,
+        service: &ActorRef<M>,
+        reply_to: ActorRef<Deregistered<M>>,
+    ) -> Result<bool, ActorError>
+    where
+        M: Send + 'static,
+    {
+        let mut buckets = self.inner.buckets.lock().expect("receptionist poisoned");
+        let Some(bucket) = existing_bucket_mut(&mut buckets, key) else {
+            return Ok(false);
+        };
+        let deregistered = bucket.deregister(service.path());
+        if !deregistered {
+            return Ok(false);
+        }
+        let ack = reply_to.tell(Deregistered {
+            key: key.clone(),
+            service_instance: service.clone(),
+        });
+        bucket.publish_listing();
+        ack.map(|()| true)
+            .map_err(|error| ActorError::Message(error.to_string()))
     }
 
     pub fn find<M>(&self, key: &ServiceKey<M>) -> Listing<M>
