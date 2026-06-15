@@ -424,6 +424,126 @@ fn remember_shard_ddata_store_updates_and_reloads_entities() {
 }
 
 #[test]
+fn remember_shard_ddata_store_updates_emit_orset_delta_wire() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("remember-shard-ddata-store-delta-wire").unwrap();
+    let delta_target = kit
+        .create_probe::<ReplicatorDeltaPropagation>("delta-target")
+        .unwrap();
+    let mut transport =
+        DeltaPropagationTransport::new(ReplicaId::new("node-a"), ORSetStringDeltaCodec);
+    transport.insert_target(DeltaPropagationTarget::new(
+        ReplicaId::new("node-b"),
+        delta_target.actor_ref(),
+    ));
+    let delta_loop = DeltaPropagationLoop::new(transport).with_cleanup_every_ticks(1);
+    let replicator = kit
+        .system()
+        .spawn(
+            "replicator",
+            Props::new(move || {
+                ReplicatorActor::<ORSet<String>>::with_delta_propagation_loop(delta_loop)
+            }),
+        )
+        .unwrap();
+    replicator
+        .tell(kairo_distributed_data::ReplicatorActorMsg::SetDeltaNodes {
+            nodes: vec![ReplicaId::new("node-b")],
+        })
+        .unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberShardDDataStoreActor::props(
+                "orders",
+                "shard-1",
+                ReplicaId::new("node-a"),
+                replicator.clone(),
+            ),
+        )
+        .unwrap();
+    let entities = kit
+        .create_probe::<Result<RememberedEntities, ShardingError>>("entities")
+        .unwrap();
+    let updates = kit
+        .create_probe::<Result<crate::RememberShardUpdateDone, ShardingError>>("updates")
+        .unwrap();
+    let ticks = kit
+        .create_probe::<DeltaPropagationTickReport>("ticks")
+        .unwrap();
+    let entity = "entity-1".to_string();
+
+    store
+        .tell(RememberShardDDataStoreMsg::GetEntities {
+            reply_to: entities.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        entities.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(RememberedEntities {
+            entities: BTreeSet::new(),
+        })
+    );
+
+    store
+        .tell(RememberShardDDataStoreMsg::Update {
+            update: RememberShardUpdate::new([entity.clone()], std::iter::empty::<String>()),
+            reply_to: updates.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        updates.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(crate::RememberShardUpdateDone {
+            started: BTreeSet::from([entity.clone()]),
+            stopped: BTreeSet::new(),
+        })
+    );
+
+    replicator
+        .tell(
+            kairo_distributed_data::ReplicatorActorMsg::RunDeltaPropagation {
+                reply_to: ticks.actor_ref(),
+            },
+        )
+        .unwrap();
+    let tick = ticks.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(tick.propagation_count(), 1);
+    assert_eq!(tick.transport().sent_to(), &[ReplicaId::new("node-b")]);
+
+    let outbound = delta_target.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(outbound.from, ReplicaId::new("node-a"));
+    assert_eq!(outbound.deltas.len(), 1);
+    assert_eq!(
+        outbound.deltas[0].key,
+        remember_entity_shard_replicator_key(
+            "orders",
+            "shard-1",
+            remember_entity_key_index(&entity)
+        )
+        .unwrap()
+        .as_str()
+    );
+    assert_eq!(
+        outbound.deltas[0].crdt_manifest,
+        kairo_distributed_data::ORSET_STRING_DELTA_MANIFEST
+    );
+    let decoded =
+        kairo_distributed_data::decode_delta_propagation(&outbound, &ORSetStringDeltaCodec)
+            .unwrap();
+    assert_eq!(decoded.len(), 1);
+    assert!(
+        decoded[0]
+            .delta()
+            .zero()
+            .merge_delta(decoded[0].delta())
+            .contains(&entity)
+    );
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn remember_shard_store_actor_updates_and_lists_entities() {
     let kit = kairo_testkit::ActorSystemTestKit::new("remember-shard-store").unwrap();
     let store = kit

@@ -1524,6 +1524,10 @@ Implemented:
   typed replicator adapters, grouped started/stopped updates by stable Java
   string hash partition, idempotent unknown stops, reload verification through
   a fresh store actor, and explicit read/update failures.
+- `kairo-cluster-sharding` remember-shard distributed-data coverage now drives
+  store updates through the actor-backed ORSet delta propagation loop and
+  decodes the resulting stable `ORSetStringDeltaCodec` wire payload, proving
+  remembered entity starts are emitted through registered CRDT delta metadata.
 - `kairo-cluster-sharding` shard runtime and actor protocols can now consume
   remembered entity IDs after store load, deterministically mark them active,
   return startup plans for recovered entities, ignore empty IDs, and deliver

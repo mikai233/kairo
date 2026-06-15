@@ -10,7 +10,11 @@ use kairo_cluster::{
     Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, CurrentClusterState, Gossip, Member,
     MemberStatus, UniqueAddress,
 };
-use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
+use kairo_distributed_data::{
+    DeltaPropagationLoop, DeltaPropagationTarget, DeltaPropagationTickReport,
+    DeltaPropagationTransport, DeltaReplicatedData, GSet, ORSet, ORSetStringDeltaCodec, ReplicaId,
+    ReplicatedDelta, ReplicatorActor, ReplicatorDeltaPropagation,
+};
 use kairo_serialization::{
     ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationRegistry,
     WireReader, WireWriter,
