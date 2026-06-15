@@ -296,6 +296,30 @@ fn registry_deserializes_wire_message_to_dynamic_boundary() {
 }
 
 #[test]
+fn typed_deserialize_rejects_unexpected_manifest_before_decoding() {
+    let mut registry = Registry::new();
+    registry
+        .register::<CounterCommand, _>(SingleByteCodec { serializer_id: 41 })
+        .unwrap();
+    registry
+        .register::<OtherCommand, _>(SingleByteCodec { serializer_id: 42 })
+        .unwrap();
+
+    let other = registry.serialize(&OtherCommand { amount: 3 }).unwrap();
+    let error = registry
+        .deserialize::<CounterCommand>(other)
+        .expect_err("typed deserialize should reject the wrong manifest");
+
+    assert_eq!(
+        error,
+        SerializationError::UnexpectedManifest {
+            expected: CounterCommand::MANIFEST,
+            actual: OtherCommand::MANIFEST.to_string(),
+        }
+    );
+}
+
+#[test]
 fn dynamic_deserialize_receives_wire_version_for_rolling_compatibility() {
     let mut registry = Registry::new();
     registry

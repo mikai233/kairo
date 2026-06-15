@@ -57,6 +57,14 @@ impl Registry {
     where
         M: RemoteMessage,
     {
+        let expected_manifest = Manifest::try_new(M::MANIFEST)?;
+        if message.manifest != expected_manifest {
+            return Err(SerializationError::UnexpectedManifest {
+                expected: M::MANIFEST,
+                actual: message.manifest.as_str().to_string(),
+            });
+        }
+
         self.deserialize_dyn(message)?
             .downcast::<M>()
             .map(|message| *message)

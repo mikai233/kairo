@@ -23,6 +23,11 @@ pub enum SerializationError {
         serializer_id: SerializerId,
         manifest: String,
     },
+    #[error("expected remote message manifest `{expected}`, got `{actual}`")]
+    UnexpectedManifest {
+        expected: &'static str,
+        actual: String,
+    },
     #[error("codec expected remote message type `{expected}`")]
     TypeMismatch { expected: &'static str },
 }

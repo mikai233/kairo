@@ -493,6 +493,9 @@ Implemented:
   preserving the wire version for rolling-compatible codecs.
 - Serialization registration rejects empty manifests, duplicate serializer ids,
   and duplicate manifests.
+- Typed deserialization now rejects unexpected wire manifests before dynamic
+  decoding, giving remote and system inbound paths explicit metadata
+  diagnostics instead of generic type-mismatch failures.
 - Focused serialization tests prove wire metadata includes serializer id,
   manifest, version, and bytes, and does not depend on Rust type names or enum
   discriminants.
@@ -3213,5 +3216,10 @@ cargo test -p kairo-actor-macros --test remote_message --all-features
 cargo test -p kairo-actor-macros --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor-macros --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-serialization typed_deserialize_rejects_unexpected_manifest_before_decoding --all-targets --all-features
+cargo test -p kairo-serialization --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
 git diff --check
 ```
