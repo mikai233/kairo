@@ -50,7 +50,8 @@ Implemented:
   lane remains available when the user lane is full.
 - Stopping a local actor recursively requests child stops, rejects later user
   messages while child termination is still in progress, and runs the parent's
-  `stopped` hook after children have terminated.
+  `stopped` hook and external death-watch notifications after children have
+  terminated.
 - Actor-system termination now has focused coverage that top-level actor stop
   waits recursively for descendant child termination before the system reports
   `terminated`.

@@ -682,6 +682,45 @@ impl Actor for LifecycleParent {
     }
 }
 
+enum ParentTerminationWatcherMsg {
+    Watch {
+        subject: ActorRef<ChildStopMsg>,
+        registered: mpsc::Sender<()>,
+    },
+}
+
+struct ParentTerminationWatcher {
+    terminated: mpsc::Sender<ActorPath>,
+}
+
+impl Actor for ParentTerminationWatcher {
+    type Msg = ParentTerminationWatcherMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            ParentTerminationWatcherMsg::Watch {
+                subject,
+                registered,
+            } => {
+                ctx.watch(&subject)?;
+                registered
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn signal(&mut self, _ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        if let Signal::Terminated(actor) = signal {
+            self.terminated
+                .send(actor.path().clone())
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
 #[test]
 fn parent_stop_waits_for_children_before_stopped_hook() {
     let system = ActorSystem::builder("test").build().unwrap();
@@ -704,6 +743,63 @@ fn parent_stop_waits_for_children_before_stopped_hook() {
     let second = events_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert_eq!(first, StopEvent::Child);
     assert_eq!(second, StopEvent::Parent);
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn parent_stop_notifies_watchers_after_children_finish_stopping() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || ParentTerminationWatcher {
+                terminated: terminated_tx,
+            }),
+        )
+        .unwrap();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+    watcher
+        .tell(ParentTerminationWatcherMsg::Watch {
+            subject: parent.clone(),
+            registered: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&parent);
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "parent termination must not notify watchers while child stop is still in progress"
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        parent.path().clone()
+    );
     assert!(parent.wait_for_stop(Duration::from_secs(1)));
 }
 
