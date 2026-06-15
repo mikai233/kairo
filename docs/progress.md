@@ -383,6 +383,10 @@ Implemented:
   clocks together for synchronized multi-node scenarios, and reports empty,
   duplicate, unknown, or non-manual node errors explicitly without making cluster
   membership part of the testkit.
+- `MultiNodeTestKit` can now create typed event-stream probes and dead-letter
+  probes on specific named nodes, so cluster and sharding integration tests can
+  assert node-local lifecycle and diagnostics events without sharing one global
+  probe system.
 - `MultiNodeTestKit::enter_barrier` now provides named local multi-node phase
   coordination with explicit waiting/passed status, wrong-barrier order errors,
   duplicate-arrival errors, and unknown-node validation for future cluster and

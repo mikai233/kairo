@@ -1,5 +1,18 @@
 use super::*;
 
+struct MultiNodeUnitActor;
+
+impl Actor for MultiNodeUnitActor {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MultiNodeTestEvent(&'static str);
+
 #[test]
 fn multi_node_testkit_builds_named_actor_systems() {
     let kit = MultiNodeTestKit::new(["node-a", "node-b"]).expect("nodes should build");
@@ -43,6 +56,73 @@ fn multi_node_testkit_creates_probes_on_named_nodes() {
         second.expect_msg(Duration::from_millis(50)).unwrap(),
         "from-b"
     );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_creates_event_probes_on_named_nodes() {
+    let kit = MultiNodeTestKit::new(["event-node-a", "event-node-b"]).expect("nodes should build");
+    let probe_a = kit
+        .create_event_probe_on::<MultiNodeTestEvent>("event-node-a", "events-a")
+        .expect("event probe on node a should spawn");
+    let probe_b = kit
+        .create_event_probe_on::<MultiNodeTestEvent>("event-node-b", "events-b")
+        .expect("event probe on node b should spawn");
+
+    kit.system("event-node-a")
+        .unwrap()
+        .event_stream()
+        .publish(MultiNodeTestEvent("from-a"));
+
+    assert_eq!(
+        probe_a.expect_msg(Duration::from_millis(50)).unwrap(),
+        MultiNodeTestEvent("from-a")
+    );
+    assert_eq!(probe_b.expect_no_msg(Duration::ZERO), Ok(()));
+
+    kit.system("event-node-b")
+        .unwrap()
+        .event_stream()
+        .publish(MultiNodeTestEvent("from-b"));
+
+    assert_eq!(
+        probe_b.expect_msg(Duration::from_millis(50)).unwrap(),
+        MultiNodeTestEvent("from-b")
+    );
+    assert_eq!(probe_a.expect_no_msg(Duration::ZERO), Ok(()));
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_creates_dead_letter_probes_on_named_nodes() {
+    let kit = MultiNodeTestKit::new(["dead-letter-node-a", "dead-letter-node-b"])
+        .expect("nodes should build");
+    let probe_a = kit
+        .create_dead_letter_probe_on("dead-letter-node-a", "dead-letters-a")
+        .expect("dead-letter probe on node a should spawn");
+    let probe_b = kit
+        .create_dead_letter_probe_on("dead-letter-node-b", "dead-letters-b")
+        .expect("dead-letter probe on node b should spawn");
+    let subject = kit
+        .system("dead-letter-node-a")
+        .unwrap()
+        .spawn("subject", Props::new(|| MultiNodeUnitActor))
+        .expect("subject should spawn");
+
+    kit.system("dead-letter-node-a").unwrap().stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+    subject.tell(()).expect_err("send after stop should fail");
+
+    let dead_letter = probe_a
+        .expect_msg(Duration::from_millis(50))
+        .expect("node-local dead-letter probe should observe stopped send");
+    assert_eq!(dead_letter.recipient(), subject.path());
+    assert_eq!(dead_letter.reason(), "actor is stopped");
+    assert_eq!(probe_b.expect_no_msg(Duration::ZERO), Ok(()));
+
     kit.shutdown(Duration::from_secs(1))
         .expect("nodes should terminate");
 }
