@@ -680,6 +680,29 @@ canonical_port = 26666
 }
 
 #[test]
+fn toml_config_load_file_reports_read_failure_path() {
+    let mut path = std::env::temp_dir();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    path.push(format!("kairo-config-missing-{nonce}.toml"));
+
+    let error = load_toml_file(&path).unwrap_err();
+
+    match error {
+        ConfigError::ReadFailed {
+            path: error_path,
+            reason,
+        } => {
+            assert_eq!(error_path, path);
+            assert!(!reason.is_empty());
+        }
+        other => panic!("expected read failure, got {other:?}"),
+    }
+}
+
+#[test]
 fn toml_config_loads_layered_files_with_later_overrides() {
     let mut base_path = std::env::temp_dir();
     let nonce = SystemTime::now()
@@ -748,6 +771,38 @@ fn toml_config_layered_files_defaults_empty_iterator() {
     let settings = load_toml_files(std::iter::empty::<&str>()).unwrap();
 
     assert_eq!(settings, KairoSettings::default());
+}
+
+#[test]
+fn toml_config_layered_files_reports_missing_layer_path() {
+    let mut base_path = std::env::temp_dir();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    base_path.push(format!("kairo-config-present-{nonce}.toml"));
+    let mut missing_path = std::env::temp_dir();
+    missing_path.push(format!("kairo-config-missing-layer-{nonce}.toml"));
+
+    fs::write(
+        &base_path,
+        r#"
+[actor.dispatchers.default]
+throughput = 9
+"#,
+    )
+    .unwrap();
+
+    let error = load_toml_files([base_path.as_path(), missing_path.as_path()]).unwrap_err();
+    fs::remove_file(base_path).unwrap();
+
+    match error {
+        ConfigError::ReadFailed { path, reason } => {
+            assert_eq!(path, missing_path);
+            assert!(!reason.is_empty());
+        }
+        other => panic!("expected missing layer read failure, got {other:?}"),
+    }
 }
 
 #[test]

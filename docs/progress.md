@@ -2029,6 +2029,9 @@ Implemented:
 - Layered TOML coverage now pins that an empty file iterator returns default
   format-neutral settings, so optional config-file discovery can pass through
   `load_toml_files` without caller-side special casing.
+- TOML file-loader coverage now pins read-failure diagnostics for missing
+  single files and missing later layers, including the exact path reported in
+  `ConfigError::ReadFailed`.
 - The `kairo` facade crate docs now describe feature-gated module boundaries,
   the prelude, local-vs-remote serialization requirements, TOML-first
   configuration, and a compile-checked settings parse example.
