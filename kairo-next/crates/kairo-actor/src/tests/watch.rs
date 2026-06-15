@@ -326,6 +326,7 @@ impl Actor for SignalFailureWatcher {
 
 enum ParentWatchMsg {
     FailChild,
+    SpawnStartupFailingChild,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -355,7 +356,7 @@ impl Actor for ParentWatchProbe {
         Ok(())
     }
 
-    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             ParentWatchMsg::FailChild => {
                 let child = self
@@ -365,6 +366,11 @@ impl Actor for ParentWatchProbe {
                 child
                     .tell(SupervisionMsg::Fail)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ParentWatchMsg::SpawnStartupFailingChild => {
+                let child =
+                    ctx.spawn("startup-failing-child", Props::new(|| StartupFailingChild))?;
+                ctx.watch(&child)?;
             }
         }
         Ok(())
@@ -387,6 +393,20 @@ impl Actor for ParentWatchProbe {
             }
             Signal::PreRestart | Signal::PostStop => {}
         }
+        Ok(())
+    }
+}
+
+struct StartupFailingChild;
+
+impl Actor for StartupFailingChild {
+    type Msg = ();
+
+    fn started(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        Err(ActorError::Message("startup boom".to_string()))
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
         Ok(())
     }
 }
@@ -948,6 +968,38 @@ fn parent_watch_receives_child_failed_when_child_stops_from_failure() {
             .recv_timeout(Duration::from_millis(100))
             .is_err(),
         "parent watcher should not receive a duplicate plain Terminated after ChildFailed"
+    );
+}
+
+#[test]
+fn parent_watch_receives_child_failed_when_child_fails_startup() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(move || ParentWatchProbe {
+                observed: observed_tx,
+                child: None,
+            }),
+        )
+        .unwrap();
+
+    parent
+        .tell(ParentWatchMsg::SpawnStartupFailingChild)
+        .unwrap();
+
+    let observed = observed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let ParentWatchSignal::ChildFailed { path, reason } = observed else {
+        panic!("expected child failure signal");
+    };
+    assert_eq!(path.name(), Some("startup-failing-child"));
+    assert_eq!(reason, "startup boom");
+    assert!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "parent watcher should not receive a duplicate plain Terminated after startup ChildFailed"
     );
 }
 

@@ -159,10 +159,10 @@ Implemented:
   plain `watch` immediately delivers `Signal::Terminated`, while `watch_with`
   immediately delivers the caller's typed custom message.
 - `Signal::ChildFailed` now reports a failed direct child to a parent that is
-  watching that child, while non-parent watchers still receive plain
-  `Signal::Terminated`, parent watchers do not also receive a duplicate plain
-  termination signal for the same failed child, and `watch_with` continues to
-  deliver the caller's custom message.
+  watching that child for both receive-time and startup failures, while
+  non-parent watchers still receive plain `Signal::Terminated`, parent watchers
+  do not also receive a duplicate plain termination signal for the same failed
+  child, and `watch_with` continues to deliver the caller's custom message.
 - `Context::watch` and `Context::watch_with` reject attempts to watch the
   actor's own ref with an explicit `InvalidWatchTarget` error, matching the
   Rust architecture contract that self-watch is not a meaningful lifecycle
