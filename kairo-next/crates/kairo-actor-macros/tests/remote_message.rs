@@ -1,5 +1,6 @@
 use kairo_actor_macros::{KairoRemoteMessage, kairo_message};
 use kairo_serialization::RemoteMessage;
+use std::path::Path;
 
 #[derive(KairoRemoteMessage)]
 #[kairo(manifest = "kairo.test.MacroMessage", version = 12)]
@@ -52,4 +53,45 @@ fn derive_remote_message_emits_metadata_for_enums_only() {
 #[test]
 fn kairo_message_marker_leaves_local_message_item_unchanged() {
     assert_eq!(LocalOnlyMessage { value: 7 }, LocalOnlyMessage { value: 7 });
+}
+
+#[test]
+fn derive_remote_message_does_not_choose_codec_or_format() {
+    let macro_source =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("macro source should be readable");
+    let code_only = uncommented_source(&macro_source);
+
+    let forbidden_terms = [
+        "MessageCodec",
+        "DynCodec",
+        "SerializationRegistry",
+        "SerializedMessage",
+        "serializer_id",
+        "register_",
+        "serde",
+        "bincode",
+        "prost",
+        "postcard",
+        "ciborium",
+        "rmp_serde",
+    ];
+
+    for term in forbidden_terms {
+        assert!(
+            !code_only.contains(term),
+            "KairoRemoteMessage derive code must not choose codec or format term `{term}`"
+        );
+    }
+}
+
+fn uncommented_source(source: &str) -> String {
+    source
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            !trimmed.starts_with("//")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

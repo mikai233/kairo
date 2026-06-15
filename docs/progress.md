@@ -580,6 +580,9 @@ Implemented:
   stable metadata only, leaving codec and registry choices explicit.
 - `kairo-actor-macros` integration coverage now also pins
   `#[kairo_message]` as a pass-through marker for local-only message items.
+- `kairo-actor-macros` integration coverage now scans executable derive macro
+  source for codec, registry, serializer-id, and concrete format references,
+  keeping `KairoRemoteMessage` limited to stable manifest/version metadata.
 - `ActorRefWireData` stores serialized actor-ref paths with explicit protocol,
   system, host, and port metadata, and `ActorRefResolver` defines the provider
   boundary for formatting and resolving those refs later.
@@ -2758,6 +2761,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor-macros derive_remote_message_does_not_choose_codec_or_format --test remote_message --all-features
+cargo test -p kairo-actor-macros --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor-macros --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo core_serialization_crate_stays_format_neutral --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
