@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use kairo_actor::Address;
 use kairo_serialization::{Manifest, Registry, RemoteMessage, SerializedMessage};
 
@@ -124,6 +125,31 @@ fn cluster_control_codecs_reject_unknown_versions() {
 }
 
 #[test]
+fn cluster_control_codecs_reject_trailing_payload_bytes() {
+    let registry = registry();
+    let join = registry
+        .serialize(&Join {
+            node: unique(1),
+            roles: vec!["backend".to_string()],
+        })
+        .unwrap();
+    let mut payload = join.payload.to_vec();
+    payload.push(0xff);
+    let wire = SerializedMessage::new(
+        JOIN_SERIALIZER_ID,
+        Manifest::new(Join::MANIFEST),
+        Join::VERSION,
+        Bytes::from(payload),
+    );
+
+    let error = registry
+        .deserialize::<Join>(wire)
+        .expect_err("trailing join payload byte should fail");
+
+    assert!(error.to_string().contains("trailing byte"));
+}
+
+#[test]
 fn cluster_protocol_codecs_round_trip_welcome_with_gossip() {
     let registry = registry();
     let welcome = Welcome {
@@ -159,4 +185,31 @@ fn cluster_protocol_codecs_round_trip_gossip_envelope() {
         registry.deserialize::<GossipEnvelope>(serialized).unwrap(),
         envelope
     );
+}
+
+#[test]
+fn cluster_gossip_codecs_reject_trailing_payload_bytes() {
+    let registry = registry();
+    let envelope = registry
+        .serialize(&GossipEnvelope {
+            from: unique(1),
+            to: unique(2),
+            sequence_nr: 77,
+            gossip: rich_gossip(),
+        })
+        .unwrap();
+    let mut payload = envelope.payload.to_vec();
+    payload.push(0xff);
+    let wire = SerializedMessage::new(
+        GOSSIP_ENVELOPE_SERIALIZER_ID,
+        Manifest::new(GossipEnvelope::MANIFEST),
+        GossipEnvelope::VERSION,
+        Bytes::from(payload),
+    );
+
+    let error = registry
+        .deserialize::<GossipEnvelope>(wire)
+        .expect_err("trailing gossip payload byte should fail");
+
+    assert!(error.to_string().contains("trailing byte"));
 }

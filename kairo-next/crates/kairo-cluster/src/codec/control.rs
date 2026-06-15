@@ -30,11 +30,13 @@ impl MessageCodec<Heartbeat> for HeartbeatCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<Heartbeat> {
         ensure_version::<Heartbeat>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(Heartbeat {
+        let message = Heartbeat {
             from: read_unique_address(&mut reader)?,
             sequence_nr: reader.read_u64()?,
             creation_time_nanos: reader.read_u64()?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -57,11 +59,13 @@ impl MessageCodec<HeartbeatRsp> for HeartbeatRspCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<HeartbeatRsp> {
         ensure_version::<HeartbeatRsp>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(HeartbeatRsp {
+        let message = HeartbeatRsp {
             from: read_unique_address(&mut reader)?,
             sequence_nr: reader.read_u64()?,
             creation_time_nanos: reader.read_u64()?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -87,9 +91,11 @@ impl MessageCodec<Join> for JoinCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<Join> {
         ensure_version::<Join>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(Join {
+        let message = Join {
             node: read_unique_address(&mut reader)?,
             roles: read_vec(&mut reader, |reader| reader.read_string())?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }

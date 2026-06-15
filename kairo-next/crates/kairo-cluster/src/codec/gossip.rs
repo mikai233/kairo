@@ -28,10 +28,12 @@ impl MessageCodec<Welcome> for WelcomeCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<Welcome> {
         ensure_version::<Welcome>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(Welcome {
+        let message = Welcome {
             from: read_unique_address(&mut reader)?,
             gossip: read_gossip(&mut reader)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -55,11 +57,13 @@ impl MessageCodec<GossipEnvelope> for GossipEnvelopeCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<GossipEnvelope> {
         ensure_version::<GossipEnvelope>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(GossipEnvelope {
+        let message = GossipEnvelope {
             from: read_unique_address(&mut reader)?,
             to: read_unique_address(&mut reader)?,
             sequence_nr: reader.read_u64()?,
             gossip: read_gossip(&mut reader)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }

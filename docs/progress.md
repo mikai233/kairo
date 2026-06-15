@@ -1706,6 +1706,8 @@ Implemented:
   control-message codec, gossip-message codec, wire-helper, and codec-test
   modules instead of concentrating stable membership wire logic and fixtures in
   one file.
+- Cluster heartbeat, join, welcome, and gossip envelope codecs now reject
+  unread trailing bytes after decoding the expected stable wire fields.
 - `kairo-cluster` now has a focused transport-neutral membership wire bridge
   that maps typed join, welcome, and gossip membership messages to serialized
   stable cluster protocol payloads with target-node routing metadata, routes
