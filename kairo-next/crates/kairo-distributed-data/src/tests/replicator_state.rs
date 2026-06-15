@@ -200,3 +200,54 @@ fn replicator_state_flushes_changes_once_in_key_order() {
     );
     assert!(state.flush_changes().is_empty());
 }
+
+#[test]
+fn replicator_state_removes_obsolete_performed_pruning_markers() {
+    let mut state = ReplicatorState::<GCounter>::new();
+    let removed = replica("removed");
+    let owner = replica("owner");
+    let key_a = ReplicatorKey::new("a");
+    let key_b = ReplicatorKey::new("b");
+
+    for (key, amount) in [(key_a.clone(), 3), (key_b.clone(), 5)] {
+        let envelope = DataEnvelope::new(
+            GCounter::new()
+                .increment(removed.clone(), amount)
+                .unwrap()
+                .reset_delta(),
+        )
+        .init_removed_node_pruning(removed.clone(), owner.clone())
+        .prune_removed_node(&removed, PruningPerformed::new(100))
+        .unwrap();
+        state.write_full(key, envelope);
+    }
+    state.flush_changes();
+
+    let (changed_before_deadline, removed_before_deadline) =
+        state.remove_obsolete_pruning_performed(99);
+    assert!(changed_before_deadline.is_empty());
+    assert!(removed_before_deadline.is_empty());
+
+    let (changed, forgotten) = state.remove_obsolete_pruning_performed(100);
+
+    assert_eq!(changed, BTreeSet::from([key_a.clone(), key_b.clone()]));
+    assert_eq!(forgotten, BTreeSet::from([removed.clone()]));
+    assert!(state.envelope(&key_a).unwrap().pruning().is_empty());
+    assert!(state.envelope(&key_b).unwrap().pruning().is_empty());
+    assert_eq!(
+        state.envelope(&key_a).unwrap().data().replica_value(&owner),
+        3
+    );
+    assert_eq!(
+        state.envelope(&key_b).unwrap().data().replica_value(&owner),
+        5
+    );
+    assert_eq!(
+        state
+            .flush_changes()
+            .into_iter()
+            .map(|change| change.key().clone())
+            .collect::<BTreeSet<_>>(),
+        changed
+    );
+}

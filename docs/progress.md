@@ -1335,6 +1335,11 @@ Implemented:
   removes a departed replica from both increment and decrement inner counters
   without collapsing values into a survivor, preserving remaining replica
   counts and clearing removed-replica modified-node tracking.
+- Distributed-data replicator-state pruning coverage now pins obsolete
+  performed-marker cleanup across multiple keys: cleanup waits until the
+  marker deadline, reports each changed key, deduplicates the forgotten removed
+  replica, preserves already-collapsed owner data, and marks those keys as
+  changed for later flushes.
 - `kairo-distributed-data` built-in CRDT codec round-trip and rejection tests
   now live in a focused sibling test module.
 - `kairo-distributed-data` delta propagation log versioning, node selection,
@@ -2940,6 +2945,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data replicator_state_removes_obsolete_performed_pruning_markers --all-targets --all-features
+cargo test -p kairo-distributed-data replicator_state --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-distributed-data pncounter_pruning_cleanup_removes_removed_replica_from_both_counters --all-targets --all-features
 cargo test -p kairo-distributed-data crdt_foundation --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
