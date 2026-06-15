@@ -24,7 +24,9 @@ impl BackoffSupervisorSettings {
             min_backoff,
             max_backoff,
             random_factor: 0.0,
-            reset: BackoffReset::Auto { after: min_backoff },
+            reset: BackoffReset::Auto {
+                after: default_reset_after(min_backoff, max_backoff),
+            },
         })
     }
 
@@ -402,6 +404,10 @@ fn validate_backoff(
     Ok(())
 }
 
+fn default_reset_after(min_backoff: Duration, max_backoff: Duration) -> Duration {
+    min_backoff.saturating_add(max_backoff) / 2
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,6 +432,20 @@ mod tests {
             Duration::from_millis(250)
         );
         assert_eq!(state.restart_count(), 3);
+    }
+
+    #[test]
+    fn backoff_settings_default_reset_uses_min_max_midpoint() {
+        let settings =
+            BackoffSupervisorSettings::new(Duration::from_millis(100), Duration::from_millis(300))
+                .unwrap();
+
+        assert_eq!(
+            settings.reset(),
+            BackoffReset::Auto {
+                after: Duration::from_millis(200)
+            }
+        );
     }
 
     #[test]
