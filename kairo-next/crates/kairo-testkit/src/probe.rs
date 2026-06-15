@@ -277,6 +277,11 @@ impl<M: Send + 'static> TestProbe<M> {
 
 impl TestProbe<AnyActorRef> {
     /// Watches `subject` and expects its erased ref as the termination message.
+    ///
+    /// This is the split registration form of [`Self::expect_terminated`].
+    /// Use it when the test needs to start watching before performing the
+    /// action that should stop the actor, then assert on the delivered
+    /// [`AnyActorRef`] separately.
     pub fn watch_terminated<N: Send + 'static>(
         &self,
         subject: &ActorRef<N>,

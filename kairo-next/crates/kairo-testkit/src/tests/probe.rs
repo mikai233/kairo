@@ -234,6 +234,55 @@ fn test_probe_expect_terminated_checks_expected_actor() {
 }
 
 #[test]
+fn test_probe_watch_terminated_receives_erased_actor_ref() {
+    let kit = ActorSystemTestKit::new("test-probe-watch-terminated").expect("system should build");
+    let probe = kit
+        .create_probe::<AnyActorRef>("probe")
+        .expect("probe should spawn");
+    let subject = kit
+        .system()
+        .spawn("subject", Props::new(|| UnitActor))
+        .expect("subject should spawn");
+
+    probe
+        .watch_terminated(&subject)
+        .expect("watch should register");
+    kit.system().stop(&subject);
+
+    assert_eq!(
+        probe.expect_msg(Duration::from_millis(50)).unwrap(),
+        subject.as_any()
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_expect_terminated_observes_already_stopped_actor() {
+    let kit = ActorSystemTestKit::new("test-probe-expect-terminated-stopped")
+        .expect("system should build");
+    let probe = kit
+        .create_probe::<AnyActorRef>("probe")
+        .expect("probe should spawn");
+    let subject = kit
+        .system()
+        .spawn("subject", Props::new(|| UnitActor))
+        .expect("subject should spawn");
+
+    kit.system().stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    assert_eq!(
+        probe
+            .expect_terminated(&subject, Duration::from_millis(50))
+            .unwrap(),
+        subject.as_any()
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn test_probe_expect_terminated_reports_unexpected_actor() {
     let kit =
         ActorSystemTestKit::new("test-probe-unexpected-terminated").expect("system should build");

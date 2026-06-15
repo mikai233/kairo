@@ -385,6 +385,10 @@ Implemented:
   `watch_with`, remove those registrations through `unwatch`, and
   `TestProbe<AnyActorRef>` provides `watch_terminated` and
   `expect_terminated` helpers for deterministic local lifecycle assertions.
+- `TestProbe<AnyActorRef>` now has focused lifecycle coverage for split
+  `watch_terminated` registration and `expect_terminated` against an already
+  stopped actor, pinning the testkit helper to the same immediate death-watch
+  semantics as the local runtime.
 - `TestProbe<M>` can now stop its backing probe actor and assert its
   termination with timeout diagnostics, matching Pekko's probe-stop testing
   shape while preserving Kairo's typed actor refs.
@@ -3617,5 +3621,11 @@ cargo test -p kairo-actor resume_supervision_keeps_actor_state_after_receive_pan
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit test_probe_ --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```
