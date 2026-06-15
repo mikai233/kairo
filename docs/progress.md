@@ -1331,6 +1331,10 @@ Implemented:
   removed-node cleanup path: cleaning a removed replica from the map's key
   causality removes that replica from modified-node tracking while preserving
   surviving nested CRDT values and clearing transient delta state.
+- Distributed-data PNCounter pruning cleanup coverage now pins that cleanup
+  removes a departed replica from both increment and decrement inner counters
+  without collapsing values into a survivor, preserving remaining replica
+  counts and clearing removed-replica modified-node tracking.
 - `kairo-distributed-data` built-in CRDT codec round-trip and rejection tests
   now live in a focused sibling test module.
 - `kairo-distributed-data` delta propagation log versioning, node selection,
@@ -2936,6 +2940,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data pncounter_pruning_cleanup_removes_removed_replica_from_both_counters --all-targets --all-features
+cargo test -p kairo-distributed-data crdt_foundation --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-distributed-data ormap_pruning_cleanup_removes_removed_replica_from_key_causality --all-targets --all-features
 cargo test -p kairo-distributed-data crdt_foundation --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features

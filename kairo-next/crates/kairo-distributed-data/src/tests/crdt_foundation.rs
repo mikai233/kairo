@@ -214,6 +214,35 @@ fn pncounter_delta_contains_inner_counter_deltas() {
 }
 
 #[test]
+fn pncounter_pruning_cleanup_removes_removed_replica_from_both_counters() {
+    let removed = replica("removed");
+    let survivor = replica("survivor");
+    let counter = PNCounter::new()
+        .increment(removed.clone(), 7)
+        .unwrap()
+        .increment(survivor.clone(), 3)
+        .unwrap()
+        .decrement(removed.clone(), 2)
+        .unwrap()
+        .decrement(survivor.clone(), 1)
+        .unwrap()
+        .reset_delta();
+
+    assert!(counter.need_pruning_from(&removed));
+    assert!(counter.modified_by_replica_ids().contains(&removed));
+
+    let cleaned = counter.pruning_cleanup(&removed);
+
+    assert_eq!(cleaned.increments().replica_value(&removed), 0);
+    assert_eq!(cleaned.increments().replica_value(&survivor), 3);
+    assert_eq!(cleaned.decrements().replica_value(&removed), 0);
+    assert_eq!(cleaned.decrements().replica_value(&survivor), 1);
+    assert_eq!(cleaned.value().unwrap(), 2);
+    assert!(!cleaned.need_pruning_from(&removed));
+    assert!(!cleaned.modified_by_replica_ids().contains(&removed));
+}
+
+#[test]
 fn lww_register_uses_latest_timestamp_and_lowest_replica_tie_breaker() {
     let node_a = replica("a");
     let node_b = replica("b");
