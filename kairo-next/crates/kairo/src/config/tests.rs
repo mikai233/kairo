@@ -744,6 +744,13 @@ nodes = ["kairo://app@127.0.0.1:26666"]
 }
 
 #[test]
+fn toml_config_layered_files_defaults_empty_iterator() {
+    let settings = load_toml_files(std::iter::empty::<&str>()).unwrap();
+
+    assert_eq!(settings, KairoSettings::default());
+}
+
+#[test]
 fn toml_config_layered_files_merge_nested_tables_recursively() {
     let mut base_path = std::env::temp_dir();
     let nonce = SystemTime::now()

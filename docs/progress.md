@@ -2026,6 +2026,9 @@ Implemented:
   `[cluster.sharding]`, `[cluster.sharding.least_shard_allocation]`, and
   `[observability.diagnostics]`, including preservation of base values when a
   later file overrides only selected nested keys.
+- Layered TOML coverage now pins that an empty file iterator returns default
+  format-neutral settings, so optional config-file discovery can pass through
+  `load_toml_files` without caller-side special casing.
 - The `kairo` facade crate docs now describe feature-gated module boundaries,
   the prelude, local-vs-remote serialization requirements, TOML-first
   configuration, and a compile-checked settings parse example.
