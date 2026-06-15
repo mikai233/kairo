@@ -801,6 +801,9 @@ Implemented:
 - `ResolvedActorRef<M>` local/remote inspection helpers now require only the
   normal local message bound (`Send + 'static`), not `RemoteMessage`; sending
   and provider resolution remain remote-message-gated.
+- `kairo-remote` crate docs now include compile-checked examples proving local
+  `ResolvedActorRef<M>` inspection works for local-only messages while remote
+  provider resolution fails to compile unless `M: RemoteMessage`.
 - `kairo-remote` now has a focused remote death-watch state module that tracks
   watched remote actor pairs and watched addresses, plans heartbeat
   start/stop/send effects, re-watches after remote UID changes, emits
@@ -2764,6 +2767,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-remote --doc --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-remote local_resolved_ref_accessors_do_not_require_remote_message --all-targets --all-features
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check

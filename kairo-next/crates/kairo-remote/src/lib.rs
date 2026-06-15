@@ -107,6 +107,64 @@
 //! first learned or changes, and address termination when the watched address is
 //! deemed unreachable.
 //!
+//! `ResolvedActorRef<M>` can wrap a local `ActorRef<M>` without making `M`
+//! remote-capable. This keeps local inspection and local sends independent of
+//! serialization:
+//!
+//! ```
+//! use kairo_actor::{Actor, ActorResult, ActorSystem, Context, Props};
+//! use kairo_remote::ResolvedActorRef;
+//!
+//! struct LocalOnly;
+//! struct Sink;
+//!
+//! impl Actor for Sink {
+//!     type Msg = LocalOnly;
+//!
+//!     fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+//!         Ok(())
+//!     }
+//! }
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let system = ActorSystem::builder("local-only-doc").build()?;
+//! let local = system.spawn("sink", Props::new(|| Sink))?;
+//! let resolved = ResolvedActorRef::Local(local.clone());
+//!
+//! assert!(resolved.is_local());
+//! assert_eq!(resolved.path(), local.path());
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! Remote resolution remains explicitly gated by `RemoteMessage` metadata:
+//!
+//! ```compile_fail
+//! use std::sync::Arc;
+//!
+//! use kairo_remote::{RemoteActorRefProvider, RemoteOutbound, RemoteSettings};
+//! use kairo_serialization::{Registry, RemoteEnvelope};
+//!
+//! struct LocalOnly;
+//!
+//! struct DropOutbound;
+//!
+//! impl RemoteOutbound for DropOutbound {
+//!     fn send(&self, _envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+//!         Ok(())
+//!     }
+//! }
+//!
+//! let provider = RemoteActorRefProvider::new(
+//!     "local",
+//!     RemoteSettings::new("127.0.0.1", 25520),
+//!     Arc::new(Registry::new()),
+//!     Arc::new(DropOutbound),
+//! );
+//!
+//! let _ = provider.resolve::<LocalOnly>("kairo://remote@127.0.0.1:25521/user/sink");
+//! ```
+//!
 //! [`RemoteInbound::with_diagnostics`] can attach a backend-neutral
 //! [`RemoteInboundDiagnostics`] sink to record structured serialization and
 //! delivery failures without choosing a logging or metrics dependency.
