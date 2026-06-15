@@ -1229,6 +1229,11 @@ Implemented:
   `ReplicatorTcpAssociationRuntime`, keeps route registrations separate from
   membership state, and closes full outbound pipelines plus cached ddata routes
   when peers become locally unreachable or leave.
+- Distributed-data TCP peer-route owner coverage now validates three-node
+  route reduction below the bootstrap facade: after two live ddata socket
+  routes are installed from membership, removing one peer clears only that
+  peer's registration and association-cache entry while the remaining route
+  stays active until explicit route cleanup.
 - `kairo-distributed-data` now has a pure TCP peer-reconnect state machine for
   distributed-data peer routes, with validated retry settings, per-peer attempt
   counts, deterministic due-time selection, and clear-on-success/remove
@@ -2906,6 +2911,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data peer_routes_keep_remaining_ddata_route_when_one_peer_is_removed --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_routes --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-tools bootstrap_coordinated_shutdown_stops_connector_after_live_route --all-targets --all-features
 cargo test -p kairo-cluster-tools tcp_peer_bootstrap --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features

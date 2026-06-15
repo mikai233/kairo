@@ -308,6 +308,67 @@ mod tests {
     }
 
     #[test]
+    fn peer_routes_keep_remaining_ddata_route_when_one_peer_is_removed() {
+        let sender = bind_runtime("reduce-sender", replica("sender"), replica("second"), 11);
+        let second = bind_runtime("reduce-second", replica("second"), replica("sender"), 22);
+        let third = bind_runtime("reduce-third", replica("third"), replica("sender"), 33);
+        let sender_node = node("reduce-sender", sender.settings().canonical_port, 1);
+        let second_node = node("reduce-second", second.settings().canonical_port, 2);
+        let third_node = node("reduce-third", third.settings().canonical_port, 3);
+        let mut planner = ClusterAssociationPeerState::new(sender_node.clone());
+        let mut routes = ReplicatorTcpPeerRoutes::new();
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![
+                    member(sender_node.clone()),
+                    member(second_node.clone()),
+                    member(third_node.clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+
+        assert_eq!(report.dialed.len(), 2);
+        assert_eq!(routes.route_count(), 2);
+        assert_eq!(sender.association_cache().route_count(), 2);
+        wait_for_reverse_route(&second);
+        wait_for_reverse_route(&third);
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![member(sender_node), member(second_node.clone())],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(report.removed[0].node(), &third_node);
+        assert_eq!(routes.route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        assert!(
+            routes
+                .active_targets()
+                .iter()
+                .any(|target| target.node() == &second_node)
+        );
+
+        let clear_report = routes.clear(&sender);
+        assert_eq!(clear_report.removed.len(), 1);
+        assert_eq!(routes.route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.accepted_associations, 0);
+        let second_report = second.shutdown().unwrap();
+        assert_eq!(second_report.accepted_associations, 1);
+        let third_report = third.shutdown().unwrap();
+        assert_eq!(third_report.accepted_associations, 1);
+    }
+
+    #[test]
     fn clear_without_routes_reports_no_work() {
         let sender = bind_runtime("clear", replica("clear"), replica("peer"), 33);
         let mut routes = ReplicatorTcpPeerRoutes::new();
