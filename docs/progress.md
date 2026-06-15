@@ -2431,6 +2431,9 @@ Implemented:
   `ShardingEnvelope<M>` routing, why sharded business messages do not embed
   entity ids by default, and the documented stable FNV-1a shard hash with a
   compile-checked example.
+- `kairo-cluster-sharding` root docs now also define the public `EntityId`,
+  `RegionId`, and `ShardId` aliases so routing, coordinator, and wire-protocol
+  identifiers are documented at the facade boundary.
 - `kairo-cluster-sharding` remember-entity, remember-coordinator, and stable
   shard-hash tests now live in a focused sibling test module instead of
   growing the crate-level test file further.

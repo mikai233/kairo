@@ -228,8 +228,25 @@ pub use shard_runtime::{
     ShardEntityState, ShardHandOffPlan, ShardRuntime,
 };
 
+/// Stable logical identity for one sharded entity.
+///
+/// Entity ids are routing metadata used by [`EntityRef`] and
+/// [`ShardingEnvelope`]. They are not forced into the business message `M`
+/// delivered to the entity actor.
 pub type EntityId = String;
+
+/// Logical identity for one shard-region instance.
+///
+/// Region ids identify local or remote regions in coordinator allocation,
+/// handoff, graceful shutdown, and diagnostics. Remote regions derive this
+/// value from stable actor-ref wire data instead of process-local pointers.
 pub type RegionId = String;
+
+/// Stable logical shard identifier.
+///
+/// Shard ids are strings because they are carried in stable sharding protocol
+/// messages. The default helpers derive them from an [`EntityId`] with
+/// [`stable_hash_entity_id`] and [`shard_id_for`].
 pub type ShardId = String;
 
 #[cfg(test)]
