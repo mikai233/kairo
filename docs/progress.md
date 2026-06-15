@@ -373,9 +373,10 @@ Implemented:
   strategy stops, while a restartable parent can restart and stop its children
   through the existing restart path.
 - `BackoffSupervisor` provides a structured on-stop supervisor actor with
-  explicit `BackoffSupervisorSettings`, deterministic exponential restart
-  delays capped by `max_backoff`, manual or automatic restart-count reset, typed
-  child queries, and typed message forwarding to the current child.
+  explicit `BackoffSupervisorSettings`, exponential restart delays capped by
+  `max_backoff`, optional Pekko-style random-factor jitter, manual or automatic
+  restart-count reset, typed child queries, and typed message forwarding to the
+  current child.
 - Supervision strategy definitions live in a focused `supervision` module.
 - `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
   queue, plus `ActorSystemTestKit` for creating probe-backed local actor

@@ -1,4 +1,6 @@
+use std::collections::hash_map::RandomState;
 use std::fmt::{self, Display, Formatter};
+use std::hash::{BuildHasher, Hash, Hasher};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -7,10 +9,11 @@ use crate::actor::{Actor, Context, Props};
 use crate::error::ActorResult;
 use crate::refs::ActorRef;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BackoffSupervisorSettings {
     min_backoff: Duration,
     max_backoff: Duration,
+    random_factor: f64,
     reset: BackoffReset,
 }
 
@@ -20,6 +23,7 @@ impl BackoffSupervisorSettings {
         Ok(Self {
             min_backoff,
             max_backoff,
+            random_factor: 0.0,
             reset: BackoffReset::Auto { after: min_backoff },
         })
     }
@@ -32,8 +36,20 @@ impl BackoffSupervisorSettings {
         self.max_backoff
     }
 
+    pub fn random_factor(&self) -> f64 {
+        self.random_factor
+    }
+
     pub fn reset(&self) -> BackoffReset {
         self.reset
+    }
+
+    pub fn with_random_factor(mut self, factor: f64) -> Result<Self, BackoffSettingsError> {
+        if !factor.is_finite() || factor < 0.0 {
+            return Err(BackoffSettingsError::InvalidRandomFactor { factor });
+        }
+        self.random_factor = factor;
+        Ok(self)
     }
 
     pub fn with_auto_reset_after(mut self, after: Duration) -> Result<Self, BackoffSettingsError> {
@@ -60,12 +76,15 @@ pub enum BackoffReset {
     Manual,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BackoffSettingsError {
     MinBackoffIsZero,
     MaxBackoffBeforeMin {
         min_backoff: Duration,
         max_backoff: Duration,
+    },
+    InvalidRandomFactor {
+        factor: f64,
     },
     InvalidReset {
         reset_after: Duration,
@@ -85,6 +104,12 @@ impl Display for BackoffSettingsError {
                 f,
                 "max_backoff ({max_backoff:?}) must be greater than or equal to min_backoff ({min_backoff:?})"
             ),
+            Self::InvalidRandomFactor { factor } => {
+                write!(
+                    f,
+                    "random_factor ({factor}) must be finite and non-negative"
+                )
+            }
             Self::InvalidReset {
                 reset_after,
                 min_backoff,
@@ -308,6 +333,8 @@ impl BackoffState {
             self.restart_count,
             settings.min_backoff,
             settings.max_backoff,
+            settings.random_factor,
+            self.jitter_fraction(),
         );
         self.restart_count = self.restart_count.saturating_add(1);
         self.next_start_token = self.next_start_token.saturating_add(1);
@@ -323,11 +350,40 @@ impl BackoffState {
             self.restart_count = 0;
         }
     }
+
+    fn jitter_fraction(&self) -> f64 {
+        let mut hasher = RandomState::new().build_hasher();
+        self.restart_count.hash(&mut hasher);
+        self.next_start_token.hash(&mut hasher);
+        let hash = hasher.finish();
+        (hash as f64) / (u64::MAX as f64)
+    }
 }
 
-fn calculate_delay(restart_count: u32, min_backoff: Duration, max_backoff: Duration) -> Duration {
+fn calculate_delay(
+    restart_count: u32,
+    min_backoff: Duration,
+    max_backoff: Duration,
+    random_factor: f64,
+    jitter_fraction: f64,
+) -> Duration {
     let multiplier = 1u32.checked_shl(restart_count).unwrap_or(u32::MAX);
-    min_backoff.saturating_mul(multiplier).min(max_backoff)
+    let base = min_backoff.saturating_mul(multiplier).min(max_backoff);
+    if random_factor == 0.0 {
+        return base;
+    }
+
+    let multiplier = 1.0 + jitter_fraction.clamp(0.0, 1.0) * random_factor;
+    duration_mul_f64_saturating(base, multiplier)
+}
+
+fn duration_mul_f64_saturating(duration: Duration, multiplier: f64) -> Duration {
+    let seconds = duration.as_secs_f64() * multiplier;
+    if !seconds.is_finite() || seconds >= Duration::MAX.as_secs_f64() {
+        Duration::MAX
+    } else {
+        Duration::from_secs_f64(seconds)
+    }
 }
 
 fn validate_backoff(
@@ -370,6 +426,62 @@ mod tests {
             Duration::from_millis(250)
         );
         assert_eq!(state.restart_count(), 3);
+    }
+
+    #[test]
+    fn backoff_state_applies_random_factor_after_exponential_cap() {
+        let settings =
+            BackoffSupervisorSettings::new(Duration::from_millis(100), Duration::from_millis(250))
+                .unwrap()
+                .with_random_factor(0.2)
+                .unwrap();
+
+        assert_eq!(
+            calculate_delay(
+                0,
+                settings.min_backoff(),
+                settings.max_backoff(),
+                settings.random_factor(),
+                0.0
+            ),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            calculate_delay(
+                0,
+                settings.min_backoff(),
+                settings.max_backoff(),
+                settings.random_factor(),
+                1.0
+            ),
+            Duration::from_millis(120)
+        );
+        assert_eq!(
+            calculate_delay(
+                3,
+                settings.min_backoff(),
+                settings.max_backoff(),
+                settings.random_factor(),
+                1.0
+            ),
+            Duration::from_millis(300)
+        );
+    }
+
+    #[test]
+    fn backoff_settings_reject_invalid_random_factor() {
+        let settings =
+            BackoffSupervisorSettings::new(Duration::from_millis(100), Duration::from_millis(250))
+                .unwrap();
+
+        assert!(matches!(
+            settings.with_random_factor(-0.1),
+            Err(BackoffSettingsError::InvalidRandomFactor { .. })
+        ));
+        assert!(matches!(
+            settings.with_random_factor(f64::NAN),
+            Err(BackoffSettingsError::InvalidRandomFactor { .. })
+        ));
     }
 
     #[test]
