@@ -197,6 +197,105 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
 }
 
 #[test]
+fn bootstrap_coordinated_shutdown_stops_connector_after_live_route() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-shutdown-sender").unwrap();
+    let receiver_kit =
+        ActorSystemTestKit::new("cluster-tools-bootstrap-shutdown-receiver").unwrap();
+    let registry = registry();
+    let sender_runtime = bind_runtime(
+        "cluster-tools-bootstrap-shutdown-sender",
+        1,
+        11,
+        &sender_kit,
+        registry.clone(),
+    );
+    let receiver_runtime = bind_runtime(
+        "cluster-tools-bootstrap-shutdown-receiver",
+        2,
+        22,
+        &receiver_kit,
+        registry,
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let receiver_cache = receiver_runtime.association_cache().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = receiver_runtime.self_node().clone();
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let receiver_publisher =
+        spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let receiver_cluster = Cluster::new(receiver_publisher.clone());
+    let settings = ClusterToolsTcpPeerBootstrapSettings::new()
+        .with_connector_settings(
+            ClusterToolsTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        )
+        .with_shutdown_timeout(Duration::from_secs(1));
+
+    let sender_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings.clone().with_connector_name("sender-tools-peer"),
+    )
+    .unwrap();
+    let receiver_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        receiver_kit.system(),
+        receiver_cluster,
+        receiver_runtime,
+        settings.with_connector_name("receiver-tools-peer"),
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+    let receiver_snapshots = receiver_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("receiver-snapshots")
+        .unwrap();
+
+    let gossip = Gossip::from_members([
+        Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(receiver_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+    ]);
+    sender_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip.clone()))
+        .unwrap();
+    receiver_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
+        .unwrap();
+
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    await_connector_route(
+        receiver_bootstrap.connector(),
+        &receiver_snapshots,
+        &sender_node,
+    );
+    assert_eq!(sender_cache.route_count(), 1);
+    assert_eq!(receiver_cache.route_count(), 1);
+
+    let sender_connector = sender_bootstrap.connector().clone();
+    sender_kit
+        .system()
+        .run_coordinated_shutdown(
+            "cluster-tools bootstrap shutdown test",
+            Duration::from_secs(1),
+        )
+        .unwrap();
+    assert!(sender_connector.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(sender_cache.route_count(), 0);
+
+    run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
+    assert_eq!(receiver_cache.route_count(), 0);
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_installed_peer_route_delivers_pubsub_publish_to_receiver() {
     let _guard = bootstrap_socket_test_lock();
     let nodes = MultiNodeTestKit::new([
