@@ -24,6 +24,8 @@
 //!   typed lifecycle notifications through the same death-watch path as actors.
 //! - [`TestProbe::fish_for_message`] classifies incoming messages with
 //!   [`FishingOutcome`].
+//! - [`within`] runs a block against one shared deadline and exposes
+//!   [`Within::remaining`] for nested probe assertions.
 //! - [`await_assert`] retries result-returning assertions without relying on
 //!   panic recovery.
 //! - [`ManualTime`] drives systems built with the manual scheduler backend.
@@ -107,6 +109,7 @@ mod manual_time;
 mod multi_node;
 mod probe;
 mod system;
+mod within;
 
 pub use actor_harness::{ActorHarness, ActorHarnessError};
 pub use assertions::{AwaitAssertError, await_assert};
@@ -117,6 +120,7 @@ pub use multi_node::{
 };
 pub use probe::{ProbeError, TestProbe};
 pub use system::ActorSystemTestKit;
+pub use within::{Within, WithinError, within};
 
 #[cfg(test)]
 mod tests;

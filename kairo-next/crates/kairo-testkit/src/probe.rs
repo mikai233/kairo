@@ -7,6 +7,7 @@ use kairo_actor::{
 };
 
 use crate::fishing::{FishingOutcome, remaining_until};
+use crate::within::{Within, WithinError, within};
 
 pub struct TestProbe<M> {
     system: ActorSystem,
@@ -164,6 +165,13 @@ impl<M: Send + 'static> TestProbe<M> {
                 FishingOutcome::ContinueAndIgnore => {}
             }
         }
+    }
+
+    pub fn within<T, E, F>(&self, timeout: Duration, assertion: F) -> Result<T, WithinError<E>>
+    where
+        F: FnOnce(&Self, &Within) -> Result<T, E>,
+    {
+        within(timeout, |scope| assertion(self, scope))
     }
 }
 

@@ -368,6 +368,9 @@ Implemented:
 - `TestProbe::fish_for_message` classifies probe messages as complete, fail,
   continue-and-collect, or continue-and-ignore under one shared deadline, with
   the fishing outcome API kept in a focused testkit module.
+- `kairo-testkit::within` and `TestProbe::within` now provide a Rust-shaped
+  shared-deadline scope with explicit remaining-time access for composing
+  multiple probe assertions under one timeout.
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.

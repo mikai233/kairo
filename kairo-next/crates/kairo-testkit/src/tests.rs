@@ -7,7 +7,8 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, AnyActorRef, Context
 
 use crate::{
     ActorHarness, ActorSystemTestKit, FishingOutcome, ManualTime, MultiNodeBarrierStatus,
-    MultiNodeError, MultiNodeTestKit, ProbeError, TestProbe, await_assert,
+    MultiNodeError, MultiNodeTestKit, ProbeError, TestProbe, WithinError, await_assert,
+    within as run_within,
 };
 
 mod actor_harness;
@@ -17,3 +18,4 @@ mod manual_time;
 mod multi_node;
 mod probe;
 mod system;
+mod within;
