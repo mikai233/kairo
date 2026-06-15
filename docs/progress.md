@@ -2671,6 +2671,10 @@ Implemented:
   workspace dependencies at the legacy `crates/` reference tree; it also scans
   each `kairo-next/crates/*/Cargo.toml` manifest so active next crates cannot
   reintroduce direct path dependencies on the legacy tree.
+- The `kairo` facade test suite now also scans active next-crate Rust sources
+  for `DynMessage` and `GlobalMessage` API declarations, keeping typed
+  `ActorRef<M>` protocols as the primary user boundary while allowing erased
+  runtime bridges only at internal codec/transport edges.
 - `docs/migration.md` now documents the current migration path from the old
   reference crates to the `kairo` facade, including typed actor protocols,
   TOML configuration, remote-message wire metadata, sharding routing, cluster
@@ -3460,5 +3464,10 @@ cargo test -p kairo-cluster cluster_sources_do_not_introduce_authoritative_membe
 cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo next_sources_do_not_expose_dyn_message_primary_api --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```

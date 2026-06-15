@@ -72,6 +72,75 @@ fn next_crate_manifests_do_not_depend_on_legacy_crates() -> Result<(), Box<dyn s
     Ok(())
 }
 
+#[test]
+fn next_sources_do_not_expose_dyn_message_primary_api() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let next_crates = repo_root.join("kairo-next").join("crates");
+    let forbidden_declarations = [
+        "pub enum DynMessage",
+        "enum DynMessage",
+        "pub trait DynMessage",
+        "trait DynMessage",
+        "pub struct DynMessage",
+        "struct DynMessage",
+        "pub type DynMessage",
+        "type DynMessage",
+        "pub enum GlobalMessage",
+        "enum GlobalMessage",
+        "pub trait GlobalMessage",
+        "trait GlobalMessage",
+        "pub struct GlobalMessage",
+        "struct GlobalMessage",
+        "pub type GlobalMessage",
+        "type GlobalMessage",
+    ];
+
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(next_crates)? {
+        let entry = entry?;
+        let src = entry.path().join("src");
+        if src.is_dir() {
+            collect_active_rs_files(&src, &mut files)?;
+        }
+    }
+
+    for file in files {
+        let source = std::fs::read_to_string(&file)?.replace("\r\n", "\n");
+        for declaration in forbidden_declarations {
+            assert!(
+                !source.contains(declaration),
+                "{} must keep typed ActorRef<M> protocols as the primary user API; do not expose `{declaration}`",
+                file.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_active_rs_files(
+    directory: &std::path::Path,
+    files: &mut Vec<std::path::PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = path.file_name().and_then(|name| name.to_str());
+        if path.is_dir() {
+            if file_name == Some("tests") {
+                continue;
+            }
+            collect_active_rs_files(&path, files)?;
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs")
+            && !file_name.is_some_and(|name| name == "tests.rs" || name.contains("test"))
+        {
+            files.push(path);
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(feature = "remote")]
 impl crate::prelude::RemoteMessage for PreludeRemoteMsg {
     const MANIFEST: &'static str = "kairo.facade.test.PreludeRemoteMsg";
