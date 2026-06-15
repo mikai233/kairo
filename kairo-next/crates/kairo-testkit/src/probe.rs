@@ -6,6 +6,7 @@ use kairo_actor::{
     Actor, ActorError, ActorRef, ActorResult, ActorSystem, AnyActorRef, Context, Props,
 };
 
+use crate::assertions::{AwaitAssertError, await_assert};
 use crate::fishing::{FishingOutcome, remaining_until};
 use crate::within::{Within, WithinError, within};
 
@@ -261,6 +262,25 @@ impl<M: Send + 'static> TestProbe<M> {
         F: FnMut(&M) -> FishingOutcome,
     {
         self.fish_for_message(scope.remaining(), fisher)
+    }
+
+    /// Re-runs a probe assertion until it succeeds or the timeout expires.
+    ///
+    /// This is the probe-centered form of [`await_assert`]. The assertion
+    /// receives this probe on each attempt and returns `Ok(T)` when the
+    /// expected condition is met or `Err(E)` while the condition is not ready.
+    ///
+    /// [`await_assert`]: crate::await_assert
+    pub fn await_assert<T, E, F>(
+        &self,
+        max: Duration,
+        interval: Duration,
+        mut assertion: F,
+    ) -> Result<T, AwaitAssertError<E>>
+    where
+        F: FnMut(&Self) -> Result<T, E>,
+    {
+        await_assert(max, interval, || assertion(self))
     }
 
     /// Runs multiple probe assertions under one shared deadline.

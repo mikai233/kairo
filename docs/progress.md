@@ -405,6 +405,9 @@ Implemented:
   structured actor, cluster, sharding, and distributed-data events.
 - `kairo-testkit::await_assert` retries result-returning test assertions until
   success or timeout and reports the final error with attempt metadata.
+- `TestProbe::await_assert` retries probe-centered assertions under a shared
+  timeout/interval budget and reports Kairo's structured `AwaitAssertError`
+  with the last probe assertion error instead of relying on panic recovery.
 - `TestProbe::receive_messages` collects a fixed number of typed messages
   under one shared deadline and reports how many were received when the
   deadline expires.
@@ -3662,5 +3665,11 @@ cargo test -p kairo-actor receptionist --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit probe --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```

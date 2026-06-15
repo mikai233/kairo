@@ -94,6 +94,60 @@ fn test_probe_expect_msg_matching_reports_mismatch() {
 }
 
 #[test]
+fn test_probe_await_assert_retries_probe_assertion_until_success() {
+    let kit = ActorSystemTestKit::new("test-probe-await-assert").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let mut attempts = 0;
+
+    probe
+        .actor_ref()
+        .tell("ready")
+        .expect("probe tell should enqueue");
+
+    let message = probe
+        .await_assert(
+            Duration::from_millis(50),
+            Duration::from_millis(1),
+            |probe| {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(ProbeError::Timeout(Duration::ZERO))
+                } else {
+                    probe.expect_msg(Duration::from_millis(50))
+                }
+            },
+        )
+        .expect("probe assertion should eventually succeed");
+
+    assert_eq!(attempts, 2);
+    assert_eq!(message, "ready");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_await_assert_reports_last_probe_error() {
+    let kit =
+        ActorSystemTestKit::new("test-probe-await-assert-timeout").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+
+    let error = probe
+        .await_assert(Duration::ZERO, Duration::from_millis(1), |probe| {
+            probe.expect_msg(Duration::ZERO)
+        })
+        .expect_err("probe assertion should time out");
+
+    assert_eq!(error.attempts(), 1);
+    assert_eq!(error.last_error(), &ProbeError::Timeout(Duration::ZERO));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn test_probe_receive_messages_collects_fixed_count_under_deadline() {
     let kit = ActorSystemTestKit::new("test-probe-receive-messages").expect("system should build");
     let probe = kit.create_probe::<u8>("probe").expect("probe should spawn");
