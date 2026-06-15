@@ -698,6 +698,26 @@ membership_store = "etcd"
 }
 
 #[test]
+fn toml_config_rejects_blank_downing_role() {
+    let error = parse_toml_str(
+        r#"
+[cluster.downing]
+strategy = "keep-majority"
+role = "   "
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "cluster.downing.role".to_string(),
+            reason: "must not be empty when set".to_string(),
+        }
+    );
+}
+
+#[test]
 fn toml_config_rejects_invalid_values() {
     let error = parse_toml_str(
         r#"
@@ -1408,6 +1428,27 @@ fn config_validate_checks_all_format_neutral_sections() {
         ConfigError::InvalidValue {
             path: "cluster.downing.lease_name".to_string(),
             reason: "must not be empty for lease-majority".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        cluster: super::ClusterConfig {
+            downing: super::ClusterDowningConfig {
+                strategy: ClusterDowningStrategyConfig::KeepOldest {
+                    role: Some("   ".to_string()),
+                    down_if_alone: false,
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "cluster.downing.role".to_string(),
+            reason: "must not be empty when set".to_string(),
         }
     );
 

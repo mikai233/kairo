@@ -2061,6 +2061,9 @@ Implemented:
   TOML loader parses `none`, `down-all`, `keep-majority`, `keep-oldest`, and
   `lease-majority` settings with role, `down_if_alone`, lease name, acquire
   delay, and release timing validation.
+- `ClusterDowningConfig` now rejects whitespace-only optional role filters in
+  both direct format-neutral settings and TOML-loaded downing strategies, so
+  split-brain resolver hooks cannot silently run with an unusable role match.
 - `ClusterDowningConfig` can now convert parsed TOML downing strategies into
   runtime downing hooks for `none`, `down-all`, `keep-majority`, and
   `keep-oldest`; `lease-majority` intentionally requires a caller-provided
@@ -3243,6 +3246,7 @@ git diff --check
 cargo test -p kairo toml_config_rejects_empty_singleton_role --all-targets --all-features
 cargo test -p kairo toml_config_rejects_blank_singleton_role_after_projection --all-targets --all-features
 cargo test -p kairo toml_config_rejects_blank_remote_hostname --all-targets --all-features
+cargo test -p kairo toml_config_rejects_blank_downing_role --all-targets --all-features
 cargo test -p kairo config_validate_checks_all_format_neutral_sections --all-targets --all-features
 cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo --doc --all-features

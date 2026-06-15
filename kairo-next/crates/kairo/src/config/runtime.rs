@@ -282,6 +282,19 @@ impl ClusterHeartbeatConfig {
 impl ClusterDowningConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
         reject_zero_duration(self.stable_after, "cluster.downing.stable_after")?;
+        match &self.strategy {
+            ClusterDowningStrategyConfig::KeepMajority { role }
+            | ClusterDowningStrategyConfig::KeepOldest { role, .. }
+            | ClusterDowningStrategyConfig::LeaseMajority { role, .. } => {
+                if role.as_ref().is_some_and(|role| role.trim().is_empty()) {
+                    return Err(ConfigError::InvalidValue {
+                        path: "cluster.downing.role".to_string(),
+                        reason: "must not be empty when set".to_string(),
+                    });
+                }
+            }
+            ClusterDowningStrategyConfig::None | ClusterDowningStrategyConfig::DownAll => {}
+        }
         if let ClusterDowningStrategyConfig::LeaseMajority {
             lease_name,
             release_after,
