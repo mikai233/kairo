@@ -211,6 +211,51 @@ fn tcp_remote_actor_system_resolver_trait_resolves_local_and_remote_refs() {
 }
 
 #[test]
+fn tcp_remote_actor_system_resolver_trait_resolves_local_system_refs() {
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let registry = registry();
+    let (received_tx, received_rx) = mpsc::channel();
+    let target = receiver
+        .spawn_system(
+            "system-target",
+            Props::new(move || Target {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
+    let receiver_remote = TcpRemoteActorSystem::<Ping>::bind(
+        receiver,
+        registry,
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    )
+    .unwrap();
+    let resolver = receiver_remote.resolver::<Ping>();
+    let local_wire = ActorRefWireData::new(remote_path_for(
+        target.path().as_str(),
+        receiver_remote.settings(),
+    ))
+    .unwrap();
+
+    let local_resolved = resolver.resolve_actor_ref(&local_wire).unwrap();
+
+    assert!(local_resolved.is_local());
+    assert!(
+        local_resolved
+            .path()
+            .as_str()
+            .starts_with("kairo://receiver/system/system-target#")
+    );
+    local_resolved.tell(Ping { value: 41 }).unwrap();
+    assert_eq!(
+        received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        41
+    );
+
+    receiver_remote.shutdown().unwrap();
+}
+
+#[test]
 fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
     let receiver = ActorSystem::builder("receiver").build().unwrap();
     let sender = ActorSystem::builder("sender").build().unwrap();

@@ -504,6 +504,43 @@ mod tests {
     }
 
     #[test]
+    fn provider_maps_owned_canonical_system_path_to_local_actor() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_system(system.clone());
+        let (received_tx, received_rx) = mpsc::channel();
+        let target = system
+            .spawn_system(
+                "remote-system-target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+        let canonical_path =
+            target
+                .path()
+                .as_str()
+                .replacen("kairo://local", "kairo://local@127.0.0.1:25520", 1);
+
+        let resolved = provider
+            .resolve_actor_ref::<LocalCmd>(canonical_path)
+            .unwrap();
+
+        assert!(resolved.is_local());
+        assert!(
+            resolved
+                .path()
+                .as_str()
+                .starts_with("kairo://local/system/remote-system-target#")
+        );
+        resolved.tell(LocalCmd { value: 18 }).unwrap();
+        assert_eq!(
+            received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            18
+        );
+    }
+
+    #[test]
     fn provider_remote_only_resolve_rejects_owned_canonical_address() {
         let system = ActorSystem::builder("local").build().unwrap();
         let provider = provider_with_system(system.clone());

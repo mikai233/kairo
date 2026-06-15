@@ -509,6 +509,11 @@ Implemented:
 - `RemoteActorRefProvider` can now compose with the actor crate's
   `LocalActorRefProvider` boundary for owned local-path resolution, while
   retaining the existing actor-system convenience constructor.
+- `RemoteActorRefProvider` and the TCP remote actor-system resolver now have
+  focused coverage that owned canonical `/system` actor paths resolve back to
+  local framework-owned actors, preserving the same local/remote composition
+  boundary used by remote watch, cluster, distributed-data, and cluster-tools
+  services.
 - `RemoteActorRefProvider::resolver::<M>()` now exposes a typed
   `ActorRefResolver` adapter for deserialization-style actor-ref resolution,
   mapping owned canonical addresses back to local `ResolvedActorRef<M>` values
