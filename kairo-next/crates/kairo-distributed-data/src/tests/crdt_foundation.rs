@@ -212,3 +212,68 @@ fn pncounter_delta_contains_inner_counter_deltas() {
     assert_eq!(delta.value().unwrap(), 6);
     assert_eq!(PNCounter::new().merge_delta(&delta), full.reset_delta());
 }
+
+#[test]
+fn lww_register_uses_latest_timestamp_and_lowest_replica_tie_breaker() {
+    let node_a = replica("a");
+    let node_b = replica("b");
+    let older = LWWRegister::new(node_a.clone(), "older", 1);
+    let newer = LWWRegister::new(node_b.clone(), "newer", 2);
+
+    assert_eq!(older.merge(&newer), newer);
+
+    let high_replica = LWWRegister::new(node_b, "high", 3);
+    let low_replica = LWWRegister::new(node_a, "low", 3);
+
+    assert_eq!(high_replica.merge(&low_replica), low_replica);
+}
+
+#[test]
+fn lww_register_tracks_delta_for_value_update() {
+    let node = replica("a");
+    let register = LWWRegister::new(node.clone(), "old", 1);
+    let updated = register.with_value(node.clone(), "new", 2);
+    let delta = updated.delta().expect("register update should keep delta");
+
+    assert_eq!(delta, LWWRegister::new(node, "new", 2));
+    assert_eq!(register.merge_delta(&delta), updated.reset_delta());
+    assert_eq!(updated.reset_delta().delta(), None);
+}
+
+#[test]
+fn lww_register_default_and_reverse_clocks_are_monotonic() {
+    let node = replica("a");
+    let default = LWWRegister::new(node.clone(), 0, 100).with_value_by_clock(
+        node.clone(),
+        1,
+        |timestamp, _| crate::default_lww_clock(timestamp),
+    );
+    assert!(default.timestamp() > 100);
+
+    let reverse = LWWRegister::new(node.clone(), 0, -100).with_value_by_clock(
+        node.clone(),
+        1,
+        |timestamp, _| crate::reverse_lww_clock(timestamp),
+    );
+    assert!(reverse.timestamp() < -100);
+
+    let first = LWWRegister::new(node.clone(), "first", -1);
+    let later = first.with_value_reverse_clock(node, "later");
+
+    assert_eq!(first.merge(&later), first);
+}
+
+#[test]
+fn lww_register_prunes_removed_writer_to_survivor() {
+    let removed = replica("removed");
+    let survivor = replica("survivor");
+    let register = LWWRegister::new(removed.clone(), "value", 7);
+
+    assert!(register.need_pruning_from(&removed));
+    let pruned = register.prune(&removed, survivor.clone()).unwrap();
+
+    assert_eq!(pruned.node(), &survivor);
+    assert_eq!(pruned.value(), &"value");
+    assert_eq!(pruned.timestamp(), 7);
+    assert!(!pruned.need_pruning_from(&removed));
+}

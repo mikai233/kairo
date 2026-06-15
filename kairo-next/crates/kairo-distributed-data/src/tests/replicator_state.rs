@@ -124,6 +124,33 @@ fn replicator_state_applies_remote_delta_to_zero_when_missing() {
 }
 
 #[test]
+fn replicator_state_stores_lww_register_updates_and_remote_delta() {
+    let key = ReplicatorKey::new("lww");
+    let node_a = replica("a");
+    let node_b = replica("b");
+    let mut state = ReplicatorState::<LWWRegister<&'static str>>::new();
+
+    let outcome = state
+        .update_local(
+            key.clone(),
+            LWWRegister::new(node_a.clone(), "initial", 1),
+            |register| Ok::<_, CrdtError>(register.with_value(node_a.clone(), "local", 2)),
+        )
+        .unwrap();
+    assert!(outcome.changed());
+
+    state.write_delta(key.clone(), LWWRegister::new(node_b.clone(), "remote", 3));
+
+    assert_eq!(
+        state.get_local(&key),
+        GetResponse::Success {
+            key,
+            data: LWWRegister::new(node_b, "remote", 3),
+        }
+    );
+}
+
+#[test]
 fn replicator_state_flushes_changes_once_in_key_order() {
     let mut state = ReplicatorState::<GCounter>::new();
     let node = replica("a");

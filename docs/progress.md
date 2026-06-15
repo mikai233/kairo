@@ -975,6 +975,10 @@ Implemented:
 - `ORSet` preserves Pekko-style observed-remove set semantics with per-element
   dots, version-vector merge pruning, grouped deltas, observed remove winning
   over seen adds, and concurrent add survival.
+- `LWWRegister` preserves Pekko-style last-writer-wins register semantics with
+  highest-timestamp merge, lowest-replica timestamp tie-breaking, update
+  deltas, default and reverse clock helpers, and removed-writer pruning into a
+  survivor replica.
 - `kairo-distributed-data` now exposes `ReadConsistency` and
   `WriteConsistency` values, typed `DataEnvelope<D>`, local `GetResponse`,
   `UpdateOutcome`, change notifications, and `ReplicatorState<D>` for the
@@ -3689,5 +3693,10 @@ cargo test -p kairo-actor-macros --test remote_message --all-features
 cargo test -p kairo-actor-macros --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor-macros --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data lww_register --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
 git diff --check
 ```
