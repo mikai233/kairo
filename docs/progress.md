@@ -2679,6 +2679,10 @@ Implemented:
   direction: `kairo-actor` cannot depend upward into serialization, remote, or
   cluster crates, and `kairo-serialization` cannot depend on actor, transport,
   cluster, distributed-data, sharding, or tools crates.
+- The `kairo` facade test suite now also pins distributed-layer dependency
+  direction: `kairo-remote`, `kairo-cluster`, `kairo-distributed-data`, and
+  `kairo-cluster-sharding` cannot depend upward into later architecture
+  layers that would collapse the workspace boundary.
 - The `kairo` facade test suite now also scans active next-crate Rust sources
   for `DynMessage` and `GlobalMessage` API declarations, keeping typed
   `ActorRef<M>` protocols as the primary user boundary while allowing erased
@@ -2749,6 +2753,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo distributed_crates_keep_architecture_dependency_boundaries --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo foundational_crates_keep_architecture_dependency_boundaries --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check

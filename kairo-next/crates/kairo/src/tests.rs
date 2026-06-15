@@ -146,6 +146,58 @@ fn foundational_crates_keep_architecture_dependency_boundaries()
 }
 
 #[test]
+fn distributed_crates_keep_architecture_dependency_boundaries()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let next_crates = repo_root.join("kairo-next").join("crates");
+    let forbidden_dependencies: [(&str, &[&str], &str); 4] = [
+        (
+            "kairo-remote",
+            &[
+                "kairo-cluster",
+                "kairo-distributed-data",
+                "kairo-cluster-sharding",
+                "kairo-cluster-tools",
+            ],
+            "kairo-remote must provide remoting without depending on cluster, ddata, sharding, or tools layers",
+        ),
+        (
+            "kairo-cluster",
+            &[
+                "kairo-distributed-data",
+                "kairo-cluster-sharding",
+                "kairo-cluster-tools",
+            ],
+            "kairo-cluster must own membership without depending on ddata, sharding, or tools layers",
+        ),
+        (
+            "kairo-distributed-data",
+            &["kairo-cluster-sharding", "kairo-cluster-tools"],
+            "kairo-distributed-data may consume cluster and remote routes but must not depend on sharding or tools",
+        ),
+        (
+            "kairo-cluster-sharding",
+            &["kairo-cluster-tools"],
+            "kairo-cluster-sharding must not depend on cluster tools private shortcuts",
+        ),
+    ];
+
+    for (crate_name, forbidden, reason) in forbidden_dependencies {
+        let manifest_path = next_crates.join(crate_name).join("Cargo.toml");
+        let manifest = std::fs::read_to_string(&manifest_path)?;
+        for dependency in forbidden {
+            assert!(
+                !manifest.contains(dependency),
+                "{} must not depend on `{dependency}`: {reason}",
+                manifest_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn next_sources_do_not_expose_dyn_message_primary_api() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let next_crates = repo_root.join("kairo-next").join("crates");
