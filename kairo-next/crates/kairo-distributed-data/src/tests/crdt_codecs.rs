@@ -118,6 +118,58 @@ fn crdt_codecs_orset_strings_preserve_removal_context() {
 }
 
 #[test]
+fn crdt_codecs_round_trip_orset_string_add_delta() {
+    let entity = "entity".to_string();
+    let data = ORSet::new()
+        .add(replica("a"), entity.clone())
+        .delta()
+        .unwrap();
+
+    let serialized = ORSetStringDeltaCodec.serialize(&data).unwrap();
+    let serialized_again = ORSetStringDeltaCodec.serialize(&data).unwrap();
+
+    assert_eq!(serialized.manifest(), crate::ORSET_STRING_DELTA_MANIFEST);
+    assert_eq!(serialized.payload(), serialized_again.payload());
+
+    let decoded = ORSetStringDeltaCodec.deserialize(serialized).unwrap();
+    assert_eq!(decoded, data);
+    assert!(decoded.zero().merge_delta(&decoded).contains(&entity));
+}
+
+#[test]
+fn crdt_codecs_orset_string_remove_delta_preserves_seen_context() {
+    let entity = "entity".to_string();
+    let added = ORSet::new().add(replica("a"), entity.clone()).reset_delta();
+    let data = added.remove(replica("b"), &entity).delta().unwrap();
+
+    let decoded = ORSetStringDeltaCodec
+        .deserialize(ORSetStringDeltaCodec.serialize(&data).unwrap())
+        .unwrap();
+
+    assert_eq!(decoded, data);
+    assert!(!added.merge_delta(&decoded).contains(&entity));
+}
+
+#[test]
+fn crdt_codecs_round_trip_orset_string_delta_group() {
+    let entity = "entity".to_string();
+    let added = ORSet::new().add(replica("a"), entity.clone()).reset_delta();
+    let add_delta = ORSet::new()
+        .add(replica("a"), entity.clone())
+        .delta()
+        .unwrap();
+    let remove_delta = added.remove(replica("b"), &entity).delta().unwrap();
+    let data = add_delta.merge(&remove_delta);
+
+    let decoded = ORSetStringDeltaCodec
+        .deserialize(ORSetStringDeltaCodec.serialize(&data).unwrap())
+        .unwrap();
+
+    assert_eq!(decoded, data);
+    assert!(!decoded.zero().merge_delta(&decoded).contains(&entity));
+}
+
+#[test]
 fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
     let data = GCounter::new().increment(replica("a"), 1).unwrap();
     let serialized = GCounterCodec.serialize(&data).unwrap();
@@ -146,6 +198,19 @@ fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
             .to_string()
             .contains("unsupported")
     );
+
+    let invalid_delta_tag = crate::SerializedCrdt::new(
+        crate::ORSET_STRING_DELTA_MANIFEST,
+        crate::CRDT_CODEC_VERSION,
+        Bytes::from_static(&[0xff]),
+    );
+    assert!(
+        ORSetStringDeltaCodec
+            .deserialize(invalid_delta_tag)
+            .unwrap_err()
+            .to_string()
+            .contains("unknown ORSet delta operation tag")
+    );
 }
 
 #[test]
@@ -168,6 +233,10 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
     let or_set = ORSet::new()
         .add(replica("a"), "value".to_string())
         .reset_delta();
+    let or_set_delta = ORSet::new()
+        .add(replica("a"), "delta".to_string())
+        .delta()
+        .unwrap();
 
     let error = GSetStringCodec
         .deserialize(with_trailing_byte(GSetStringCodec.serialize(&set).unwrap()))
@@ -200,5 +269,12 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
             ORSetStringCodec.serialize(&or_set).unwrap(),
         ))
         .expect_err("trailing ORSet payload byte should fail");
+    assert!(error.to_string().contains("trailing byte"));
+
+    let error = ORSetStringDeltaCodec
+        .deserialize(with_trailing_byte(
+            ORSetStringDeltaCodec.serialize(&or_set_delta).unwrap(),
+        ))
+        .expect_err("trailing ORSet delta payload byte should fail");
     assert!(error.to_string().contains("trailing byte"));
 }

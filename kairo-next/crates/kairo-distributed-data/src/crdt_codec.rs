@@ -3,14 +3,21 @@ use std::collections::BTreeMap;
 use bytes::Bytes;
 use kairo_serialization::{SerializationError, WireReader, WireWriter};
 
-use crate::{GCounter, GSet, LWWRegister, ORSet, PNCounter, ReplicaId};
+use crate::{
+    GCounter, GSet, LWWRegister, ORSet, ORSetDelta, ORSetRemoveDelta, PNCounter, ReplicaId,
+};
 
 pub const GSET_STRING_MANIFEST: &str = "kairo.ddata.gset-string";
 pub const GCOUNTER_MANIFEST: &str = "kairo.ddata.gcounter";
 pub const PNCOUNTER_MANIFEST: &str = "kairo.ddata.pncounter";
 pub const LWW_REGISTER_STRING_MANIFEST: &str = "kairo.ddata.lww-register-string";
 pub const ORSET_STRING_MANIFEST: &str = "kairo.ddata.orset-string";
+pub const ORSET_STRING_DELTA_MANIFEST: &str = "kairo.ddata.orset-string-delta";
 pub const CRDT_CODEC_VERSION: u16 = 1;
+
+const ORSET_DELTA_ADD_TAG: u8 = 1;
+const ORSET_DELTA_REMOVE_TAG: u8 = 2;
+const ORSET_DELTA_GROUP_TAG: u8 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SerializedCrdt {
@@ -255,6 +262,33 @@ impl CrdtDataCodec<ORSet<String>> for ORSetStringCodec {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ORSetStringDeltaCodec;
+
+impl CrdtDataCodec<ORSetDelta<String>> for ORSetStringDeltaCodec {
+    fn manifest(&self) -> &'static str {
+        ORSET_STRING_DELTA_MANIFEST
+    }
+
+    fn encode_payload(&self, data: &ORSetDelta<String>) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        write_orset_delta(&mut writer, data)?;
+        Ok(writer.finish())
+    }
+
+    fn decode_payload(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<ORSetDelta<String>> {
+        ensure_version(self.manifest(), version)?;
+        let mut reader = WireReader::new(&payload);
+        let delta = read_orset_delta(&mut reader)?;
+        reader.ensure_finished()?;
+        Ok(delta)
+    }
+}
+
 fn ensure_version(manifest: &str, version: u16) -> kairo_serialization::Result<()> {
     if version == CRDT_CODEC_VERSION {
         Ok(())
@@ -274,6 +308,64 @@ fn u64_to_len(len: u64) -> kairo_serialization::Result<usize> {
     usize::try_from(len).map_err(|_| {
         SerializationError::Message("CRDT collection length exceeds usize".to_string())
     })
+}
+
+fn write_orset_delta(
+    writer: &mut WireWriter,
+    delta: &ORSetDelta<String>,
+) -> kairo_serialization::Result<()> {
+    match delta {
+        ORSetDelta::Add(add) => {
+            writer.write_u8(ORSET_DELTA_ADD_TAG);
+            writer.write_bytes(&ORSetStringCodec.encode_payload(add)?)?;
+        }
+        ORSetDelta::Remove(remove) => {
+            writer.write_u8(ORSET_DELTA_REMOVE_TAG);
+            writer.write_string(remove.element())?;
+            write_version_vector(writer, remove.seen_entries())?;
+            write_version_vector(writer, remove.remove_dot_entries())?;
+        }
+        ORSetDelta::Group(ops) => {
+            writer.write_u8(ORSET_DELTA_GROUP_TAG);
+            writer.write_u64(len_to_u64(ops.len())?);
+            for op in ops {
+                write_orset_delta(writer, op)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn read_orset_delta(
+    reader: &mut WireReader<'_>,
+) -> kairo_serialization::Result<ORSetDelta<String>> {
+    match reader.read_u8()? {
+        ORSET_DELTA_ADD_TAG => {
+            let payload = reader.read_bytes()?;
+            Ok(ORSetDelta::Add(
+                ORSetStringCodec.decode_payload(payload, CRDT_CODEC_VERSION)?,
+            ))
+        }
+        ORSET_DELTA_REMOVE_TAG => {
+            let element = reader.read_string()?;
+            let seen = read_version_vector(reader)?;
+            let remove_dot = read_version_vector(reader)?;
+            Ok(ORSetDelta::Remove(ORSetRemoveDelta::from_wire_state(
+                element, seen, remove_dot,
+            )))
+        }
+        ORSET_DELTA_GROUP_TAG => {
+            let len = reader.read_u64()?;
+            let mut ops = Vec::with_capacity(u64_to_len(len)?);
+            for _ in 0..len {
+                ops.push(read_orset_delta(reader)?);
+            }
+            Ok(ORSetDelta::Group(ops))
+        }
+        other => Err(SerializationError::Message(format!(
+            "unknown ORSet delta operation tag {other}"
+        ))),
+    }
 }
 
 fn write_version_vector(

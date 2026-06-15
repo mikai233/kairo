@@ -1003,9 +1003,13 @@ Implemented:
   with explicit manifests, codec version metadata, deterministic sorted
   encoding, big-endian counter values, explicit register
   writer/timestamp/value fields, and ORSet version-vector/dot context.
+- `kairo-distributed-data` now has a stable built-in string `ORSet` delta
+  codec for add, remove, and grouped delta operations, using explicit wire
+  operation tags and preserving remove-delta seen/remove-dot context for
+  observed-remove semantics.
 - Built-in distributed-data CRDT payload codecs now reject unread trailing
   bytes after decoding `GSet`, `GCounter`, `PNCounter`, `LWWRegister`, and
-  `ORSet` wire values.
+  `ORSet` full-state and delta wire values.
 - `kairo-distributed-data::DeltaPropagationLog` tracks per-key delta sequence
   numbers, merges unsent deltas per target, advances sequence numbers for
   no-payload updates, selects remote replicas by Pekko-style round-robin

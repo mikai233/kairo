@@ -354,6 +354,26 @@ impl<T> ORSetRemoveDelta<T> {
     pub fn element(&self) -> &T {
         &self.element
     }
+
+    pub(crate) fn from_wire_state(
+        element: T,
+        seen: BTreeMap<ReplicaId, u64>,
+        remove_dot: BTreeMap<ReplicaId, u64>,
+    ) -> Self {
+        Self {
+            element,
+            seen: VersionVector(seen),
+            remove_dot: VersionVector(remove_dot),
+        }
+    }
+
+    pub(crate) fn seen_entries(&self) -> &BTreeMap<ReplicaId, u64> {
+        self.seen.entries()
+    }
+
+    pub(crate) fn remove_dot_entries(&self) -> &BTreeMap<ReplicaId, u64> {
+        self.remove_dot.entries()
+    }
 }
 
 fn merge_optional_delta<T>(existing: Option<&ORSetDelta<T>>, next: ORSetDelta<T>) -> ORSetDelta<T>
