@@ -90,9 +90,11 @@ impl MessageCodec<ShardHome> for ShardHomeCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<ShardHome> {
         ensure_version::<ShardHome>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(ShardHome {
+        let home = ShardHome {
             shard_id: reader.read_string()?,
             region: ActorRefWireData::new(reader.read_string()?)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(home)
     }
 }

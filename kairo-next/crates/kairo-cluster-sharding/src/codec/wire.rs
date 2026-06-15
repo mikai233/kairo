@@ -12,7 +12,9 @@ pub(super) fn encode_actor_ref(ref_data: &ActorRefWireData) -> kairo_serializati
 
 pub(super) fn decode_actor_ref(payload: &Bytes) -> kairo_serialization::Result<ActorRefWireData> {
     let mut reader = WireReader::new(payload);
-    ActorRefWireData::new(reader.read_string()?)
+    let actor_ref = ActorRefWireData::new(reader.read_string()?)?;
+    reader.ensure_finished()?;
+    Ok(actor_ref)
 }
 
 pub(super) fn encode_shard_id(shard_id: &str) -> kairo_serialization::Result<Bytes> {
@@ -23,7 +25,9 @@ pub(super) fn encode_shard_id(shard_id: &str) -> kairo_serialization::Result<Byt
 
 pub(super) fn decode_shard_id(payload: &Bytes) -> kairo_serialization::Result<String> {
     let mut reader = WireReader::new(payload);
-    reader.read_string()
+    let shard_id = reader.read_string()?;
+    reader.ensure_finished()?;
+    Ok(shard_id)
 }
 
 pub(super) fn write_serialized_message(

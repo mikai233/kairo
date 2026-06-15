@@ -30,10 +30,12 @@ impl MessageCodec<RoutedShardEnvelope> for RoutedShardEnvelopeCodec {
     ) -> kairo_serialization::Result<RoutedShardEnvelope> {
         ensure_version::<RoutedShardEnvelope>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(RoutedShardEnvelope {
+        let envelope = RoutedShardEnvelope {
             shard_id: reader.read_string()?,
             entity_id: reader.read_string()?,
             message: read_serialized_message(&mut reader)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(envelope)
     }
 }

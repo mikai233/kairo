@@ -1316,6 +1316,9 @@ Implemented:
   registration, coordinator-message codec, shard-control codec,
   routed-envelope codec, graceful-shutdown codec, wire-helper, and codec-test
   modules instead of concentrating stable sharding wire logic in one file.
+- Cluster-sharding protocol codecs now reject unread trailing bytes after
+  decoding the expected stable wire fields, including coordinator registration,
+  shard-home, handoff/control, graceful-shutdown, and routed entity envelopes.
 - Serialization tests cover rolling-version decode behavior by proving codecs
   receive the wire `version` and can decode older payload shapes under the same
   stable manifest.

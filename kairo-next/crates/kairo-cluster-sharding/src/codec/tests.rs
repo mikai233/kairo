@@ -14,6 +14,26 @@ fn registry() -> Registry {
     registry
 }
 
+fn assert_rejects_trailing_payload_bytes<M>(registry: &Registry, message: &M)
+where
+    M: RemoteMessage,
+{
+    let mut wire = registry.serialize(message).unwrap();
+    let mut payload = wire.payload.to_vec();
+    payload.push(0xff);
+    wire.payload = Bytes::from(payload);
+
+    let error = match registry.deserialize::<M>(wire) {
+        Ok(_) => panic!("trailing payload byte should fail"),
+        Err(error) => error,
+    };
+
+    assert!(
+        error.to_string().contains("trailing"),
+        "expected trailing-byte error, got {error}"
+    );
+}
+
 #[test]
 fn sharding_protocol_codecs_round_trip_registration_messages() {
     let registry = registry();
@@ -184,4 +204,94 @@ fn sharding_protocol_codecs_reject_unknown_versions() {
         .expect_err("unknown version should fail");
 
     assert!(error.to_string().contains("unsupported"));
+}
+
+#[test]
+fn sharding_protocol_codecs_reject_trailing_payload_bytes() {
+    let registry = registry();
+    let region = ActorRefWireData::new("kairo://sys@127.0.0.1:25521/user/region#4").unwrap();
+    let coordinator =
+        ActorRefWireData::new("kairo://sys@127.0.0.1:25521/system/sharding#5").unwrap();
+
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &Register {
+            region: region.clone(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &RegisterAck {
+            coordinator: coordinator.clone(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &GetShardHome {
+            shard_id: "42".to_string(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &ShardHome {
+            shard_id: "42".to_string(),
+            region: region.clone(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &HostShard {
+            shard_id: "42".to_string(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &ShardStarted {
+            shard_id: "42".to_string(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &BeginHandOff {
+            shard_id: "42".to_string(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &BeginHandOffAck {
+            shard_id: "42".to_string(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &HandOff {
+            shard_id: "42".to_string(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &ShardStopped {
+            shard_id: "42".to_string(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &RoutedShardEnvelope {
+            shard_id: "42".to_string(),
+            entity_id: "entity-1".to_string(),
+            message: SerializedMessage::new(
+                777,
+                kairo_serialization::Manifest::new("kairo.test.message"),
+                3,
+                Bytes::from_static(b"payload"),
+            ),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &GracefulShutdownReq {
+            region: region.clone(),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(&registry, &RegionStopped { region });
 }
