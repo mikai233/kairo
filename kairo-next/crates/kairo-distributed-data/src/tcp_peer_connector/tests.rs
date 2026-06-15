@@ -71,8 +71,10 @@ fn bind_peer_runtime(
         node_uid,
         system_uid,
         remote_replica,
-        ReplicatorTcpPeerRuntimeSettings::new(RemoteSettings::new("127.0.0.1", 0))
-            .with_reconnect(ReplicatorTcpPeerReconnectSettings::new(retry_interval).unwrap()),
+        ReplicatorTcpPeerRuntimeSettings::new(
+            RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+        )
+        .with_reconnect(ReplicatorTcpPeerReconnectSettings::new(retry_interval).unwrap()),
         Arc::new(IgnoreRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
         Arc::new(IgnoreReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
     )

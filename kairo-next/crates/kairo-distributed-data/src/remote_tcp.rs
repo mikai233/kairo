@@ -1,6 +1,6 @@
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use kairo_remote::{
     AssociationOutboundPipeline, RemoteAssociationAddress, RemoteAssociationCache,
@@ -50,14 +50,15 @@ impl ReplicatorTcpAssociationRuntime {
         let local_addr = listener
             .local_addr()
             .map_err(|error| RemoteError::Inbound(format!("tcp local address failed: {error}")))?;
-        let effective_settings = RemoteSettings::new(
-            settings.canonical_hostname.clone(),
-            if settings.canonical_port == 0 {
+        let effective_settings = RemoteSettings {
+            canonical_hostname: settings.canonical_hostname.clone(),
+            canonical_port: if settings.canonical_port == 0 {
                 local_addr.port()
             } else {
                 settings.canonical_port
             },
-        );
+            connect_timeout: settings.connect_timeout,
+        };
         let local_address = RemoteAssociationAddress::new(
             "kairo",
             local_system,
@@ -80,7 +81,7 @@ impl ReplicatorTcpAssociationRuntime {
             .spawn_accept_loop()?;
         let dialer = TcpAssociationDialer::new(installer)
             .with_local_identity(local_address.clone(), local_system_uid)
-            .with_connect_timeout(Duration::from_secs(1));
+            .with_connect_timeout(effective_settings.connect_timeout_or_default());
 
         Ok(Self {
             local_replica,
@@ -174,7 +175,7 @@ impl ReplicatorTcpAssociationRuntime {
             .drain(..)
             .collect::<Vec<_>>();
         for reader in outbound_readers {
-            reader.join()?;
+            let _ = reader.join_after_stop_until(Instant::now());
         }
         self.listener.join()
     }

@@ -74,7 +74,7 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
         cluster,
         1,
         11,
-        RemoteSettings::new("127.0.0.1", 0),
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
         settings,
         move |self_node| inbound_for("bootstrap", kit_ref, registry, self_node),
     )

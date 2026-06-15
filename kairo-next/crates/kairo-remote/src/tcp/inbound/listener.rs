@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::tcp::{
     TcpAssociationHandshake, TcpAssociationIdentity, TcpAssociationReaderSupervisor,
@@ -154,10 +154,21 @@ impl TcpAssociationListener {
             }
         }
 
+        let stopped = stop.load(Ordering::SeqCst);
+        if stopped {
+            reader_supervisor.stop();
+        }
+
         let mut read = TcpAssociationReadReport::default();
         let mut supervision = Vec::new();
         for handle in reader_handles {
-            let report = handle.join_with_supervisor(&mut reader_supervisor);
+            let report = if stopped {
+                handle
+                    .join_with_supervisor_until(&mut reader_supervisor, Instant::now())
+                    .unwrap_or_default()
+            } else {
+                handle.join_with_supervisor(&mut reader_supervisor)
+            };
             read.streams += report.read.streams;
             read.frames += report.read.frames;
             supervision.extend(report.supervision);

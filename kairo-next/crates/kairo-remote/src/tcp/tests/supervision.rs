@@ -98,10 +98,52 @@ fn tcp_listener_report_includes_reader_supervision_decisions() {
     assert_eq!(report.supervision.len(), 1);
     assert!(matches!(
         &report.supervision[0],
-        TcpAssociationReaderSupervisionDecision::RestartInboundStreams {
-            restart_count: 1,
+        TcpAssociationReaderSupervisionDecision::IgnoreWhileStopped {
             failure: TcpAssociationReaderFailure::Lane {
                 stream_id: RemoteStreamId::Ordinary,
+                ..
+            }
+        }
+    ));
+    assert!(handler.frames().is_empty());
+}
+
+#[test]
+fn tcp_reader_join_after_stop_ignores_late_stream_failures() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let handler = Arc::new(CollectingFrameHandler::default());
+    let remote_listener = TcpAssociationListener::from_listener(
+        listener,
+        handler.clone() as Arc<dyn RemoteFrameHandler>,
+    )
+    .with_expected_streams(1)
+    .with_local_address(association_address("receiver", port));
+    let handle = thread::spawn(move || {
+        let accepted = remote_listener.accept_association().unwrap();
+        accepted.spawn_lane_readers().join_after_stop()
+    });
+
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let handshake = TcpAssociationHandshake::new(
+        RemoteStreamId::Control,
+        TcpAssociationIdentity::new(association_address("sender", 25521), 22),
+        association_address("receiver", port),
+    );
+    stream
+        .write_all(&encode_tcp_association_handshake(&handshake).unwrap())
+        .unwrap();
+    stream.write_all(b"not-a-stream").unwrap();
+    drop(stream);
+
+    let report = handle.join().unwrap();
+    assert_eq!(report.read, TcpAssociationReadReport::default());
+    assert_eq!(report.supervision.len(), 1);
+    assert!(matches!(
+        &report.supervision[0],
+        TcpAssociationReaderSupervisionDecision::IgnoreWhileStopped {
+            failure: TcpAssociationReaderFailure::Lane {
+                stream_id: RemoteStreamId::Control,
                 ..
             }
         }

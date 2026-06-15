@@ -185,7 +185,7 @@ pub(super) fn bind_runtime(
         node_uid,
         system_uid,
         remote_replica,
-        RemoteSettings::new("127.0.0.1", 0),
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
         Arc::new(IgnoreRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
         Arc::new(IgnoreReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
     )
@@ -204,7 +204,7 @@ pub(super) fn bind_runtime_with_requests(
         node_uid,
         system_uid,
         remote_replica,
-        RemoteSettings::new("127.0.0.1", 0),
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
         requests,
         Arc::new(IgnoreReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
     )

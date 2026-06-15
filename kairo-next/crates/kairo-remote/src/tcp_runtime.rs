@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use kairo_actor::{ActorError, ActorRef, ActorSystem};
 use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
@@ -68,14 +68,15 @@ where
         let local_addr = listener
             .local_addr()
             .map_err(|error| RemoteError::Inbound(format!("tcp local address failed: {error}")))?;
-        let effective_settings = RemoteSettings::new(
-            settings.canonical_hostname.clone(),
-            if settings.canonical_port == 0 {
+        let effective_settings = RemoteSettings {
+            canonical_hostname: settings.canonical_hostname.clone(),
+            canonical_port: if settings.canonical_port == 0 {
                 local_addr.port()
             } else {
                 settings.canonical_port
             },
-        );
+            connect_timeout: settings.connect_timeout,
+        };
 
         let association_cache = RemoteAssociationCache::new();
         let association_registry = RemoteAssociationRegistry::new();
@@ -113,7 +114,7 @@ where
                 local_association_address(&system, &effective_settings)?,
                 local_system_uid,
             )
-            .with_connect_timeout(Duration::from_secs(1));
+            .with_connect_timeout(effective_settings.connect_timeout_or_default());
         let provider = RemoteActorRefProvider::with_actor_system(
             system.clone(),
             effective_settings.clone(),
@@ -297,7 +298,7 @@ fn shutdown_runtime(
         .drain(..)
         .collect::<Vec<_>>();
     for reader in outbound_readers {
-        reader.join()?;
+        let _ = reader.join_after_stop_until(Instant::now());
     }
     let listener_report = listener.join();
 

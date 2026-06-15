@@ -75,12 +75,14 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
         )
         .unwrap();
     let cluster = Cluster::new(publisher);
-    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
-        .with_connector_name("ddata-peer")
-        .with_connector_settings(
-            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25)).unwrap(),
-        )
-        .with_shutdown_timeout(Duration::from_secs(1));
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_name("ddata-peer")
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25)).unwrap(),
+    )
+    .with_shutdown_timeout(Duration::from_secs(1));
     let identity = ReplicatorTcpPeerBootstrapIdentity::new(1, 11, ReplicaId::new("remote"));
 
     let bootstrap = ReplicatorTcpPeerBootstrap::bind_and_spawn(
@@ -127,12 +129,14 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
         spawn_publisher(receiver_kit, "receiver-publisher", receiver_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
     let receiver_cluster = Cluster::new(receiver_publisher.clone());
-    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
-        .with_connector_settings(
-            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
-                .unwrap()
-                .with_automatic_retry_ticks(false),
-        );
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
 
     let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
         sender_kit.system(),
@@ -227,12 +231,14 @@ fn bootstrap_installed_peer_route_delivers_remote_request_to_receiver() {
         spawn_publisher(receiver_kit, "receiver-publisher", receiver_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
     let receiver_cluster = Cluster::new(receiver_publisher.clone());
-    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
-        .with_connector_settings(
-            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
-                .unwrap()
-                .with_automatic_retry_ticks(false),
-        );
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
 
     let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
         sender_kit.system(),
@@ -340,12 +346,14 @@ fn bootstrap_removes_peer_route_when_cluster_membership_drops_peer() {
         spawn_publisher(&receiver_kit, "receiver-publisher", receiver_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
     let receiver_cluster = Cluster::new(receiver_publisher.clone());
-    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
-        .with_connector_settings(
-            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
-                .unwrap()
-                .with_automatic_retry_ticks(false),
-        );
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
 
     let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
         sender_kit.system(),
@@ -428,13 +436,15 @@ fn bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry() {
     );
     let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
-    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
-        .with_connector_settings(
-            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
-                .unwrap()
-                .with_automatic_retry_ticks(false),
-        )
-        .with_connector_name("sender-ddata-peer");
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_connector_name("sender-ddata-peer");
 
     let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
         sender_kit.system(),
@@ -502,12 +512,14 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
     let new_receiver_node = new_receiver_runtime.self_node().clone();
     let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
-    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
-        .with_connector_settings(
-            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
-                .unwrap()
-                .with_automatic_retry_ticks(false),
-        );
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
 
     let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
         sender_kit.system(),
@@ -662,12 +674,14 @@ fn bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed() {
     let third_settings = third_runtime.runtime().settings().clone();
     let first_publisher = spawn_publisher(&first_kit, "first-publisher", first_node.clone());
     let first_cluster = Cluster::new(first_publisher.clone());
-    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
-        .with_connector_settings(
-            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
-                .unwrap()
-                .with_automatic_retry_ticks(false),
-        );
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
 
     let first_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
         first_kit.system(),
@@ -840,12 +854,14 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let first_cluster = Cluster::new(first_publisher.clone());
     let second_cluster = Cluster::new(second_publisher.clone());
     let third_cluster = Cluster::new(third_publisher.clone());
-    let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
-        .with_connector_settings(
-            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
-                .unwrap()
-                .with_automatic_retry_ticks(false),
-        );
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
 
     let first_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
         first_kit.system(),

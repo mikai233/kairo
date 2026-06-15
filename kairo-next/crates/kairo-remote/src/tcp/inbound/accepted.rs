@@ -1,5 +1,6 @@
 use std::net::{SocketAddr, TcpStream};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use crate::tcp::{
     TcpAssociationIdentity, TcpAssociationReaderFailure, TcpAssociationReaderSupervisionDecision,
@@ -112,6 +113,21 @@ impl TcpAssociationReaderHandle {
         Ok(report.read)
     }
 
+    pub fn join_after_stop(self) -> TcpAssociationSupervisedReadReport {
+        let mut supervisor = TcpAssociationReaderSupervisor::default();
+        supervisor.stop();
+        self.join_with_supervisor(&mut supervisor)
+    }
+
+    pub fn join_after_stop_until(
+        self,
+        deadline: Instant,
+    ) -> Option<TcpAssociationSupervisedReadReport> {
+        let mut supervisor = TcpAssociationReaderSupervisor::default();
+        supervisor.stop();
+        self.join_with_supervisor_until(&mut supervisor, deadline)
+    }
+
     pub fn join_with_supervisor(
         self,
         supervisor: &mut TcpAssociationReaderSupervisor,
@@ -119,28 +135,58 @@ impl TcpAssociationReaderHandle {
         let mut report = TcpAssociationReadReport::default();
         let mut supervision = Vec::new();
         for reader_join in self.joins {
-            match reader_join.join.join() {
-                Ok(Ok(stream_report)) => {
-                    report.streams += stream_report.streams;
-                    report.frames += stream_report.frames;
-                }
-                Ok(Err(error)) => {
-                    let reason = error.to_string();
-                    supervision.push(
-                        supervisor.record_failure(reader_failure(reader_join.stream_id, reason)),
-                    );
-                }
-                Err(_) => {
-                    let reason = "tcp lane reader panicked".to_string();
-                    supervision.push(
-                        supervisor.record_failure(reader_failure(reader_join.stream_id, reason)),
-                    );
-                }
-            }
+            collect_reader_join(reader_join, supervisor, &mut report, &mut supervision);
         }
         TcpAssociationSupervisedReadReport {
             read: report,
             supervision,
+        }
+    }
+
+    pub fn join_with_supervisor_until(
+        self,
+        supervisor: &mut TcpAssociationReaderSupervisor,
+        deadline: Instant,
+    ) -> Option<TcpAssociationSupervisedReadReport> {
+        let mut report = TcpAssociationReadReport::default();
+        let mut supervision = Vec::new();
+        for reader_join in self.joins {
+            while !reader_join.join.is_finished() {
+                let now = Instant::now();
+                if now >= deadline {
+                    return None;
+                }
+                thread::sleep((deadline - now).min(Duration::from_millis(1)));
+            }
+            collect_reader_join(reader_join, supervisor, &mut report, &mut supervision);
+        }
+        Some(TcpAssociationSupervisedReadReport {
+            read: report,
+            supervision,
+        })
+    }
+}
+
+fn collect_reader_join(
+    reader_join: TcpAssociationReaderJoin,
+    supervisor: &mut TcpAssociationReaderSupervisor,
+    report: &mut TcpAssociationReadReport,
+    supervision: &mut Vec<TcpAssociationReaderSupervisionDecision>,
+) {
+    match reader_join.join.join() {
+        Ok(Ok(stream_report)) => {
+            report.streams += stream_report.streams;
+            report.frames += stream_report.frames;
+        }
+        Ok(Err(error)) => {
+            let reason = error.to_string();
+            supervision
+                .push(supervisor.record_failure(reader_failure(reader_join.stream_id, reason)));
+        }
+        Err(_) => {
+            let reason = "tcp lane reader panicked".to_string();
+            supervision
+                .push(supervisor.record_failure(reader_failure(reader_join.stream_id, reason)));
         }
     }
 }

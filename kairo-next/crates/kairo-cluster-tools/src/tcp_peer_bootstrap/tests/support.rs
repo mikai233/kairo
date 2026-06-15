@@ -117,7 +117,7 @@ pub(super) fn bind_runtime_with_probes(
         system,
         node_uid,
         system_uid,
-        RemoteSettings::new("127.0.0.1", 0),
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
         move |self_node| {
             inbound_from_refs(self_node, registry, gossip_ref, mediator_ref, manager_ref)
         },

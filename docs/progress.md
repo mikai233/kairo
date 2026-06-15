@@ -236,6 +236,17 @@ Implemented:
   pins explicit live-route clearing: each actor-backed connector removes an
   installed association route, records the removed target in the last route
   report, clears active targets, and leaves the error state clear.
+- Cluster TCP peer connector route application now runs through queued
+  actor-owned tasks so blocking TCP dials do not hold the actor message turn;
+  connector snapshots are served from cached runtime state and task
+  completions re-enter through the mailbox.
+- TCP association shutdown now treats explicit stop as a stopped reader
+  supervision state, opportunistically collects finished lane readers, and
+  detaches late socket readers so connector actor termination is not paced by
+  OS socket read wakeups.
+- `RemoteSettings` now carries an optional TCP connect timeout while retaining
+  the existing one-second default; socket-heavy tests use short explicit
+  timeouts for deterministic failed-dial retry coverage.
 - `kairo-cluster` TCP peer bootstrap coverage now drives the failed-dial
   pending reconnect path through the bootstrap facade and proves the retry
   state is cleared when gossip removes the peer before retry.
@@ -3157,4 +3168,14 @@ cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo test -p kairo-actor receive_timeout --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-cluster connector_automatic_retry_timer_drives_due_peer_routes --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster peer_runtime_retries_failed_peer_dial_after_retry_interval --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster tcp_runtime_routes_membership_and_heartbeat_over_bidirectional_association --all-targets --all-features -- --nocapture
+cargo test -p kairo-remote tcp_reader_join_after_stop_ignores_late_stream_failures --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 ```

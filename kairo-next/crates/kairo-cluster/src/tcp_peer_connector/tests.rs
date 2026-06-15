@@ -56,7 +56,7 @@ fn bind_peer_runtime(
         name,
         uid,
         system_uid,
-        settings,
+        settings.with_connect_timeout(Duration::from_millis(10)),
         ClusterTcpPeerReconnectSettings::new(retry_interval).unwrap(),
         move |self_node, cache| inbound_for(name, kit, registry, self_node, cache),
     )

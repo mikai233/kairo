@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
@@ -76,7 +78,10 @@ impl Default for ClusterTcpPeerConnectorSettings {
 
 pub struct ClusterTcpPeerConnector {
     cluster: Cluster,
-    runtime: Option<ClusterTcpPeerRuntime>,
+    runtime: Arc<Mutex<Option<ClusterTcpPeerRuntime>>>,
+    runtime_state: ClusterTcpPeerConnectorRuntimeState,
+    pending_commands: VecDeque<ClusterTcpPeerConnectorRuntimeCommand>,
+    command_in_flight: bool,
     settings: ClusterTcpPeerConnectorSettings,
     subscription: Option<ActorRef<ClusterSubscriptionEvent>>,
     last_report: Option<ClusterTcpPeerRouteReport>,
@@ -94,9 +99,13 @@ impl ClusterTcpPeerConnector {
         runtime: ClusterTcpPeerRuntime,
         settings: ClusterTcpPeerConnectorSettings,
     ) -> Self {
+        let runtime_state = ClusterTcpPeerConnectorRuntimeState::from_runtime(&runtime);
         Self {
             cluster,
-            runtime: Some(runtime),
+            runtime: Arc::new(Mutex::new(Some(runtime))),
+            runtime_state,
+            pending_commands: VecDeque::new(),
+            command_in_flight: false,
             settings,
             subscription: None,
             last_report: None,
@@ -106,16 +115,11 @@ impl ClusterTcpPeerConnector {
     }
 
     fn snapshot(&self) -> ClusterTcpPeerConnectorSnapshot {
-        let runtime = self.runtime.as_ref();
         ClusterTcpPeerConnectorSnapshot {
-            self_node: runtime.map(|runtime| runtime.self_node().clone()),
-            active_targets: runtime
-                .map(ClusterTcpPeerRuntime::active_peer_targets)
-                .unwrap_or_default(),
-            route_count: runtime.map_or(0, ClusterTcpPeerRuntime::peer_route_count),
-            pending_reconnects: runtime
-                .map(ClusterTcpPeerRuntime::pending_peer_reconnects)
-                .unwrap_or_default(),
+            self_node: self.runtime_state.self_node.clone(),
+            active_targets: self.runtime_state.active_targets.clone(),
+            route_count: self.runtime_state.route_count,
+            pending_reconnects: self.runtime_state.pending_reconnects.clone(),
             last_report: self.last_report.clone(),
             last_error: self.last_error.clone(),
         }
@@ -130,9 +134,42 @@ pub enum ClusterTcpPeerConnectorMsg {
     },
     RetryTimerTick,
     ClearRoutes,
+    RuntimeCommandComplete(ClusterTcpPeerConnectorRuntimeCommandResult),
     Snapshot {
         reply_to: ActorRef<ClusterTcpPeerConnectorSnapshot>,
     },
+}
+
+#[derive(Debug, Clone)]
+pub struct ClusterTcpPeerConnectorRuntimeCommandResult {
+    outcome: Result<ClusterTcpPeerRouteReport, String>,
+    state: Option<ClusterTcpPeerConnectorRuntimeState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct ClusterTcpPeerConnectorRuntimeState {
+    self_node: Option<UniqueAddress>,
+    active_targets: Vec<crate::ClusterAssociationPeerTarget>,
+    route_count: usize,
+    pending_reconnects: Vec<ClusterTcpPeerReconnectPending>,
+}
+
+impl ClusterTcpPeerConnectorRuntimeState {
+    fn from_runtime(runtime: &ClusterTcpPeerRuntime) -> Self {
+        Self {
+            self_node: Some(runtime.self_node().clone()),
+            active_targets: runtime.active_peer_targets(),
+            route_count: runtime.peer_route_count(),
+            pending_reconnects: runtime.pending_peer_reconnects(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum ClusterTcpPeerConnectorRuntimeCommand {
+    ApplyClusterEvent(Box<ClusterSubscriptionEvent>),
+    RetryDuePeerRoutes { now: Duration },
+    ClearRoutes,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,23 +209,44 @@ impl Actor for ClusterTcpPeerConnector {
         if let Some(subscription) = self.subscription.take() {
             let _ = self.cluster.unsubscribe(subscription);
         }
-        if let Some(runtime) = self.runtime.take() {
+        self.pending_commands.clear();
+        if let Some(runtime) = self
+            .runtime
+            .lock()
+            .expect("cluster tcp peer connector runtime lock poisoned")
+            .take()
+        {
             let _ = runtime.shutdown();
         }
         Ok(())
     }
 
-    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
-            ClusterTcpPeerConnectorMsg::Cluster(event) => self.apply_cluster_event(event),
-            ClusterTcpPeerConnectorMsg::RetryDuePeerRoutes { now } => self.retry_due(now),
+            ClusterTcpPeerConnectorMsg::Cluster(event) => self.enqueue_runtime_command(
+                ctx,
+                ClusterTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(Box::new(event)),
+            ),
+            ClusterTcpPeerConnectorMsg::RetryDuePeerRoutes { now } => self.enqueue_runtime_command(
+                ctx,
+                ClusterTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now },
+            ),
             ClusterTcpPeerConnectorMsg::RetryTimerTick => {
                 self.retry_clock = self
                     .retry_clock
                     .saturating_add(self.settings.retry_interval);
-                self.retry_due(self.retry_clock)
+                self.enqueue_runtime_command(
+                    ctx,
+                    ClusterTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes {
+                        now: self.retry_clock,
+                    },
+                )
             }
-            ClusterTcpPeerConnectorMsg::ClearRoutes => self.clear_routes(),
+            ClusterTcpPeerConnectorMsg::ClearRoutes => self
+                .enqueue_runtime_command(ctx, ClusterTcpPeerConnectorRuntimeCommand::ClearRoutes),
+            ClusterTcpPeerConnectorMsg::RuntimeCommandComplete(result) => {
+                self.finish_runtime_command(ctx, result)
+            }
             ClusterTcpPeerConnectorMsg::Snapshot { reply_to } => reply_to
                 .tell(self.snapshot())
                 .map_err(|error| ActorError::Message(error.reason().to_string())),
@@ -197,55 +255,89 @@ impl Actor for ClusterTcpPeerConnector {
 }
 
 impl ClusterTcpPeerConnector {
-    fn apply_cluster_event(&mut self, event: ClusterSubscriptionEvent) -> ActorResult {
-        let Some(runtime) = self.runtime.as_mut() else {
-            return Err(ActorError::Message(
-                "cluster tcp peer connector runtime is stopped".to_string(),
-            ));
-        };
-        let result = match event {
-            ClusterSubscriptionEvent::CurrentState(state) => runtime.apply_snapshot(state),
-            ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
-        };
-        self.record_route_result(result);
-        Ok(())
-    }
-
-    fn retry_due(&mut self, now: Duration) -> ActorResult {
-        let Some(runtime) = self.runtime.as_mut() else {
-            return Err(ActorError::Message(
-                "cluster tcp peer connector runtime is stopped".to_string(),
-            ));
-        };
-        let result = runtime.retry_due_peer_routes(now);
-        self.record_route_result(result);
-        Ok(())
-    }
-
-    fn clear_routes(&mut self) -> ActorResult {
-        let Some(runtime) = self.runtime.as_mut() else {
-            return Err(ActorError::Message(
-                "cluster tcp peer connector runtime is stopped".to_string(),
-            ));
-        };
-        self.last_report = Some(runtime.clear_peer_routes());
-        self.last_error = None;
-        Ok(())
-    }
-
-    fn record_route_result(
+    fn enqueue_runtime_command(
         &mut self,
-        result: crate::ClusterTcpPeerRuntimeResult<ClusterTcpPeerRouteReport>,
-    ) {
+        ctx: &Context<ClusterTcpPeerConnectorMsg>,
+        command: ClusterTcpPeerConnectorRuntimeCommand,
+    ) -> ActorResult {
+        self.pending_commands.push_back(command);
+        self.start_next_runtime_command(ctx)
+    }
+
+    fn start_next_runtime_command(
+        &mut self,
+        ctx: &Context<ClusterTcpPeerConnectorMsg>,
+    ) -> ActorResult {
+        if self.command_in_flight {
+            return Ok(());
+        }
+        let Some(command) = self.pending_commands.pop_front() else {
+            return Ok(());
+        };
+        self.command_in_flight = true;
+        let runtime = Arc::clone(&self.runtime);
+        ctx.spawn_task(move |myself| {
+            let result = run_runtime_command(runtime, command);
+            let _ = myself.tell(ClusterTcpPeerConnectorMsg::RuntimeCommandComplete(result));
+        })?;
+        Ok(())
+    }
+
+    fn finish_runtime_command(
+        &mut self,
+        ctx: &Context<ClusterTcpPeerConnectorMsg>,
+        result: ClusterTcpPeerConnectorRuntimeCommandResult,
+    ) -> ActorResult {
+        self.command_in_flight = false;
+        if let Some(state) = result.state {
+            self.runtime_state = state;
+        }
+        self.record_route_outcome(result.outcome);
+        self.start_next_runtime_command(ctx)
+    }
+
+    fn record_route_outcome(&mut self, result: Result<ClusterTcpPeerRouteReport, String>) {
         match result {
             Ok(report) => {
                 self.last_report = Some(report);
                 self.last_error = None;
             }
             Err(error) => {
-                self.last_error = Some(error.to_string());
+                self.last_error = Some(error);
             }
         }
+    }
+}
+
+fn run_runtime_command(
+    runtime: Arc<Mutex<Option<ClusterTcpPeerRuntime>>>,
+    command: ClusterTcpPeerConnectorRuntimeCommand,
+) -> ClusterTcpPeerConnectorRuntimeCommandResult {
+    let mut guard = runtime
+        .lock()
+        .expect("cluster tcp peer connector runtime lock poisoned");
+    let Some(runtime) = guard.as_mut() else {
+        return ClusterTcpPeerConnectorRuntimeCommandResult {
+            outcome: Err("cluster tcp peer connector runtime is stopped".to_string()),
+            state: None,
+        };
+    };
+
+    let outcome = match command {
+        ClusterTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(event) => match *event {
+            ClusterSubscriptionEvent::CurrentState(state) => runtime.apply_snapshot(state),
+            ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
+        },
+        ClusterTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now } => {
+            runtime.retry_due_peer_routes(now)
+        }
+        ClusterTcpPeerConnectorRuntimeCommand::ClearRoutes => Ok(runtime.clear_peer_routes()),
+    }
+    .map_err(|error| error.to_string());
+
+    ClusterTcpPeerConnectorRuntimeCommandResult {
+        outcome,
+        state: Some(ClusterTcpPeerConnectorRuntimeState::from_runtime(runtime)),
     }
 }
 
