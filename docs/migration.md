@@ -155,11 +155,12 @@ let gossip_every = settings.cluster.tools.to_pubsub_gossip_interval()?;
 ```
 
 These settings are format-neutral Rust values after loading. The current
-`configured_counter` example uses `examples/kairo.toml` plus
-`examples/kairo.local.toml` to validate base-and-local layering, actor-system
-builder configuration, dead-letter diagnostics, remote transport settings,
-sharding timing values, and least-shard allocation settings through the facade
-without making TOML syntax part of the runtime API.
+`configured_counter` example uses standard discovery for
+`examples/kairo.toml` plus `examples/kairo.local.toml` to validate
+base-and-local layering, actor-system builder configuration, dead-letter
+diagnostics, remote transport settings, sharding timing values, and
+least-shard allocation settings through the facade without making TOML syntax
+part of the runtime API.
 
 Observability settings are backend-neutral. Use
 `settings.observability.diagnostics` to decide which diagnostic categories an

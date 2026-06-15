@@ -2061,6 +2061,9 @@ Implemented:
   `kairo.local.toml` discovery through `find_standard_toml_files` and
   `load_standard_toml_files`, with coverage for absent files, base-only
   loading, and base-plus-local override order.
+- The configured-counter example binary now uses the standard TOML discovery
+  helper, and smoke coverage pins the checked-in `examples/kairo.toml` plus
+  `examples/kairo.local.toml` workflow through that public facade path.
 - The `kairo` facade prelude now re-exports common remote, distributed-data,
   sharding, cluster-tools, and testkit entry points behind their feature flags,
   with facade compile coverage that keeps the user entrypoint structured while

@@ -1,12 +1,11 @@
-use std::path::PathBuf;
 use std::time::Duration;
 
-use kairo_examples::configured_counter::run_configured_counter_layers;
+use kairo_examples::configured_counter::run_configured_counter_standard;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let observation = run_configured_counter_layers(
+    let observation = run_configured_counter_standard(
         "configured-counter",
-        example_config_paths(),
+        example_config_dir(),
         10,
         Duration::from_secs(1),
     )?;
@@ -22,10 +21,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn example_config_paths() -> [PathBuf; 2] {
-    let examples = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
-    [
-        examples.join("kairo.toml"),
-        examples.join("kairo.local.toml"),
-    ]
+fn example_config_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples")
 }

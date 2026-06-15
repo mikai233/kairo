@@ -9,8 +9,8 @@
 //!
 //! - `local_counter`: typed local actor spawn, tell, explicit reply channel,
 //!   and stop.
-//! - `configured_counter`: layered TOML-first settings loaded through the
-//!   `kairo` facade, mapped into an actor-system builder, and read back
+//! - `configured_counter`: standard TOML-first settings discovered through
+//!   the `kairo` facade, mapped into an actor-system builder, and read back
 //!   through format-neutral sharding and diagnostics helpers.
 //! - `ask_pipe_to_self`: synchronous actor turns with ask and external work
 //!   returning through mailbox messages.

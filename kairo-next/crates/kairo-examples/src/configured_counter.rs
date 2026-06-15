@@ -63,6 +63,16 @@ where
     run_configured_counter_with_settings(system_name, settings, initial_value, timeout)
 }
 
+pub fn run_configured_counter_standard(
+    system_name: impl Into<String>,
+    config_dir: impl AsRef<Path>,
+    initial_value: i64,
+    timeout: Duration,
+) -> Result<ConfiguredCounterObservation, Box<dyn std::error::Error>> {
+    let settings = load_standard_toml_files(config_dir)?;
+    run_configured_counter_with_settings(system_name, settings, initial_value, timeout)
+}
+
 fn run_configured_counter_with_settings(
     system_name: impl Into<String>,
     settings: KairoSettings,

@@ -7,7 +7,9 @@ use kairo::cluster_sharding::PassivatePlan;
 use kairo::prelude::*;
 use kairo_examples::cluster_membership::run_cluster_membership;
 use kairo_examples::cluster_tools_local::run_cluster_tools_local;
-use kairo_examples::configured_counter::{run_configured_counter, run_configured_counter_layers};
+use kairo_examples::configured_counter::{
+    run_configured_counter, run_configured_counter_layers, run_configured_counter_standard,
+};
 use kairo_examples::counter::{CounterCmd, spawn_counter};
 use kairo_examples::ddata_counter::run_ddata_counter;
 use kairo_examples::patterns::{PatternObservation, run_ask_pipe_to_self};
@@ -80,6 +82,45 @@ fn configured_counter_example_checked_in_layers() -> Result<(), Box<dyn std::err
     )?;
 
     assert_eq!(observation.value, 8);
+    assert_eq!(observation.dispatcher_throughput, 2);
+    assert!(observation.dead_letter_diagnostics_published);
+    assert_eq!(observation.remote_hostname, "127.0.0.1");
+    assert_eq!(observation.remote_port, 25521);
+    assert_eq!(
+        observation.remote_connect_timeout,
+        Some(Duration::from_millis(750))
+    );
+    assert_eq!(observation.sharding_shards, 128);
+    assert!(observation.remember_entities);
+    assert_eq!(observation.sharding_allocation_absolute_limit, 4);
+    assert_eq!(observation.sharding_allocation_relative_limit, 0.25);
+    assert_eq!(observation.sharding_retry_interval, Duration::from_secs(3));
+    assert_eq!(
+        observation.sharding_handoff_timeout,
+        Duration::from_secs(45)
+    );
+    assert_eq!(
+        observation.sharding_failure_backoff,
+        Duration::from_secs(12)
+    );
+    assert_eq!(
+        observation.sharding_rebalance_interval,
+        Duration::from_secs(30)
+    );
+    assert_eq!(observation.sharding_query_timeout, Duration::from_secs(4));
+    Ok(())
+}
+
+#[test]
+fn configured_counter_example_standard_files() -> Result<(), Box<dyn std::error::Error>> {
+    let observation = run_configured_counter_standard(
+        "example-smoke-configured-counter-standard-files",
+        example_config_dir(),
+        6,
+        Duration::from_secs(1),
+    )?;
+
+    assert_eq!(observation.value, 7);
     assert_eq!(observation.dispatcher_throughput, 2);
     assert!(observation.dead_letter_diagnostics_published);
     assert_eq!(observation.remote_hostname, "127.0.0.1");
@@ -322,9 +363,13 @@ fn example_config_path() -> std::path::PathBuf {
 }
 
 fn example_config_paths() -> [std::path::PathBuf; 2] {
-    let examples = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples");
+    let examples = example_config_dir();
     [
         examples.join("kairo.toml"),
         examples.join("kairo.local.toml"),
     ]
+}
+
+fn example_config_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples")
 }

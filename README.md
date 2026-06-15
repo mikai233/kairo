@@ -64,11 +64,12 @@ The `ask_pipe_to_self` example demonstrates local request/reply through
 `Context::ask` and external work returning to the actor through
 `Context::pipe_to_self`.
 
-The `configured_counter` example demonstrates TOML-first facade settings loaded
-from `examples/kairo.toml` plus `examples/kairo.local.toml`, including actor
-dispatcher settings, dead-letter diagnostics, remote transport settings,
-sharding timing helpers, and least-shard allocation limits, while keeping
-runtime configuration in format-neutral structs.
+The `configured_counter` example demonstrates TOML-first facade settings
+discovered from the standard `examples/kairo.toml` plus
+`examples/kairo.local.toml` pair, including actor dispatcher settings,
+dead-letter diagnostics, remote transport settings, sharding timing helpers,
+and least-shard allocation limits, while keeping runtime configuration in
+format-neutral structs.
 
 The `remote_ping_pong` example demonstrates two local TCP remoting actor
 systems exchanging typed messages through stable remote manifests and an
