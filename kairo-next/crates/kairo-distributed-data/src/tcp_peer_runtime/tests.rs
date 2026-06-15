@@ -170,6 +170,81 @@ mod route_tests {
     }
 
     #[test]
+    fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
+        let retry_interval = Duration::from_millis(25);
+        let second_port = unused_port();
+        let third_port = unused_port();
+        let second_node = node("reduce-second", second_port, 2);
+        let third_node = node("reduce-third", third_port, 3);
+        let mut sender = bind_peer_runtime(
+            "reduce-sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&second_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+        let second = bind_association_runtime_on_port(
+            "reduce-second",
+            ReplicaId::from(&second_node),
+            ReplicaId::from(&sender_node),
+            22,
+            second_port,
+        );
+        let third = bind_association_runtime_on_port(
+            "reduce-third",
+            ReplicaId::from(&third_node),
+            ReplicaId::from(&sender_node),
+            33,
+            third_port,
+        );
+
+        let report = sender
+            .apply_snapshot(state(
+                vec![
+                    member(sender_node.clone()),
+                    member(second_node.clone()),
+                    member(third_node.clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        assert_eq!(report.dialed.len(), 2);
+        assert_eq!(sender.peer_route_count(), 2);
+        assert_eq!(sender.association_cache().route_count(), 2);
+        wait_for_reverse_route(&second);
+        wait_for_reverse_route(&third);
+
+        let report = sender
+            .apply_snapshot(state(
+                vec![member(sender_node), member(second_node.clone())],
+                vec![],
+            ))
+            .unwrap();
+
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(report.removed[0].node(), &third_node);
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        assert!(
+            sender
+                .active_peer_targets()
+                .iter()
+                .any(|target| target.node() == &second_node)
+        );
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.peer_routes.removed.len(), 1);
+        assert!(sender_report.pending_reconnects.is_empty());
+        assert_eq!(sender_report.listener.accepted_associations, 0);
+        let second_report = second.shutdown().unwrap();
+        assert_eq!(second_report.accepted_associations, 1);
+        let third_report = third.shutdown().unwrap();
+        assert_eq!(third_report.accepted_associations, 1);
+    }
+
+    #[test]
     fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
         let retry_interval = Duration::from_millis(25);
         let receiver_port = unused_port();
