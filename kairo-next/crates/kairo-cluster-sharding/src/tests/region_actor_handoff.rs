@@ -214,21 +214,42 @@ fn region_actor_forwards_handoff_to_spawned_store_backed_shard_child() {
 fn region_actor_direct_handoff_stops_routing_to_local_shard() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("region-actor-direct-handoff-routing").unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_shards("region-b", 10, 10),
+        )
+        .unwrap();
+    let host_b = kit.create_probe::<HostShardPlan<String>>("host-b").unwrap();
+    region_b
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host_b.actor_ref(),
+        })
+        .unwrap();
+    host_b.expect_msg(Duration::from_millis(500)).unwrap();
+
+    let mut route_transport = RegionRouteTransport::new();
+    route_transport.insert_target(RegionRouteTarget::new("region-b", region_b));
     let region = kit
         .system()
         .spawn(
             "region",
-            ShardRegionActor::<String>::props_with_local_remember_store_shards(
-                "region-a",
-                "orders",
-                10,
-                10,
-                BTreeMap::from([(
-                    "shard-1".to_string(),
-                    BTreeSet::from(["entity-1".to_string()]),
-                )]),
-                Duration::from_millis(500),
-            ),
+            Props::new(move || {
+                ShardRegionActor::<String>::new_with_local_remember_store_shards(
+                    "region-a",
+                    "orders",
+                    10,
+                    10,
+                    BTreeMap::from([(
+                        "shard-1".to_string(),
+                        BTreeSet::from(["entity-1".to_string()]),
+                    )]),
+                    Duration::from_millis(500),
+                )
+                .with_region_route_transport(route_transport)
+            }),
         )
         .unwrap();
     let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
@@ -246,6 +267,9 @@ fn region_actor_direct_handoff_stops_routing_to_local_shard() {
         .unwrap();
     let homes = kit
         .create_probe::<Result<ShardHomePlan<String>, ShardingError>>("homes")
+        .unwrap();
+    let completion = kit
+        .create_probe::<RegionLocalHandOffCompletionPlan>("completion")
         .unwrap();
 
     region
@@ -326,6 +350,40 @@ fn region_actor_direct_handoff_stops_routing_to_local_shard() {
         }
     );
     deliveries.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    region
+        .tell(ShardRegionMsg::CompleteLocalShardHandOff {
+            shard: "shard-1".to_string(),
+            timeout: Duration::from_millis(500),
+            reply_to: completion.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        completion.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalHandOffCompletionPlan::Completed { ref shard, .. } if shard == "shard-1"
+    ));
+
+    region
+        .tell(ShardRegionMsg::CoordinatorShardHomeResult {
+            requested_shard: "shard-1".to_string(),
+            result: Ok(GetShardHomePlan::Reply {
+                shard: "shard-1".to_string(),
+                region: "region-b".to_string(),
+            }),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: EntityDelivery::new("entity-1", "after-handoff".to_string()),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-stale-home".to_string()),
+        }
+    );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

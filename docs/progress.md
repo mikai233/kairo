@@ -2561,6 +2561,10 @@ Implemented:
 - `kairo-cluster-sharding` region handoff now rejects stale shard-home results
   while a shard is handing off, preserving buffered messages and preventing the
   old local shard from being reselected before `ShardStopped`.
+- `kairo-cluster-sharding` region coordinator-result handling now keeps
+  pending buffered-delivery reply refs alive when a stale shard-home result is
+  rejected during handoff, so the later valid shard home can still replay or
+  forward buffered messages with their original replies.
 - `kairo-cluster-sharding` handoff worker, coordinator handoff completion,
   and graceful shutdown orchestration tests now live in a focused sibling test
   module.

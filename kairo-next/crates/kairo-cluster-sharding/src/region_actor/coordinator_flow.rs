@@ -163,12 +163,12 @@ where
         if shard != requested_shard {
             return Ok(());
         }
-        let delivery_reply_to = self.home_requests.drain(&shard);
 
-        let plan = match self.runtime.record_shard_home(shard, region) {
+        let plan = match self.runtime.record_shard_home(shard.clone(), region) {
             Ok(plan) => plan,
             Err(_) => return Ok(()),
         };
+        let delivery_reply_to = self.home_requests.drain(&shard);
         self.apply_coordinator_shard_home_plan(ctx, plan, delivery_reply_to)
     }
 
@@ -178,11 +178,12 @@ where
         home: ShardCoordinatorRemoteHome,
     ) -> ActorResult {
         let plan = shard_home_plan_from_remote(home);
-        let delivery_reply_to = self.home_requests.drain(&plan.shard);
-        let plan = match self.runtime.record_shard_home(plan.shard, plan.region) {
+        let shard = plan.shard;
+        let plan = match self.runtime.record_shard_home(shard.clone(), plan.region) {
             Ok(plan) => plan,
             Err(_) => return Ok(()),
         };
+        let delivery_reply_to = self.home_requests.drain(&shard);
         self.apply_coordinator_shard_home_plan(ctx, plan, delivery_reply_to)
     }
 
