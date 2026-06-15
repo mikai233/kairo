@@ -500,6 +500,10 @@ Implemented:
   `#[kairo(manifest = "...", version = N)]` and emits only the
   `RemoteMessage` metadata implementation; it does not select or generate a
   codec.
+- `KairoRemoteMessage` derive integration coverage now also pins split
+  manifest/version attributes and enum message protocols, matching the
+  documented public metadata shape without generating codecs or relying on enum
+  discriminants.
 - `kairo-actor-macros` crate docs now document that macro support is
   metadata-only, local messages do not need macros or serialization,
   serializer ids/codecs remain explicit, and `KairoRemoteMessage` has a
@@ -3204,5 +3208,10 @@ cargo test -p kairo-testkit await_barriers --all-targets --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor-macros --test remote_message --all-features
+cargo test -p kairo-actor-macros --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor-macros --all-targets --all-features -- -D warnings
 git diff --check
 ```
