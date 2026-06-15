@@ -268,6 +268,49 @@ fn test_probe_expect_terminated_reports_unexpected_actor() {
         .expect("system should terminate");
 }
 
+#[test]
+fn test_probe_stop_notifies_watchers() {
+    let kit = ActorSystemTestKit::new("test-probe-stop").expect("system should build");
+    let subject = kit
+        .create_probe::<&'static str>("subject")
+        .expect("subject probe should spawn");
+    let watcher = kit
+        .create_probe::<AnyActorRef>("watcher")
+        .expect("watcher probe should spawn");
+
+    watcher
+        .watch_terminated(&subject.actor_ref())
+        .expect("probe watch should register");
+    subject.stop();
+
+    assert_eq!(
+        watcher.expect_msg(Duration::from_millis(50)).unwrap(),
+        subject.actor_ref().as_any()
+    );
+    assert_eq!(subject.expect_stopped(Duration::from_secs(1)), Ok(()));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_expect_stopped_reports_timeout() {
+    let kit = ActorSystemTestKit::new("test-probe-stop-timeout").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+
+    let error = probe
+        .expect_stopped(Duration::from_millis(5))
+        .expect_err("live probe should not report stopped");
+
+    assert!(matches!(
+        error,
+        ProbeError::StopTimeout { actor, .. } if actor == probe.actor_ref().path().to_string()
+    ));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
 struct UnitActor;
 
 impl Actor for UnitActor {

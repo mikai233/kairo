@@ -354,6 +354,9 @@ Implemented:
   `watch_with`, remove those registrations through `unwatch`, and
   `TestProbe<AnyActorRef>` provides `watch_terminated` and
   `expect_terminated` helpers for deterministic local lifecycle assertions.
+- `TestProbe<M>` can now stop its backing probe actor and assert its
+  termination with timeout diagnostics, matching Pekko's probe-stop testing
+  shape while preserving Kairo's typed actor refs.
 - `TestProbe::expect_msg_matching` can now assert a typed predicate while
   returning the original message, improving deterministic assertions for
   structured actor, cluster, sharding, and distributed-data events.

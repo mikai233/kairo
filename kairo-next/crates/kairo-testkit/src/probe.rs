@@ -34,6 +34,21 @@ impl<M: Send + 'static> TestProbe<M> {
         self.actor_ref.clone()
     }
 
+    pub fn stop(&self) {
+        self.system.stop(&self.actor_ref);
+    }
+
+    pub fn expect_stopped(&self, timeout: Duration) -> Result<(), ProbeError> {
+        if self.actor_ref.wait_for_stop(timeout) {
+            Ok(())
+        } else {
+            Err(ProbeError::StopTimeout {
+                actor: self.actor_ref.path().to_string(),
+                timeout,
+            })
+        }
+    }
+
     pub fn watch_with<N: Send + 'static>(&self, subject: &ActorRef<N>, message: M) -> ActorResult {
         self.system
             .watch_with(self.actor_ref.clone(), subject.clone(), message)
@@ -206,6 +221,10 @@ pub enum ProbeError {
         timeout: Duration,
         seen: usize,
     },
+    StopTimeout {
+        actor: String,
+        timeout: Duration,
+    },
     Closed,
     WatchFailed(String),
     FishingFailed(String),
@@ -234,6 +253,9 @@ impl Display for ProbeError {
                     f,
                     "timed out after {timeout:?} while fishing for message after seeing {seen} collected messages"
                 )
+            }
+            Self::StopTimeout { actor, timeout } => {
+                write!(f, "actor {actor} did not stop within {timeout:?}")
             }
             Self::Closed => f.write_str("test probe channel is closed"),
             Self::WatchFailed(error) => write!(f, "failed to watch actor termination: {error}"),
