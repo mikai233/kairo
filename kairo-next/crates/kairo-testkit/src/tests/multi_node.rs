@@ -377,6 +377,80 @@ fn multi_node_testkit_can_advance_all_manual_time_nodes() {
 }
 
 #[test]
+fn multi_node_testkit_can_advance_all_manual_time_nodes_to_next_deadline() {
+    let kit = MultiNodeTestKit::with_manual_time(["next-a", "next-b"])
+        .expect("manual-time nodes should build");
+    let probe_a = kit
+        .create_probe_on::<&'static str>("next-a", "probe-a")
+        .expect("probe-a should spawn");
+    let probe_b = kit
+        .create_probe_on::<&'static str>("next-b", "probe-b")
+        .expect("probe-b should spawn");
+
+    kit.system("next-a").unwrap().schedule_once(
+        Duration::from_secs(1),
+        probe_a.actor_ref(),
+        "tick-a-1",
+    );
+    kit.system("next-b").unwrap().schedule_once(
+        Duration::from_secs(3),
+        probe_b.actor_ref(),
+        "tick-b-3",
+    );
+
+    assert!(
+        kit.advance_all_to_next()
+            .expect("all nodes have manual time")
+    );
+    assert_eq!(
+        kit.manual_time("next-a").unwrap().now(),
+        Duration::from_secs(1)
+    );
+    assert_eq!(
+        kit.manual_time("next-b").unwrap().now(),
+        Duration::from_secs(1)
+    );
+    assert_eq!(
+        probe_a.expect_msg(Duration::from_millis(50)).unwrap(),
+        "tick-a-1"
+    );
+    assert_eq!(probe_b.expect_no_msg(Duration::ZERO), Ok(()));
+
+    assert!(
+        kit.advance_all_to_next()
+            .expect("all nodes have manual time")
+    );
+    assert_eq!(
+        kit.manual_time("next-a").unwrap().now(),
+        Duration::from_secs(3)
+    );
+    assert_eq!(
+        kit.manual_time("next-b").unwrap().now(),
+        Duration::from_secs(3)
+    );
+    assert_eq!(
+        probe_b.expect_msg(Duration::from_millis(50)).unwrap(),
+        "tick-b-3"
+    );
+
+    assert!(
+        !kit.advance_all_to_next()
+            .expect("all nodes have manual time")
+    );
+    assert_eq!(
+        kit.manual_time("next-a").unwrap().now(),
+        Duration::from_secs(3)
+    );
+    assert_eq!(
+        kit.manual_time("next-b").unwrap().now(),
+        Duration::from_secs(3)
+    );
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
 fn multi_node_testkit_can_advance_all_manual_time_nodes_until_idle() {
     let kit = MultiNodeTestKit::with_manual_time(["idle-a", "idle-b"])
         .expect("manual-time nodes should build");
@@ -449,6 +523,13 @@ fn multi_node_testkit_reports_manual_time_disabled() {
         .expect_err("plain node should not advance manual time");
     assert!(matches!(
         advance_error,
+        MultiNodeError::ManualTimeDisabled(name) if name == "plain"
+    ));
+    let advance_to_next_error = kit
+        .advance_all_to_next()
+        .expect_err("plain node should not step manual time");
+    assert!(matches!(
+        advance_to_next_error,
         MultiNodeError::ManualTimeDisabled(name) if name == "plain"
     ));
     let advance_until_idle_error = kit

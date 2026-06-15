@@ -427,6 +427,9 @@ Implemented:
   clocks together for synchronized multi-node scenarios, and reports empty,
   duplicate, unknown, or non-manual node errors explicitly without making cluster
   membership part of the testkit.
+- `MultiNodeTestKit::advance_all_to_next` advances every manual-time node by the
+  same smallest next-deadline delta, so multi-node tests can step distributed
+  timers in shared time order without hard-coding per-node durations.
 - `MultiNodeTestKit::advance_all_until_idle` can drain every manual-time node
   through active scheduled deadlines with a caller-provided step bound,
   returning whether all nodes became idle so multi-node tests can settle

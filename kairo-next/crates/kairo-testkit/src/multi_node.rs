@@ -128,6 +128,7 @@ impl MultiNodeTestKit {
     /// Creates one local node per name with manual time enabled for each node.
     ///
     /// The returned harness can advance all node clocks with [`Self::advance_all`],
+    /// step them to the next shared deadline with [`Self::advance_all_to_next`],
     /// drain them with [`Self::advance_all_until_idle`], or access one node's
     /// [`ManualTime`] handle through [`Self::manual_time`].
     pub fn with_manual_time<I, S>(node_names: I) -> MultiNodeResult<Self>
@@ -203,6 +204,39 @@ impl MultiNodeTestKit {
             manual_time.advance(duration);
         }
         Ok(())
+    }
+
+    /// Advances every node's manual scheduler by the smallest next due duration.
+    ///
+    /// Returns `false` when no node has active scheduled work. Otherwise every
+    /// node clock advances by the same duration, and at least one node reaches
+    /// its next scheduled deadline.
+    pub fn advance_all_to_next(&self) -> MultiNodeResult<bool> {
+        let manual_times = self
+            .nodes
+            .iter()
+            .map(|node| {
+                node.manual_time()
+                    .ok_or_else(|| MultiNodeError::ManualTimeDisabled(node.name().to_string()))
+            })
+            .collect::<MultiNodeResult<Vec<_>>>()?;
+
+        let Some(next_delta) = manual_times
+            .iter()
+            .filter_map(|manual_time| {
+                manual_time
+                    .next_deadline()
+                    .map(|deadline| deadline.saturating_sub(manual_time.now()))
+            })
+            .min()
+        else {
+            return Ok(false);
+        };
+
+        for manual_time in manual_times {
+            manual_time.advance(next_delta);
+        }
+        Ok(true)
     }
 
     /// Advances every node's manual scheduler until idle or `max_steps` is reached.
