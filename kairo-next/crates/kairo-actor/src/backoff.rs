@@ -14,6 +14,7 @@ pub struct BackoffSupervisorSettings {
     min_backoff: Duration,
     max_backoff: Duration,
     random_factor: f64,
+    max_restarts: Option<u32>,
     reset: BackoffReset,
 }
 
@@ -24,6 +25,7 @@ impl BackoffSupervisorSettings {
             min_backoff,
             max_backoff,
             random_factor: 0.0,
+            max_restarts: None,
             reset: BackoffReset::Auto {
                 after: default_reset_after(min_backoff, max_backoff),
             },
@@ -42,6 +44,10 @@ impl BackoffSupervisorSettings {
         self.random_factor
     }
 
+    pub fn max_restarts(&self) -> Option<u32> {
+        self.max_restarts
+    }
+
     pub fn reset(&self) -> BackoffReset {
         self.reset
     }
@@ -52,6 +58,15 @@ impl BackoffSupervisorSettings {
         }
         self.random_factor = factor;
         Ok(self)
+    }
+
+    pub fn with_max_restarts(mut self, max_restarts: u32) -> Self {
+        self.max_restarts = if max_restarts == 0 {
+            None
+        } else {
+            Some(max_restarts)
+        };
+        self
     }
 
     pub fn with_auto_reset_after(mut self, after: Duration) -> Result<Self, BackoffSettingsError> {
@@ -249,9 +264,15 @@ where
         Ok(())
     }
 
-    fn schedule_restart(&mut self, ctx: &Context<BackoffSupervisorMsg<A::Msg>>) {
+    fn schedule_restart(&mut self, ctx: &mut Context<BackoffSupervisorMsg<A::Msg>>) -> ActorResult {
+        if self.state.restart_limit_reached(self.settings) {
+            ctx.stop(ctx.myself())?;
+            return Ok(());
+        }
+
         let (delay, token) = self.state.child_terminated(self.settings);
         ctx.schedule_once_self(delay, BackoffSupervisorMsg::StartChild { token });
+        Ok(())
     }
 }
 
@@ -291,7 +312,7 @@ where
             }
             BackoffSupervisorMsg::ChildTerminated => {
                 self.child = None;
-                self.schedule_restart(ctx);
+                self.schedule_restart(ctx)?;
             }
             BackoffSupervisorMsg::StartChild { token } => {
                 if self.state.accept_start(token) {
@@ -341,6 +362,12 @@ impl BackoffState {
         self.restart_count = self.restart_count.saturating_add(1);
         self.next_start_token = self.next_start_token.saturating_add(1);
         (delay, self.next_start_token)
+    }
+
+    fn restart_limit_reached(&self, settings: BackoffSupervisorSettings) -> bool {
+        settings
+            .max_restarts
+            .is_some_and(|max_restarts| self.restart_count >= max_restarts)
     }
 
     fn accept_start(&self, token: u64) -> bool {
@@ -449,6 +476,17 @@ mod tests {
     }
 
     #[test]
+    fn backoff_settings_default_to_unlimited_restarts() {
+        let settings =
+            BackoffSupervisorSettings::new(Duration::from_millis(100), Duration::from_millis(300))
+                .unwrap();
+
+        assert_eq!(settings.max_restarts(), None);
+        assert_eq!(settings.with_max_restarts(2).max_restarts(), Some(2));
+        assert_eq!(settings.with_max_restarts(0).max_restarts(), None);
+    }
+
+    #[test]
     fn backoff_state_applies_random_factor_after_exponential_cap() {
         let settings =
             BackoffSupervisorSettings::new(Duration::from_millis(100), Duration::from_millis(250))
@@ -516,5 +554,20 @@ mod tests {
 
         state.reset_if_unchanged(2);
         assert_eq!(state.restart_count(), 0);
+    }
+
+    #[test]
+    fn backoff_state_reports_restart_limit_before_scheduling_next_restart() {
+        let settings =
+            BackoffSupervisorSettings::new(Duration::from_millis(100), Duration::from_millis(250))
+                .unwrap()
+                .with_max_restarts(2);
+        let mut state = BackoffState::default();
+
+        assert!(!state.restart_limit_reached(settings));
+        state.child_terminated(settings);
+        assert!(!state.restart_limit_reached(settings));
+        state.child_terminated(settings);
+        assert!(state.restart_limit_reached(settings));
     }
 }

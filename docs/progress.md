@@ -375,7 +375,8 @@ Implemented:
 - `BackoffSupervisor` provides a structured on-stop supervisor actor with
   explicit `BackoffSupervisorSettings`, exponential restart delays capped by
   `max_backoff`, optional Pekko-style random-factor jitter, manual or automatic
-  restart-count reset whose default delay is the min/max midpoint, typed child
+  restart-count reset whose default delay is the min/max midpoint, an optional
+  max-restart cap that stops the supervisor when exhausted, typed child
   queries, and typed message forwarding to the current child.
 - Supervision strategy definitions live in a focused `supervision` module.
 - `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
