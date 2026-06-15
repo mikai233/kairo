@@ -4,13 +4,16 @@
 //! [`TestProbe`] is itself backed by a local actor, so code under test sends to
 //! an `ActorRef<M>` and tests assert against a typed message queue. The
 //! [`ActorSystemTestKit`] owns a local actor system for one test and can create
-//! probe actors under that system.
+//! probe actors under that system. [`ActorHarness`] is a small spawn-backed
+//! wrapper for tests centered on one actor under the real runtime.
 //!
 //! The helpers mirror Pekko-style testkit capabilities while staying
 //! Rust-first:
 //!
 //! - [`TestProbe::expect_msg`], [`TestProbe::expect_msg_matching`], and
 //!   [`TestProbe::expect_no_msg`] assert direct probe traffic.
+//! - [`ActorHarness`] spawns one actor with owned probes, stop assertions, and
+//!   optional manual time while preserving normal actor-system semantics.
 //! - [`TestProbe::receive_messages`] collects a fixed batch under one shared
 //!   deadline.
 //! - [`TestProbe::watch_with`] and [`TestProbe::unwatch`] register and remove
@@ -93,6 +96,7 @@
 //! # }
 //! ```
 
+mod actor_harness;
 mod assertions;
 mod fishing;
 mod manual_time;
@@ -100,6 +104,7 @@ mod multi_node;
 mod probe;
 mod system;
 
+pub use actor_harness::{ActorHarness, ActorHarnessError};
 pub use assertions::{AwaitAssertError, await_assert};
 pub use fishing::FishingOutcome;
 pub use manual_time::{ManualTime, ManualTimeHandle, NoMessageProbe};

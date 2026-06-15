@@ -341,6 +341,9 @@ Implemented:
 - `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
   queue, plus `ActorSystemTestKit` for creating probe-backed local actor
   systems in tests.
+- `kairo-testkit` now exposes a spawn-backed `ActorHarness<M>` for tests
+  centered on one actor under the real local runtime, with typed sends,
+  owned probe creation, stop assertions, and optional manual time.
 - `TestProbe<M>` can register typed death-watch messages through
   `watch_with`, remove those registrations through `unwatch`, and
   `TestProbe<AnyActorRef>` provides `watch_terminated` and

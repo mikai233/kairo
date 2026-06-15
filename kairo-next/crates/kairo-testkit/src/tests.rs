@@ -6,10 +6,11 @@ use std::time::Duration;
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, AnyActorRef, Context, Props};
 
 use crate::{
-    ActorSystemTestKit, FishingOutcome, ManualTime, MultiNodeBarrierStatus, MultiNodeError,
-    MultiNodeTestKit, ProbeError, TestProbe, await_assert,
+    ActorHarness, ActorSystemTestKit, FishingOutcome, ManualTime, MultiNodeBarrierStatus,
+    MultiNodeError, MultiNodeTestKit, ProbeError, TestProbe, await_assert,
 };
 
+mod actor_harness;
 mod await_assert;
 mod fishing;
 mod manual_time;
