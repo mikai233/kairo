@@ -25,10 +25,12 @@ impl MessageCodec<ReplicatorGet> for ReplicatorGetCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<ReplicatorGet> {
         ensure_version::<ReplicatorGet>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(ReplicatorGet {
+        let message = ReplicatorGet {
             key: reader.read_string()?,
             request_id: reader.read_u64()?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -54,10 +56,12 @@ impl MessageCodec<ReplicatorUpdate> for ReplicatorUpdateCodec {
     ) -> kairo_serialization::Result<ReplicatorUpdate> {
         ensure_version::<ReplicatorUpdate>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(ReplicatorUpdate {
+        let message = ReplicatorUpdate {
             key: reader.read_string()?,
             request_id: reader.read_u64()?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -83,10 +87,12 @@ impl MessageCodec<ReplicatorSubscribe> for ReplicatorSubscribeCodec {
     ) -> kairo_serialization::Result<ReplicatorSubscribe> {
         ensure_version::<ReplicatorSubscribe>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(ReplicatorSubscribe {
+        let message = ReplicatorSubscribe {
             key: reader.read_string()?,
             subscriber: ActorRefWireData::new(reader.read_string()?)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -111,8 +117,10 @@ impl MessageCodec<ReplicatorChanged> for ReplicatorChangedCodec {
     ) -> kairo_serialization::Result<ReplicatorChanged> {
         ensure_version::<ReplicatorChanged>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(ReplicatorChanged {
+        let message = ReplicatorChanged {
             key: reader.read_string()?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }

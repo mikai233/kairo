@@ -39,11 +39,13 @@ impl MessageCodec<ReplicatorWrite> for ReplicatorWriteCodec {
             ReplicatorWrite::VERSION,
         )?;
         let mut reader = WireReader::new(&payload);
-        Ok(ReplicatorWrite {
+        let message = ReplicatorWrite {
             key: reader.read_string()?,
             from: reader.read_optional_string()?.map(ReplicaId::new),
             envelope: read_data_envelope(&mut reader, version)?,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -111,10 +113,12 @@ impl MessageCodec<ReplicatorRead> for ReplicatorReadCodec {
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<ReplicatorRead> {
         ensure_version::<ReplicatorRead>(version)?;
         let mut reader = WireReader::new(&payload);
-        Ok(ReplicatorRead {
+        let message = ReplicatorRead {
             key: reader.read_string()?,
             from: reader.read_optional_string()?.map(ReplicaId::new),
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -155,6 +159,7 @@ impl MessageCodec<ReplicatorReadResult> for ReplicatorReadResultCodec {
         } else {
             None
         };
+        reader.ensure_finished()?;
         Ok(ReplicatorReadResult { envelope })
     }
 }

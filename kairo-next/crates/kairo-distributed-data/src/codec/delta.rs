@@ -43,11 +43,13 @@ impl MessageCodec<ReplicatorDeltaPropagation> for ReplicatorDeltaPropagationCode
         for _ in 0..len {
             deltas.push(read_delta(&mut reader)?);
         }
-        Ok(ReplicatorDeltaPropagation {
+        let message = ReplicatorDeltaPropagation {
             from,
             reply,
             deltas,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 

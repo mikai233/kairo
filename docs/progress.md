@@ -871,6 +871,9 @@ Implemented:
 - `kairo-distributed-data` protocol codec implementation is split into
   focused client, delta, direct read/write, gossip, and shared wire-helper
   modules while preserving the stable serializer ids and registration facade.
+- Distributed-data client, delta, direct read/write, and gossip protocol
+  codecs now reject unread trailing bytes after decoding the expected stable
+  wire fields.
 - `kairo-distributed-data` now has focused read/write aggregation wire helpers
   that convert typed `DataEnvelope<D>` values to stable
   `ReplicatorDataEnvelope`, `ReplicatorWrite`, `ReplicatorRead`, and

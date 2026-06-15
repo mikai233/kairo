@@ -53,13 +53,15 @@ impl MessageCodec<ReplicatorGossipStatus> for ReplicatorGossipStatusCodec {
                 used_timestamp_millis: reader.read_u64()?,
             });
         }
-        Ok(ReplicatorGossipStatus {
+        let message = ReplicatorGossipStatus {
             entries,
             chunk,
             total_chunks,
             to_system_uid,
             from_system_uid,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }
 
@@ -104,11 +106,13 @@ impl MessageCodec<ReplicatorGossip> for ReplicatorGossipCodec {
                 envelope: read_data_envelope(&mut reader, DATA_ENVELOPE_PRUNING_WIRE_VERSION)?,
             });
         }
-        Ok(ReplicatorGossip {
+        let message = ReplicatorGossip {
             entries,
             send_back,
             to_system_uid,
             from_system_uid,
-        })
+        };
+        reader.ensure_finished()?;
+        Ok(message)
     }
 }

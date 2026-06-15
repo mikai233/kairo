@@ -77,6 +77,17 @@ mod tests {
         registry
     }
 
+    fn with_trailing_byte(message: SerializedMessage) -> SerializedMessage {
+        let mut payload = message.payload.to_vec();
+        payload.push(0xff);
+        SerializedMessage::new(
+            message.serializer_id,
+            message.manifest,
+            message.version,
+            Bytes::from(payload),
+        )
+    }
+
     #[test]
     fn ddata_protocol_codecs_round_trip_get_and_update() {
         let registry = registry();
@@ -387,6 +398,40 @@ mod tests {
     }
 
     #[test]
+    fn ddata_client_protocol_codecs_reject_trailing_payload_bytes() {
+        let registry = registry();
+        let serialized = registry
+            .serialize(&ReplicatorGet {
+                key: "counter-a".to_string(),
+                request_id: 17,
+            })
+            .unwrap();
+
+        let error = registry
+            .deserialize::<ReplicatorGet>(with_trailing_byte(serialized))
+            .expect_err("trailing client payload byte should fail");
+
+        assert!(error.to_string().contains("trailing byte"));
+    }
+
+    #[test]
+    fn ddata_direct_protocol_codecs_reject_trailing_payload_bytes() {
+        let registry = registry();
+        let serialized = registry
+            .serialize(&ReplicatorRead {
+                key: "counter-a".to_string(),
+                from: Some(ReplicaId::new("node-a")),
+            })
+            .unwrap();
+
+        let error = registry
+            .deserialize::<ReplicatorRead>(with_trailing_byte(serialized))
+            .expect_err("trailing direct payload byte should fail");
+
+        assert!(error.to_string().contains("trailing byte"));
+    }
+
+    #[test]
     fn ddata_delta_protocol_rejects_unknown_versions() {
         let registry = registry();
         let wire = SerializedMessage::new(
@@ -401,5 +446,47 @@ mod tests {
             .expect_err("unknown version should fail");
 
         assert!(error.to_string().contains("unsupported"));
+    }
+
+    #[test]
+    fn ddata_delta_protocol_codecs_reject_trailing_payload_bytes() {
+        let registry = registry();
+        let serialized = registry
+            .serialize(&ReplicatorDeltaPropagation {
+                from: ReplicaId::new("kairo://sys@127.0.0.1:25520#7"),
+                reply: false,
+                deltas: vec![],
+            })
+            .unwrap();
+
+        let error = registry
+            .deserialize::<ReplicatorDeltaPropagation>(with_trailing_byte(serialized))
+            .expect_err("trailing delta payload byte should fail");
+
+        assert!(error.to_string().contains("trailing byte"));
+    }
+
+    #[test]
+    fn ddata_gossip_protocol_codecs_reject_trailing_payload_bytes() {
+        let registry = registry();
+        let serialized = registry
+            .serialize(&ReplicatorGossipStatus {
+                entries: vec![ReplicatorGossipDigest {
+                    key: "counter-a".to_string(),
+                    digest: 42,
+                    used_timestamp_millis: 123,
+                }],
+                chunk: 1,
+                total_chunks: 1,
+                to_system_uid: Some(11),
+                from_system_uid: Some(22),
+            })
+            .unwrap();
+
+        let error = registry
+            .deserialize::<ReplicatorGossipStatus>(with_trailing_byte(serialized))
+            .expect_err("trailing gossip payload byte should fail");
+
+        assert!(error.to_string().contains("trailing byte"));
     }
 }
