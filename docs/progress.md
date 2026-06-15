@@ -2675,6 +2675,10 @@ Implemented:
   workspace dependencies at the legacy `crates/` reference tree; it also scans
   each `kairo-next/crates/*/Cargo.toml` manifest so active next crates cannot
   reintroduce direct path dependencies on the legacy tree.
+- The `kairo` facade test suite now also pins foundational crate dependency
+  direction: `kairo-actor` cannot depend upward into serialization, remote, or
+  cluster crates, and `kairo-serialization` cannot depend on actor, transport,
+  cluster, distributed-data, sharding, or tools crates.
 - The `kairo` facade test suite now also scans active next-crate Rust sources
   for `DynMessage` and `GlobalMessage` API declarations, keeping typed
   `ActorRef<M>` protocols as the primary user boundary while allowing erased
@@ -2745,6 +2749,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo foundational_crates_keep_architecture_dependency_boundaries --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo active_manifests_do_not_introduce_hocon --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
