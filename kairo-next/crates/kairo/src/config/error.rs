@@ -1,13 +1,41 @@
 use std::fmt::{self, Display, Formatter};
 use std::path::PathBuf;
 
+/// Error returned while loading, parsing, validating, or projecting
+/// format-neutral Kairo configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigError {
-    ReadFailed { path: PathBuf, reason: String },
-    ParseFailed { reason: String },
-    InvalidType { path: String, expected: String },
-    InvalidValue { path: String, reason: String },
-    UnknownKey { path: String },
+    /// A configuration file could not be read from disk.
+    ReadFailed {
+        /// Path that failed to load.
+        path: PathBuf,
+        /// Underlying I/O failure description.
+        reason: String,
+    },
+    /// TOML input could not be parsed as a document table.
+    ParseFailed {
+        /// Parser failure description.
+        reason: String,
+    },
+    /// A known configuration key had the wrong TOML type.
+    InvalidType {
+        /// Dot-separated configuration path.
+        path: String,
+        /// Human-readable expected type description.
+        expected: String,
+    },
+    /// A known configuration key had an unsupported value.
+    InvalidValue {
+        /// Dot-separated configuration path.
+        path: String,
+        /// Human-readable validation failure.
+        reason: String,
+    },
+    /// An unrecognized key was found in a strict configuration section.
+    UnknownKey {
+        /// Dot-separated unknown configuration path.
+        path: String,
+    },
 }
 
 impl Display for ConfigError {

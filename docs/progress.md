@@ -2035,6 +2035,9 @@ Implemented:
 - The facade configuration settings structs now document their public fields,
   covering actor dispatchers/mailboxes, remote transport, cluster seeds,
   heartbeat, downing, sharding, cluster tools, and diagnostics categories.
+- The facade `ConfigError` enum now documents its public variants and payloads
+  so applications can intentionally match load, parse, type, value, and
+  unknown-key failures.
 - The `kairo` facade prelude now re-exports common remote, distributed-data,
   sharding, cluster-tools, and testkit entry points behind their feature flags,
   with facade compile coverage that keeps the user entrypoint structured while
