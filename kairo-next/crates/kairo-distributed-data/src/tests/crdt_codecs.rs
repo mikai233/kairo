@@ -59,6 +59,29 @@ fn crdt_codecs_round_trip_pncounter() {
 }
 
 #[test]
+fn crdt_codecs_round_trip_lww_register_string() {
+    let data = LWWRegister::new(replica("b"), "value".to_string(), -42);
+
+    let serialized = LWWRegisterStringCodec.serialize(&data).unwrap();
+    let serialized_again = LWWRegisterStringCodec.serialize(&data).unwrap();
+
+    assert_eq!(serialized.manifest(), crate::LWW_REGISTER_STRING_MANIFEST);
+    assert_eq!(serialized.payload(), serialized_again.payload());
+    assert_eq!(
+        LWWRegisterStringCodec.deserialize(serialized).unwrap(),
+        data
+    );
+
+    let positive = LWWRegister::new(replica("a"), "later".to_string(), 42);
+    assert_eq!(
+        LWWRegisterStringCodec
+            .deserialize(LWWRegisterStringCodec.serialize(&positive).unwrap())
+            .unwrap(),
+        positive
+    );
+}
+
+#[test]
 fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
     let data = GCounter::new().increment(replica("a"), 1).unwrap();
     let serialized = GCounterCodec.serialize(&data).unwrap();
@@ -105,6 +128,7 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
         .decrement(replica("b"), 4)
         .unwrap()
         .reset_delta();
+    let register = LWWRegister::new(replica("a"), "value".to_string(), -7);
 
     let error = GSetStringCodec
         .deserialize(with_trailing_byte(GSetStringCodec.serialize(&set).unwrap()))
@@ -123,5 +147,12 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
             PNCounterCodec.serialize(&pn_counter).unwrap(),
         ))
         .expect_err("trailing PNCounter payload byte should fail");
+    assert!(error.to_string().contains("trailing byte"));
+
+    let error = LWWRegisterStringCodec
+        .deserialize(with_trailing_byte(
+            LWWRegisterStringCodec.serialize(&register).unwrap(),
+        ))
+        .expect_err("trailing LWWRegister payload byte should fail");
     assert!(error.to_string().contains("trailing byte"));
 }

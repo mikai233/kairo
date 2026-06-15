@@ -1,11 +1,12 @@
 use bytes::Bytes;
 use kairo_serialization::{SerializationError, WireReader, WireWriter};
 
-use crate::{GCounter, GSet, PNCounter, ReplicaId};
+use crate::{GCounter, GSet, LWWRegister, PNCounter, ReplicaId};
 
 pub const GSET_STRING_MANIFEST: &str = "kairo.ddata.gset-string";
 pub const GCOUNTER_MANIFEST: &str = "kairo.ddata.gcounter";
 pub const PNCOUNTER_MANIFEST: &str = "kairo.ddata.pncounter";
+pub const LWW_REGISTER_STRING_MANIFEST: &str = "kairo.ddata.lww-register-string";
 pub const CRDT_CODEC_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +182,37 @@ impl CrdtDataCodec<PNCounter> for PNCounterCodec {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct LWWRegisterStringCodec;
+
+impl CrdtDataCodec<LWWRegister<String>> for LWWRegisterStringCodec {
+    fn manifest(&self) -> &'static str {
+        LWW_REGISTER_STRING_MANIFEST
+    }
+
+    fn encode_payload(&self, data: &LWWRegister<String>) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_string(data.node().as_str())?;
+        writer.write_u64(timestamp_to_wire(data.timestamp()));
+        writer.write_string(data.value())?;
+        Ok(writer.finish())
+    }
+
+    fn decode_payload(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<LWWRegister<String>> {
+        ensure_version(self.manifest(), version)?;
+        let mut reader = WireReader::new(&payload);
+        let node = ReplicaId::new(reader.read_string()?);
+        let timestamp = timestamp_from_wire(reader.read_u64()?);
+        let value = reader.read_string()?;
+        reader.ensure_finished()?;
+        Ok(LWWRegister::new(node, value, timestamp))
+    }
+}
+
 fn ensure_version(manifest: &str, version: u16) -> kairo_serialization::Result<()> {
     if version == CRDT_CODEC_VERSION {
         Ok(())
@@ -200,4 +232,12 @@ fn u64_to_len(len: u64) -> kairo_serialization::Result<usize> {
     usize::try_from(len).map_err(|_| {
         SerializationError::Message("CRDT collection length exceeds usize".to_string())
     })
+}
+
+fn timestamp_to_wire(timestamp: i64) -> u64 {
+    u64::from_be_bytes(timestamp.to_be_bytes())
+}
+
+fn timestamp_from_wire(timestamp: u64) -> i64 {
+    i64::from_be_bytes(timestamp.to_be_bytes())
 }

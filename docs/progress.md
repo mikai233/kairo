@@ -999,10 +999,13 @@ Implemented:
   present and later deliver queued `ReplicatorChange<D>` notifications only on
   flush, matching Pekko's separated update and notification turns.
 - `kairo-distributed-data` now has stable built-in CRDT data codecs for string
-  `GSet`, `GCounter`, and `PNCounter`, with explicit manifests, codec version
-  metadata, deterministic sorted encoding, and big-endian counter values.
+  `GSet`, `GCounter`, `PNCounter`, and string `LWWRegister`, with explicit
+  manifests, codec version metadata, deterministic sorted encoding,
+  big-endian counter values, and explicit register writer/timestamp/value
+  fields.
 - Built-in distributed-data CRDT payload codecs now reject unread trailing
-  bytes after decoding `GSet`, `GCounter`, and `PNCounter` wire values.
+  bytes after decoding `GSet`, `GCounter`, `PNCounter`, and `LWWRegister`
+  wire values.
 - `kairo-distributed-data::DeltaPropagationLog` tracks per-key delta sequence
   numbers, merges unsent deltas per target, advances sequence numbers for
   no-payload updates, selects remote replicas by Pekko-style round-robin
@@ -3705,6 +3708,11 @@ cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnin
 cargo fmt --all -- --check
 git diff --check
 cargo test -p kairo-distributed-data ormap --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data crdt_codecs --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings

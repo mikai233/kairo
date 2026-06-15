@@ -165,7 +165,8 @@ pub use codec::{
 pub use consistency::{ReadConsistency, WriteConsistency};
 pub use crdt_codec::{
     CRDT_CODEC_VERSION, CrdtDataCodec, GCOUNTER_MANIFEST, GCounterCodec, GSET_STRING_MANIFEST,
-    GSetStringCodec, PNCOUNTER_MANIFEST, PNCounterCodec, SerializedCrdt,
+    GSetStringCodec, LWW_REGISTER_STRING_MANIFEST, LWWRegisterStringCodec, PNCOUNTER_MANIFEST,
+    PNCounterCodec, SerializedCrdt,
 };
 pub use data::{DeltaReplicatedData, RemovedNodePruning, ReplicatedData, ReplicatedDelta};
 pub use delta::{DeltaPropagation, DeltaPropagationEntry, DeltaPropagationLog};
