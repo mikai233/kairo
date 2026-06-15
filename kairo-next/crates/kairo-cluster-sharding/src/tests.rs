@@ -69,6 +69,63 @@ mod shard_actor;
 mod shard_remember_runtime;
 mod shard_runtime;
 
+#[test]
+fn sharding_sources_do_not_use_rust_default_hasher() -> Result<(), Box<dyn std::error::Error>> {
+    let crate_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let forbidden_terms = [
+        "DefaultHasher",
+        "std::collections::hash_map::DefaultHasher",
+        "collections::hash_map::DefaultHasher",
+    ];
+
+    let mut files = Vec::new();
+    collect_active_rs_files(&crate_src, &mut files)?;
+
+    for file in files {
+        let source = std::fs::read_to_string(&file)?.replace("\r\n", "\n");
+        for (line_index, line) in source.lines().enumerate() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("//") {
+                continue;
+            }
+
+            for term in forbidden_terms {
+                assert!(
+                    !line.contains(term),
+                    "{}:{} must not use `{term}` for shard routing; use stable_hash_entity_id/shard_id_for instead",
+                    file.display(),
+                    line_index + 1
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn collect_active_rs_files(
+    directory: &std::path::Path,
+    files: &mut Vec<std::path::PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        let path = entry.path();
+        let file_name = path.file_name().and_then(|name| name.to_str());
+        if path.is_dir() {
+            if file_name == Some("tests") {
+                continue;
+            }
+            collect_active_rs_files(&path, files)?;
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs")
+            && file_name != Some("tests.rs")
+        {
+            files.push(path);
+        }
+    }
+
+    Ok(())
+}
+
 fn coordinator_runtime_with_regions<const N: usize>(regions: [&str; N]) -> CoordinatorRuntime {
     let mut state = CoordinatorState::new();
     for region in regions {

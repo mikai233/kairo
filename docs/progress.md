@@ -1344,6 +1344,9 @@ Implemented:
   hash, and forwards envelopes into the registered shard-region actor.
 - Shard IDs use documented 64-bit FNV-1a over entity id bytes with
   `hash % shard_count`; `DEFAULT_SHARD_COUNT` is 100.
+- `kairo-cluster-sharding` now has a source-level guard that scans active
+  non-test Rust sources for Rust `DefaultHasher` usage, keeping shard routing
+  on the documented stable hash helpers.
 - `kairo-cluster-sharding` now has a focused allocation module with
   `ShardAllocations`, a synchronous `ShardAllocationStrategy` boundary, and a
   least-shard allocation strategy that allocates new shards to the least-loaded
@@ -3443,5 +3446,10 @@ cargo test -p kairo-actor stopped_actor_name_can_be_reused_with_new_incarnation 
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding sharding_sources_do_not_use_rust_default_hasher --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
