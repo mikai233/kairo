@@ -2094,6 +2094,10 @@ Implemented:
 - The configured-counter example workflow now also has a layered config-file
   entry point, with smoke coverage proving `kairo.toml`-style base settings and
   local overrides can drive a real actor run through the facade loader.
+- The configured-counter example now builds its actor system through the full
+  `KairoSettings` facade helper, and smoke coverage proves layered
+  `[observability.diagnostics]` dead-letter settings affect the runtime event
+  stream instead of being ignored by the example.
 - The configured-counter example TOML now also exercises the facade
   `[cluster.sharding]` settings, and its reusable observation verifies shard
   count, remember-entity enablement, retry, handoff, failure-backoff,

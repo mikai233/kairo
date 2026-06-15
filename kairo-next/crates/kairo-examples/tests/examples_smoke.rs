@@ -42,6 +42,7 @@ fn configured_counter_example_smoke() -> Result<(), Box<dyn std::error::Error>> 
 
     assert_eq!(observation.value, 11);
     assert_eq!(observation.dispatcher_throughput, 2);
+    assert!(observation.dead_letter_diagnostics_published);
     assert_eq!(observation.remote_hostname, "127.0.0.1");
     assert_eq!(observation.remote_port, 25521);
     assert_eq!(
@@ -92,6 +93,9 @@ canonical_port = 25521
 [cluster.sharding]
 number_of_shards = 64
 remember_entities = false
+
+[observability.diagnostics]
+dead_letters = true
 "#,
     )?;
     fs::write(
@@ -103,6 +107,9 @@ canonical_port = 26666
 [cluster.sharding]
 number_of_shards = 129
 remember_entities = true
+
+[observability.diagnostics]
+dead_letters = false
 "#,
     )?;
 
@@ -117,6 +124,7 @@ remember_entities = true
 
     assert_eq!(observation.value, 5);
     assert_eq!(observation.dispatcher_throughput, 2);
+    assert!(!observation.dead_letter_diagnostics_published);
     assert_eq!(observation.remote_hostname, "127.0.0.1");
     assert_eq!(observation.remote_port, 26666);
     assert_eq!(observation.sharding_shards, 129);

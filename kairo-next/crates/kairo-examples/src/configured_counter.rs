@@ -10,6 +10,7 @@ use crate::counter::{CounterCmd, spawn_counter};
 pub struct ConfiguredCounterObservation {
     pub value: i64,
     pub dispatcher_throughput: usize,
+    pub dead_letter_diagnostics_published: bool,
     pub remote_hostname: String,
     pub remote_port: u16,
     pub remote_connect_timeout: Option<Duration>,
@@ -22,6 +23,20 @@ pub struct ConfiguredCounterObservation {
     pub sharding_failure_backoff: Duration,
     pub sharding_rebalance_interval: Duration,
     pub sharding_query_timeout: Duration,
+}
+
+struct DeadLetterForwarder {
+    observed: mpsc::Sender<DeadLetter>,
+}
+
+impl Actor for DeadLetterForwarder {
+    type Msg = DeadLetter;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        self.observed
+            .send(msg)
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
 }
 
 pub fn run_configured_counter(
@@ -54,10 +69,20 @@ fn run_configured_counter_with_settings(
     initial_value: i64,
     timeout: Duration,
 ) -> Result<ConfiguredCounterObservation, Box<dyn std::error::Error>> {
-    let system = settings
-        .actor
-        .actor_system_builder(system_name.into())?
-        .build()?;
+    let dead_letter_diagnostics_enabled = settings.observability.diagnostics.dead_letters;
+    let system = settings.actor_system_builder(system_name.into())?.build()?;
+    let (dead_letter_tx, dead_letter_rx) = mpsc::channel();
+    let dead_letter_subscriber = system.spawn(
+        "dead-letter-diagnostics",
+        Props::new(move || DeadLetterForwarder {
+            observed: dead_letter_tx,
+        }),
+    )?;
+    system.event_stream().subscribe(dead_letter_subscriber);
+    let missing: ActorRef<CounterCmd> =
+        system.missing_ref(format!("{}/user/missing-diagnostics#404", system.address()));
+    let _ = missing.tell(CounterCmd::Increment);
+
     let counter = spawn_counter(&system, "counter", initial_value)?;
     let (reply_to, replies) = mpsc::channel();
 
@@ -70,9 +95,17 @@ fn run_configured_counter_with_settings(
             .cluster
             .sharding
             .to_least_shard_allocation_strategy()?;
+        let dead_letter_diagnostics_published = if dead_letter_diagnostics_enabled {
+            dead_letter_rx.recv_timeout(timeout).is_ok()
+        } else {
+            dead_letter_rx
+                .recv_timeout(Duration::from_millis(100))
+                .is_ok()
+        };
         Ok(ConfiguredCounterObservation {
             value,
             dispatcher_throughput: system.dispatcher_settings().throughput(),
+            dead_letter_diagnostics_published,
             remote_hostname: settings.remote.transport.canonical_hostname.clone(),
             remote_port: settings.remote.transport.canonical_port,
             remote_connect_timeout: settings.remote.transport.connect_timeout,
