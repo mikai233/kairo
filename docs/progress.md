@@ -2091,6 +2091,9 @@ Implemented:
   module with a structured observation result, and the examples smoke tests
   validate the TOML facade-to-builder path instead of duplicating setup inside
   the binary.
+- The configured-counter example workflow now also has a layered config-file
+  entry point, with smoke coverage proving `kairo.toml`-style base settings and
+  local overrides can drive a real actor run through the facade loader.
 - The configured-counter example TOML now also exercises the facade
   `[cluster.sharding]` settings, and its reusable observation verifies shard
   count, remember-entity enablement, retry, handoff, failure-backoff,
@@ -3256,5 +3259,12 @@ cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples configured_counter_example_layers_config_files --test examples_smoke --all-features
+cargo test -p kairo-examples configured_counter_example_smoke --test examples_smoke --all-features
+cargo test -p kairo-examples --test examples_smoke --all-features
+cargo test -p kairo-examples --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 ```

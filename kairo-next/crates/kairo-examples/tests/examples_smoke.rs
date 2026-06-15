@@ -1,3 +1,4 @@
+use std::fs;
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -6,7 +7,7 @@ use kairo::cluster_sharding::PassivatePlan;
 use kairo::prelude::*;
 use kairo_examples::cluster_membership::run_cluster_membership;
 use kairo_examples::cluster_tools_local::run_cluster_tools_local;
-use kairo_examples::configured_counter::run_configured_counter;
+use kairo_examples::configured_counter::{run_configured_counter, run_configured_counter_layers};
 use kairo_examples::counter::{CounterCmd, spawn_counter};
 use kairo_examples::ddata_counter::run_ddata_counter;
 use kairo_examples::patterns::{PatternObservation, run_ask_pipe_to_self};
@@ -65,6 +66,61 @@ fn configured_counter_example_smoke() -> Result<(), Box<dyn std::error::Error>> 
         Duration::from_secs(30)
     );
     assert_eq!(observation.sharding_query_timeout, Duration::from_secs(4));
+    Ok(())
+}
+
+#[test]
+fn configured_counter_example_layers_config_files() -> Result<(), Box<dyn std::error::Error>> {
+    let mut base_path = std::env::temp_dir();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    base_path.push(format!("kairo-example-base-{nonce}.toml"));
+    let mut local_path = std::env::temp_dir();
+    local_path.push(format!("kairo-example-local-{nonce}.toml"));
+
+    fs::write(
+        &base_path,
+        r#"
+[actor.dispatchers.default]
+throughput = 2
+
+[remote.transport]
+canonical_hostname = "127.0.0.1"
+canonical_port = 25521
+
+[cluster.sharding]
+number_of_shards = 64
+remember_entities = false
+"#,
+    )?;
+    fs::write(
+        &local_path,
+        r#"
+[remote.transport]
+canonical_port = 26666
+
+[cluster.sharding]
+number_of_shards = 129
+remember_entities = true
+"#,
+    )?;
+
+    let observation = run_configured_counter_layers(
+        "example-smoke-configured-counter-layers",
+        [base_path.as_path(), local_path.as_path()],
+        4,
+        Duration::from_secs(1),
+    )?;
+    fs::remove_file(base_path)?;
+    fs::remove_file(local_path)?;
+
+    assert_eq!(observation.value, 5);
+    assert_eq!(observation.dispatcher_throughput, 2);
+    assert_eq!(observation.remote_hostname, "127.0.0.1");
+    assert_eq!(observation.remote_port, 26666);
+    assert_eq!(observation.sharding_shards, 129);
+    assert!(observation.remember_entities);
     Ok(())
 }
 

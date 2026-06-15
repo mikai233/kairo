@@ -31,6 +31,29 @@ pub fn run_configured_counter(
     timeout: Duration,
 ) -> Result<ConfiguredCounterObservation, Box<dyn std::error::Error>> {
     let settings = load_toml_file(config_path)?;
+    run_configured_counter_with_settings(system_name, settings, initial_value, timeout)
+}
+
+pub fn run_configured_counter_layers<I, P>(
+    system_name: impl Into<String>,
+    config_paths: I,
+    initial_value: i64,
+    timeout: Duration,
+) -> Result<ConfiguredCounterObservation, Box<dyn std::error::Error>>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let settings = load_toml_files(config_paths)?;
+    run_configured_counter_with_settings(system_name, settings, initial_value, timeout)
+}
+
+fn run_configured_counter_with_settings(
+    system_name: impl Into<String>,
+    settings: KairoSettings,
+    initial_value: i64,
+    timeout: Duration,
+) -> Result<ConfiguredCounterObservation, Box<dyn std::error::Error>> {
     let system = settings
         .actor
         .actor_system_builder(system_name.into())?
