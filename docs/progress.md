@@ -466,6 +466,9 @@ Implemented:
   error variants so failed probe assertions have readable API docs.
 - `ActorSystemTestKit` now documents its actor-system ownership model, typed
   probe helpers, and explicit shutdown expectation at the type level.
+- `MultiNodeTestKit` now documents its local-only multi-node harness contract,
+  including named actor systems, optional manual time, node-local helpers, and
+  in-process barriers without acting as cluster membership.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.

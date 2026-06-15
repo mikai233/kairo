@@ -97,6 +97,13 @@ impl From<ActorError> for MultiNodeError {
     }
 }
 
+/// Local multi-node harness built from named actor-system testkits.
+///
+/// `MultiNodeTestKit` is intentionally local: it gives tests several named
+/// actor systems, optional per-node manual time, node-local probe/actor
+/// helpers, and in-process barriers without pretending to implement cluster
+/// membership. Cluster and sharding tests can layer their real protocols on
+/// top of these deterministic node fixtures.
 #[derive(Debug)]
 pub struct MultiNodeTestKit {
     nodes: Vec<MultiNode>,
