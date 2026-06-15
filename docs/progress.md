@@ -442,6 +442,10 @@ Implemented:
 - `ActorSystemTestKit` and the core `TestProbe` receive, matching, batch,
   fishing, within, and death-watch helpers now have focused Rustdoc comments
   so the deterministic local testkit API is documented at the method level.
+- `MultiNodeTestKit`, `MultiNode`, `MultiNodeBarrierStatus`, and
+  `MultiNodeError` now document local node construction, manual-time access,
+  node lookup, barrier synchronization, node-local probe/actor helpers, and
+  explicit shutdown at the method and variant level.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.

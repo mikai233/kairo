@@ -7,23 +7,29 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorSystem, DeadLetter, Props};
 
 use crate::{ActorSystemTestKit, ManualTime, TestProbe};
 
+/// Result type returned by multi-node testkit helpers.
 pub type MultiNodeResult<T> = std::result::Result<T, MultiNodeError>;
 
+/// Errors reported by the local multi-node test harness.
 #[derive(Debug)]
 pub enum MultiNodeError {
+    /// No nodes were supplied when constructing the harness.
     EmptyNodeSet,
+    /// The same node name was supplied more than once.
     DuplicateNode(String),
+    /// A helper was asked to operate on a node name that is not part of the harness.
     UnknownNode(String),
+    /// Manual time was requested for a node that was built with the real scheduler.
     ManualTimeDisabled(String),
+    /// A node entered a different barrier while another named barrier is active.
     WrongBarrier {
         expected: String,
         actual: String,
         node: String,
     },
-    DuplicateBarrierArrival {
-        name: String,
-        node: String,
-    },
+    /// The same node entered the same active barrier more than once.
+    DuplicateBarrierArrival { name: String, node: String },
+    /// A blocking barrier wait timed out before every node arrived.
     BarrierTimeout {
         name: String,
         node: String,
@@ -31,7 +37,9 @@ pub enum MultiNodeError {
         arrived: BTreeSet<String>,
         remaining: BTreeSet<String>,
     },
+    /// The shared barrier state lock was poisoned by a panic in another thread.
     PoisonedBarrier,
+    /// An underlying actor-system operation failed.
     Actor(ActorError),
 }
 
@@ -97,6 +105,11 @@ pub struct MultiNodeTestKit {
 }
 
 impl MultiNodeTestKit {
+    /// Creates one local [`ActorSystemTestKit`] per named node.
+    ///
+    /// The node names must be non-empty and unique. Systems created this way
+    /// use the normal scheduler; use [`Self::with_manual_time`] when tests
+    /// need deterministic clock advancement across every node.
     pub fn new<I, S>(node_names: I) -> MultiNodeResult<Self>
     where
         I: IntoIterator<Item = S>,
@@ -105,6 +118,10 @@ impl MultiNodeTestKit {
         Self::build(node_names, false)
     }
 
+    /// Creates one local node per name with manual time enabled for each node.
+    ///
+    /// The returned harness can advance all node clocks with [`Self::advance_all`]
+    /// or access one node's [`ManualTime`] handle through [`Self::manual_time`].
     pub fn with_manual_time<I, S>(node_names: I) -> MultiNodeResult<Self>
     where
         I: IntoIterator<Item = S>,
@@ -113,22 +130,30 @@ impl MultiNodeTestKit {
         Self::build(node_names, true)
     }
 
+    /// Returns the number of local actor-system nodes owned by the harness.
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
 
+    /// Returns whether the harness owns no nodes.
+    ///
+    /// Constructed harnesses are never empty because construction rejects an
+    /// empty node set, but this mirrors the slice-style API next to [`Self::len`].
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }
 
+    /// Returns all nodes in construction order.
     pub fn nodes(&self) -> &[MultiNode] {
         &self.nodes
     }
 
+    /// Iterates over node names in construction order.
     pub fn node_names(&self) -> impl Iterator<Item = &str> {
         self.nodes.iter().map(|node| node.name())
     }
 
+    /// Looks up a node by name.
     pub fn node(&self, name: impl AsRef<str>) -> MultiNodeResult<&MultiNode> {
         let name = name.as_ref();
         self.nodes
@@ -137,20 +162,31 @@ impl MultiNodeTestKit {
             .ok_or_else(|| MultiNodeError::UnknownNode(name.to_string()))
     }
 
+    /// Returns the [`ActorSystemTestKit`] owned by a named node.
     pub fn kit(&self, name: impl AsRef<str>) -> MultiNodeResult<&ActorSystemTestKit> {
         Ok(self.node(name)?.kit())
     }
 
+    /// Returns the local actor system owned by a named node.
     pub fn system(&self, name: impl AsRef<str>) -> MultiNodeResult<&ActorSystem> {
         Ok(self.node(name)?.system())
     }
 
+    /// Returns the manual-time controller for a named node.
+    ///
+    /// Returns [`MultiNodeError::ManualTimeDisabled`] when the harness was built
+    /// with [`Self::new`] instead of [`Self::with_manual_time`].
     pub fn manual_time(&self, name: impl AsRef<str>) -> MultiNodeResult<&ManualTime> {
         let node = self.node(name)?;
         node.manual_time()
             .ok_or_else(|| MultiNodeError::ManualTimeDisabled(node.name().to_string()))
     }
 
+    /// Advances every node's manual scheduler by the same duration.
+    ///
+    /// All nodes must have manual time enabled. This helper is useful for
+    /// multi-node scenarios that need all local systems to observe a timer tick
+    /// without giving each node a separate timeout budget.
     pub fn advance_all(&self, duration: Duration) -> MultiNodeResult<()> {
         for node in &self.nodes {
             let manual_time = node
@@ -161,6 +197,12 @@ impl MultiNodeTestKit {
         Ok(())
     }
 
+    /// Marks one node as having entered a named barrier without blocking.
+    ///
+    /// The returned status is [`MultiNodeBarrierStatus::Waiting`] until every
+    /// node in the harness has entered the same barrier, and
+    /// [`MultiNodeBarrierStatus::Passed`] for the arrival that completes it.
+    /// Only one barrier may be active at a time.
     pub fn enter_barrier(
         &self,
         name: impl Into<String>,
@@ -181,6 +223,11 @@ impl MultiNodeTestKit {
         Ok(entered.status)
     }
 
+    /// Enters a named barrier and waits until all nodes arrive or the timeout expires.
+    ///
+    /// This is the blocking counterpart to [`Self::enter_barrier`]. Timeout
+    /// errors include the nodes that arrived and the nodes still missing when
+    /// the wait budget expired.
     pub fn await_barrier(
         &self,
         name: impl Into<String>,
@@ -242,6 +289,11 @@ impl MultiNodeTestKit {
         }
     }
 
+    /// Runs several barriers in order under one shared timeout budget.
+    ///
+    /// Each barrier consumes time from the same deadline. This mirrors
+    /// Pekko-style sequential multi-node phases while returning explicit
+    /// per-barrier statuses to Rust tests.
     pub fn await_barriers<I, S>(
         &self,
         names: I,
@@ -265,6 +317,7 @@ impl MultiNodeTestKit {
         Ok(statuses)
     }
 
+    /// Creates a typed probe actor on a named node.
     pub fn create_probe_on<M>(
         &self,
         node_name: impl AsRef<str>,
@@ -276,6 +329,7 @@ impl MultiNodeTestKit {
         Ok(self.node(node_name)?.kit().create_probe(probe_name)?)
     }
 
+    /// Spawns a typed user actor under `/user` on a named node.
     pub fn spawn_on<A>(
         &self,
         node_name: impl AsRef<str>,
@@ -288,6 +342,11 @@ impl MultiNodeTestKit {
         Ok(self.node(node_name)?.system().spawn(actor_name, props)?)
     }
 
+    /// Spawns a framework-owned actor under `/system` on a named node.
+    ///
+    /// This is intended for integration tests around remoting, cluster,
+    /// distributed-data, sharding, and cluster tools, where framework services
+    /// should not occupy the user guardian namespace.
     pub fn spawn_system_on<A>(
         &self,
         node_name: impl AsRef<str>,
@@ -303,6 +362,7 @@ impl MultiNodeTestKit {
             .spawn_system(actor_name, props)?)
     }
 
+    /// Creates and subscribes a typed event-stream probe on a named node.
     pub fn create_event_probe_on<M>(
         &self,
         node_name: impl AsRef<str>,
@@ -314,6 +374,7 @@ impl MultiNodeTestKit {
         Ok(self.node(node_name)?.kit().create_event_probe(probe_name)?)
     }
 
+    /// Creates and subscribes a dead-letter event probe on a named node.
     pub fn create_dead_letter_probe_on(
         &self,
         node_name: impl AsRef<str>,
@@ -322,6 +383,10 @@ impl MultiNodeTestKit {
         self.create_event_probe_on(node_name, probe_name)
     }
 
+    /// Terminates every node-owned actor system.
+    ///
+    /// Shutdown continues across all nodes and returns the first termination
+    /// error observed, if any.
     pub fn shutdown(self, timeout: Duration) -> MultiNodeResult<()> {
         let mut first_error = None;
         for node in self.nodes {
@@ -382,18 +447,22 @@ impl MultiNode {
         }
     }
 
+    /// Returns the stable name used to identify this local node in the harness.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Returns the actor-system testkit owned by this node.
     pub fn kit(&self) -> &ActorSystemTestKit {
         &self.kit
     }
 
+    /// Returns the local actor system owned by this node.
     pub fn system(&self) -> &ActorSystem {
         self.kit.system()
     }
 
+    /// Returns the node's manual-time controller when manual time is enabled.
     pub fn manual_time(&self) -> Option<&ManualTime> {
         self.manual_time.as_ref()
     }
@@ -406,11 +475,13 @@ impl MultiNode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MultiNodeBarrierStatus {
+    /// The barrier is active and not every node has arrived.
     Waiting {
         name: String,
         arrived: BTreeSet<String>,
         remaining: BTreeSet<String>,
     },
+    /// The barrier completed after every participant arrived.
     Passed {
         name: String,
         participants: BTreeSet<String>,
@@ -418,12 +489,14 @@ pub enum MultiNodeBarrierStatus {
 }
 
 impl MultiNodeBarrierStatus {
+    /// Returns the barrier name associated with this status.
     pub fn name(&self) -> &str {
         match self {
             Self::Waiting { name, .. } | Self::Passed { name, .. } => name,
         }
     }
 
+    /// Returns whether the barrier has passed.
     pub fn passed(&self) -> bool {
         matches!(self, Self::Passed { .. })
     }
