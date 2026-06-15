@@ -2555,6 +2555,9 @@ Implemented:
 - `kairo-cluster-sharding` region actor local handoff, store-backed shard
   handoff forwarding, and handoff completion tests now live in a focused
   sibling test module.
+- `kairo-cluster-sharding` region actor handoff coverage now pins that direct
+  local handoff stops later messages from routing to the handing-off shard and
+  buffers them for a fresh shard-home lookup.
 - `kairo-cluster-sharding` handoff worker, coordinator handoff completion,
   and graceful shutdown orchestration tests now live in a focused sibling test
   module.
