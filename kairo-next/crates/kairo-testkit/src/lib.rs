@@ -27,6 +27,11 @@
 //! - [`within`] runs a block against one shared deadline and exposes
 //!   [`Within::remaining`] for nested probe assertions; [`Within::await_assert`]
 //!   retries polling assertions against that same deadline.
+//! - [`TestProbe::expect_msg_within`],
+//!   [`TestProbe::expect_msg_matching_within`],
+//!   [`TestProbe::receive_messages_within`], and
+//!   [`TestProbe::fish_for_message_within`] apply probe receive assertions to
+//!   the same shared [`Within`] deadline.
 //! - [`await_assert`] retries result-returning assertions without relying on
 //!   panic recovery.
 //! - [`ManualTime`] drives systems built with the manual scheduler backend.

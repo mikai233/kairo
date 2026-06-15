@@ -67,6 +67,10 @@ impl<M: Send + 'static> TestProbe<M> {
         }
     }
 
+    pub fn expect_msg_within(&self, scope: &Within) -> Result<M, ProbeError> {
+        self.expect_msg(scope.remaining())
+    }
+
     pub fn expect_msg_eq(&self, expected: M, timeout: Duration) -> Result<M, ProbeError>
     where
         M: fmt::Debug + PartialEq,
@@ -80,6 +84,13 @@ impl<M: Send + 'static> TestProbe<M> {
                 actual: format!("{actual:?}"),
             })
         }
+    }
+
+    pub fn expect_msg_eq_within(&self, expected: M, scope: &Within) -> Result<M, ProbeError>
+    where
+        M: fmt::Debug + PartialEq,
+    {
+        self.expect_msg_eq(expected, scope.remaining())
     }
 
     pub fn expect_msg_matching<F>(&self, timeout: Duration, predicate: F) -> Result<M, ProbeError>
@@ -96,6 +107,18 @@ impl<M: Send + 'static> TestProbe<M> {
                 actual: format!("{actual:?}"),
             })
         }
+    }
+
+    pub fn expect_msg_matching_within<F>(
+        &self,
+        scope: &Within,
+        predicate: F,
+    ) -> Result<M, ProbeError>
+    where
+        M: fmt::Debug,
+        F: FnOnce(&M) -> bool,
+    {
+        self.expect_msg_matching(scope.remaining(), predicate)
     }
 
     pub fn expect_no_msg(&self, duration: Duration) -> Result<(), ProbeError> {
@@ -129,6 +152,14 @@ impl<M: Send + 'static> TestProbe<M> {
         }
 
         Ok(messages)
+    }
+
+    pub fn receive_messages_within(
+        &self,
+        count: usize,
+        scope: &Within,
+    ) -> Result<Vec<M>, ProbeError> {
+        self.receive_messages(count, scope.remaining())
     }
 
     pub fn fish_for_message<F>(
@@ -165,6 +196,17 @@ impl<M: Send + 'static> TestProbe<M> {
                 FishingOutcome::ContinueAndIgnore => {}
             }
         }
+    }
+
+    pub fn fish_for_message_within<F>(
+        &self,
+        scope: &Within,
+        fisher: F,
+    ) -> Result<Vec<M>, ProbeError>
+    where
+        F: FnMut(&M) -> FishingOutcome,
+    {
+        self.fish_for_message(scope.remaining(), fisher)
     }
 
     pub fn within<T, E, F>(&self, timeout: Duration, assertion: F) -> Result<T, WithinError<E>>

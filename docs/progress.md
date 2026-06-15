@@ -396,6 +396,10 @@ Implemented:
 - `Within::await_assert` retries result-returning polling assertions against
   the surrounding shared deadline, so nested probe and state assertions do not
   accidentally receive fresh independent timeouts.
+- `TestProbe` now has `expect_msg_within`, `expect_msg_eq_within`,
+  `expect_msg_matching_within`, `receive_messages_within`, and
+  `fish_for_message_within` helpers, so deterministic actor tests can compose
+  typed receive assertions directly against a shared `Within` deadline.
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.

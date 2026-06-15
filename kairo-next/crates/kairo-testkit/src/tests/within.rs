@@ -106,3 +106,42 @@ fn test_probe_within_uses_one_shared_deadline() {
     kit.shutdown(Duration::from_secs(1))
         .expect("system should terminate");
 }
+
+#[test]
+fn test_probe_within_helpers_use_shared_deadline() {
+    let kit = ActorSystemTestKit::new("test-probe-within-helpers").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+
+    for message in ["first", "second", "third", "done"] {
+        probe
+            .actor_ref()
+            .tell(message)
+            .expect("probe tell should enqueue");
+    }
+
+    let messages = probe
+        .within(Duration::from_secs(1), |probe, scope| {
+            let first = probe.expect_msg_eq_within("first", scope)?;
+            let second =
+                probe.expect_msg_matching_within(scope, |message| message.starts_with("sec"))?;
+            let third = probe.receive_messages_within(1, scope)?;
+            let mut fished = probe.fish_for_message_within(scope, |message| {
+                if *message == "done" {
+                    FishingOutcome::Complete
+                } else {
+                    FishingOutcome::Continue
+                }
+            })?;
+            let done = fished
+                .pop()
+                .expect("fishing should include terminal message");
+            Ok::<_, ProbeError>(vec![first, second, third[0], done])
+        })
+        .expect("probe helpers should complete under the shared deadline");
+
+    assert_eq!(messages, vec!["first", "second", "third", "done"]);
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
