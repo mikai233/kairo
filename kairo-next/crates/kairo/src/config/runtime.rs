@@ -12,8 +12,11 @@ use super::settings::{
 
 #[cfg(feature = "cluster")]
 #[derive(Debug, Clone)]
+/// Runtime downing hook built from format-neutral configuration.
 pub enum ConfiguredDowningHook {
+    /// No automatic downing.
     None,
+    /// Split-brain resolver hook configured from a supported strategy.
     SplitBrain(kairo_cluster::SplitBrainResolverHook),
 }
 
@@ -54,6 +57,7 @@ impl kairo_cluster::DowningHook for ConfiguredDowningHook {
 }
 
 impl KairoSettings {
+    /// Validates every format-neutral settings section before runtime use.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.actor.validate()?;
         self.remote.validate()?;
@@ -63,6 +67,7 @@ impl KairoSettings {
     }
 
     #[cfg(feature = "actor")]
+    /// Builds an actor-system builder from actor and observability settings.
     pub fn actor_system_builder(
         &self,
         name: impl Into<String>,
@@ -75,6 +80,7 @@ impl KairoSettings {
 }
 
 impl ActorConfig {
+    /// Validates dispatcher and mailbox settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.default_dispatcher()?
             .validated_throughput("actor.dispatchers.default.throughput")?;
@@ -89,6 +95,7 @@ impl ActorConfig {
         Ok(())
     }
 
+    /// Returns the required default dispatcher settings.
     pub fn default_dispatcher(&self) -> Result<&DispatcherConfig, ConfigError> {
         self.dispatchers
             .get("default")
@@ -98,6 +105,7 @@ impl ActorConfig {
             })
     }
 
+    /// Returns the required default mailbox settings.
     pub fn default_mailbox(&self) -> Result<&MailboxConfig, ConfigError> {
         self.mailboxes
             .get("default")
@@ -108,6 +116,7 @@ impl ActorConfig {
     }
 
     #[cfg(feature = "actor")]
+    /// Builds an actor-system builder from local actor runtime settings.
     pub fn actor_system_builder(
         &self,
         name: impl Into<String>,
@@ -127,6 +136,7 @@ impl ActorConfig {
 }
 
 impl DispatcherConfig {
+    /// Returns dispatcher throughput after rejecting zero values.
     pub fn validated_throughput(&self, path: impl Into<String>) -> Result<usize, ConfigError> {
         if self.throughput == 0 {
             Err(ConfigError::InvalidValue {
@@ -140,12 +150,14 @@ impl DispatcherConfig {
 }
 
 impl MailboxConfig {
+    /// Validates mailbox capacity settings at the supplied config path.
     pub fn validate(&self, path: impl Into<String>) -> Result<(), ConfigError> {
         let path = path.into();
         self.validated_capacity(format!("{path}.capacity"))?;
         Ok(())
     }
 
+    /// Returns configured mailbox capacity after rejecting zero values.
     pub fn validated_capacity(
         &self,
         path: impl Into<String>,
@@ -161,6 +173,7 @@ impl MailboxConfig {
 }
 
 impl RemoteTransportConfig {
+    /// Validates canonical address and optional connect-timeout settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.canonical_hostname.trim().is_empty() {
             return Err(ConfigError::InvalidValue {
@@ -180,6 +193,7 @@ impl RemoteTransportConfig {
     }
 
     #[cfg(feature = "remote")]
+    /// Converts facade transport settings into remoting runtime settings.
     pub fn to_remote_settings(&self) -> Result<kairo_remote::RemoteSettings, ConfigError> {
         self.validate()?;
         let mut settings =
@@ -192,12 +206,14 @@ impl RemoteTransportConfig {
 }
 
 impl RemoteConfig {
+    /// Validates remote configuration.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.transport.validate()
     }
 }
 
 impl ClusterConfig {
+    /// Validates cluster, sharding, and cluster-tools settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.seed.validate()?;
         self.heartbeat.validate()?;
@@ -209,6 +225,7 @@ impl ClusterConfig {
 }
 
 impl ClusterSeedConfig {
+    /// Validates configured seed/contact node strings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         for (index, node) in self.nodes.iter().enumerate() {
             if node.trim().is_empty() {
@@ -222,6 +239,7 @@ impl ClusterSeedConfig {
     }
 
     #[cfg(feature = "remote")]
+    /// Parses seed/contact node strings into remote association addresses.
     pub fn to_remote_association_addresses(
         &self,
     ) -> Result<Vec<kairo_remote::RemoteAssociationAddress>, ConfigError> {
@@ -241,6 +259,7 @@ impl ClusterSeedConfig {
 }
 
 impl ClusterHeartbeatConfig {
+    /// Validates heartbeat and failure-detector timing settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         reject_zero(
             self.monitored_by_nr_of_members,
@@ -255,6 +274,7 @@ impl ClusterHeartbeatConfig {
     }
 
     #[cfg(feature = "cluster")]
+    /// Converts settings into deadline failure-detector runtime settings.
     pub fn to_failure_detector_settings(
         &self,
     ) -> Result<kairo_cluster::DeadlineFailureDetectorSettings, ConfigError> {
@@ -267,6 +287,7 @@ impl ClusterHeartbeatConfig {
     }
 
     #[cfg(feature = "cluster")]
+    /// Converts settings into heartbeat sender runtime settings.
     pub fn to_heartbeat_sender_settings(
         &self,
     ) -> Result<kairo_cluster::HeartbeatSenderSettings, ConfigError> {
@@ -280,6 +301,7 @@ impl ClusterHeartbeatConfig {
 }
 
 impl ClusterDowningConfig {
+    /// Validates downing strategy and stability settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         reject_zero_duration(self.stable_after, "cluster.downing.stable_after")?;
         match &self.strategy {
@@ -313,6 +335,7 @@ impl ClusterDowningConfig {
     }
 
     #[cfg(feature = "cluster")]
+    /// Converts supported downing strategies into a runtime hook.
     pub fn to_downing_hook(&self) -> Result<ConfiguredDowningHook, ConfigError> {
         self.validate()?;
         match &self.strategy {
@@ -341,6 +364,7 @@ impl ClusterDowningConfig {
     }
 
     #[cfg(feature = "cluster")]
+    /// Converts `lease-majority` configuration into lease-majority settings.
     pub fn to_lease_majority_settings(
         &self,
     ) -> Result<kairo_cluster::LeaseMajoritySettings, ConfigError> {
@@ -370,6 +394,7 @@ impl ClusterDowningConfig {
     }
 
     #[cfg(feature = "cluster")]
+    /// Builds a lease-majority downing hook with a caller-provided lease.
     pub fn to_lease_majority_hook<L>(
         &self,
         lease: L,
@@ -385,6 +410,7 @@ impl ClusterDowningConfig {
 }
 
 impl ClusterShardingConfig {
+    /// Validates sharding count, timing, and allocation settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.validated_shard_count()?;
         reject_zero_duration(self.retry_interval, "cluster.sharding.retry_interval")?;
@@ -405,6 +431,7 @@ impl ClusterShardingConfig {
         Ok(())
     }
 
+    /// Returns the configured shard count after rejecting zero.
     pub fn validated_shard_count(&self) -> Result<u64, ConfigError> {
         if self.number_of_shards == 0 {
             Err(ConfigError::InvalidValue {
@@ -417,20 +444,24 @@ impl ClusterShardingConfig {
     }
 
     #[cfg(feature = "cluster-sharding")]
+    /// Returns the configured shard count for the sharding runtime.
     pub fn to_shard_count(&self) -> Result<u64, ConfigError> {
         self.validated_shard_count()
     }
 
+    /// Returns the validated coordinator/region retry interval.
     pub fn to_retry_interval(&self) -> Result<Duration, ConfigError> {
         reject_zero_duration(self.retry_interval, "cluster.sharding.retry_interval")?;
         Ok(self.retry_interval)
     }
 
+    /// Returns the validated shard handoff timeout.
     pub fn to_handoff_timeout(&self) -> Result<Duration, ConfigError> {
         reject_zero_duration(self.handoff_timeout, "cluster.sharding.handoff_timeout")?;
         Ok(self.handoff_timeout)
     }
 
+    /// Returns the validated shard failure backoff.
     pub fn to_shard_failure_backoff(&self) -> Result<Duration, ConfigError> {
         reject_zero_duration(
             self.shard_failure_backoff,
@@ -439,6 +470,7 @@ impl ClusterShardingConfig {
         Ok(self.shard_failure_backoff)
     }
 
+    /// Returns the validated periodic rebalance interval.
     pub fn to_rebalance_interval(&self) -> Result<Duration, ConfigError> {
         reject_zero_duration(
             self.rebalance_interval,
@@ -447,6 +479,7 @@ impl ClusterShardingConfig {
         Ok(self.rebalance_interval)
     }
 
+    /// Returns the validated shard-region query timeout.
     pub fn to_shard_region_query_timeout(&self) -> Result<Duration, ConfigError> {
         reject_zero_duration(
             self.shard_region_query_timeout,
@@ -455,11 +488,13 @@ impl ClusterShardingConfig {
         Ok(self.shard_region_query_timeout)
     }
 
+    /// Returns whether remember-entity recovery is enabled.
     pub fn remember_entities_enabled(&self) -> bool {
         self.remember_entities
     }
 
     #[cfg(feature = "cluster-sharding")]
+    /// Computes a stable shard id for an entity id using the configured count.
     pub fn shard_id_for(
         &self,
         entity_id: impl AsRef<str>,
@@ -473,11 +508,13 @@ impl ClusterShardingConfig {
     }
 
     #[cfg(feature = "cluster-sharding")]
+    /// Reports whether this config uses the sharding runtime default count.
     pub fn default_shard_count_matches_runtime(&self) -> bool {
         self.number_of_shards == kairo_cluster_sharding::DEFAULT_SHARD_COUNT
     }
 
     #[cfg(feature = "cluster-sharding")]
+    /// Converts least-shard allocation settings into the runtime strategy.
     pub fn to_least_shard_allocation_strategy(
         &self,
     ) -> Result<kairo_cluster_sharding::LeastShardAllocationStrategy, ConfigError> {
@@ -487,6 +524,7 @@ impl ClusterShardingConfig {
 }
 
 impl ClusterShardingAllocationConfig {
+    /// Validates least-shard allocation rebalance limits.
     pub fn validate(&self) -> Result<(), ConfigError> {
         reject_zero(
             self.rebalance_absolute_limit,
@@ -503,6 +541,7 @@ impl ClusterShardingAllocationConfig {
     }
 
     #[cfg(feature = "cluster-sharding")]
+    /// Converts least-shard allocation settings into the runtime strategy.
     pub fn to_least_shard_allocation_strategy(
         &self,
     ) -> Result<kairo_cluster_sharding::LeastShardAllocationStrategy, ConfigError> {
@@ -519,6 +558,7 @@ impl ClusterShardingAllocationConfig {
 }
 
 impl ClusterToolsConfig {
+    /// Validates cluster singleton and pubsub settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self
             .singleton_role
@@ -542,6 +582,7 @@ impl ClusterToolsConfig {
     }
 
     #[cfg(feature = "cluster-tools")]
+    /// Converts the optional singleton role into a runtime singleton scope.
     pub fn to_singleton_scope(&self) -> Result<kairo_cluster_tools::SingletonScope, ConfigError> {
         self.validate()?;
         Ok(match &self.singleton_role {
@@ -550,6 +591,7 @@ impl ClusterToolsConfig {
         })
     }
 
+    /// Returns the validated pubsub gossip interval.
     pub fn to_pubsub_gossip_interval(&self) -> Result<Duration, ConfigError> {
         reject_zero_duration(
             self.pubsub_gossip_interval,
@@ -558,6 +600,7 @@ impl ClusterToolsConfig {
         Ok(self.pubsub_gossip_interval)
     }
 
+    /// Returns the validated pubsub maximum delta-entry count.
     pub fn to_pubsub_max_delta_entries(&self) -> Result<usize, ConfigError> {
         reject_zero(
             self.pubsub_max_delta_entries,
@@ -567,6 +610,7 @@ impl ClusterToolsConfig {
     }
 
     #[cfg(feature = "cluster-tools")]
+    /// Builds a configured pubsub gossip actor for the supplied node.
     pub fn to_pubsub_gossip_actor(
         &self,
         self_node: kairo_cluster::UniqueAddress,
@@ -578,16 +622,19 @@ impl ClusterToolsConfig {
 }
 
 impl ObservabilityConfig {
+    /// Validates observability settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.diagnostics.validate()
     }
 }
 
 impl DiagnosticsConfig {
+    /// Validates diagnostic category settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
         Ok(())
     }
 
+    /// Returns whether any runtime failure diagnostic category is enabled.
     pub fn publishes_runtime_failures(&self) -> bool {
         self.remote_delivery_failures
             || self.serialization_failures
@@ -596,6 +643,7 @@ impl DiagnosticsConfig {
     }
 
     #[cfg(feature = "remote")]
+    /// Builds a remote inbound diagnostic filter from enabled categories.
     pub fn remote_inbound_diagnostic_filter(&self) -> kairo_remote::RemoteInboundDiagnosticFilter {
         kairo_remote::RemoteInboundDiagnosticFilter::new(
             self.serialization_failures,
@@ -604,6 +652,7 @@ impl DiagnosticsConfig {
     }
 
     #[cfg(feature = "remote")]
+    /// Wraps a remote inbound diagnostic observer when any category is enabled.
     pub fn remote_inbound_diagnostics(
         &self,
         diagnostics: Arc<dyn kairo_remote::RemoteInboundDiagnostics>,
@@ -612,6 +661,7 @@ impl DiagnosticsConfig {
     }
 
     #[cfg(feature = "remote")]
+    /// Builds a remote association diagnostic filter from enabled categories.
     pub fn remote_association_diagnostic_filter(
         &self,
     ) -> kairo_remote::RemoteAssociationDiagnosticFilter {
@@ -619,6 +669,7 @@ impl DiagnosticsConfig {
     }
 
     #[cfg(feature = "remote")]
+    /// Wraps a remote association diagnostic observer when enabled.
     pub fn remote_association_diagnostics(
         &self,
         diagnostics: Arc<dyn kairo_remote::RemoteAssociationDiagnostics>,
@@ -628,11 +679,13 @@ impl DiagnosticsConfig {
     }
 
     #[cfg(feature = "cluster")]
+    /// Builds a cluster diagnostic filter from enabled categories.
     pub fn cluster_diagnostic_filter(&self) -> kairo_cluster::ClusterDiagnosticFilter {
         kairo_cluster::ClusterDiagnosticFilter::new(self.gossip_state_changes)
     }
 
     #[cfg(feature = "cluster")]
+    /// Wraps a cluster diagnostic observer when enabled.
     pub fn cluster_diagnostics(
         &self,
         diagnostics: Arc<dyn kairo_cluster::ClusterDiagnostics>,

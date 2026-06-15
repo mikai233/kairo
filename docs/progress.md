@@ -2047,6 +2047,10 @@ Implemented:
 - The facade `ConfigError` enum now documents its public variants and payloads
   so applications can intentionally match load, parse, type, value, and
   unknown-key failures.
+- The facade configuration runtime helpers now document validation,
+  actor-system builder conversion, remote transport conversion, seed parsing,
+  heartbeat/downing conversion, sharding helper accessors, cluster-tools
+  helpers, and diagnostic observer filters.
 - The `kairo` facade prelude now re-exports common remote, distributed-data,
   sharding, cluster-tools, and testkit entry points behind their feature flags,
   with facade compile coverage that keeps the user entrypoint structured while
