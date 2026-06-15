@@ -534,6 +534,9 @@ Implemented:
 - `WireReader` now exposes payload completion checks so hand-written stable
   system codecs can reject unread trailing bytes explicitly after decoding
   their expected fields.
+- `WireReader` malformed-payload coverage now pins explicit errors for invalid
+  boolean and optional-field markers, early EOF, and invalid UTF-8 instead of
+  allowing hand-written system codecs to panic or silently accept corrupt data.
 - `RemoteInbound::with_diagnostics` can attach a backend-neutral
   `RemoteInboundDiagnostics` sink that records structured inbound
   serialization failures and delivery failures with recipient, optional sender,
@@ -3627,5 +3630,10 @@ cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-serialization wire_reader --all-targets --all-features
+cargo test -p kairo-serialization --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
 git diff --check
 ```

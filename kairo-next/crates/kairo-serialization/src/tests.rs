@@ -688,3 +688,49 @@ fn wire_reader_reports_unread_trailing_bytes() {
         SerializationError::Message("wire payload has 1 trailing byte(s)".to_string())
     );
 }
+
+#[test]
+fn wire_reader_rejects_invalid_presence_and_bool_markers() {
+    let bytes = Bytes::from_static(&[2, 3, 4]);
+    let mut reader = WireReader::new(&bytes);
+
+    assert_eq!(
+        reader.read_bool().unwrap_err(),
+        SerializationError::Message("invalid bool marker 2".to_string())
+    );
+    assert_eq!(
+        reader.read_optional_string().unwrap_err(),
+        SerializationError::Message("invalid optional string marker 3".to_string())
+    );
+    assert_eq!(
+        reader.read_optional_u64().unwrap_err(),
+        SerializationError::Message("invalid optional u64 marker 4".to_string())
+    );
+    assert!(reader.is_finished());
+}
+
+#[test]
+fn wire_reader_rejects_early_eof_and_invalid_utf8() {
+    let short_string = Bytes::from_static(&[0, 0, 0, 3, b'a']);
+    let mut short_string_reader = WireReader::new(&short_string);
+    assert_eq!(
+        short_string_reader.read_string().unwrap_err(),
+        SerializationError::Message("wire payload ended early".to_string())
+    );
+
+    let invalid_utf8 = Bytes::from_static(&[0, 0, 0, 1, 0xff]);
+    let mut invalid_utf8_reader = WireReader::new(&invalid_utf8);
+    let error = invalid_utf8_reader
+        .read_string()
+        .expect_err("invalid utf-8 string should fail");
+    assert!(
+        matches!(error, SerializationError::Message(message) if message.starts_with("wire string is not utf-8:"))
+    );
+
+    let short_u64 = Bytes::from_static(&[0, 0, 0, 0]);
+    let mut short_u64_reader = WireReader::new(&short_u64);
+    assert_eq!(
+        short_u64_reader.read_u64().unwrap_err(),
+        SerializationError::Message("wire payload ended early".to_string())
+    );
+}
