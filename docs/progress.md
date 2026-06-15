@@ -2159,6 +2159,11 @@ Implemented:
   reduction below the bootstrap facade: after two live pubsub/singleton socket
   routes are installed, removing one peer from the cluster snapshot closes only
   that peer route and leaves the surviving route active until explicit cleanup.
+- Cluster-tools TCP peer runtime coverage now validates three-node route
+  reduction at the composed runtime layer: after two live pubsub/singleton
+  socket routes are installed, removing one peer from the cluster snapshot
+  closes only that peer route and leaves the surviving route active until
+  shutdown cleanup.
 - `kairo-cluster-tools` now has a focused TCP peer runtime lifecycle owner
   that composes the cluster-tools TCP socket runtime, membership-derived peer
   planner, peer-route table, and dedicated reconnect state module. It applies
@@ -2927,6 +2932,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-tools peer_runtime_keeps_remaining_route_when_one_peer_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster peer_runtime_keeps_remaining_route_when_one_peer_is_removed --all-targets --all-features
 cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-cluster --all-targets --all-features
