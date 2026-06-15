@@ -1015,6 +1015,10 @@ Implemented:
   GSet<String>>` full-state and delta codecs with distinct manifests, explicit
   put/update/remove/group operation tags, nested ORSet key causality, and
   nested GSet full-state or delta payloads for replicated map propagation.
+- Actor-backed distributed-data delta propagation now covers
+  `ORMap<String, GSet<String>>` delta groups over the stable delta manifest,
+  including remote application of the nested `GSet` updates through a normal
+  replicator read.
 - Built-in distributed-data CRDT payload codecs now reject unread trailing
   bytes after decoding `GSet` full-state/delta, `GCounter`, `PNCounter`,
   `LWWRegister`, `ORSet` full-state/delta, and `ORMap<String, GSet<String>>`
