@@ -10,6 +10,28 @@ impl Actor for UnitActor {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TestEvent(&'static str);
+
+#[test]
+fn actor_system_testkit_event_probe_receives_typed_event_stream_publications() {
+    let kit = ActorSystemTestKit::new("testkit-event-probe").expect("system should build");
+    let probe = kit
+        .create_event_probe::<TestEvent>("events")
+        .expect("event probe should spawn");
+
+    kit.system().event_stream().publish(TestEvent("published"));
+
+    assert_eq!(
+        probe
+            .expect_msg(Duration::from_millis(50))
+            .expect("event probe should observe publication"),
+        TestEvent("published")
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
 #[test]
 fn actor_system_testkit_dead_letter_probe_receives_stopped_actor_send() {
     let kit = ActorSystemTestKit::new("testkit-dead-letter-probe").expect("system should build");
@@ -32,6 +54,30 @@ fn actor_system_testkit_dead_letter_probe_receives_stopped_actor_send() {
     assert_eq!(dead_letter.message_type(), std::any::type_name::<()>());
     assert_eq!(dead_letter.reason(), "actor is stopped");
     kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn actor_harness_event_probe_receives_typed_event_stream_publications() {
+    let harness = ActorHarness::spawn("harness-event-probe", "subject", Props::new(|| UnitActor))
+        .expect("harness should spawn subject");
+    let probe = harness
+        .create_event_probe::<TestEvent>("events")
+        .expect("event probe should spawn");
+
+    harness
+        .system()
+        .event_stream()
+        .publish(TestEvent("published"));
+
+    assert_eq!(
+        probe
+            .expect_msg(Duration::from_millis(50))
+            .expect("event probe should observe publication"),
+        TestEvent("published")
+    );
+    harness
+        .shutdown(Duration::from_secs(1))
         .expect("system should terminate");
 }
 

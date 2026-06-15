@@ -35,13 +35,20 @@ impl ActorSystemTestKit {
         TestProbe::spawn(&self.system, name)
     }
 
+    pub fn create_event_probe<M>(&self, name: impl AsRef<str>) -> Result<TestProbe<M>, ActorError>
+    where
+        M: Clone + Send + 'static,
+    {
+        let probe = self.create_probe(name)?;
+        self.system.event_stream().subscribe(probe.actor_ref());
+        Ok(probe)
+    }
+
     pub fn create_dead_letter_probe(
         &self,
         name: impl AsRef<str>,
     ) -> Result<TestProbe<DeadLetter>, ActorError> {
-        let probe = self.create_probe(name)?;
-        self.system.event_stream().subscribe(probe.actor_ref());
-        Ok(probe)
+        self.create_event_probe(name)
     }
 
     pub fn shutdown(self, timeout: Duration) -> Result<(), ActorError> {

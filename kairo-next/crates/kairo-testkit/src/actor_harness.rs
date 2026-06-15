@@ -57,6 +57,13 @@ impl<M: Send + 'static> ActorHarness<M> {
         self.kit.create_probe(name)
     }
 
+    pub fn create_event_probe<N>(&self, name: impl AsRef<str>) -> Result<TestProbe<N>, ActorError>
+    where
+        N: Clone + Send + 'static,
+    {
+        self.kit.create_event_probe(name)
+    }
+
     pub fn create_dead_letter_probe(
         &self,
         name: impl AsRef<str>,

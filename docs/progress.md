@@ -347,6 +347,9 @@ Implemented:
 - `ActorSystemTestKit` and `ActorHarness` can now create typed dead-letter
   probes by subscribing `TestProbe<DeadLetter>` instances to the local event
   stream.
+- `ActorSystemTestKit` and `ActorHarness` can now also create generic typed
+  event-stream probes for deterministic assertions on local event
+  publications beyond dead letters.
 - `TestProbe<M>` can register typed death-watch messages through
   `watch_with`, remove those registrations through `unwatch`, and
   `TestProbe<AnyActorRef>` provides `watch_terminated` and
