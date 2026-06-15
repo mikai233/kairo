@@ -2561,6 +2561,9 @@ Implemented:
   example as a facade configuration path for both actor dispatcher settings
   and current `[cluster.sharding]` timing/remember-entity helpers, keeping
   user-facing docs aligned with the TOML loader and example smoke coverage.
+- `kairo-next/README.md` now describes the configured-counter example as a
+  layered `kairo.toml` plus `kairo.local.toml` workflow and lists the
+  diagnostics, remote transport, sharding, and allocation settings it validates.
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
