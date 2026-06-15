@@ -1039,7 +1039,11 @@ Implemented:
 - Distributed-data TCP peer bootstrap lifecycle coverage now also validates
   replacement peer routing: after removing a departed peer's route, publishing
   a new `UniqueAddress` for a replacement receiver installs a fresh
-  membership-derived replicator socket route through the same connector.
+  membership-derived replicator socket route through the same connector. The
+  scenario now sends a stable `ReplicatorRead` through the original route,
+  verifies the removed route rejects later sends without delivering to the old
+  receiver, then sends and decodes a `ReplicatorRead` through the replacement
+  route.
 - Distributed-data TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.

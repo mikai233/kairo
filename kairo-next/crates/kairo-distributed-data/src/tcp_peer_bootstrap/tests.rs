@@ -467,6 +467,7 @@ fn bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry() {
 #[test]
 fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
     let _guard = bootstrap_socket_test_lock();
+    let registry = registry();
     let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-replace-sender").unwrap();
     let old_receiver_kit = ActorSystemTestKit::new("ddata-bootstrap-replace-old").unwrap();
     let new_receiver_kit = ActorSystemTestKit::new("ddata-bootstrap-replace-new").unwrap();
@@ -476,18 +477,26 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         11,
         ReplicaId::new("sender"),
     );
-    let old_receiver_runtime = bind_runtime(
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_settings = sender_runtime.runtime().settings().clone();
+    let old_receiver_requests = Arc::new(RecordingRequests::default());
+    let new_receiver_requests = Arc::new(RecordingRequests::default());
+    let old_receiver_runtime = bind_runtime_with_requests(
         "ddata-bootstrap-replace-old",
         2,
         22,
-        ReplicaId::new("old-receiver"),
+        ReplicaId::from(sender_runtime.self_node()),
+        old_receiver_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
     );
-    let new_receiver_runtime = bind_runtime(
+    let old_receiver_settings = old_receiver_runtime.runtime().settings().clone();
+    let new_receiver_runtime = bind_runtime_with_requests(
         "ddata-bootstrap-replace-new",
         3,
         33,
-        ReplicaId::new("new-receiver"),
+        ReplicaId::from(sender_runtime.self_node()),
+        new_receiver_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
     );
+    let new_receiver_settings = new_receiver_runtime.runtime().settings().clone();
     let sender_node = sender_runtime.self_node().clone();
     let old_receiver_node = old_receiver_runtime.self_node().clone();
     let new_receiver_node = new_receiver_runtime.self_node().clone();
@@ -521,8 +530,51 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         &old_receiver_node,
     );
 
+    let sender_ref = replicator_actor_ref_for("ddata-bootstrap-replace-sender", &sender_settings)
+        .expect("sender ref should be serializable");
+    let old_receiver_ref =
+        replicator_actor_ref_for("ddata-bootstrap-replace-old", &old_receiver_settings)
+            .expect("old receiver ref should be serializable");
+    let new_receiver_ref =
+        replicator_actor_ref_for("ddata-bootstrap-replace-new", &new_receiver_settings)
+            .expect("new receiver ref should be serializable");
+    let to_old_receiver = outbound(
+        ReplicaId::from(&old_receiver_node),
+        old_receiver_ref,
+        sender_ref.clone(),
+        registry.clone(),
+        sender_cache.clone(),
+    );
+    let old_received = send_read_until_received(
+        &to_old_receiver,
+        &old_receiver_requests,
+        ReplicatorRead {
+            key: "counter-before-replacement".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        },
+        Duration::from_secs(1),
+    );
+    assert_eq!(old_received[0].0, ReplicaId::from(&sender_node));
+
     publish_gossip(&sender_publisher, up_gossip([sender_node.clone()]));
     await_connector_no_routes(sender_bootstrap.connector(), &sender_snapshots);
+
+    let old_error = to_old_receiver
+        .tell(ReplicatorRead {
+            key: "counter-after-old-removed".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        })
+        .expect_err("old receiver route should reject sends after removal");
+    assert!(
+        old_error.reason().contains("no remote association route"),
+        "unexpected old receiver send error: {old_error:?}"
+    );
+    assert_eq!(
+        old_receiver_requests
+            .wait_for_len(2, Duration::from_millis(100))
+            .len(),
+        1
+    );
 
     publish_gossip(
         &sender_publisher,
@@ -533,6 +585,36 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         &sender_snapshots,
         &new_receiver_node,
     );
+
+    let to_new_receiver = outbound(
+        ReplicaId::from(&new_receiver_node),
+        new_receiver_ref.clone(),
+        sender_ref.clone(),
+        registry.clone(),
+        sender_cache.clone(),
+    );
+    let new_received = send_read_until_received(
+        &to_new_receiver,
+        &new_receiver_requests,
+        ReplicatorRead {
+            key: "counter-after-replacement".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        },
+        Duration::from_secs(1),
+    );
+    assert_eq!(new_received.len(), 1);
+    assert_eq!(new_received[0].0, ReplicaId::from(&sender_node));
+    assert_eq!(
+        new_received[0].1.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    let new_read = registry
+        .deserialize::<ReplicatorRead>(new_received[0].1.message.clone())
+        .unwrap();
+    assert_eq!(new_read.from, Some(ReplicaId::from(&sender_node)));
+    assert_eq!(new_read.key, "counter-after-replacement");
+    assert_eq!(new_received[0].1.recipient, new_receiver_ref);
+    assert_eq!(new_received[0].1.sender, Some(sender_ref));
 
     run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
     old_receiver_runtime.shutdown().unwrap();
