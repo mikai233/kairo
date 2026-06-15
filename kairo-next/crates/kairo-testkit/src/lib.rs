@@ -92,6 +92,32 @@
 //! # }
 //! ```
 //!
+//! ## Shared deadline probe assertions
+//!
+//! ```
+//! use std::time::Duration;
+//!
+//! use kairo_testkit::ActorSystemTestKit;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let kit = ActorSystemTestKit::new("within-docs")?;
+//! let probe = kit.create_probe::<&'static str>("probe")?;
+//!
+//! probe.actor_ref().tell("first")?;
+//! probe.actor_ref().tell("second")?;
+//!
+//! let messages = probe.within(Duration::from_secs(1), |probe, scope| {
+//!     let first = probe.expect_msg_eq_within("first", scope)?;
+//!     let second = probe.expect_msg_matching_within(scope, |msg| msg.starts_with("sec"))?;
+//!     Ok::<_, kairo_testkit::ProbeError>(vec![first, second])
+//! })?;
+//!
+//! assert_eq!(messages, vec!["first", "second"]);
+//! kit.shutdown(Duration::from_secs(1))?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ## Manual time
 //!
 //! ```no_run

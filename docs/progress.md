@@ -400,6 +400,8 @@ Implemented:
   `expect_msg_matching_within`, `receive_messages_within`, and
   `fish_for_message_within` helpers, so deterministic actor tests can compose
   typed receive assertions directly against a shared `Within` deadline.
+- `kairo-testkit` crate docs now include a compile-checked shared-deadline
+  probe assertion example for the `TestProbe::within` helper family.
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.
