@@ -8,6 +8,8 @@ enum StashProbeMsg {
         value: usize,
         reply_to: mpsc::Sender<Result<(), ActorError>>,
     },
+    Inspect(mpsc::Sender<(usize, Option<usize>, bool)>),
+    ClearAndInspect(mpsc::Sender<(usize, Option<usize>, bool)>),
     Get(mpsc::Sender<Vec<usize>>),
 }
 
@@ -37,6 +39,15 @@ impl Actor for StashProbe {
             StashProbeMsg::TryStash { value, reply_to } => reply_to
                 .send(ctx.stash(StashProbeMsg::Work(value)))
                 .map_err(|error| ActorError::Message(error.to_string())),
+            StashProbeMsg::Inspect(reply_to) => reply_to
+                .send((ctx.stash_len(), ctx.stash_capacity(), ctx.is_stash_full()))
+                .map_err(|error| ActorError::Message(error.to_string())),
+            StashProbeMsg::ClearAndInspect(reply_to) => {
+                ctx.clear_stash();
+                reply_to
+                    .send((ctx.stash_len(), ctx.stash_capacity(), ctx.is_stash_full()))
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
             StashProbeMsg::Get(reply_to) => reply_to
                 .send(self.values.clone())
                 .map_err(|error| ActorError::Message(error.to_string())),
@@ -169,5 +180,69 @@ fn unstash_can_replay_a_limited_batch() {
     assert_eq!(
         second_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         vec![1, 2]
+    );
+}
+
+#[test]
+fn clear_stash_drops_buffered_messages_and_updates_inspection_state() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "stash",
+            Props::new(|| StashProbe {
+                open: false,
+                values: Vec::new(),
+            })
+            .with_stash_capacity(2),
+        )
+        .unwrap();
+    let (first_tx, first_rx) = mpsc::channel();
+    let (second_tx, second_rx) = mpsc::channel();
+    let (full_tx, full_rx) = mpsc::channel();
+    let (cleared_tx, cleared_rx) = mpsc::channel();
+    let (values_tx, values_rx) = mpsc::channel();
+
+    actor
+        .tell(StashProbeMsg::TryStash {
+            value: 1,
+            reply_to: first_tx,
+        })
+        .unwrap();
+    actor
+        .tell(StashProbeMsg::TryStash {
+            value: 2,
+            reply_to: second_tx,
+        })
+        .unwrap();
+    actor.tell(StashProbeMsg::Inspect(full_tx)).unwrap();
+    actor
+        .tell(StashProbeMsg::ClearAndInspect(cleared_tx))
+        .unwrap();
+    actor.tell(StashProbeMsg::Open).unwrap();
+    actor.tell(StashProbeMsg::Get(values_tx)).unwrap();
+
+    assert!(
+        first_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .is_ok()
+    );
+    assert!(
+        second_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .is_ok()
+    );
+    assert_eq!(
+        full_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        (2, Some(2), true)
+    );
+    assert_eq!(
+        cleared_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        (0, Some(2), false)
+    );
+    assert_eq!(
+        values_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Vec::<usize>::new()
     );
 }

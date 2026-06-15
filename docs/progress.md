@@ -2373,8 +2373,9 @@ Implemented:
 - `kairo-actor` coordinated-shutdown phase ordering, one-shot run,
   later-phase registration, actor termination task, and system termination
   tests now live in a focused sibling test module.
-- `kairo-actor` stash capacity, full-stash rejection, unstash-all ordering,
-  and limited unstash tests now live in a focused sibling test module.
+- `kairo-actor` stash capacity, full-stash rejection, clear/inspection,
+  unstash-all ordering, and limited unstash tests now live in a focused sibling
+  test module.
 - `kairo-actor` ask success, timeout, and late-reply rejection tests now live
   in a focused sibling test module.
 - `kairo-actor` scheduler one-shot delivery, cancellation, and self-scheduling
@@ -3144,6 +3145,7 @@ cargo test -p kairo-actor actor_system_terminate_uses_one_timeout_across_user_an
 cargo test -p kairo-actor actor_system_terminate_requests_system_stop_even_when_user_stop_times_out --all-targets --all-features
 cargo test -p kairo-actor actor_system_schedule_once_after_termination_is_cancelled --all-targets --all-features
 cargo test -p kairo-actor scheduler --all-targets --all-features
+cargo test -p kairo-actor clear_stash_drops_buffered_messages_and_updates_inspection_state --all-targets --all-features
 cargo test -p kairo-actor local_core --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
