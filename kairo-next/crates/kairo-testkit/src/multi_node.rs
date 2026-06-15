@@ -3,7 +3,7 @@ use std::fmt::{self, Display, Formatter};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use kairo_actor::{ActorError, ActorSystem, DeadLetter};
+use kairo_actor::{Actor, ActorError, ActorRef, ActorSystem, DeadLetter, Props};
 
 use crate::{ActorSystemTestKit, ManualTime, TestProbe};
 
@@ -274,6 +274,33 @@ impl MultiNodeTestKit {
         M: Send + 'static,
     {
         Ok(self.node(node_name)?.kit().create_probe(probe_name)?)
+    }
+
+    pub fn spawn_on<A>(
+        &self,
+        node_name: impl AsRef<str>,
+        actor_name: impl AsRef<str>,
+        props: Props<A>,
+    ) -> MultiNodeResult<ActorRef<A::Msg>>
+    where
+        A: Actor,
+    {
+        Ok(self.node(node_name)?.system().spawn(actor_name, props)?)
+    }
+
+    pub fn spawn_system_on<A>(
+        &self,
+        node_name: impl AsRef<str>,
+        actor_name: impl AsRef<str>,
+        props: Props<A>,
+    ) -> MultiNodeResult<ActorRef<A::Msg>>
+    where
+        A: Actor,
+    {
+        Ok(self
+            .node(node_name)?
+            .system()
+            .spawn_system(actor_name, props)?)
     }
 
     pub fn create_event_probe_on<M>(

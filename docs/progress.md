@@ -383,6 +383,10 @@ Implemented:
   clocks together for synchronized multi-node scenarios, and reports empty,
   duplicate, unknown, or non-manual node errors explicitly without making cluster
   membership part of the testkit.
+- `MultiNodeTestKit` can now spawn typed user actors and framework-owned
+  `/system` actors on specific named nodes, letting multi-node cluster,
+  distributed-data, sharding, and cluster-tools tests create node-local
+  subjects without manually reaching through each node's actor system.
 - `MultiNodeTestKit` can now create typed event-stream probes and dead-letter
   probes on specific named nodes, so cluster and sharding integration tests can
   assert node-local lifecycle and diagnostics events without sharing one global

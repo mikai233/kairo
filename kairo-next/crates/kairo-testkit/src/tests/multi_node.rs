@@ -13,6 +13,27 @@ impl Actor for MultiNodeUnitActor {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct MultiNodeTestEvent(&'static str);
 
+enum MultiNodeEchoMsg {
+    Ping {
+        value: &'static str,
+        reply_to: ActorRef<&'static str>,
+    },
+}
+
+struct MultiNodeEchoActor;
+
+impl Actor for MultiNodeEchoActor {
+    type Msg = MultiNodeEchoMsg;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            MultiNodeEchoMsg::Ping { value, reply_to } => reply_to
+                .tell(value)
+                .map_err(|error| ActorError::Message(error.reason().to_string())),
+        }
+    }
+}
+
 #[test]
 fn multi_node_testkit_builds_named_actor_systems() {
     let kit = MultiNodeTestKit::new(["node-a", "node-b"]).expect("nodes should build");
@@ -24,6 +45,125 @@ fn multi_node_testkit_builds_named_actor_systems() {
     );
     assert_eq!(kit.system("node-a").unwrap().name(), "node-a");
     assert_eq!(kit.system("node-b").unwrap().name(), "node-b");
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_spawns_user_actors_on_named_nodes() {
+    let kit = MultiNodeTestKit::new(["spawn-node-a", "spawn-node-b"]).expect("nodes should build");
+    let probe_a = kit
+        .create_probe_on::<&'static str>("spawn-node-a", "probe-a")
+        .expect("probe on node a should spawn");
+    let probe_b = kit
+        .create_probe_on::<&'static str>("spawn-node-b", "probe-b")
+        .expect("probe on node b should spawn");
+    let actor_a = kit
+        .spawn_on("spawn-node-a", "echo-a", Props::new(|| MultiNodeEchoActor))
+        .expect("actor on node a should spawn");
+    let actor_b = kit
+        .spawn_on("spawn-node-b", "echo-b", Props::new(|| MultiNodeEchoActor))
+        .expect("actor on node b should spawn");
+
+    assert!(
+        actor_a
+            .path()
+            .as_str()
+            .starts_with("kairo://spawn-node-a/user/echo-a#")
+    );
+    assert!(
+        actor_b
+            .path()
+            .as_str()
+            .starts_with("kairo://spawn-node-b/user/echo-b#")
+    );
+
+    actor_a
+        .tell(MultiNodeEchoMsg::Ping {
+            value: "from-a",
+            reply_to: probe_a.actor_ref(),
+        })
+        .expect("actor a should accept ping");
+    actor_b
+        .tell(MultiNodeEchoMsg::Ping {
+            value: "from-b",
+            reply_to: probe_b.actor_ref(),
+        })
+        .expect("actor b should accept ping");
+
+    assert_eq!(
+        probe_a.expect_msg(Duration::from_millis(50)).unwrap(),
+        "from-a"
+    );
+    assert_eq!(
+        probe_b.expect_msg(Duration::from_millis(50)).unwrap(),
+        "from-b"
+    );
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_spawns_system_actors_on_named_nodes() {
+    let kit = MultiNodeTestKit::new(["system-spawn-node-a", "system-spawn-node-b"])
+        .expect("nodes should build");
+    let probe_a = kit
+        .create_probe_on::<&'static str>("system-spawn-node-a", "probe-a")
+        .expect("probe on node a should spawn");
+    let probe_b = kit
+        .create_probe_on::<&'static str>("system-spawn-node-b", "probe-b")
+        .expect("probe on node b should spawn");
+    let actor_a = kit
+        .spawn_system_on(
+            "system-spawn-node-a",
+            "system-echo-a",
+            Props::new(|| MultiNodeEchoActor),
+        )
+        .expect("system actor on node a should spawn");
+    let actor_b = kit
+        .spawn_system_on(
+            "system-spawn-node-b",
+            "system-echo-b",
+            Props::new(|| MultiNodeEchoActor),
+        )
+        .expect("system actor on node b should spawn");
+
+    assert!(
+        actor_a
+            .path()
+            .as_str()
+            .starts_with("kairo://system-spawn-node-a/system/system-echo-a#")
+    );
+    assert!(
+        actor_b
+            .path()
+            .as_str()
+            .starts_with("kairo://system-spawn-node-b/system/system-echo-b#")
+    );
+
+    actor_a
+        .tell(MultiNodeEchoMsg::Ping {
+            value: "system-a",
+            reply_to: probe_a.actor_ref(),
+        })
+        .expect("system actor a should accept ping");
+    actor_b
+        .tell(MultiNodeEchoMsg::Ping {
+            value: "system-b",
+            reply_to: probe_b.actor_ref(),
+        })
+        .expect("system actor b should accept ping");
+
+    assert_eq!(
+        probe_a.expect_msg(Duration::from_millis(50)).unwrap(),
+        "system-a"
+    );
+    assert_eq!(
+        probe_b.expect_msg(Duration::from_millis(50)).unwrap(),
+        "system-b"
+    );
 
     kit.shutdown(Duration::from_secs(1))
         .expect("nodes should terminate");

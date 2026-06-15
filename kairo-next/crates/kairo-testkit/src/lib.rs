@@ -31,6 +31,9 @@
 //! - [`ManualTime`] drives systems built with the manual scheduler backend.
 //! - [`MultiNodeTestKit`] owns named actor systems for local multi-node
 //!   integration tests without making cluster membership part of the testkit.
+//! - [`MultiNodeTestKit::spawn_on`] and
+//!   [`MultiNodeTestKit::spawn_system_on`] spawn typed user or framework-owned
+//!   actors on a specific named node.
 //! - [`MultiNodeTestKit::create_event_probe_on`] and
 //!   [`MultiNodeTestKit::create_dead_letter_probe_on`] subscribe probes on a
 //!   specific named node for node-local lifecycle and diagnostics assertions.
