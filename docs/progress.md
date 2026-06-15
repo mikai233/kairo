@@ -2681,6 +2681,9 @@ Implemented:
   table instead of a single TOML value, restoring empty-config defaults, file
   loading, unknown-key validation, and structured runtime settings tests with
   the current `toml` crate.
+- GitHub Actions CI now mirrors the default next-workspace validation surface:
+  formatting, clippy across all targets and features with warnings denied, and
+  workspace tests across all targets and features.
 
 Not yet implemented:
 
@@ -3405,5 +3408,9 @@ cargo test -p kairo-examples --test examples_smoke --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
 git diff --check
 ```
