@@ -457,6 +457,10 @@ Implemented:
   retry-until-timeout polling assertions, timeout metadata accessors, and
   probe-message fishing classifications at the function, method, and variant
   level.
+- `Within`, `within`, and `WithinError` now document shared-deadline scope
+  construction, remaining-time access, scoped await assertions, block timeout
+  semantics, and assertion-vs-timeout errors at the function, method, and
+  variant level.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.
