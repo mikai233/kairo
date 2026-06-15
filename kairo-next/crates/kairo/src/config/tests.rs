@@ -8,8 +8,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::{
     ActorConfig, ClusterDowningStrategyConfig, ClusterShardingAllocationConfig, ConfigError,
-    DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig, load_toml_file,
-    load_toml_files, parse_toml_str,
+    DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig, STANDARD_TOML_FILES,
+    find_standard_toml_files, load_standard_toml_files, load_toml_file, load_toml_files,
+    parse_toml_str,
 };
 
 #[cfg(feature = "remote")]
@@ -783,6 +784,102 @@ fn toml_config_layered_files_defaults_empty_iterator() {
     let settings = load_toml_files(std::iter::empty::<&str>()).unwrap();
 
     assert_eq!(settings, KairoSettings::default());
+}
+
+#[test]
+fn toml_config_standard_files_default_when_absent() {
+    let mut dir = std::env::temp_dir();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    dir.push(format!("kairo-config-standard-empty-{nonce}"));
+    fs::create_dir(&dir).unwrap();
+
+    let paths = find_standard_toml_files(&dir);
+    let settings = load_standard_toml_files(&dir).unwrap();
+    fs::remove_dir(&dir).unwrap();
+
+    assert!(paths.is_empty());
+    assert_eq!(settings, KairoSettings::default());
+    assert_eq!(STANDARD_TOML_FILES, ["kairo.toml", "kairo.local.toml"]);
+}
+
+#[test]
+fn toml_config_standard_files_loads_base_only() {
+    let mut dir = std::env::temp_dir();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    dir.push(format!("kairo-config-standard-base-{nonce}"));
+    fs::create_dir(&dir).unwrap();
+    let base_path = dir.join("kairo.toml");
+
+    fs::write(
+        &base_path,
+        r#"
+[remote.transport]
+canonical_port = 26666
+"#,
+    )
+    .unwrap();
+
+    let paths = find_standard_toml_files(&dir);
+    let settings = load_standard_toml_files(&dir).unwrap();
+    fs::remove_file(&base_path).unwrap();
+    fs::remove_dir(&dir).unwrap();
+
+    assert_eq!(paths, vec![base_path]);
+    assert_eq!(settings.remote.transport.canonical_port, 26666);
+}
+
+#[test]
+fn toml_config_standard_files_loads_local_override_after_base() {
+    let mut dir = std::env::temp_dir();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    dir.push(format!("kairo-config-standard-layered-{nonce}"));
+    fs::create_dir(&dir).unwrap();
+    let base_path = dir.join("kairo.toml");
+    let local_path = dir.join("kairo.local.toml");
+
+    fs::write(
+        &base_path,
+        r#"
+[actor.dispatchers.default]
+throughput = 5
+
+[remote.transport]
+canonical_hostname = "10.0.0.10"
+canonical_port = 25520
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &local_path,
+        r#"
+[actor.dispatchers.default]
+throughput = 11
+
+[remote.transport]
+canonical_port = 27777
+"#,
+    )
+    .unwrap();
+
+    let paths = find_standard_toml_files(&dir);
+    let settings = load_standard_toml_files(&dir).unwrap();
+    fs::remove_file(&base_path).unwrap();
+    fs::remove_file(&local_path).unwrap();
+    fs::remove_dir(&dir).unwrap();
+
+    assert_eq!(paths, vec![base_path, local_path]);
+    assert_eq!(settings.actor.default_dispatcher().unwrap().throughput, 11);
+    assert_eq!(settings.remote.transport.canonical_hostname, "10.0.0.10");
+    assert_eq!(settings.remote.transport.canonical_port, 27777);
 }
 
 #[test]

@@ -95,13 +95,17 @@ EntityRef<String> -> ShardingEnvelope<String> -> ShardRegionActor
 ## Configuration
 
 Kairo starts with TOML file loading while keeping runtime settings
-format-neutral. Applications can load one file, layer base and local overrides,
-or parse inline configuration text before converting the result into runtime
-builders:
+format-neutral. Applications can discover the standard `kairo.toml` plus
+`kairo.local.toml` pair, load one explicit file, layer explicit base and local
+overrides, or parse inline configuration text before converting the result into
+runtime builders:
 
 ```rust
-use kairo::prelude::{load_toml_file, load_toml_files, parse_toml_str};
+use kairo::prelude::{
+    load_standard_toml_files, load_toml_file, load_toml_files, parse_toml_str,
+};
 
+let standard_settings = load_standard_toml_files(".")?;
 let file_settings = load_toml_file("kairo.local.toml")?;
 let layered_settings = load_toml_files(["kairo.toml", "kairo.local.toml"])?;
 let inline_settings = parse_toml_str("[actor.dispatchers.default]\nthroughput = 8")?;

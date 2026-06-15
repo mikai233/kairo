@@ -2057,6 +2057,10 @@ Implemented:
 - The top-level README now documents the facade configuration entry points for
   single TOML files, layered TOML files, inline TOML text, and runtime builder
   conversion through format-neutral `KairoSettings`.
+- The facade configuration loader now exposes standard `kairo.toml` plus
+  `kairo.local.toml` discovery through `find_standard_toml_files` and
+  `load_standard_toml_files`, with coverage for absent files, base-only
+  loading, and base-plus-local override order.
 - The `kairo` facade prelude now re-exports common remote, distributed-data,
   sharding, cluster-tools, and testkit entry points behind their feature flags,
   with facade compile coverage that keeps the user entrypoint structured while

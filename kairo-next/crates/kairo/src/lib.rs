@@ -14,9 +14,10 @@
 //! `cluster-sharding` builds on cluster and distributed data, and
 //! `cluster-tools` builds cluster singleton and pubsub utilities on top of
 //! cluster state.
-//! `load_toml_files` can layer files such as `kairo.toml` and
-//! `kairo.local.toml`, recursively merging tables and letting later files
-//! override scalar values before the result is projected into `KairoSettings`.
+//! `load_standard_toml_files` discovers `kairo.toml` and `kairo.local.toml`
+//! in standard load order, while `load_toml_files` can layer explicit file
+//! paths. Both paths recursively merge tables and let later files override
+//! scalar values before the result is projected into `KairoSettings`.
 //!
 //! Local-only actor messages do not require serialization. Remote-capable
 //! messages still use stable manifests, versions, serializer ids, and
@@ -131,7 +132,8 @@ pub mod prelude {
         ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingAllocationConfig,
         ClusterShardingConfig, ClusterToolsConfig, ConfigError, DiagnosticsConfig,
         DispatcherConfig, KairoSettings, MailboxConfig, ObservabilityConfig, RemoteConfig,
-        RemoteTransportConfig, load_toml_file, load_toml_files, parse_toml_str,
+        RemoteTransportConfig, STANDARD_TOML_FILES, find_standard_toml_files,
+        load_standard_toml_files, load_toml_file, load_toml_files, parse_toml_str,
     };
     #[cfg(feature = "actor")]
     pub use kairo_actor::prelude::*;

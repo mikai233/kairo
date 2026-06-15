@@ -9,6 +9,12 @@ use self::sections::{parse_actor, parse_cluster, parse_observability, parse_remo
 use super::error::ConfigError;
 use super::settings::KairoSettings;
 
+/// Standard TOML configuration file names in load order.
+///
+/// `kairo.toml` is the base application configuration, and
+/// `kairo.local.toml` is the optional local override applied afterward.
+pub const STANDARD_TOML_FILES: [&str; 2] = ["kairo.toml", "kairo.local.toml"];
+
 /// Loads one TOML configuration file into format-neutral [`KairoSettings`].
 ///
 /// The loader validates the projected settings after parsing, so invalid
@@ -57,6 +63,46 @@ where
         merge_tables(&mut merged, read_toml_table(path.as_ref())?);
     }
     parse_toml_table(merged)
+}
+
+/// Finds standard TOML configuration files that exist in `dir`.
+///
+/// The returned paths follow [`STANDARD_TOML_FILES`] order, so passing the
+/// result to [`load_toml_files`] preserves the base-plus-local override model.
+///
+/// ```
+/// use kairo::prelude::{find_standard_toml_files, STANDARD_TOML_FILES};
+///
+/// let paths = find_standard_toml_files(".");
+/// assert!(paths.len() <= STANDARD_TOML_FILES.len());
+/// ```
+pub fn find_standard_toml_files(dir: impl AsRef<Path>) -> Vec<PathBuf> {
+    let dir = dir.as_ref();
+    STANDARD_TOML_FILES
+        .iter()
+        .map(|file| dir.join(file))
+        .filter(|path| path.is_file())
+        .collect()
+}
+
+/// Loads standard TOML configuration files from `dir`.
+///
+/// Existing files are discovered with [`find_standard_toml_files`] and then
+/// loaded with [`load_toml_files`]. If neither standard file exists, the
+/// result is the default validated [`KairoSettings`].
+///
+/// ```no_run
+/// use kairo::prelude::load_standard_toml_files;
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let settings = load_standard_toml_files(".")?;
+/// let system = settings.actor_system_builder("app")?.build()?;
+/// system.terminate(std::time::Duration::from_secs(1))?;
+/// # Ok(())
+/// # }
+/// ```
+pub fn load_standard_toml_files(dir: impl AsRef<Path>) -> Result<KairoSettings, ConfigError> {
+    load_toml_files(find_standard_toml_files(dir))
 }
 
 fn read_toml_table(path: &Path) -> Result<toml::Table, ConfigError> {

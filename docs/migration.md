@@ -99,10 +99,14 @@ quarantine_events = true
 gossip_state_changes = true
 ```
 
-Load one file or a layered stack through the facade, then map the
-format-neutral settings into builders:
+Load the standard `kairo.toml` plus `kairo.local.toml` pair, one explicit file,
+or a layered stack through the facade, then map the format-neutral settings
+into builders:
 
 ```rust
+let standard = kairo::prelude::load_standard_toml_files(".")?;
+let standard_system = standard.actor_system_builder("app-standard")?.build()?;
+
 let settings = kairo::prelude::load_toml_file("kairo.local.toml")?;
 let system = settings.actor_system_builder("app")?.build()?;
 
