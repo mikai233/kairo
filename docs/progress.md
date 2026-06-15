@@ -464,6 +464,8 @@ Implemented:
 - `TestProbe` and `ProbeError` now document typed probe ownership plus
   timeout, batch receive, fishing, stop, watch, channel-closure, and mismatch
   error variants so failed probe assertions have readable API docs.
+- `ActorSystemTestKit` now documents its actor-system ownership model, typed
+  probe helpers, and explicit shutdown expectation at the type level.
 - Testkit code is split into focused `probe`, `fishing`, `assertions`,
   `manual_time`, `multi_node`, and `system` modules instead of living in one
   crate root.

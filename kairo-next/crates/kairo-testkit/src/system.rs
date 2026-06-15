@@ -4,6 +4,13 @@ use kairo_actor::{ActorError, ActorSystem, DeadLetter};
 
 use crate::{ManualTime, TestProbe};
 
+/// Actor-system owner for deterministic local actor tests.
+///
+/// `ActorSystemTestKit` scopes one [`ActorSystem`] to a test, provides typed
+/// probe construction helpers, and requires explicit [`shutdown`] so tests
+/// observe the same termination path as normal runtime code.
+///
+/// [`shutdown`]: Self::shutdown
 #[derive(Debug)]
 pub struct ActorSystemTestKit {
     system: ActorSystem,
