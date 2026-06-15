@@ -10,7 +10,7 @@ pub enum ResolvedActorRef<M> {
 
 impl<M> ResolvedActorRef<M>
 where
-    M: RemoteMessage,
+    M: Send + 'static,
 {
     pub fn path(&self) -> &ActorPath {
         match self {
@@ -40,6 +40,12 @@ where
             Self::Remote(actor_ref) => Some(actor_ref),
         }
     }
+}
+
+impl<M> ResolvedActorRef<M>
+where
+    M: RemoteMessage,
+{
     pub fn tell(&self, message: M) -> Result<(), SendError<M>> {
         match self {
             Self::Local(actor_ref) => actor_ref.tell(message),
@@ -63,5 +69,39 @@ where
 {
     fn tell(&self, message: M) -> Result<(), SendError<M>> {
         ResolvedActorRef::tell(self, message)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use kairo_actor::{Actor, ActorResult, ActorSystem, Context, Props};
+
+    use super::*;
+
+    struct LocalOnlyMsg;
+
+    struct LocalOnlyActor;
+
+    impl Actor for LocalOnlyActor {
+        type Msg = LocalOnlyMsg;
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn local_resolved_ref_accessors_do_not_require_remote_message() {
+        let system = ActorSystem::builder("local-only").build().unwrap();
+        let target = system
+            .spawn("target", Props::new(|| LocalOnlyActor))
+            .unwrap();
+        let resolved = ResolvedActorRef::Local(target.clone());
+
+        assert!(resolved.is_local());
+        assert!(!resolved.is_remote());
+        assert!(resolved.as_local().is_some());
+        assert!(resolved.as_remote().is_none());
+        assert_eq!(resolved.path(), target.path());
     }
 }

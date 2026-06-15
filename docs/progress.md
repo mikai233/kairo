@@ -798,6 +798,9 @@ Implemented:
   missing local actors normalize back to missing local refs without a codec,
   preserving the local-message/no-serialization boundary while keeping remote
   sends codec-backed.
+- `ResolvedActorRef<M>` local/remote inspection helpers now require only the
+  normal local message bound (`Send + 'static`), not `RemoteMessage`; sending
+  and provider resolution remain remote-message-gated.
 - `kairo-remote` now has a focused remote death-watch state module that tracks
   watched remote actor pairs and watched addresses, plans heartbeat
   start/stop/send effects, re-watches after remote UID changes, emits
@@ -2761,6 +2764,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-remote local_resolved_ref_accessors_do_not_require_remote_message --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor-macros derive_remote_message_does_not_choose_codec_or_format --test remote_message --all-features
 cargo test -p kairo-actor-macros --all-targets --all-features
 cargo fmt --all -- --check
