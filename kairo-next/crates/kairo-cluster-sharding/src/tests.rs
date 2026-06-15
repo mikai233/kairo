@@ -12,8 +12,8 @@ use kairo_cluster::{
 };
 use kairo_distributed_data::{
     DeltaPropagationLoop, DeltaPropagationTarget, DeltaPropagationTickReport,
-    DeltaPropagationTransport, DeltaReplicatedData, GSet, ORSet, ORSetStringDeltaCodec, ReplicaId,
-    ReplicatedDelta, ReplicatorActor, ReplicatorDeltaPropagation,
+    DeltaPropagationTransport, DeltaReplicatedData, GSet, GSetStringDeltaCodec, ORSet,
+    ORSetStringDeltaCodec, ReplicaId, ReplicatedDelta, ReplicatorActor, ReplicatorDeltaPropagation,
 };
 use kairo_serialization::{
     ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationRegistry,

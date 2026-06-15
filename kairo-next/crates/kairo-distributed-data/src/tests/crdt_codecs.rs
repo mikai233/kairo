@@ -27,6 +27,28 @@ fn crdt_codecs_round_trip_gset_strings_in_stable_order() {
 }
 
 #[test]
+fn crdt_codecs_round_trip_gset_string_delta() {
+    let data = GSet::new()
+        .add("b".to_string())
+        .add("a".to_string())
+        .delta()
+        .unwrap();
+
+    let serialized = GSetStringDeltaCodec.serialize(&data).unwrap();
+    let serialized_again = GSetStringDeltaCodec.serialize(&data).unwrap();
+
+    assert_eq!(serialized.manifest(), crate::GSET_STRING_DELTA_MANIFEST);
+    assert_eq!(serialized.payload(), serialized_again.payload());
+
+    let decoded = GSetStringDeltaCodec.deserialize(serialized).unwrap();
+    assert_eq!(decoded, data);
+    assert_eq!(
+        decoded.zero().merge_delta(&decoded).elements(),
+        &BTreeSet::from(["a".to_string(), "b".to_string()])
+    );
+}
+
+#[test]
 fn crdt_codecs_round_trip_gcounter_by_sorted_replica_ids() {
     let data = GCounter::new()
         .increment(replica("b"), 2)
@@ -211,6 +233,23 @@ fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
             .to_string()
             .contains("unknown ORSet delta operation tag")
     );
+
+    let gset_delta_wrong_version = crate::SerializedCrdt::new(
+        crate::GSET_STRING_DELTA_MANIFEST,
+        crate::CRDT_CODEC_VERSION + 1,
+        GSetStringDeltaCodec
+            .serialize(&GSet::new().add("a".to_string()).delta().unwrap())
+            .unwrap()
+            .payload()
+            .clone(),
+    );
+    assert!(
+        GSetStringDeltaCodec
+            .deserialize(gset_delta_wrong_version)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported")
+    );
 }
 
 #[test]
@@ -219,6 +258,10 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
         .add("b".to_string())
         .add("a".to_string())
         .reset_delta();
+    let set_delta = GSet::new()
+        .add("delta".to_string())
+        .delta()
+        .expect("GSet add should record a delta");
     let counter = GCounter::new()
         .increment(replica("a"), 5)
         .unwrap()
@@ -241,6 +284,13 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
     let error = GSetStringCodec
         .deserialize(with_trailing_byte(GSetStringCodec.serialize(&set).unwrap()))
         .expect_err("trailing GSet payload byte should fail");
+    assert!(error.to_string().contains("trailing byte"));
+
+    let error = GSetStringDeltaCodec
+        .deserialize(with_trailing_byte(
+            GSetStringDeltaCodec.serialize(&set_delta).unwrap(),
+        ))
+        .expect_err("trailing GSet delta payload byte should fail");
     assert!(error.to_string().contains("trailing byte"));
 
     let error = GCounterCodec

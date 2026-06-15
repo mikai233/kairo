@@ -8,6 +8,7 @@ use crate::{
 };
 
 pub const GSET_STRING_MANIFEST: &str = "kairo.ddata.gset-string";
+pub const GSET_STRING_DELTA_MANIFEST: &str = "kairo.ddata.gset-string-delta";
 pub const GCOUNTER_MANIFEST: &str = "kairo.ddata.gcounter";
 pub const PNCOUNTER_MANIFEST: &str = "kairo.ddata.pncounter";
 pub const LWW_REGISTER_STRING_MANIFEST: &str = "kairo.ddata.lww-register-string";
@@ -115,6 +116,28 @@ impl CrdtDataCodec<GSet<String>> for GSetStringCodec {
         }
         reader.ensure_finished()?;
         Ok(GSet::from_elements(elements))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GSetStringDeltaCodec;
+
+impl CrdtDataCodec<GSet<String>> for GSetStringDeltaCodec {
+    fn manifest(&self) -> &'static str {
+        GSET_STRING_DELTA_MANIFEST
+    }
+
+    fn encode_payload(&self, data: &GSet<String>) -> kairo_serialization::Result<Bytes> {
+        GSetStringCodec.encode_payload(data)
+    }
+
+    fn decode_payload(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<GSet<String>> {
+        ensure_version(self.manifest(), version)?;
+        GSetStringCodec.decode_payload(payload, CRDT_CODEC_VERSION)
     }
 }
 

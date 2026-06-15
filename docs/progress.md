@@ -1007,9 +1007,12 @@ Implemented:
   codec for add, remove, and grouped delta operations, using explicit wire
   operation tags and preserving remove-delta seen/remove-dot context for
   observed-remove semantics.
+- `kairo-distributed-data` now has a stable built-in string `GSet` delta codec
+  with a distinct delta manifest, so add-only CRDT delta propagation does not
+  reuse the full-state `GSet` manifest on the wire.
 - Built-in distributed-data CRDT payload codecs now reject unread trailing
-  bytes after decoding `GSet`, `GCounter`, `PNCounter`, `LWWRegister`, and
-  `ORSet` full-state and delta wire values.
+  bytes after decoding `GSet` full-state/delta, `GCounter`, `PNCounter`,
+  `LWWRegister`, and `ORSet` full-state/delta wire values.
 - `kairo-distributed-data::DeltaPropagationLog` tracks per-key delta sequence
   numbers, merges unsent deltas per target, advances sequence numbers for
   no-payload updates, selects remote replicas by Pekko-style round-robin
@@ -1518,6 +1521,10 @@ Implemented:
   `shard-{typeName}-all` `GSet` key, typed replicator adapters, idempotent
   `AddShard` updates, explicit read/update failures, and deterministic actor
   tests over the local `ReplicatorActor`.
+- `kairo-cluster-sharding` remember-coordinator distributed-data coverage now
+  drives `AddShard` through the actor-backed GSet delta propagation loop and
+  decodes the resulting stable `GSetStringDeltaCodec` wire payload, proving
+  remembered shard starts are emitted through registered CRDT delta metadata.
 - `kairo-cluster-sharding` now has a focused distributed-data-backed shard
   remember-entity store actor using Pekko-compatible five-key
   `shard-{typeName}-{shardId}-{index}` ORSet storage, eager initial load,
