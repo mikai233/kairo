@@ -943,6 +943,12 @@ fn parent_watch_receives_child_failed_when_child_stops_from_failure() {
     };
     assert_eq!(path.name(), Some("child"));
     assert_eq!(reason, "boom");
+    assert!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "parent watcher should not receive a duplicate plain Terminated after ChildFailed"
+    );
 }
 
 #[test]
