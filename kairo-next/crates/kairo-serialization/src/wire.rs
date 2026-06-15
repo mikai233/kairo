@@ -117,6 +117,31 @@ impl<'a> WireReader<'a> {
         }
     }
 
+    /// Returns the number of unread bytes left in the payload.
+    pub fn remaining_len(&self) -> usize {
+        self.bytes.len().saturating_sub(self.cursor)
+    }
+
+    /// Returns true when every byte in the payload has been consumed.
+    pub fn is_finished(&self) -> bool {
+        self.remaining_len() == 0
+    }
+
+    /// Fails if the payload still has unread trailing bytes.
+    ///
+    /// Hand-written system codecs should call this after reading the expected
+    /// fields when their wire contract does not allow extension bytes.
+    pub fn ensure_finished(&self) -> Result<()> {
+        if self.is_finished() {
+            Ok(())
+        } else {
+            Err(SerializationError::Message(format!(
+                "wire payload has {} trailing byte(s)",
+                self.remaining_len()
+            )))
+        }
+    }
+
     /// Reads a length-prefixed UTF-8 string.
     pub fn read_string(&mut self) -> Result<String> {
         let len = self.read_u32()? as usize;

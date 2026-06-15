@@ -499,6 +499,9 @@ Implemented:
 - `WireWriter`, `WireReader`, `SerializationError`, and the serialization
   `Result` alias now document deterministic binary helper encoding,
   sequential decoding, and structured metadata/codec/wire failure cases.
+- `WireReader` now exposes payload completion checks so hand-written stable
+  system codecs can reject unread trailing bytes explicitly after decoding
+  their expected fields.
 - `RemoteInbound::with_diagnostics` can attach a backend-neutral
   `RemoteInboundDiagnostics` sink that records structured inbound
   serialization failures and delivery failures with recipient, optional sender,

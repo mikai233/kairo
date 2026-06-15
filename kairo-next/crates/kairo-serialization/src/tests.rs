@@ -557,4 +557,28 @@ fn wire_helpers_use_length_prefixed_strings_and_big_endian_numbers() {
     );
     assert_eq!(reader.read_optional_u64().unwrap(), Some(9));
     assert_eq!(reader.read_optional_u64().unwrap(), None);
+    assert_eq!(reader.remaining_len(), 0);
+    assert!(reader.is_finished());
+    reader.ensure_finished().unwrap();
+}
+
+#[test]
+fn wire_reader_reports_unread_trailing_bytes() {
+    let bytes = Bytes::from_static(&[0x11, 0x22, 0x33]);
+    let mut reader = WireReader::new(&bytes);
+
+    assert_eq!(reader.remaining_len(), 3);
+    assert!(!reader.is_finished());
+    assert_eq!(reader.read_u16().unwrap(), 0x1122);
+    assert_eq!(reader.remaining_len(), 1);
+    assert!(!reader.is_finished());
+
+    let error = reader
+        .ensure_finished()
+        .expect_err("trailing payload byte should be rejected");
+
+    assert_eq!(
+        error,
+        SerializationError::Message("wire payload has 1 trailing byte(s)".to_string())
+    );
 }
