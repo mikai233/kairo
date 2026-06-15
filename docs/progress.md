@@ -242,6 +242,10 @@ Implemented:
   pins explicit live-route clearing: each actor-backed connector removes an
   installed association route, records the removed target in the last route
   report, clears active targets, and leaves the error state clear.
+- Cluster TCP peer connector lifecycle coverage now publishes a follow-up
+  membership change after the routeful connector has stopped, proving the
+  stopped connector unsubscribed from cluster events, does not emit stale
+  adapter dead letters, and does not recreate a cleared socket route.
 - Cluster TCP peer connector route application now runs through queued
   actor-owned tasks so blocking TCP dials do not hold the actor message turn;
   connector snapshots are served from cached runtime state and task

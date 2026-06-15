@@ -329,6 +329,7 @@ fn connector_clear_routes_removes_active_peer_routes() {
         &sender_kit,
         registry.clone(),
     );
+    let sender_cache = sender_runtime.association_cache().clone();
     let receiver_port = unused_port();
     let sender_node = sender_runtime.self_node().clone();
     let receiver_node = node("receiver", receiver_port, 2);
@@ -342,7 +343,7 @@ fn connector_clear_routes_removes_active_peer_routes() {
         bind_association_runtime_on_port("receiver", 2, 22, receiver_port, &receiver_kit, registry);
     publisher
         .tell(ClusterEventPublisherMsg::PublishChanges(
-            Gossip::from_members([member(sender_node), member(receiver_node.clone())]),
+            Gossip::from_members([member(sender_node.clone()), member(receiver_node.clone())]),
         ))
         .unwrap();
     let connector = sender_kit
@@ -382,6 +383,14 @@ fn connector_clear_routes_removes_active_peer_routes() {
 
     sender_kit.system().stop(&connector);
     assert!(connector.wait_for_stop(Duration::from_secs(1)));
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(sender_node)]),
+        ))
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(sender_kit.system().dead_letters().is_empty());
+    assert_eq!(sender_cache.route_count(), 0);
     receiver_runtime.shutdown().unwrap();
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
