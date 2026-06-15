@@ -102,6 +102,7 @@ impl CrdtDataCodec<GSet<String>> for GSetStringCodec {
         for _ in 0..len {
             elements.push(reader.read_string()?);
         }
+        reader.ensure_finished()?;
         Ok(GSet::from_elements(elements))
     }
 }
@@ -136,6 +137,7 @@ impl CrdtDataCodec<GCounter> for GCounterCodec {
         for _ in 0..len {
             state.push((ReplicaId::new(reader.read_string()?), reader.read_u128()?));
         }
+        reader.ensure_finished()?;
         Ok(GCounter::from_state(state))
     }
 }
@@ -171,6 +173,7 @@ impl CrdtDataCodec<PNCounter> for PNCounterCodec {
         let decrements_len = u64_to_len(reader.read_u64()?)?;
         let increments = Bytes::copy_from_slice(reader.read_exact(increments_len)?);
         let decrements = Bytes::copy_from_slice(reader.read_exact(decrements_len)?);
+        reader.ensure_finished()?;
         Ok(PNCounter::from_counters(
             GCounterCodec.decode_payload(increments, CRDT_CODEC_VERSION)?,
             GCounterCodec.decode_payload(decrements, CRDT_CODEC_VERSION)?,

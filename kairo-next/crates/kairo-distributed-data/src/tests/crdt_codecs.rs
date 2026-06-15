@@ -1,4 +1,15 @@
 use super::*;
+use bytes::Bytes;
+
+fn with_trailing_byte(serialized: crate::SerializedCrdt) -> crate::SerializedCrdt {
+    let mut payload = serialized.payload().to_vec();
+    payload.push(0xff);
+    crate::SerializedCrdt::new(
+        serialized.manifest(),
+        serialized.version(),
+        Bytes::from(payload),
+    )
+}
 
 #[test]
 fn crdt_codecs_round_trip_gset_strings_in_stable_order() {
@@ -76,4 +87,41 @@ fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
             .to_string()
             .contains("unsupported")
     );
+}
+
+#[test]
+fn crdt_codecs_reject_trailing_payload_bytes() {
+    let set = GSet::new()
+        .add("b".to_string())
+        .add("a".to_string())
+        .reset_delta();
+    let counter = GCounter::new()
+        .increment(replica("a"), 5)
+        .unwrap()
+        .reset_delta();
+    let pn_counter = PNCounter::new()
+        .increment(replica("a"), 7)
+        .unwrap()
+        .decrement(replica("b"), 4)
+        .unwrap()
+        .reset_delta();
+
+    let error = GSetStringCodec
+        .deserialize(with_trailing_byte(GSetStringCodec.serialize(&set).unwrap()))
+        .expect_err("trailing GSet payload byte should fail");
+    assert!(error.to_string().contains("trailing byte"));
+
+    let error = GCounterCodec
+        .deserialize(with_trailing_byte(
+            GCounterCodec.serialize(&counter).unwrap(),
+        ))
+        .expect_err("trailing GCounter payload byte should fail");
+    assert!(error.to_string().contains("trailing byte"));
+
+    let error = PNCounterCodec
+        .deserialize(with_trailing_byte(
+            PNCounterCodec.serialize(&pn_counter).unwrap(),
+        ))
+        .expect_err("trailing PNCounter payload byte should fail");
+    assert!(error.to_string().contains("trailing byte"));
 }
