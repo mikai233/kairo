@@ -326,6 +326,74 @@ mod tests {
     }
 
     #[test]
+    fn peer_routes_keep_remaining_cluster_route_when_one_peer_is_removed() {
+        let sender_kit = ActorSystemTestKit::new("cluster-peer-routes-reduce-sender").unwrap();
+        let second_kit = ActorSystemTestKit::new("cluster-peer-routes-reduce-second").unwrap();
+        let third_kit = ActorSystemTestKit::new("cluster-peer-routes-reduce-third").unwrap();
+        let registry = registry();
+        let sender = bind_runtime("reduce-sender", 1, 11, &sender_kit, registry.clone());
+        let second = bind_runtime("reduce-second", 2, 22, &second_kit, registry.clone());
+        let third = bind_runtime("reduce-third", 3, 33, &third_kit, registry);
+        let mut planner = ClusterAssociationPeerState::new(sender.self_node().clone());
+        let mut routes = ClusterTcpPeerRoutes::new();
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![
+                    member(sender.self_node().clone()),
+                    member(second.self_node().clone()),
+                    member(third.self_node().clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+
+        assert_eq!(report.dialed.len(), 2);
+        assert_eq!(routes.route_count(), 2);
+        assert_eq!(sender.association_cache().route_count(), 2);
+        wait_for_reverse_route(&second);
+        wait_for_reverse_route(&third);
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![
+                    member(sender.self_node().clone()),
+                    member(second.self_node().clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(report.removed[0].node(), third.self_node());
+        assert_eq!(routes.route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        assert!(
+            routes
+                .active_targets()
+                .iter()
+                .any(|target| target.node() == second.self_node())
+        );
+
+        let clear_report = routes.clear(&sender);
+        assert_eq!(clear_report.removed.len(), 1);
+        assert_eq!(routes.route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.accepted_associations, 0);
+        let second_report = second.shutdown().unwrap();
+        assert_eq!(second_report.accepted_associations, 1);
+        let third_report = third.shutdown().unwrap();
+        assert_eq!(third_report.accepted_associations, 1);
+        sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+        second_kit.shutdown(Duration::from_secs(1)).unwrap();
+        third_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
     fn peer_routes_skip_duplicate_dial_changes() {
         let target = ClusterAssociationPeerTarget::new(node("peer", 2552, 2)).unwrap();
         let routes = ClusterTcpPeerRoutes::new();

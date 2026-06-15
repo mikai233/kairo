@@ -1897,6 +1897,10 @@ Implemented:
   per-peer route registrations separate from membership state, and closes full
   outbound pipelines plus cached routes when peers become locally unreachable
   or leave.
+- Cluster TCP peer-route owner coverage now validates three-node route
+  reduction below the bootstrap facade: after two live membership socket routes
+  are installed, removing one peer from the cluster snapshot closes only that
+  peer route and leaves the surviving route active until explicit cleanup.
 - `kairo-cluster` now has a focused TCP peer runtime lifecycle owner that
   composes the cluster TCP socket runtime, membership-derived peer planner, and
   peer-route table, applies cluster snapshots/events to live routes, and clears
@@ -2911,6 +2915,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster peer_routes_keep_remaining_cluster_route_when_one_peer_is_removed --all-targets --all-features
+cargo test -p kairo-cluster tcp_peer_routes --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-distributed-data peer_routes_keep_remaining_ddata_route_when_one_peer_is_removed --all-targets --all-features
 cargo test -p kairo-distributed-data tcp_peer_routes --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
