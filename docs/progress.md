@@ -507,6 +507,9 @@ Implemented:
   types: if the `(serializer_id, manifest)` codec decodes a message that does
   not match the typed inbound boundary, delivery is skipped and a structured
   serialization failure is reported with the original wire metadata.
+- Remote inbound registered-wrong-type coverage now asserts the structured
+  `UnexpectedManifest` error emitted before dynamic decode, keeping diagnostics
+  aligned with the typed deserialization contract.
 - `ActorSystemRemoteInbound` can now carry that same
   `RemoteInboundDiagnostics` observer through the actor-system inbound frame
   router, so runtime-composed business message decode and local-delivery
@@ -577,6 +580,9 @@ Implemented:
   resolution, stable remote message metadata and codec registration,
   association/stream module boundaries, remote death-watch semantics, and a
   compile-checked outbound send example.
+- `RemoteSettings`, `RemoteError`, and the remote `Result` alias now document
+  canonical addressing, TCP connect timeout handling, and structured
+  serialization, frame, inbound, outbound, association, and route failures.
 - `RemoteActorRef<M>` serializes `RemoteMessage` values through the registry
   into `RemoteEnvelope` values, preserves optional sender actor-ref wire data,
   implements the typed `Recipient<M>` boundary, and returns rejected messages

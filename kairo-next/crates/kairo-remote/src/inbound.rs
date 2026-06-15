@@ -478,11 +478,13 @@ mod tests {
             .receive(envelope)
             .expect_err("wrong registered message type should fail");
 
-        assert!(
-            error
-                .to_string()
-                .contains("codec expected remote message type")
-        );
+        assert!(matches!(
+            error,
+            RemoteError::Serialization(kairo_serialization::SerializationError::UnexpectedManifest {
+                expected,
+                ref actual,
+            }) if expected == Ping::MANIFEST && actual == Pong::MANIFEST
+        ));
         assert!(delivery.messages().is_empty());
         assert_eq!(
             diagnostics.records(),
