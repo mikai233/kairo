@@ -97,6 +97,43 @@ impl kairo_cluster::ClusterDiagnostics for CollectingClusterDiagnostics {
 }
 
 #[test]
+fn config_dependencies_remain_toml_first_without_hocon() -> Result<(), Box<dyn std::error::Error>> {
+    let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = crate_dir
+        .ancestors()
+        .nth(3)
+        .ok_or("kairo crate should live under kairo-next/crates/kairo")?;
+    let root_manifest = fs::read_to_string(repo_root.join("Cargo.toml"))?;
+    let facade_manifest = fs::read_to_string(crate_dir.join("Cargo.toml"))?;
+    let lockfile = fs::read_to_string(repo_root.join("Cargo.lock"))?;
+
+    assert!(
+        root_manifest.contains("\ntoml = "),
+        "workspace should keep TOML as the selected config parser"
+    );
+    assert!(
+        facade_manifest.contains("toml = { workspace = true, optional = true }"),
+        "facade config parser dependency should stay optional"
+    );
+    assert!(
+        facade_manifest.contains("config = [\"dep:toml\"]"),
+        "config feature should opt into TOML explicitly"
+    );
+    for (name, contents) in [
+        ("root Cargo.toml", root_manifest.as_str()),
+        ("kairo Cargo.toml", facade_manifest.as_str()),
+        ("Cargo.lock", lockfile.as_str()),
+    ] {
+        assert!(
+            !contents.to_ascii_lowercase().contains("hocon"),
+            "{name} must not introduce HOCON before that parser is intentionally selected"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn toml_config_parses_structured_runtime_settings() {
     let settings = parse_toml_str(
         r#"

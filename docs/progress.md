@@ -2122,6 +2122,9 @@ Implemented:
 - The facade configuration module now explains the TOML-first but
   format-neutral settings boundary, and `parse_toml_str` has a
   compile-checked Rustdoc example for inline configuration text.
+- The facade configuration tests now pin the dependency boundary that TOML is
+  the selected optional config parser and HOCON/`hocon-rs` is not introduced
+  before an explicit parser decision.
 - The top-level README now documents the facade configuration entry points for
   single TOML files, layered TOML files, inline TOML text, and runtime builder
   conversion through format-neutral `KairoSettings`.
