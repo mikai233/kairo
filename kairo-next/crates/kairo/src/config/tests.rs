@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use super::{
     ActorConfig, ClusterDowningStrategyConfig, ClusterShardingAllocationConfig, ConfigError,
     DiagnosticsConfig, DispatcherConfig, KairoSettings, MailboxConfig, load_toml_file,
-    parse_toml_str,
+    load_toml_files, parse_toml_str,
 };
 
 #[cfg(feature = "remote")]
@@ -677,6 +677,70 @@ canonical_port = 26666
     fs::remove_file(path).unwrap();
 
     assert_eq!(settings.remote.transport.canonical_port, 26666);
+}
+
+#[test]
+fn toml_config_loads_layered_files_with_later_overrides() {
+    let mut base_path = std::env::temp_dir();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    base_path.push(format!("kairo-config-base-{nonce}.toml"));
+    let mut local_path = std::env::temp_dir();
+    local_path.push(format!("kairo-config-local-{nonce}.toml"));
+
+    fs::write(
+        &base_path,
+        r#"
+[actor.dispatchers.default]
+throughput = 5
+
+[actor.mailboxes.default]
+capacity = 16
+
+[remote.transport]
+canonical_hostname = "10.0.0.10"
+canonical_port = 25520
+
+[cluster.seed]
+nodes = ["kairo://app@10.0.0.1:25520"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &local_path,
+        r#"
+[actor.dispatchers.default]
+throughput = 9
+
+[remote.transport]
+canonical_port = 26666
+
+[cluster.seed]
+nodes = ["kairo://app@127.0.0.1:26666"]
+"#,
+    )
+    .unwrap();
+
+    let settings = load_toml_files([base_path.as_path(), local_path.as_path()]).unwrap();
+    fs::remove_file(base_path).unwrap();
+    fs::remove_file(local_path).unwrap();
+
+    assert_eq!(
+        settings.actor.dispatchers["default"],
+        DispatcherConfig { throughput: 9 }
+    );
+    assert_eq!(
+        settings.actor.mailboxes["default"],
+        MailboxConfig { capacity: Some(16) }
+    );
+    assert_eq!(settings.remote.transport.canonical_hostname, "10.0.0.10");
+    assert_eq!(settings.remote.transport.canonical_port, 26666);
+    assert_eq!(
+        settings.cluster.seed.nodes,
+        vec!["kairo://app@127.0.0.1:26666".to_string()]
+    );
 }
 
 #[test]

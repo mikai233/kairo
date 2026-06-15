@@ -2,7 +2,7 @@ mod primitives;
 mod sections;
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use self::primitives::reject_unknown;
 use self::sections::{parse_actor, parse_cluster, parse_observability, parse_remote};
@@ -11,19 +11,43 @@ use super::settings::KairoSettings;
 
 pub fn load_toml_file(path: impl AsRef<Path>) -> Result<KairoSettings, ConfigError> {
     let path = path.as_ref();
+    let table = read_toml_table(path)?;
+    parse_toml_table(table)
+}
+
+pub fn load_toml_files<I, P>(paths: I) -> Result<KairoSettings, ConfigError>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut merged = toml::Table::new();
+    for path in paths {
+        merge_tables(&mut merged, read_toml_table(path.as_ref())?);
+    }
+    parse_toml_table(merged)
+}
+
+fn read_toml_table(path: &Path) -> Result<toml::Table, ConfigError> {
     let contents = fs::read_to_string(path).map_err(|error| ConfigError::ReadFailed {
-        path: path.to_path_buf(),
+        path: PathBuf::from(path),
         reason: error.to_string(),
     })?;
-    parse_toml_str(&contents)
+    parse_toml_document(&contents)
 }
 
 pub fn parse_toml_str(input: &str) -> Result<KairoSettings, ConfigError> {
-    let table = input
+    parse_toml_table(parse_toml_document(input)?)
+}
+
+fn parse_toml_document(input: &str) -> Result<toml::Table, ConfigError> {
+    input
         .parse::<toml::Table>()
         .map_err(|error| ConfigError::ParseFailed {
             reason: error.to_string(),
-        })?;
+        })
+}
+
+fn parse_toml_table(table: toml::Table) -> Result<KairoSettings, ConfigError> {
     reject_unknown(&table, "", &["actor", "remote", "cluster", "observability"])?;
 
     let mut settings = KairoSettings::default();
@@ -41,4 +65,17 @@ pub fn parse_toml_str(input: &str) -> Result<KairoSettings, ConfigError> {
     }
     settings.validate()?;
     Ok(settings)
+}
+
+fn merge_tables(base: &mut toml::Table, overlay: toml::Table) {
+    for (key, overlay_value) in overlay {
+        match (base.get_mut(&key), overlay_value) {
+            (Some(toml::Value::Table(base_table)), toml::Value::Table(overlay_table)) => {
+                merge_tables(base_table, overlay_table);
+            }
+            (_, overlay_value) => {
+                base.insert(key, overlay_value);
+            }
+        }
+    }
 }

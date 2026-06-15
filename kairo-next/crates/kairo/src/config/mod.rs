@@ -14,7 +14,7 @@ pub use settings::{
     ClusterShardingConfig, ClusterToolsConfig, DiagnosticsConfig, DispatcherConfig, KairoSettings,
     MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig,
 };
-pub use toml_loader::{load_toml_file, parse_toml_str};
+pub use toml_loader::{load_toml_file, load_toml_files, parse_toml_str};
 
 #[cfg(test)]
 mod tests;

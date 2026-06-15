@@ -2013,6 +2013,9 @@ Implemented:
 - The TOML loader now separates file/root parsing, section-to-settings
   projection, and primitive value validation into focused modules instead of
   concentrating all configuration parsing logic in one file.
+- The TOML loader now supports layered file loading through `load_toml_files`;
+  later files recursively merge tables and override scalar/array values before
+  the final document is validated and projected into format-neutral settings.
 - The `kairo` facade crate docs now describe feature-gated module boundaries,
   the prelude, local-vs-remote serialization requirements, TOML-first
   configuration, and a compile-checked settings parse example.
@@ -3247,6 +3250,7 @@ cargo test -p kairo toml_config_rejects_empty_singleton_role --all-targets --all
 cargo test -p kairo toml_config_rejects_blank_singleton_role_after_projection --all-targets --all-features
 cargo test -p kairo toml_config_rejects_blank_remote_hostname --all-targets --all-features
 cargo test -p kairo toml_config_rejects_blank_downing_role --all-targets --all-features
+cargo test -p kairo toml_config_loads_layered_files_with_later_overrides --all-targets --all-features
 cargo test -p kairo config_validate_checks_all_format_neutral_sections --all-targets --all-features
 cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo --doc --all-features
