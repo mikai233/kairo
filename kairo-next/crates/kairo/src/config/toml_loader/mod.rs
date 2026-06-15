@@ -13,6 +13,17 @@ use super::settings::KairoSettings;
 ///
 /// The loader validates the projected settings after parsing, so invalid
 /// values are reported before they reach runtime builders.
+///
+/// ```no_run
+/// use kairo::prelude::load_toml_file;
+///
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let settings = load_toml_file("kairo.local.toml")?;
+/// let system = settings.actor_system_builder("app")?.build()?;
+/// system.terminate(std::time::Duration::from_secs(1))?;
+/// # Ok(())
+/// # }
+/// ```
 pub fn load_toml_file(path: impl AsRef<Path>) -> Result<KairoSettings, ConfigError> {
     let path = path.as_ref();
     let table = read_toml_table(path)?;

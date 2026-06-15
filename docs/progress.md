@@ -2038,6 +2038,9 @@ Implemented:
 - The `kairo` facade crate docs now describe feature-gated module boundaries,
   the prelude, local-vs-remote serialization requirements, TOML-first
   configuration, and a compile-checked settings parse example.
+- `load_toml_file` now has a compile-checked Rustdoc example for the
+  single-file facade configuration path, matching the existing layered-loader
+  example.
 - The facade configuration settings structs now document their public fields,
   covering actor dispatchers/mailboxes, remote transport, cluster seeds,
   heartbeat, downing, sharding, cluster tools, and diagnostics categories.
