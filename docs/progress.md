@@ -2198,6 +2198,9 @@ Implemented:
 - Remote transport configuration now rejects whitespace-only canonical
   hostnames through both direct format-neutral validation and TOML-loaded
   settings before they can reach runtime address construction.
+- Cluster-tools pubsub configuration now rejects zero gossip intervals and
+  zero delta-entry limits through both TOML parsing and direct format-neutral
+  validation, keeping runtime helper inputs explicit before actor wiring.
 - `ClusterShardingConfig` now exposes validated shard-count, rebalance
   interval, and stable `shard_id_for` helpers, while `ClusterToolsConfig` maps
   singleton role settings into `SingletonScope` and pubsub settings into

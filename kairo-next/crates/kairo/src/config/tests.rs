@@ -1278,6 +1278,36 @@ role = ""
 }
 
 #[test]
+fn toml_config_rejects_invalid_pubsub_runtime_values() {
+    for (key, path) in [
+        (
+            "gossip_interval = \"0ms\"",
+            "cluster.tools.pubsub.gossip_interval",
+        ),
+        (
+            "max_delta_entries = 0",
+            "cluster.tools.pubsub.max_delta_entries",
+        ),
+    ] {
+        let error = parse_toml_str(&format!(
+            r#"
+[cluster.tools.pubsub]
+{key}
+"#
+        ))
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            ConfigError::InvalidValue {
+                path: path.to_string(),
+                reason: "must be greater than zero".to_string(),
+            }
+        );
+    }
+}
+
+#[test]
 fn toml_config_rejects_blank_singleton_role_after_projection() {
     let error = parse_toml_str(
         r#"
@@ -1973,6 +2003,38 @@ fn config_validate_checks_all_format_neutral_sections() {
             reason: "must not be empty when set".to_string(),
         }
     );
+
+    for (tools, path) in [
+        (
+            super::ClusterToolsConfig {
+                pubsub_gossip_interval: Duration::ZERO,
+                ..Default::default()
+            },
+            "cluster.tools.pubsub.gossip_interval",
+        ),
+        (
+            super::ClusterToolsConfig {
+                pubsub_max_delta_entries: 0,
+                ..Default::default()
+            },
+            "cluster.tools.pubsub.max_delta_entries",
+        ),
+    ] {
+        let settings = KairoSettings {
+            cluster: super::ClusterConfig {
+                tools,
+                ..Default::default()
+            },
+            ..KairoSettings::default()
+        };
+        assert_eq!(
+            settings.validate().unwrap_err(),
+            ConfigError::InvalidValue {
+                path: path.to_string(),
+                reason: "must be greater than zero".to_string(),
+            }
+        );
+    }
 
     assert!(KairoSettings::default().validate().is_ok());
 }
