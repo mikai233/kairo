@@ -660,3 +660,122 @@ fn region_actor_completes_store_backed_shard_child_handoff() {
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn region_actor_handoff_completion_reports_missing_local_shard() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-handoff-missing-shard").unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_local_shards("region-a", 10, 10),
+        )
+        .unwrap();
+    let completion = kit
+        .create_probe::<RegionLocalHandOffCompletionPlan>("completion")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::CompleteLocalShardHandOff {
+            shard: "missing".to_string(),
+            timeout: Duration::from_millis(500),
+            reply_to: completion.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        completion.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalHandOffCompletionPlan::Failed {
+            shard: "missing".to_string(),
+            reason: RegionLocalHandOffCompletionFailure::MissingLocalShard,
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_handoff_completion_reports_stopper_not_in_progress() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-handoff-no-stopper").unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_local_shards("region-a", 10, 10),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let completion = kit
+        .create_probe::<RegionLocalHandOffCompletionPlan>("completion")
+        .unwrap();
+    let state = kit.create_probe::<ShardRegionSnapshot>("state").unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    region
+        .tell(ShardRegionMsg::CompleteLocalShardHandOff {
+            shard: "shard-1".to_string(),
+            timeout: Duration::from_millis(500),
+            reply_to: completion.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        completion.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalHandOffCompletionPlan::Failed {
+            shard: "shard-1".to_string(),
+            reason: RegionLocalHandOffCompletionFailure::StopperNotInProgress,
+        }
+    );
+    region
+        .tell(ShardRegionMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .contains("shard-1")
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_actor_handoff_completion_reports_stopper_timeout() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-handoff-stopper-timeout").unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_local_shards("region-a", 10, 10),
+        )
+        .unwrap();
+    let completion = kit
+        .create_probe::<RegionLocalHandOffCompletionPlan>("completion")
+        .unwrap();
+    let timeout = Duration::from_millis(250);
+
+    region
+        .tell(ShardRegionMsg::LocalShardHandOffStopperResult {
+            shard: "shard-1".to_string(),
+            result: Err(kairo_actor::AskError::Timeout { timeout }),
+            reply_to: completion.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        completion.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalHandOffCompletionPlan::Failed {
+            shard: "shard-1".to_string(),
+            reason: RegionLocalHandOffCompletionFailure::StopperTimeout { timeout },
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}

@@ -2756,6 +2756,9 @@ Implemented:
 - `kairo-cluster-sharding` actor-backed shard delivery, remembered-entity
   loading, remember-store, passivation, and handoff tests now live in a
   focused sibling test module.
+- `kairo-cluster-sharding` region actor handoff completion coverage now pins
+  missing-local-shard, stopper-not-in-progress, and stopper-timeout failure
+  plans, keeping coordinator handoff worker failure handling explicit.
 - `kairo-cluster-sharding` basic shard runtime delivery, passivation,
   termination, and handoff tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` remember-entity shard runtime recovery, start/stop
