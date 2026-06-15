@@ -2032,6 +2032,9 @@ Implemented:
 - TOML file-loader coverage now pins read-failure diagnostics for missing
   single files and missing later layers, including the exact path reported in
   `ConfigError::ReadFailed`.
+- TOML parser coverage now pins malformed document input reporting
+  `ConfigError::ParseFailed`, completing focused coverage for the facade
+  config loader's public error categories.
 - The `kairo` facade crate docs now describe feature-gated module boundaries,
   the prelude, local-vs-remote serialization requirements, TOML-first
   configuration, and a compile-checked settings parse example.

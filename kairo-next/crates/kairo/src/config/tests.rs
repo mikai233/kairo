@@ -657,6 +657,18 @@ nodes = [""]
 }
 
 #[test]
+fn toml_config_reports_parse_failure() {
+    let error = parse_toml_str("[actor.dispatchers.default").unwrap_err();
+
+    match error {
+        ConfigError::ParseFailed { reason } => {
+            assert!(!reason.is_empty());
+        }
+        other => panic!("expected parse failure, got {other:?}"),
+    }
+}
+
+#[test]
 fn toml_config_loads_from_file() {
     let mut path = std::env::temp_dir();
     let nonce = SystemTime::now()
