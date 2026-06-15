@@ -563,6 +563,8 @@ Implemented:
 - `kairo-actor-macros` public proc macro items now document that
   `kairo_message` is currently marker-only and `KairoRemoteMessage` derives
   stable metadata only, leaving codec and registry choices explicit.
+- `kairo-actor-macros` integration coverage now also pins
+  `#[kairo_message]` as a pass-through marker for local-only message items.
 - `ActorRefWireData` stores serialized actor-ref paths with explicit protocol,
   system, host, and port metadata, and `ActorRefResolver` defines the provider
   boundary for formatting and resolving those refs later.

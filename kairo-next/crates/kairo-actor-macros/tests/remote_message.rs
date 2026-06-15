@@ -1,4 +1,4 @@
-use kairo_actor_macros::KairoRemoteMessage;
+use kairo_actor_macros::{KairoRemoteMessage, kairo_message};
 use kairo_serialization::RemoteMessage;
 
 #[derive(KairoRemoteMessage)]
@@ -15,6 +15,12 @@ struct SplitAttributeMessage;
 enum EnumMessage {
     Started,
     Stopped,
+}
+
+#[kairo_message]
+#[derive(Debug, PartialEq, Eq)]
+struct LocalOnlyMessage {
+    value: u8,
 }
 
 #[test]
@@ -41,4 +47,9 @@ fn derive_remote_message_emits_metadata_for_enums_only() {
     let stopped = EnumMessage::Stopped;
     assert!(matches!(started, EnumMessage::Started));
     assert!(matches!(stopped, EnumMessage::Stopped));
+}
+
+#[test]
+fn kairo_message_marker_leaves_local_message_item_unchanged() {
+    assert_eq!(LocalOnlyMessage { value: 7 }, LocalOnlyMessage { value: 7 });
 }
