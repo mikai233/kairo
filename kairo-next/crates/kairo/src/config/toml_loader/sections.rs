@@ -125,7 +125,7 @@ fn parse_remote_transport(value: &Value) -> Result<RemoteTransportConfig, Config
     reject_unknown(
         table,
         "remote.transport",
-        &["canonical_hostname", "canonical_port"],
+        &["canonical_hostname", "canonical_port", "connect_timeout"],
     )?;
     let mut config = RemoteTransportConfig::default();
     if let Some(hostname) = table.get("canonical_hostname") {
@@ -143,6 +143,12 @@ fn parse_remote_transport(value: &Value) -> Result<RemoteTransportConfig, Config
             path: "remote.transport.canonical_port".to_string(),
             reason: "must fit in a u16 port".to_string(),
         })?;
+    }
+    if let Some(timeout) =
+        optional_duration(table, "connect_timeout", "remote.transport.connect_timeout")?
+    {
+        reject_zero_duration(timeout, "remote.transport.connect_timeout")?;
+        config.connect_timeout = Some(timeout);
     }
     Ok(config)
 }

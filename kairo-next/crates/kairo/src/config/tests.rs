@@ -114,6 +114,7 @@ capacity = 8
 [remote.transport]
 canonical_hostname = "10.0.0.12"
 canonical_port = 25521
+connect_timeout = "250ms"
 
 [cluster.seed]
 nodes = [
@@ -168,6 +169,10 @@ gossip_state_changes = true
     assert_eq!(settings.actor.mailboxes["control"].capacity, Some(8));
     assert_eq!(settings.remote.transport.canonical_hostname, "10.0.0.12");
     assert_eq!(settings.remote.transport.canonical_port, 25521);
+    assert_eq!(
+        settings.remote.transport.connect_timeout,
+        Some(Duration::from_millis(250))
+    );
     assert_eq!(settings.cluster.seed.nodes.len(), 2);
     assert_eq!(settings.cluster.heartbeat.monitored_by_nr_of_members, 7);
     assert_eq!(settings.cluster.heartbeat.interval, Duration::from_secs(2));
@@ -712,6 +717,25 @@ number_of_shards = 0
 }
 
 #[test]
+fn toml_config_rejects_zero_remote_connect_timeout() {
+    let error = parse_toml_str(
+        r#"
+[remote.transport]
+connect_timeout = "0ms"
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "remote.transport.connect_timeout".to_string(),
+            reason: "must be greater than zero".to_string(),
+        }
+    );
+}
+
+#[test]
 fn toml_config_rejects_zero_sharding_rebalance_interval() {
     let error = parse_toml_str(
         r#"
@@ -917,6 +941,7 @@ fn config_converts_remote_and_cluster_settings() {
 [remote.transport]
 canonical_hostname = "127.0.0.42"
 canonical_port = 26666
+connect_timeout = "1500ms"
 
 [cluster.seed]
 nodes = [
@@ -936,6 +961,7 @@ expected_response_after = "750ms"
     let remote = settings.remote.transport.to_remote_settings().unwrap();
     assert_eq!(remote.canonical_hostname, "127.0.0.42");
     assert_eq!(remote.canonical_port, 26666);
+    assert_eq!(remote.connect_timeout, Some(Duration::from_millis(1500)));
     let seeds = settings
         .cluster
         .seed

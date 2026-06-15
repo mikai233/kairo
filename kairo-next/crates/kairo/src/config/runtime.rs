@@ -168,16 +168,26 @@ impl RemoteTransportConfig {
                 reason: "must not be empty".to_string(),
             });
         }
+        if let Some(timeout) = self.connect_timeout
+            && timeout.is_zero()
+        {
+            return Err(ConfigError::InvalidValue {
+                path: "remote.transport.connect_timeout".to_string(),
+                reason: "must be greater than zero".to_string(),
+            });
+        }
         Ok(())
     }
 
     #[cfg(feature = "remote")]
     pub fn to_remote_settings(&self) -> Result<kairo_remote::RemoteSettings, ConfigError> {
         self.validate()?;
-        Ok(kairo_remote::RemoteSettings::new(
-            self.canonical_hostname.clone(),
-            self.canonical_port,
-        ))
+        let mut settings =
+            kairo_remote::RemoteSettings::new(self.canonical_hostname.clone(), self.canonical_port);
+        if let Some(timeout) = self.connect_timeout {
+            settings = settings.with_connect_timeout(timeout);
+        }
+        Ok(settings)
     }
 }
 

@@ -49,6 +49,7 @@ pub struct RemoteConfig {
 pub struct RemoteTransportConfig {
     pub canonical_hostname: String,
     pub canonical_port: u16,
+    pub connect_timeout: Option<std::time::Duration>,
 }
 
 impl Default for RemoteTransportConfig {
@@ -56,6 +57,7 @@ impl Default for RemoteTransportConfig {
         Self {
             canonical_hostname: "127.0.0.1".to_string(),
             canonical_port: 25520,
+            connect_timeout: None,
         }
     }
 }

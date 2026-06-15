@@ -2011,6 +2011,9 @@ Implemented:
   failure-detector/heartbeat settings, sharding shard counts, and cluster-tools
   pubsub settings while keeping the base config model usable without enabling
   every runtime crate.
+- Remote transport configuration now carries an optional TCP connect timeout
+  through format-neutral settings, TOML parsing, facade docs, and
+  `RemoteSettings` conversion while preserving the runtime default when unset.
 - `ClusterShardingConfig` now exposes validated shard-count, rebalance
   interval, and stable `shard_id_for` helpers, while `ClusterToolsConfig` maps
   singleton role settings into `SingletonScope` and pubsub settings into
@@ -3178,4 +3181,8 @@ cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+cargo test -p kairo config --all-targets --all-features
+cargo test -p kairo --doc --all-features
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
 ```
