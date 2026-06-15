@@ -2028,6 +2028,9 @@ Implemented:
 - Remote transport configuration now carries an optional TCP connect timeout
   through format-neutral settings, TOML parsing, facade docs, and
   `RemoteSettings` conversion while preserving the runtime default when unset.
+- Remote transport configuration now rejects whitespace-only canonical
+  hostnames through both direct format-neutral validation and TOML-loaded
+  settings before they can reach runtime address construction.
 - `ClusterShardingConfig` now exposes validated shard-count, rebalance
   interval, and stable `shard_id_for` helpers, while `ClusterToolsConfig` maps
   singleton role settings into `SingletonScope` and pubsub settings into
@@ -3239,6 +3242,8 @@ cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo toml_config_rejects_empty_singleton_role --all-targets --all-features
 cargo test -p kairo toml_config_rejects_blank_singleton_role_after_projection --all-targets --all-features
+cargo test -p kairo toml_config_rejects_blank_remote_hostname --all-targets --all-features
+cargo test -p kairo config_validate_checks_all_format_neutral_sections --all-targets --all-features
 cargo test -p kairo config --all-targets --all-features
 cargo test -p kairo --doc --all-features
 cargo fmt --all -- --check

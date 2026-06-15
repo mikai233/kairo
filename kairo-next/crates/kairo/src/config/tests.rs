@@ -736,6 +736,25 @@ connect_timeout = "0ms"
 }
 
 #[test]
+fn toml_config_rejects_blank_remote_hostname() {
+    let error = parse_toml_str(
+        r#"
+[remote.transport]
+canonical_hostname = "   "
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "remote.transport.canonical_hostname".to_string(),
+            reason: "must not be empty".to_string(),
+        }
+    );
+}
+
+#[test]
 fn toml_config_rejects_zero_sharding_rebalance_interval() {
     let error = parse_toml_str(
         r#"
@@ -1501,6 +1520,23 @@ fn config_validate_checks_all_format_neutral_sections() {
         settings.validate().unwrap_err(),
         ConfigError::InvalidValue {
             path: "cluster.seed.nodes[0]".to_string(),
+            reason: "must not be empty".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        remote: super::RemoteConfig {
+            transport: super::RemoteTransportConfig {
+                canonical_hostname: "   ".to_string(),
+                ..Default::default()
+            },
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "remote.transport.canonical_hostname".to_string(),
             reason: "must not be empty".to_string(),
         }
     );

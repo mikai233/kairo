@@ -162,7 +162,7 @@ impl MailboxConfig {
 
 impl RemoteTransportConfig {
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.canonical_hostname.is_empty() {
+        if self.canonical_hostname.trim().is_empty() {
             return Err(ConfigError::InvalidValue {
                 path: "remote.transport.canonical_hostname".to_string(),
                 reason: "must not be empty".to_string(),
