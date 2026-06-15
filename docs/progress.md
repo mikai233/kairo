@@ -427,6 +427,10 @@ Implemented:
   clocks together for synchronized multi-node scenarios, and reports empty,
   duplicate, unknown, or non-manual node errors explicitly without making cluster
   membership part of the testkit.
+- `MultiNodeTestKit::advance_all_until_idle` can drain every manual-time node
+  through active scheduled deadlines with a caller-provided step bound,
+  returning whether all nodes became idle so multi-node tests can settle
+  scheduled work without open-ended timer loops.
 - `MultiNodeTestKit` can now spawn typed user actors and framework-owned
   `/system` actors on specific named nodes, letting multi-node cluster,
   distributed-data, sharding, and cluster-tools tests create node-local
@@ -2776,6 +2780,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-testkit multi_node_testkit_can_advance_all_manual_time_nodes --all-targets --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-serialization registry_reports_missing --all-targets --all-features
 cargo test -p kairo-serialization --all-targets --all-features
 cargo fmt --all -- --check

@@ -39,6 +39,9 @@
 //!   including bounded advancement through scheduled deadlines.
 //! - [`MultiNodeTestKit`] owns named actor systems for local multi-node
 //!   integration tests without making cluster membership part of the testkit.
+//! - [`MultiNodeTestKit::advance_all`] and
+//!   [`MultiNodeTestKit::advance_all_until_idle`] drive manual-time node clocks
+//!   together for deterministic multi-node scheduling.
 //! - [`MultiNodeTestKit::spawn_on`] and
 //!   [`MultiNodeTestKit::spawn_system_on`] spawn typed user or framework-owned
 //!   actors on a specific named node.

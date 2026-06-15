@@ -127,8 +127,9 @@ impl MultiNodeTestKit {
 
     /// Creates one local node per name with manual time enabled for each node.
     ///
-    /// The returned harness can advance all node clocks with [`Self::advance_all`]
-    /// or access one node's [`ManualTime`] handle through [`Self::manual_time`].
+    /// The returned harness can advance all node clocks with [`Self::advance_all`],
+    /// drain them with [`Self::advance_all_until_idle`], or access one node's
+    /// [`ManualTime`] handle through [`Self::manual_time`].
     pub fn with_manual_time<I, S>(node_names: I) -> MultiNodeResult<Self>
     where
         I: IntoIterator<Item = S>,
@@ -202,6 +203,22 @@ impl MultiNodeTestKit {
             manual_time.advance(duration);
         }
         Ok(())
+    }
+
+    /// Advances every node's manual scheduler until idle or `max_steps` is reached.
+    ///
+    /// Returns `true` only when every manual-time node is idle after the bounded
+    /// advancement. Repeated timers can keep a node non-idle, so callers must
+    /// provide a bound.
+    pub fn advance_all_until_idle(&self, max_steps: usize) -> MultiNodeResult<bool> {
+        let mut all_idle = true;
+        for node in &self.nodes {
+            let manual_time = node
+                .manual_time()
+                .ok_or_else(|| MultiNodeError::ManualTimeDisabled(node.name().to_string()))?;
+            all_idle &= manual_time.advance_until_idle(max_steps);
+        }
+        Ok(all_idle)
     }
 
     /// Marks one node as having entered a named barrier without blocking.
