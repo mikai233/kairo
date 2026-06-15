@@ -2663,6 +2663,10 @@ Implemented:
   TOML configuration, remote-message wire metadata, sharding routing, cluster
   membership constraints, and validation commands. `docs/blocked.md` now
   records that there are no current external blockers.
+- `docs/migration.md` now also records the legacy `crates/` deprecation and
+  removal plan: the old tree remains reference-only, new work stays under
+  `kairo-next/`, and removal waits for documented facade, example, CI,
+  manifest-boundary, and tracked-release-gap gates.
 - The README files and migration notes now describe the configured-counter
   example as a facade configuration path for both actor dispatcher settings
   and current `[cluster.sharding]` timing/remember-entity helpers, keeping
@@ -3425,5 +3429,7 @@ cargo test -p kairo next_crate_manifests_do_not_depend_on_legacy_crates --all-ta
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo fmt --all -- --check
 git diff --check
 ```

@@ -24,6 +24,33 @@ use kairo_actor::{Actor, ActorSystem, Context, Props};
 use kairo_cluster_sharding::{EntityRef, ShardingEnvelope};
 ```
 
+## Legacy Crates Status And Removal Plan
+
+The old `crates/` tree is reference material only. It is intentionally excluded
+from the root workspace, normal validation, runnable examples, and new
+implementation work.
+
+Do not add new features, fixes, or examples to `crates/` unless the change is
+strictly needed to preserve reference material for the rewrite. New user-facing
+work belongs under `kairo-next/`, and migration examples should use the `kairo`
+facade or focused `kairo-next/crates/*` crates.
+
+The legacy tree can be removed after these release-hardening gates are met:
+
+- the `kairo` facade is the documented entry point for normal users;
+- examples cover the local actor, configuration, remote, cluster,
+  distributed-data, sharding, singleton, and pubsub workflows;
+- full workspace CI runs formatting, clippy with warnings denied, and tests for
+  `kairo-next/crates/*`;
+- workspace and active crate manifests do not depend on `crates/`;
+- remaining migration gaps are tracked as release issues rather than requiring
+  the old implementation for normal builds or examples.
+
+Removal should happen as a separate `chore` or `docs` checkpoint so it can be
+reviewed independently from behavior changes. That checkpoint should update the
+root README, migration notes, progress log, and any CI or packaging references
+that still mention the legacy tree.
+
 ## Actor Protocols
 
 Old dynamic or erased message paths should be replaced with typed protocols and
