@@ -1890,6 +1890,9 @@ Implemented:
   replacement peer routing: after removing a departed peer's route, publishing
   a new `UniqueAddress` for a replacement receiver installs a fresh
   membership-derived cluster-tools socket route through the same connector.
+  The test now sends a stable pubsub publish through the old route, verifies
+  the removed route rejects later sends without delivering to the old mediator,
+  then sends a pubsub publish through the replacement route.
 - Cluster-tools TCP peer bootstrap now also has a three-node full-mesh socket
   validation: the first actor-backed connector installs membership-derived
   routes to both remote peers, carries stable-codec pubsub publish envelopes to

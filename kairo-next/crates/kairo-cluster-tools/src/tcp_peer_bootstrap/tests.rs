@@ -485,19 +485,20 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         &sender_kit,
         registry.clone(),
     );
-    let old_receiver_runtime = bind_runtime(
+    let sender_cache = sender_runtime.association_cache().clone();
+    let (old_receiver_runtime, old_receiver_probes) = bind_runtime_with_probes(
         "cluster-tools-bootstrap-replace-old",
         2,
         22,
         &old_receiver_kit,
         registry.clone(),
     );
-    let new_receiver_runtime = bind_runtime(
+    let (new_receiver_runtime, new_receiver_probes) = bind_runtime_with_probes(
         "cluster-tools-bootstrap-replace-new",
         3,
         33,
         &new_receiver_kit,
-        registry,
+        registry.clone(),
     );
     let sender_node = sender_runtime.self_node().clone();
     let old_receiver_node = old_receiver_runtime.self_node().clone();
@@ -531,8 +532,47 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         &old_receiver_node,
     );
 
+    let sender_outbound = Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let old_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        old_receiver_node.clone(),
+        registry.clone(),
+        sender_outbound.clone(),
+    );
+    old_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 13 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &old_receiver_probes,
+        TopicName::new("orders"),
+        TestMessage { value: 13 },
+    );
+
     publish_gossip(&sender_publisher, up_gossip([sender_node.clone()]));
     await_connector_no_routes(sender_bootstrap.connector(), &sender_snapshots);
+
+    let old_peer_error = old_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 21 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("old peer route should reject sends after removal");
+    assert!(
+        old_peer_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected old-peer send error: {old_peer_error:?}"
+    );
+    old_receiver_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
 
     publish_gossip(
         &sender_publisher,
@@ -542,6 +582,25 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         sender_bootstrap.connector(),
         &sender_snapshots,
         &new_receiver_node,
+    );
+
+    let new_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        new_receiver_node.clone(),
+        registry,
+        sender_outbound,
+    );
+    new_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 34 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &new_receiver_probes,
+        TopicName::new("orders"),
+        TestMessage { value: 34 },
     );
 
     run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
