@@ -18,6 +18,10 @@ enum EnumMessage {
     Stopped,
 }
 
+#[derive(KairoRemoteMessage)]
+#[kairo(manifest = "wire.contract.not.rust.name", version = 1)]
+struct RenamedRustType;
+
 #[kairo_message]
 #[derive(Debug, PartialEq, Eq)]
 struct LocalOnlyMessage {
@@ -51,6 +55,20 @@ fn derive_remote_message_emits_metadata_for_enums_only() {
 }
 
 #[test]
+fn derive_remote_message_does_not_infer_manifest_from_rust_type_name() {
+    assert_eq!(RenamedRustType::MANIFEST, "wire.contract.not.rust.name");
+    assert_eq!(RenamedRustType::VERSION, 1);
+    assert!(
+        !RenamedRustType::MANIFEST.contains(std::any::type_name::<RenamedRustType>()),
+        "wire manifest must be explicit metadata, not the Rust type name"
+    );
+    assert!(
+        !RenamedRustType::MANIFEST.contains("RenamedRustType"),
+        "wire manifest must stay stable if the Rust type is renamed"
+    );
+}
+
+#[test]
 fn kairo_message_marker_leaves_local_message_item_unchanged() {
     assert_eq!(LocalOnlyMessage { value: 7 }, LocalOnlyMessage { value: 7 });
 }
@@ -75,6 +93,9 @@ fn derive_remote_message_does_not_choose_codec_or_format() {
         "postcard",
         "ciborium",
         "rmp_serde",
+        "type_name",
+        "stringify!",
+        "ident.to_string",
     ];
 
     for term in forbidden_terms {

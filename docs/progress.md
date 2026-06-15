@@ -611,6 +611,9 @@ Implemented:
   manifest/version attributes and enum message protocols, matching the
   documented public metadata shape without generating codecs or relying on enum
   discriminants.
+- `KairoRemoteMessage` derive integration coverage now pins that explicit
+  manifests are independent of Rust type names, so renaming a Rust type cannot
+  silently rewrite the remote wire contract.
 - `kairo-actor-macros` crate docs now document that macro support is
   metadata-only, local messages do not need macros or serialization,
   serializer ids/codecs remain explicit, and `KairoRemoteMessage` has a
@@ -3681,5 +3684,10 @@ cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor-macros --test remote_message --all-features
+cargo test -p kairo-actor-macros --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor-macros --all-targets --all-features -- -D warnings
 git diff --check
 ```
