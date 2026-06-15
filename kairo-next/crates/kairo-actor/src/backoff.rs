@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use crate::actor::{Actor, Context, Props};
 use crate::error::ActorResult;
+use crate::path::ActorPath;
 use crate::refs::ActorRef;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -218,6 +219,7 @@ where
     settings: BackoffSupervisorSettings,
     state: BackoffState,
     child: Option<ActorRef<A::Msg>>,
+    last_child_path: Option<ActorPath>,
     _actor: PhantomData<fn(A)>,
 }
 
@@ -241,6 +243,7 @@ where
             settings,
             state: BackoffState::default(),
             child: None,
+            last_child_path: None,
             _actor: PhantomData,
         })
     }
@@ -252,6 +255,7 @@ where
 
         let child = ctx.spawn(&self.child_name, (self.child_factory)())?;
         ctx.watch_with(&child, BackoffSupervisorMsg::ChildTerminated)?;
+        self.last_child_path = Some(child.path().clone());
         self.child = Some(child);
 
         if let Some((delay, restart_count)) = self.state.child_started(self.settings.reset) {
@@ -294,7 +298,7 @@ where
                 } else {
                     ctx.system()
                         .dead_letters()
-                        .publish::<A::Msg>(ctx.myself().path().clone(), "backoff child is stopped");
+                        .publish::<A::Msg>(self.dead_letter_path(ctx), "backoff child is stopped");
                 }
             }
             BackoffSupervisorMsg::GetCurrentChild { reply_to } => {
@@ -324,6 +328,17 @@ where
             }
         }
         Ok(())
+    }
+}
+
+impl<A> BackoffSupervisor<A>
+where
+    A: Actor,
+{
+    fn dead_letter_path(&self, ctx: &Context<BackoffSupervisorMsg<A::Msg>>) -> ActorPath {
+        self.last_child_path
+            .clone()
+            .unwrap_or_else(|| ctx.myself().path().clone())
     }
 }
 

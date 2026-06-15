@@ -378,6 +378,10 @@ Implemented:
   restart-count reset whose default delay is the min/max midpoint, an optional
   max-restart cap that stops the supervisor when exhausted, typed child
   queries, and typed message forwarding to the current child.
+- `BackoffSupervisor` now records messages sent during the backoff window as
+  dead letters against the stopped child incarnation path, and focused tests
+  pin that those messages are dropped instead of being delivered to the
+  replacement child.
 - Supervision strategy definitions live in a focused `supervision` module.
 - `kairo-testkit` exposes a typed `TestProbe<M>` backed by a local actor and
   queue, plus `ActorSystemTestKit` for creating probe-backed local actor
