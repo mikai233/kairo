@@ -129,3 +129,93 @@ impl RemoteMessageMetadata {
         Ok(Self { manifest, version })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn expand_error(source: &str) -> String {
+        let input: DeriveInput = syn::parse_str(source).expect("test input should parse");
+        expand_remote_message(input).unwrap_err().to_string()
+    }
+
+    #[test]
+    fn remote_message_requires_manifest_metadata() {
+        let error = expand_error(
+            r#"
+            #[kairo(version = 1)]
+            struct MissingManifest;
+            "#,
+        );
+
+        assert_eq!(error, r#"missing #[kairo(manifest = "...")]"#);
+    }
+
+    #[test]
+    fn remote_message_requires_version_metadata() {
+        let error = expand_error(
+            r#"
+            #[kairo(manifest = "kairo.test.MissingVersion")]
+            struct MissingVersion;
+            "#,
+        );
+
+        assert_eq!(error, "missing #[kairo(version = N)]");
+    }
+
+    #[test]
+    fn remote_message_rejects_duplicate_metadata_keys() {
+        let duplicate_manifest = expand_error(
+            r#"
+            #[kairo(manifest = "kairo.test.One", manifest = "kairo.test.Two", version = 1)]
+            struct DuplicateManifest;
+            "#,
+        );
+        assert_eq!(duplicate_manifest, "duplicate manifest");
+
+        let duplicate_version = expand_error(
+            r#"
+            #[kairo(manifest = "kairo.test.DuplicateVersion", version = 1, version = 2)]
+            struct DuplicateVersion;
+            "#,
+        );
+        assert_eq!(duplicate_version, "duplicate version");
+    }
+
+    #[test]
+    fn remote_message_rejects_invalid_manifest_and_version_values() {
+        let empty_manifest = expand_error(
+            r#"
+            #[kairo(manifest = "  ", version = 1)]
+            struct EmptyManifest;
+            "#,
+        );
+        assert_eq!(empty_manifest, "manifest must not be empty");
+
+        let oversized_version = expand_error(
+            r#"
+            #[kairo(manifest = "kairo.test.Oversized", version = 70000)]
+            struct OversizedVersion;
+            "#,
+        );
+        assert!(
+            oversized_version.contains("number too large to fit in target type"),
+            "unexpected error: {oversized_version}"
+        );
+    }
+
+    #[test]
+    fn remote_message_rejects_generic_message_types() {
+        let error = expand_error(
+            r#"
+            #[kairo(manifest = "kairo.test.Generic", version = 1)]
+            struct Generic<T>(T);
+            "#,
+        );
+
+        assert_eq!(
+            error,
+            "KairoRemoteMessage does not support generic message types yet"
+        );
+    }
+}

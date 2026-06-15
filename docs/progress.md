@@ -609,6 +609,10 @@ Implemented:
 - `kairo-actor-macros` integration coverage now scans executable derive macro
   source for codec, registry, serializer-id, and concrete format references,
   keeping `KairoRemoteMessage` limited to stable manifest/version metadata.
+- `KairoRemoteMessage` parser coverage now rejects missing manifest/version
+  metadata, duplicate metadata keys, whitespace-only manifests, oversized
+  versions, and generic message types before a remote wire contract can be
+  generated.
 - `ActorRefWireData` stores serialized actor-ref paths with explicit protocol,
   system, host, and port metadata, and `ActorRefResolver` defines the provider
   boundary for formatting and resolving those refs later.
@@ -3635,5 +3639,10 @@ cargo test -p kairo-serialization wire_reader --all-targets --all-features
 cargo test -p kairo-serialization --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor-macros --test remote_message --all-features
+cargo test -p kairo-actor-macros --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor-macros --all-targets --all-features -- -D warnings
 git diff --check
 ```
