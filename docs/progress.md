@@ -920,6 +920,10 @@ Implemented:
 - Distributed-data client, delta, direct read/write, and gossip protocol
   codecs now reject unread trailing bytes after decoding the expected stable
   wire fields.
+- Distributed-data CRDT envelope codecs now validate nested CRDT manifest
+  metadata as non-empty before encoding outbound deltas/data envelopes and
+  while decoding inbound wire payloads, so whitespace-only CRDT manifests fail
+  at the codec boundary.
 - `kairo-distributed-data` now has focused read/write aggregation wire helpers
   that convert typed `DataEnvelope<D>` values to stable
   `ReplicatorDataEnvelope`, `ReplicatorWrite`, `ReplicatorRead`, and

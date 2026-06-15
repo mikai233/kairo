@@ -63,7 +63,10 @@ pub fn register_ddata_protocol_codecs(registry: &mut Registry) -> kairo_serializ
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-    use kairo_serialization::{ActorRefWireData, Manifest, RemoteMessage, SerializedMessage};
+    use kairo_serialization::{
+        ActorRefWireData, Manifest, RemoteMessage, SerializationError, SerializedMessage,
+        WireWriter,
+    };
 
     use super::*;
     use crate::{
@@ -446,6 +449,72 @@ mod tests {
             .expect_err("unknown version should fail");
 
         assert!(error.to_string().contains("unsupported"));
+    }
+
+    #[test]
+    fn ddata_delta_protocol_rejects_empty_crdt_manifest_metadata() {
+        let registry = registry();
+        let error = registry
+            .serialize(&ReplicatorDeltaPropagation {
+                from: ReplicaId::new("node-a"),
+                reply: false,
+                deltas: vec![ReplicatorDelta {
+                    key: "counter-a".to_string(),
+                    crdt_manifest: "   ".to_string(),
+                    crdt_version: crate::CRDT_CODEC_VERSION,
+                    from_version: 1,
+                    to_version: 2,
+                    payload: Bytes::from_static(&[1, 2, 3]),
+                }],
+            })
+            .expect_err("empty CRDT manifest should fail");
+
+        assert_eq!(
+            error,
+            SerializationError::InvalidManifest("   ".to_string())
+        );
+    }
+
+    #[test]
+    fn ddata_data_envelope_rejects_empty_crdt_manifest_metadata() {
+        let registry = registry();
+        let error = registry
+            .serialize(&ReplicatorWrite {
+                key: "counter-a".to_string(),
+                from: None,
+                envelope: ReplicatorDataEnvelope {
+                    crdt_manifest: "\t".to_string(),
+                    crdt_version: crate::CRDT_CODEC_VERSION,
+                    payload: Bytes::from_static(&[1, 2, 3]),
+                    pruning: Vec::new(),
+                },
+            })
+            .expect_err("empty data-envelope CRDT manifest should fail");
+
+        assert_eq!(error, SerializationError::InvalidManifest("\t".to_string()));
+    }
+
+    #[test]
+    fn ddata_data_envelope_decode_rejects_empty_crdt_manifest_metadata() {
+        let registry = registry();
+        let mut writer = WireWriter::new();
+        writer.write_bool(true);
+        writer.write_string("  ").unwrap();
+        writer.write_u16(crate::CRDT_CODEC_VERSION);
+        writer.write_bytes(&Bytes::from_static(&[1, 2, 3])).unwrap();
+        writer.write_u64(0);
+        let wire = SerializedMessage::new(
+            REPLICATOR_READ_RESULT_SERIALIZER_ID,
+            Manifest::new(ReplicatorReadResult::MANIFEST),
+            ReplicatorReadResult::VERSION,
+            writer.finish(),
+        );
+
+        let error = registry
+            .deserialize::<ReplicatorReadResult>(wire)
+            .expect_err("empty wire CRDT manifest should fail");
+
+        assert_eq!(error, SerializationError::InvalidManifest("  ".to_string()));
     }
 
     #[test]

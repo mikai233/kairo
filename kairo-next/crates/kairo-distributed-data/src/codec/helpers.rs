@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use kairo_serialization::{RemoteMessage, SerializationError, WireReader, WireWriter};
+use kairo_serialization::{Manifest, RemoteMessage, SerializationError, WireReader, WireWriter};
 
 use crate::{
     ReplicaId, ReplicatorDataEnvelope, ReplicatorDelta, ReplicatorPruningEntry,
@@ -33,6 +33,7 @@ pub(super) fn write_delta(
     delta: &ReplicatorDelta,
 ) -> kairo_serialization::Result<()> {
     writer.write_string(&delta.key)?;
+    validate_manifest_string(&delta.crdt_manifest)?;
     writer.write_string(&delta.crdt_manifest)?;
     writer.write_u16(delta.crdt_version);
     writer.write_u64(delta.from_version);
@@ -43,9 +44,11 @@ pub(super) fn write_delta(
 pub(super) fn read_delta(
     reader: &mut WireReader<'_>,
 ) -> kairo_serialization::Result<ReplicatorDelta> {
+    let key = reader.read_string()?;
+    let crdt_manifest = read_manifest_string(reader)?;
     Ok(ReplicatorDelta {
-        key: reader.read_string()?,
-        crdt_manifest: reader.read_string()?,
+        key,
+        crdt_manifest,
         crdt_version: reader.read_u16()?,
         from_version: reader.read_u64()?,
         to_version: reader.read_u64()?,
@@ -57,6 +60,7 @@ pub(super) fn write_data_envelope(
     writer: &mut WireWriter,
     envelope: &ReplicatorDataEnvelope,
 ) -> kairo_serialization::Result<()> {
+    validate_manifest_string(&envelope.crdt_manifest)?;
     writer.write_string(&envelope.crdt_manifest)?;
     writer.write_u16(envelope.crdt_version);
     writer.write_bytes(&envelope.payload)?;
@@ -71,7 +75,7 @@ pub(super) fn read_data_envelope(
     reader: &mut WireReader<'_>,
     version: u16,
 ) -> kairo_serialization::Result<ReplicatorDataEnvelope> {
-    let crdt_manifest = reader.read_string()?;
+    let crdt_manifest = read_manifest_string(reader)?;
     let crdt_version = reader.read_u16()?;
     let payload = reader.read_bytes()?;
     let pruning = if version >= 2 {
@@ -89,6 +93,16 @@ pub(super) fn read_data_envelope(
         payload,
         pruning,
     })
+}
+
+fn validate_manifest_string(manifest: &str) -> kairo_serialization::Result<()> {
+    Manifest::try_new(manifest.to_string()).map(|_| ())
+}
+
+fn read_manifest_string(reader: &mut WireReader<'_>) -> kairo_serialization::Result<String> {
+    let manifest = reader.read_string()?;
+    validate_manifest_string(&manifest)?;
+    Ok(manifest)
 }
 
 fn write_pruning_entry(
