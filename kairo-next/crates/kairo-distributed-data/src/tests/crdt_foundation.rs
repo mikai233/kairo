@@ -277,3 +277,132 @@ fn lww_register_prunes_removed_writer_to_survivor() {
     assert_eq!(pruned.timestamp(), 7);
     assert!(!pruned.need_pruning_from(&removed));
 }
+
+#[test]
+fn ormap_adds_entries_and_replays_put_deltas() {
+    let node = replica("a");
+    let map = ORMap::new()
+        .put(node.clone(), "a", GSet::new().add("A"))
+        .put(node, "b", GSet::new().add("B"));
+    let delta = map.delta().expect("put operations should collect a delta");
+
+    let replayed = ORMap::new().merge_delta(&delta);
+
+    assert_eq!(
+        replayed.get(&"a").unwrap().elements(),
+        &BTreeSet::from(["A"])
+    );
+    assert_eq!(
+        replayed.get(&"b").unwrap().elements(),
+        &BTreeSet::from(["B"])
+    );
+    assert_eq!(replayed.delta(), None);
+}
+
+#[test]
+fn ormap_removes_entry_and_replays_remove_delta() {
+    let node = replica("a");
+    let map = ORMap::new()
+        .put(node.clone(), "a", GSet::new().add("A"))
+        .put(node.clone(), "b", GSet::new().add("B"));
+    let add_delta = map.delta().expect("puts should collect a delta");
+    let remove_delta = map
+        .reset_delta()
+        .remove(node, &"a")
+        .delta()
+        .expect("remove should collect a delta");
+
+    let replayed = ORMap::new()
+        .merge_delta(&add_delta)
+        .merge_delta(&remove_delta);
+
+    assert!(!replayed.contains_key(&"a"));
+    assert_eq!(
+        replayed.get(&"b").unwrap().elements(),
+        &BTreeSet::from(["B"])
+    );
+}
+
+#[test]
+fn ormap_full_merge_keeps_observed_removed_keys_and_merges_concurrent_values() {
+    let node_a = replica("a");
+    let node_b = replica("b");
+    let left = ORMap::new()
+        .put(node_a.clone(), "a", GSet::new().add("A1"))
+        .put(node_a.clone(), "b", GSet::new().add("B1"))
+        .remove(node_a.clone(), &"a")
+        .put(node_a, "d", GSet::new().add("D1"))
+        .reset_delta();
+    let right = ORMap::new()
+        .put(node_b.clone(), "c", GSet::new().add("C2"))
+        .put(node_b.clone(), "a", GSet::new().add("A2"))
+        .put(node_b.clone(), "b", GSet::new().add("B2"))
+        .remove(node_b.clone(), &"b")
+        .put(node_b, "d", GSet::new().add("D2"))
+        .reset_delta();
+
+    let merged = left.merge(&right);
+
+    assert_eq!(
+        merged.get(&"a").unwrap().elements(),
+        &BTreeSet::from(["A2"])
+    );
+    assert_eq!(
+        merged.get(&"b").unwrap().elements(),
+        &BTreeSet::from(["B1"])
+    );
+    assert_eq!(
+        merged.get(&"c").unwrap().elements(),
+        &BTreeSet::from(["C2"])
+    );
+    assert_eq!(
+        merged.get(&"d").unwrap().elements(),
+        &BTreeSet::from(["D1", "D2"])
+    );
+}
+
+#[test]
+fn ormap_updated_uses_value_deltas_for_existing_delta_crdts() {
+    let node_a = replica("a");
+    let node_b = replica("b");
+    let initial = ORMap::new().put(node_a.clone(), "counter", GCounter::new());
+    let first_update =
+        initial
+            .reset_delta()
+            .updated(node_a.clone(), "counter", GCounter::new(), |counter| {
+                counter.increment(node_a, 10).unwrap()
+            });
+    let second_update =
+        first_update
+            .reset_delta()
+            .updated(node_b.clone(), "counter", GCounter::new(), |counter| {
+                counter.increment(node_b, 7).unwrap()
+            });
+
+    let replayed = ORMap::new()
+        .merge_delta(&initial.delta().unwrap())
+        .merge_delta(&first_update.delta().unwrap())
+        .merge_delta(&second_update.delta().unwrap());
+
+    assert_eq!(replayed.get(&"counter").unwrap().value().unwrap(), 17);
+}
+
+#[test]
+fn ormap_prunes_keys_and_values_modified_by_removed_replica() {
+    let removed = replica("removed");
+    let survivor = replica("survivor");
+    let map = ORMap::new()
+        .put(
+            removed.clone(),
+            "register",
+            LWWRegister::new(removed.clone(), "value", 1),
+        )
+        .reset_delta();
+
+    assert!(map.need_pruning_from(&removed));
+    let pruned = map.prune(&removed, survivor.clone()).unwrap();
+
+    assert!(!pruned.need_pruning_from(&removed));
+    assert!(pruned.modified_by_replica_ids().contains(&survivor));
+    assert_eq!(pruned.get(&"register").unwrap().node(), &survivor);
+}

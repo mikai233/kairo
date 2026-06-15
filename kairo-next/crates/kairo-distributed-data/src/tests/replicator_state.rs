@@ -151,6 +151,27 @@ fn replicator_state_stores_lww_register_updates_and_remote_delta() {
 }
 
 #[test]
+fn replicator_state_applies_remote_ormap_delta_to_zero_when_missing() {
+    let key = ReplicatorKey::new("ormap");
+    let node = replica("a");
+    let mut state = ReplicatorState::<ORMap<&'static str, GCounter>>::new();
+    let delta = ORMap::new()
+        .put(node.clone(), "counter", GCounter::new())
+        .updated(node.clone(), "counter", GCounter::new(), |counter| {
+            counter.increment(node, 4).unwrap()
+        })
+        .delta()
+        .unwrap();
+
+    state.write_delta(key.clone(), delta);
+
+    let GetResponse::Success { data, .. } = state.get_local(&key) else {
+        panic!("map should exist");
+    };
+    assert_eq!(data.get(&"counter").unwrap().value().unwrap(), 4);
+}
+
+#[test]
 fn replicator_state_flushes_changes_once_in_key_order() {
     let mut state = ReplicatorState::<GCounter>::new();
     let node = replica("a");

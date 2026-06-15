@@ -81,6 +81,7 @@ mod gossip_transport;
 mod gset;
 mod key;
 mod lww_register;
+mod ormap;
 mod orset;
 mod pncounter;
 mod protocol;
@@ -196,6 +197,7 @@ pub use gossip_transport::{
 pub use gset::GSet;
 pub use key::ReplicatorKey;
 pub use lww_register::{LWWRegister, default_lww_clock, reverse_lww_clock};
+pub use ormap::{ORMap, ORMapDelta};
 pub use orset::{ORSet, ORSetDelta, ORSetRemoveDelta};
 pub use pncounter::PNCounter;
 pub use protocol::{
