@@ -1665,7 +1665,10 @@ Implemented:
 - Cluster TCP peer bootstrap lifecycle coverage now also validates replacement
   peer routing: after removing a departed peer's route, publishing a new
   `UniqueAddress` for a replacement receiver installs a fresh membership-
-  derived socket route through the same bootstrap connector.
+  derived socket route through the same bootstrap connector. The scenario now
+  sends a stable membership `Join` through the old route, verifies the removed
+  route rejects later sends without delivering to the old membership actor,
+  then sends a `Join` through the replacement route.
 - Cluster TCP peer bootstrap now also has a three-node full-mesh socket
   validation: the first actor-backed connector installs membership-derived
   routes to both remote peers, carries stable-codec `Join` membership messages

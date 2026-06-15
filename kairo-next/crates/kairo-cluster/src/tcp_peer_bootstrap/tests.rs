@@ -444,11 +444,13 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
     let sender_kit = ActorSystemTestKit::new("cluster-bootstrap-replace-sender").unwrap();
     let old_receiver_kit = ActorSystemTestKit::new("cluster-bootstrap-replace-old").unwrap();
     let new_receiver_kit = ActorSystemTestKit::new("cluster-bootstrap-replace-new").unwrap();
+    let registry = registry();
     let sender_runtime = bind_runtime("cluster-bootstrap-replace-sender", 1, 11, &sender_kit);
-    let old_receiver_runtime =
-        bind_runtime("cluster-bootstrap-replace-old", 2, 22, &old_receiver_kit);
-    let new_receiver_runtime =
-        bind_runtime("cluster-bootstrap-replace-new", 3, 33, &new_receiver_kit);
+    let sender_cache = sender_runtime.association_cache().clone();
+    let (old_receiver_runtime, old_receiver_probes) =
+        bind_runtime_with_probes("cluster-bootstrap-replace-old", 2, 22, &old_receiver_kit);
+    let (new_receiver_runtime, new_receiver_probes) =
+        bind_runtime_with_probes("cluster-bootstrap-replace-new", 3, 33, &new_receiver_kit);
     let sender_node = sender_runtime.self_node().clone();
     let old_receiver_node = old_receiver_runtime.self_node().clone();
     let new_receiver_node = new_receiver_runtime.self_node().clone();
@@ -482,8 +484,44 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         &old_receiver_node,
     );
 
+    let sender_outbound = Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let old_membership_outbound = ClusterMembershipWireOutbound::new(
+        old_receiver_node.clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(sender_outbound.clone()),
+    );
+    send_join_until_received(
+        &old_membership_outbound,
+        &old_receiver_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["before-replacement".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
     publish_gossip(&sender_publisher, up_gossip([sender_node.clone()]));
     await_connector_no_routes(sender_bootstrap.connector(), &sender_snapshots);
+
+    let old_peer_error = old_membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: sender_node.clone(),
+                roles: vec!["after-old-removed".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("old peer route should reject sends after removal");
+    assert!(
+        old_peer_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected old-peer send error: {old_peer_error:?}"
+    );
+    old_receiver_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
 
     publish_gossip(
         &sender_publisher,
@@ -493,6 +531,21 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         sender_bootstrap.connector(),
         &sender_snapshots,
         &new_receiver_node,
+    );
+
+    let new_membership_outbound = ClusterMembershipWireOutbound::new(
+        new_receiver_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(sender_outbound),
+    );
+    send_join_until_received(
+        &new_membership_outbound,
+        &new_receiver_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["after-replacement".to_string()],
+        },
+        Duration::from_secs(1),
     );
 
     run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
