@@ -999,13 +999,13 @@ Implemented:
   present and later deliver queued `ReplicatorChange<D>` notifications only on
   flush, matching Pekko's separated update and notification turns.
 - `kairo-distributed-data` now has stable built-in CRDT data codecs for string
-  `GSet`, `GCounter`, `PNCounter`, and string `LWWRegister`, with explicit
-  manifests, codec version metadata, deterministic sorted encoding,
-  big-endian counter values, and explicit register writer/timestamp/value
-  fields.
+  `GSet`, `GCounter`, `PNCounter`, string `LWWRegister`, and string `ORSet`,
+  with explicit manifests, codec version metadata, deterministic sorted
+  encoding, big-endian counter values, explicit register
+  writer/timestamp/value fields, and ORSet version-vector/dot context.
 - Built-in distributed-data CRDT payload codecs now reject unread trailing
-  bytes after decoding `GSet`, `GCounter`, `PNCounter`, and `LWWRegister`
-  wire values.
+  bytes after decoding `GSet`, `GCounter`, `PNCounter`, `LWWRegister`, and
+  `ORSet` wire values.
 - `kairo-distributed-data::DeltaPropagationLog` tracks per-key delta sequence
   numbers, merges unsent deltas per target, advances sequence numbers for
   no-payload updates, selects remote replicas by Pekko-style round-robin

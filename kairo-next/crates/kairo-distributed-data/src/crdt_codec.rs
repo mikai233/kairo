@@ -1,12 +1,15 @@
+use std::collections::BTreeMap;
+
 use bytes::Bytes;
 use kairo_serialization::{SerializationError, WireReader, WireWriter};
 
-use crate::{GCounter, GSet, LWWRegister, PNCounter, ReplicaId};
+use crate::{GCounter, GSet, LWWRegister, ORSet, PNCounter, ReplicaId};
 
 pub const GSET_STRING_MANIFEST: &str = "kairo.ddata.gset-string";
 pub const GCOUNTER_MANIFEST: &str = "kairo.ddata.gcounter";
 pub const PNCOUNTER_MANIFEST: &str = "kairo.ddata.pncounter";
 pub const LWW_REGISTER_STRING_MANIFEST: &str = "kairo.ddata.lww-register-string";
+pub const ORSET_STRING_MANIFEST: &str = "kairo.ddata.orset-string";
 pub const CRDT_CODEC_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,6 +216,45 @@ impl CrdtDataCodec<LWWRegister<String>> for LWWRegisterStringCodec {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ORSetStringCodec;
+
+impl CrdtDataCodec<ORSet<String>> for ORSetStringCodec {
+    fn manifest(&self) -> &'static str {
+        ORSET_STRING_MANIFEST
+    }
+
+    fn encode_payload(&self, data: &ORSet<String>) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        write_version_vector(&mut writer, data.version_vector_entries())?;
+        writer.write_u64(len_to_u64(data.len())?);
+        for (element, dots) in data.element_dots() {
+            writer.write_string(element)?;
+            write_version_vector(&mut writer, dots)?;
+        }
+        Ok(writer.finish())
+    }
+
+    fn decode_payload(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<ORSet<String>> {
+        ensure_version(self.manifest(), version)?;
+        let mut reader = WireReader::new(&payload);
+        let version_vector = read_version_vector(&mut reader)?;
+        let len = reader.read_u64()?;
+        let mut elements = Vec::with_capacity(u64_to_len(len)?);
+        for _ in 0..len {
+            let element = reader.read_string()?;
+            let dots = read_version_vector(&mut reader)?;
+            elements.push((element, dots));
+        }
+        reader.ensure_finished()?;
+        Ok(ORSet::from_wire_state(elements, version_vector))
+    }
+}
+
 fn ensure_version(manifest: &str, version: u16) -> kairo_serialization::Result<()> {
     if version == CRDT_CODEC_VERSION {
         Ok(())
@@ -232,6 +274,29 @@ fn u64_to_len(len: u64) -> kairo_serialization::Result<usize> {
     usize::try_from(len).map_err(|_| {
         SerializationError::Message("CRDT collection length exceeds usize".to_string())
     })
+}
+
+fn write_version_vector(
+    writer: &mut WireWriter,
+    entries: &BTreeMap<ReplicaId, u64>,
+) -> kairo_serialization::Result<()> {
+    writer.write_u64(len_to_u64(entries.len())?);
+    for (replica, version) in entries {
+        writer.write_string(replica.as_str())?;
+        writer.write_u64(*version);
+    }
+    Ok(())
+}
+
+fn read_version_vector(
+    reader: &mut WireReader<'_>,
+) -> kairo_serialization::Result<BTreeMap<ReplicaId, u64>> {
+    let len = reader.read_u64()?;
+    let mut entries = BTreeMap::new();
+    for _ in 0..len {
+        entries.insert(ReplicaId::new(reader.read_string()?), reader.read_u64()?);
+    }
+    Ok(entries)
 }
 
 fn timestamp_to_wire(timestamp: i64) -> u64 {

@@ -82,6 +82,42 @@ fn crdt_codecs_round_trip_lww_register_string() {
 }
 
 #[test]
+fn crdt_codecs_round_trip_orset_strings_with_dots() {
+    let entity = "entity".to_string();
+    let other = "other".to_string();
+    let left = ORSet::new().add(replica("b"), entity.clone()).reset_delta();
+    let right = ORSet::new()
+        .add(replica("a"), entity.clone())
+        .add(replica("a"), other)
+        .reset_delta();
+    let data = left.merge(&right).reset_delta();
+
+    let serialized = ORSetStringCodec.serialize(&data).unwrap();
+    let serialized_again = ORSetStringCodec.serialize(&data).unwrap();
+
+    assert_eq!(serialized.manifest(), crate::ORSET_STRING_MANIFEST);
+    assert_eq!(serialized.payload(), serialized_again.payload());
+
+    let decoded = ORSetStringCodec.deserialize(serialized).unwrap();
+    assert_eq!(decoded, data);
+    assert_eq!(decoded.dots_for(&entity).unwrap().len(), 2);
+}
+
+#[test]
+fn crdt_codecs_orset_strings_preserve_removal_context() {
+    let entity = "entity".to_string();
+    let added = ORSet::new().add(replica("a"), entity.clone()).reset_delta();
+    let removed = added.remove(replica("b"), &entity).reset_delta();
+
+    let decoded_removed = ORSetStringCodec
+        .deserialize(ORSetStringCodec.serialize(&removed).unwrap())
+        .unwrap();
+
+    assert_eq!(decoded_removed, removed);
+    assert!(!decoded_removed.merge(&added).contains(&entity));
+}
+
+#[test]
 fn crdt_codecs_reject_wrong_manifest_and_unknown_version() {
     let data = GCounter::new().increment(replica("a"), 1).unwrap();
     let serialized = GCounterCodec.serialize(&data).unwrap();
@@ -129,6 +165,9 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
         .unwrap()
         .reset_delta();
     let register = LWWRegister::new(replica("a"), "value".to_string(), -7);
+    let or_set = ORSet::new()
+        .add(replica("a"), "value".to_string())
+        .reset_delta();
 
     let error = GSetStringCodec
         .deserialize(with_trailing_byte(GSetStringCodec.serialize(&set).unwrap()))
@@ -154,5 +193,12 @@ fn crdt_codecs_reject_trailing_payload_bytes() {
             LWWRegisterStringCodec.serialize(&register).unwrap(),
         ))
         .expect_err("trailing LWWRegister payload byte should fail");
+    assert!(error.to_string().contains("trailing byte"));
+
+    let error = ORSetStringCodec
+        .deserialize(with_trailing_byte(
+            ORSetStringCodec.serialize(&or_set).unwrap(),
+        ))
+        .expect_err("trailing ORSet payload byte should fail");
     assert!(error.to_string().contains("trailing byte"));
 }

@@ -94,6 +94,31 @@ where
         self.elements.get(element).map(VersionVector::entries)
     }
 
+    pub(crate) fn from_wire_state(
+        elements: impl IntoIterator<Item = (T, BTreeMap<ReplicaId, u64>)>,
+        version_vector: BTreeMap<ReplicaId, u64>,
+    ) -> Self {
+        Self {
+            elements: elements
+                .into_iter()
+                .filter(|(_, dots)| !dots.is_empty())
+                .map(|(element, dots)| (element, VersionVector(dots)))
+                .collect(),
+            version_vector: VersionVector(version_vector),
+            delta: None,
+        }
+    }
+
+    pub(crate) fn element_dots(&self) -> impl Iterator<Item = (&T, &BTreeMap<ReplicaId, u64>)> {
+        self.elements
+            .iter()
+            .map(|(element, dots)| (element, dots.entries()))
+    }
+
+    pub(crate) fn version_vector_entries(&self) -> &BTreeMap<ReplicaId, u64> {
+        self.version_vector.entries()
+    }
+
     fn merge_add_delta(&self, add: &Self) -> Self {
         let mut elements = self.elements.clone();
         for (element, add_dots) in &add.elements {
