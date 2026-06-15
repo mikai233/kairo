@@ -2655,7 +2655,9 @@ Implemented:
   sharding APIs, and the current runnable examples.
 - The `kairo` facade test suite now pins the root workspace boundary so normal
   Cargo builds include only `kairo-next/crates/*` and do not point members or
-  workspace dependencies at the legacy `crates/` reference tree.
+  workspace dependencies at the legacy `crates/` reference tree; it also scans
+  each `kairo-next/crates/*/Cargo.toml` manifest so active next crates cannot
+  reintroduce direct path dependencies on the legacy tree.
 - `docs/migration.md` now documents the current migration path from the old
   reference crates to the `kairo` facade, including typed actor protocols,
   TOML configuration, remote-message wire metadata, sharding routing, cluster
@@ -3418,5 +3420,10 @@ cargo test -p kairo-testkit within --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo next_crate_manifests_do_not_depend_on_legacy_crates --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```

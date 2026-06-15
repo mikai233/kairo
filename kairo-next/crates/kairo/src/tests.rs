@@ -2,13 +2,18 @@
 #[derive(Debug)]
 struct PreludeRemoteMsg;
 
-#[test]
-fn root_workspace_members_stay_on_kairo_next() -> Result<(), Box<dyn std::error::Error>> {
+fn repo_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
     let crate_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = crate_dir
+    Ok(crate_dir
         .ancestors()
         .nth(3)
-        .ok_or("kairo crate should live under kairo-next/crates/kairo")?;
+        .ok_or("kairo crate should live under kairo-next/crates/kairo")?
+        .to_path_buf())
+}
+
+#[test]
+fn root_workspace_members_stay_on_kairo_next() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
     let root_manifest = std::fs::read_to_string(repo_root.join("Cargo.toml"))?;
     let root_manifest = root_manifest.replace("\r\n", "\n");
 
@@ -28,6 +33,41 @@ fn root_workspace_members_stay_on_kairo_next() -> Result<(), Box<dyn std::error:
         !root_manifest.contains("path = \"crates/"),
         "workspace dependencies must not point at legacy crates/"
     );
+
+    Ok(())
+}
+
+#[test]
+fn next_crate_manifests_do_not_depend_on_legacy_crates() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let next_crates = repo_root.join("kairo-next").join("crates");
+    let legacy_path_patterns = [
+        "path = \"crates/",
+        "path = \"../crates/",
+        "path = \"../../crates/",
+        "path = \"../../../crates/",
+        "path = \"../../../../crates/",
+    ];
+
+    for entry in std::fs::read_dir(next_crates)? {
+        let entry = entry?;
+        let manifest_path = entry.path().join("Cargo.toml");
+        if !manifest_path.is_file() {
+            continue;
+        }
+
+        let manifest = std::fs::read_to_string(&manifest_path)?
+            .replace("\r\n", "\n")
+            .replace('\\', "/");
+
+        for pattern in legacy_path_patterns {
+            assert!(
+                !manifest.contains(pattern),
+                "{} must not depend on legacy crates/ with `{pattern}`",
+                manifest_path.display()
+            );
+        }
+    }
 
     Ok(())
 }
