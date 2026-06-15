@@ -1780,6 +1780,10 @@ Implemented:
   merge, observer-owned reachability/failure-detector observations, why
   discovery is contact-only, and why Kairo does not use etcd or another
   central membership authority, with a compile-checked example.
+- `kairo-cluster` now has a source-level guard that scans active non-test Rust
+  sources for central membership-store terms and known centralized membership
+  backends, while leaving split-brain lease-majority as an explicit downing
+  hook rather than a membership authority.
 - `kairo-cluster` now has an actor-backed TCP peer connector that subscribes
   to cluster snapshots/events, feeds the cluster TCP peer runtime, exposes
   explicit deterministic retry ticks, can schedule fixed-delay retry ticks with
@@ -3451,5 +3455,10 @@ cargo test -p kairo-cluster-sharding sharding_sources_do_not_use_rust_default_ha
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster cluster_sources_do_not_introduce_authoritative_membership_store --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 git diff --check
 ```

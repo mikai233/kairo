@@ -170,3 +170,67 @@ pub use wire::{
     ClusterMembershipWireError, ClusterMembershipWireInbound, ClusterMembershipWireOutbound,
     ClusterMembershipWireOutboundActor, ClusterSerializedMembership,
 };
+
+#[cfg(test)]
+mod source_guards {
+    #[test]
+    fn cluster_sources_do_not_introduce_authoritative_membership_store()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let crate_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let forbidden_terms = [
+            concat!("et", "cd"),
+            concat!("kuber", "netes"),
+            "membership_store",
+            "membershipstore",
+            "centralmembershipstore",
+        ];
+
+        let mut files = Vec::new();
+        collect_active_rs_files(&crate_src, &mut files)?;
+
+        for file in files {
+            let source = std::fs::read_to_string(&file)?.replace("\r\n", "\n");
+            for (line_index, line) in source.lines().enumerate() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+
+                let normalized_line = line.to_ascii_lowercase();
+                for term in forbidden_terms {
+                    assert!(
+                        !normalized_line.contains(term),
+                        "{}:{} must keep cluster membership gossip-based; discovery may provide contacts but not membership truth",
+                        file.display(),
+                        line_index + 1
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn collect_active_rs_files(
+        directory: &std::path::Path,
+        files: &mut Vec<std::path::PathBuf>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for entry in std::fs::read_dir(directory)? {
+            let entry = entry?;
+            let path = entry.path();
+            let file_name = path.file_name().and_then(|name| name.to_str());
+            if path.is_dir() {
+                if file_name == Some("tests") {
+                    continue;
+                }
+                collect_active_rs_files(&path, files)?;
+            } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs")
+                && !file_name.is_some_and(|name| name == "lib.rs" || name.contains("test"))
+            {
+                files.push(path);
+            }
+        }
+
+        Ok(())
+    }
+}
