@@ -76,6 +76,14 @@ impl<M> Listing<M> {
     pub fn service_instances(&self) -> &[ActorRef<M>] {
         &self.service_instances
     }
+
+    pub fn all_service_instances(&self) -> &[ActorRef<M>] {
+        &self.service_instances
+    }
+
+    pub fn services_were_added_or_removed(&self) -> bool {
+        true
+    }
 }
 
 impl<M> Clone for Listing<M> {

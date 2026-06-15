@@ -96,6 +96,34 @@ fn receptionist_subscribe_gets_initial_listing_and_updates() {
 }
 
 #[test]
+fn local_receptionist_listing_reports_all_services_as_reachable() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let key = ServiceKey::<()>::new("svc");
+    let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
+
+    assert!(system.receptionist().register(key.clone(), service.clone()));
+    let listing = system.receptionist().find(&key);
+
+    assert!(listing.services_were_added_or_removed());
+    assert_eq!(
+        listing
+            .service_instances()
+            .iter()
+            .map(ActorRef::path)
+            .collect::<Vec<_>>(),
+        vec![service.path()]
+    );
+    assert_eq!(
+        listing
+            .all_service_instances()
+            .iter()
+            .map(ActorRef::path)
+            .collect::<Vec<_>>(),
+        vec![service.path()]
+    );
+}
+
+#[test]
 fn receptionist_register_with_ack_confirms_processed_registration() {
     let system = ActorSystem::builder("test").build().unwrap();
     let key = ServiceKey::<()>::new("svc");

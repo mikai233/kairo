@@ -308,6 +308,10 @@ Implemented:
   `Registered<M>` and `Deregistered<M>` acknowledgement messages to explicit
   reply actors, preserving Pekko's observable acknowledgement shape while
   keeping Kairo's Rust-first direct method API.
+- Local `Listing<M>` now exposes `all_service_instances` and
+  `services_were_added_or_removed`; for the local-only receptionist the
+  all-services and reachable-services sets are identical and the change flag is
+  always true, matching Pekko's non-clustered receptionist semantics.
 - Local receptionist coverage now pins Pekko's multi-key cleanup semantics:
   when one actor is registered for several service keys, actor termination
   removes that actor from each listing and publishes empty updates to each
@@ -3648,6 +3652,11 @@ cargo test -p kairo-actor-macros --test remote_message --all-features
 cargo test -p kairo-actor-macros --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor-macros --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor receptionist --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor receptionist --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
