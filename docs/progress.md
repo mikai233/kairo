@@ -3184,11 +3184,11 @@ Not yet implemented:
   validation that now proves first-delivery remember writes after automatic
   shard allocation.
 - Socket integration still needs broader lifecycle tests around the bootstrap
-  facades beyond the current localhost crate, focused sender-side
-  route-reduction delivery coverage, cluster and cluster-tools three-node
-  full-mesh delivery coverage, and example routeful coordinated-shutdown smoke
-  tests; cluster, distributed-data, and cluster-tools bootstraps now have
-  crate-level routeful `run_coordinated_shutdown` coverage.
+  facades beyond the current localhost crate; cluster, distributed-data, and
+  cluster-tools bootstraps now have crate-level routeful
+  `run_coordinated_shutdown` coverage, focused sender-side route-reduction
+  delivery coverage, and three-node full-mesh delivery coverage where
+  applicable.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation, focused three-node route-preservation
@@ -3197,6 +3197,8 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
+cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
 cargo test -p kairo-actor restart_preserving_children_keeps_child_lookup_and_name_reserved --all-targets --all-features
 cargo test -p kairo-actor supervision --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
