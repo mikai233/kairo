@@ -1093,6 +1093,11 @@ Implemented:
   coverage proves per-actor `RemoteTerminated` metadata becomes a local
   `Terminated` signal and that unwatch removes both local and remote
   registrations before later watchee termination.
+- TCP actor-system runtime coverage now pins the multi-watcher unwatch
+  boundary: when two local actors watch the same remote watchee, unwatching
+  one removes only that local path/watch pair, keeps the remaining sender and
+  receiver remote-watch state active, and later delivers the remote
+  termination only to the still-watching actor.
 - Remote address termination now completes local path-based watches for every
   watched actor on the terminated remote address; TCP loopback coverage proves
   a stable `AddressTerminated` control message routed through remote
@@ -4402,4 +4407,10 @@ cargo test -p kairo-remote --all-targets --all-features
 cargo test -p kairo-examples --all-targets --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
+cargo test -p kairo-remote tcp_remote_actor_system_unwatch_one_of_two_remote_watchers_keeps_other_watch --all-targets --all-features -- --nocapture
+cargo test -p kairo-remote tcp_runtime --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
 ```
