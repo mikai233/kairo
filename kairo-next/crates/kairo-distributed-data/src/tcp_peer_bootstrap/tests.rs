@@ -615,6 +615,71 @@ fn bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry() {
 }
 
 #[test]
+fn bootstrap_coordinated_shutdown_stops_connector_with_pending_reconnect() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-shutdown-pending-sender").unwrap();
+    let sender_runtime = bind_runtime(
+        "ddata-bootstrap-shutdown-pending-sender",
+        1,
+        11,
+        ReplicaId::new("sender"),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let missing_node = UniqueAddress::new(
+        Address::new(
+            "kairo",
+            "ddata-bootstrap-shutdown-pending-missing",
+            Some("127.0.0.1".to_string()),
+            Some(unused_port()),
+        ),
+        2,
+    );
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_connector_name("sender-ddata-peer");
+
+    let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), missing_node.clone()]),
+    );
+    await_connector_pending_reconnect(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &missing_node,
+    );
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    assert_eq!(sender_cache.route_count(), 0);
+
+    publish_gossip(&sender_publisher, up_gossip([sender_node, missing_node]));
+    thread::sleep(Duration::from_millis(50));
+    assert!(sender_kit.system().dead_letters().is_empty());
+    assert_eq!(sender_cache.route_count(), 0);
+
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
     let _guard = bootstrap_socket_test_lock();
     let registry = registry();

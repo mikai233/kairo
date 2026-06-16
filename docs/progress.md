@@ -294,6 +294,11 @@ Implemented:
   is cleared by the bootstrap shutdown task, a follow-up membership
   publication produces no stale adapter dead letters and does not recreate the
   cluster-tools socket route.
+- Cluster, distributed-data, and cluster-tools TCP peer bootstrap lifecycle
+  coverage now also pins coordinated shutdown while a failed dial is awaiting
+  retry: each bootstrap-owned connector reports the pending reconnect before
+  shutdown, the stop task clears socket routes, and later membership
+  publications do not leave stale adapter dead letters or recreate routes.
 - Cluster TCP peer connector route application now runs through queued
   actor-owned tasks so blocking TCP dials do not hold the actor message turn;
   connector snapshots are served from cached runtime state and task
