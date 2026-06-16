@@ -659,6 +659,10 @@ Implemented:
   diagnostic observers into installed stream pipelines, so route removal and
   runtime shutdown close reasons are observable through the same backend-neutral
   association diagnostic channel.
+- `RemoteOutbound::close`, `RemoteAssociationCache::remove_route_and_close`,
+  and the cluster/distributed-data/cluster-tools TCP peer route owners now close
+  removed cached association routes with subsystem-specific reasons instead of
+  silently dropping live route entries from the cache.
 - `ClusterEventPublisher::with_diagnostics`,
   `ClusterDiagnosticFilter`, and `DiagnosticsConfig::cluster_diagnostics` now
   surface backend-neutral gossip state-change diagnostics with previous gossip,

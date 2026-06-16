@@ -102,6 +102,10 @@ impl RemoteOutbound for AssociationOutboundPipeline {
     fn send(&self, envelope: RemoteEnvelope) -> Result<()> {
         self.outbound.send(envelope)
     }
+
+    fn close(&self, reason: &str) -> Result<()> {
+        AssociationOutboundPipeline::close(self, reason)
+    }
 }
 
 #[cfg(test)]

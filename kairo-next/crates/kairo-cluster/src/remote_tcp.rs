@@ -141,7 +141,17 @@ impl ClusterTcpAssociationRuntime {
     }
 
     pub fn remove_route(&self, address: &RemoteAssociationAddress) -> bool {
-        self.association_cache.remove_route(address).is_some()
+        self.remove_route_with_reason(address, "cluster tcp association route removed")
+    }
+
+    pub fn remove_route_with_reason(
+        &self,
+        address: &RemoteAssociationAddress,
+        reason: &str,
+    ) -> bool {
+        self.association_cache
+            .remove_route_and_close(address, reason)
+            .is_some()
     }
 
     pub fn shutdown(self) -> RemoteResult<TcpAssociationListenerReport> {

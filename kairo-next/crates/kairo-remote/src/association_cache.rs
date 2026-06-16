@@ -151,6 +151,14 @@ impl RemoteAssociationCache {
             .remove(address)
     }
 
+    pub fn remove_route_and_close(
+        &self,
+        address: &RemoteAssociationAddress,
+        reason: &str,
+    ) -> Option<Result<()>> {
+        self.remove_route(address).map(|route| route.close(reason))
+    }
+
     pub fn clear_routes(&self) -> usize {
         let mut routes = self
             .routes
@@ -363,6 +371,51 @@ mod tests {
         );
 
         assert_eq!(cache.clear_routes(), 2);
+        assert_eq!(cache.route_count(), 0);
+    }
+
+    #[test]
+    fn remove_route_and_close_closes_removed_route() {
+        #[derive(Default)]
+        struct CloseTrackingOutbound {
+            closed: Mutex<Vec<String>>,
+        }
+
+        impl CloseTrackingOutbound {
+            fn closed(&self) -> Vec<String> {
+                self.closed
+                    .lock()
+                    .expect("close tracking outbound mutex poisoned")
+                    .clone()
+            }
+        }
+
+        impl RemoteOutbound for CloseTrackingOutbound {
+            fn send(&self, _envelope: RemoteEnvelope) -> Result<()> {
+                Ok(())
+            }
+
+            fn close(&self, reason: &str) -> Result<()> {
+                self.closed
+                    .lock()
+                    .expect("close tracking outbound mutex poisoned")
+                    .push(reason.to_string());
+                Ok(())
+            }
+        }
+
+        let cache = RemoteAssociationCache::new();
+        let outbound = Arc::new(CloseTrackingOutbound::default());
+        let address =
+            RemoteAssociationAddress::new("kairo", "close", "127.0.0.1", Some(25520)).unwrap();
+        cache.insert_route(address.clone(), outbound.clone() as Arc<dyn RemoteOutbound>);
+
+        cache
+            .remove_route_and_close(&address, "peer route removed")
+            .expect("route should be removed")
+            .unwrap();
+
+        assert_eq!(outbound.closed(), vec!["peer route removed".to_string()]);
         assert_eq!(cache.route_count(), 0);
     }
 

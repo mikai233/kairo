@@ -72,7 +72,9 @@ impl RemoteAssociationRouteInstaller {
         &self,
         address: &RemoteAssociationAddress,
     ) -> Option<Arc<dyn RemoteOutbound>> {
-        self.cache.remove_route(address)
+        let route = self.cache.remove_route(address)?;
+        let _ = route.close("remote association route removed");
+        Some(route)
     }
 }
 
@@ -278,6 +280,31 @@ mod tests {
             vec![RemoteAssociationDiagnostic::Closed {
                 remote: "kairo://remote@127.0.0.1:25520".to_string(),
                 reason: "peer route removed".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn installer_remove_route_closes_removed_stream_pipeline_association() {
+        let cache = RemoteAssociationCache::new();
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+        let installer = RemoteAssociationRouteInstaller::new(cache.clone())
+            .with_diagnostics(diagnostics.clone() as Arc<dyn RemoteAssociationDiagnostics>);
+        installer.insert_stream_pipeline(
+            address(),
+            Arc::new(CollectingByteSink::default()),
+            Arc::new(CollectingByteSink::default()),
+            Arc::new(CollectingByteSink::default()),
+        );
+
+        assert!(installer.remove_route(&address()).is_some());
+
+        assert_eq!(cache.route_count(), 0);
+        assert_eq!(
+            diagnostics.records(),
+            vec![RemoteAssociationDiagnostic::Closed {
+                remote: "kairo://remote@127.0.0.1:25520".to_string(),
+                reason: "remote association route removed".to_string(),
             }]
         );
     }
