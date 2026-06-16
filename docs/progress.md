@@ -2989,7 +2989,9 @@ Implemented:
 - `kairo-cluster` TCP membership/downing socket coverage now pins a three-node
   route-preservation path: one membership receiver can mark and down a sender
   as unreachable while the sender keeps its remaining TCP route live and
-  delivers a later join to a second receiver.
+  delivers a later join to a second receiver. The same scenario now advances
+  the second receiver's downing timer afterward, proving independent
+  reachability/downing state still applies over the surviving socket route.
 - `kairo-cluster` TCP peer bootstrap coverage now pins sender-side route
   reduction with live membership delivery: after one of two remote peers leaves
   the sender's cluster membership view, the remaining membership route
@@ -3150,6 +3152,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check

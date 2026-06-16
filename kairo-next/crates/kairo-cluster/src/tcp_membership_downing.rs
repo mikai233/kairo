@@ -129,7 +129,8 @@ fn tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender() 
     let sender_kit = ActorSystemTestKit::new("cluster-live-downing-multi-sender").unwrap();
     let (first_kit, first_time) =
         ActorSystemTestKit::with_manual_time("cluster-live-downing-multi-first").unwrap();
-    let second_kit = ActorSystemTestKit::new("cluster-live-downing-multi-second").unwrap();
+    let (second_kit, second_time) =
+        ActorSystemTestKit::with_manual_time("cluster-live-downing-multi-second").unwrap();
     let registry = registry();
     let sender = bind_probe_runtime("multi-sender", 1, 11, &sender_kit, registry.clone());
     let first_membership = SharedMembership::default();
@@ -152,11 +153,12 @@ fn tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender() 
         &second_kit,
         registry.clone(),
         second_membership.clone(),
-        second_snapshots,
+        second_snapshots.clone(),
     );
     let first_membership = first_membership.take();
     let first_snapshots = first_snapshots.take();
     let second_membership = second_membership.take();
+    let second_snapshots = second_snapshots.take();
 
     let first_registration = sender.dial(first.local_address().clone()).unwrap();
     let second_registration = sender.dial(second.local_address().clone()).unwrap();
@@ -278,6 +280,48 @@ fn tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender() 
             .unwrap(),
         &late_node,
         MemberStatus::Joining,
+    );
+
+    second_membership
+        .tell(ClusterMembershipMsg::MarkUnreachable {
+            observer: second.self_node().clone(),
+            subject: sender.self_node().clone(),
+        })
+        .unwrap();
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            second_snapshots
+                .provider
+                .tell(DowningProviderMsg::Snapshot {
+                    reply_to: second_snapshots.snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = second_snapshots
+                .snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            if snapshot.responsible
+                && snapshot.stable_timer_active
+                && snapshot.relevant_unreachable == vec![sender.self_node().clone()]
+            {
+                Ok(())
+            } else {
+                Err(format!("unexpected second downing snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
+
+    second_time.advance(Duration::from_millis(10));
+    assert_member_status(
+        &second_membership,
+        &second_kit
+            .create_probe::<Gossip>("multi-second-downed-gossip")
+            .unwrap(),
+        sender.self_node(),
+        MemberStatus::Down,
     );
 
     assert!(sender.remove_route(second.local_address()));
