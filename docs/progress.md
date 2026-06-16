@@ -1002,6 +1002,10 @@ Implemented:
 - Remote death-watch state tests now live in a focused sibling test module
   instead of the production state-machine file, preserving coverage for watch,
   unwatch, heartbeat, remote UID, inbound watch, and unreachable transitions.
+- Remote death-watch state coverage now also pins Pekko-style self-watch
+  cleanup when multiple local watchers observe the same remote watchee:
+  removing one watcher sends only that pair's remote unwatch while heartbeat
+  and the remaining watch stay active until the final watcher is removed.
 - Remote death-watch state now keeps inbound remote watch registrations
   separate from outbound watch intent, so decoded wire watch/unwatch messages
   record the remote watcher of a local watchee without starting local outbound
@@ -3219,6 +3223,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-remote unwatch_keeps_self_watch_until_last_watcher_of_watchee_is_removed --all-targets --all-features
+cargo test -p kairo-remote remote_watch --all-targets --all-features
+cargo test -p kairo-remote tcp_listener_report_includes_reader_supervision_decisions --all-targets --all-features -- --nocapture
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding shard_actor_completes_remember_stop_update_before_removal --all-targets --all-features
 cargo test -p kairo-cluster-sharding shard_actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features

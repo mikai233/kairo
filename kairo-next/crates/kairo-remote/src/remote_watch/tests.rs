@@ -179,6 +179,52 @@ fn unwatch_keeps_heartbeat_while_other_watches_remain_on_address() {
 }
 
 #[test]
+fn unwatch_keeps_self_watch_until_last_watcher_of_watchee_is_removed() {
+    let mut state = RemoteDeathWatchState::new();
+    let watchee = watchee("target");
+    let first_watcher = watcher("first");
+    let second_watcher = watcher("second");
+    state.watch(watchee.clone(), first_watcher.clone());
+    state.watch(watchee.clone(), second_watcher.clone());
+
+    let effects = state.unwatch(&watchee, &first_watcher);
+
+    assert_eq!(
+        effects,
+        vec![RemoteDeathWatchEffect::SendUnwatchRemote(UnwatchRemote {
+            watchee: watchee.clone(),
+            watcher: first_watcher
+        })]
+    );
+    assert_eq!(state.watching_count(), 1);
+    assert_eq!(state.watched_address_count(), 1);
+    assert_eq!(
+        state.watching_refs(),
+        vec![WatchRemote {
+            watchee: watchee.clone(),
+            watcher: second_watcher.clone()
+        }]
+    );
+
+    let effects = state.unwatch(&watchee, &second_watcher);
+
+    assert_eq!(
+        effects,
+        vec![
+            RemoteDeathWatchEffect::SendUnwatchRemote(UnwatchRemote {
+                watchee,
+                watcher: second_watcher
+            }),
+            RemoteDeathWatchEffect::StopHeartbeat {
+                address: "kairo://remote@127.0.0.1:25520".to_string()
+            },
+        ]
+    );
+    assert_eq!(state.watching_count(), 0);
+    assert_eq!(state.watched_address_count(), 0);
+}
+
+#[test]
 fn heartbeat_due_skips_unreachable_addresses() {
     let mut state = RemoteDeathWatchState::new();
     state.watch(watchee("target"), watcher("observer"));
