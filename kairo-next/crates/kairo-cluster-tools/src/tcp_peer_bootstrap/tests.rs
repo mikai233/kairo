@@ -1104,7 +1104,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let third_outbound = Arc::new(third_cache.clone()) as Arc<dyn RemoteOutbound>;
     let third_to_first = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
         first_node.clone(),
-        registry,
+        registry.clone(),
         third_outbound,
     );
     third_to_first
@@ -1147,6 +1147,58 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     );
     assert_eq!(second_cache.route_count(), 1);
     assert_eq!(third_cache.route_count(), 2);
+
+    let removed_second_to_third_error = second_to_third
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("peer-orders-after-reduction"),
+            message: TestMessage { value: 89 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("second-to-third route should reject sends after third is removed");
+    assert!(
+        removed_second_to_third_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected second-to-third send error: {removed_second_to_third_error:?}"
+    );
+    third_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    let first_to_second_after_reduction = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        second_node.clone(),
+        registry,
+        Arc::new(first_cache.clone()) as Arc<dyn RemoteOutbound>,
+    );
+    first_to_second_after_reduction
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders-after-reduction"),
+            message: TestMessage { value: 90 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &second_probes,
+        TopicName::new("orders-after-reduction"),
+        TestMessage { value: 90 },
+    );
+
+    second_to_first
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("first-after-reduction"),
+            message: TestMessage { value: 91 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &first_probes,
+        TopicName::new("first-after-reduction"),
+        TestMessage { value: 91 },
+    );
 
     run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
     assert_eq!(first_cache.route_count(), 0);

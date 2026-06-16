@@ -3025,7 +3025,10 @@ Implemented:
   second-to-third and third-to-second pubsub publish delivery after all three
   connectors install routes, so the three-node tools bootstrap test verifies
   cross-peer socket delivery instead of only route counts outside the first
-  publisher.
+  publisher. The same test now reduces the membership view to two nodes,
+  verifies second-to-third publishes reject through the removed association
+  route, and proves first-to-second plus second-to-first pubsub delivery still
+  works across the surviving routes.
 - `kairo-distributed-data` TCP peer bootstrap two-node route coverage now
   pins coordinated shutdown cleanup of installed association routes on both
   peers after cluster membership installs them.
@@ -3147,6 +3150,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
 cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all -- --check
