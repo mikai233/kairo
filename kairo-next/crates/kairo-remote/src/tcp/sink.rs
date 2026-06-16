@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{self, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -94,13 +94,22 @@ impl RemoteByteSink for TcpRemoteByteSink {
     }
 
     fn close(&self) -> Result<()> {
-        self.stream
+        let result = self
+            .stream
             .lock()
             .expect("tcp remote byte sink mutex poisoned")
-            .shutdown(Shutdown::Both)
-            .map_err(|error| {
-                RemoteError::Outbound(format!("tcp close to {} failed: {error}", self.peer))
-            })
+            .shutdown(Shutdown::Both);
+        map_tcp_shutdown_result(&self.peer, result)
+    }
+}
+
+fn map_tcp_shutdown_result(peer: &str, result: io::Result<()>) -> Result<()> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotConnected => Ok(()),
+        Err(error) => Err(RemoteError::Outbound(format!(
+            "tcp close to {peer} failed: {error}"
+        ))),
     }
 }
 
@@ -128,4 +137,35 @@ fn tcp_outbound_failure(
     error: impl std::error::Error,
 ) -> RemoteError {
     RemoteError::Outbound(format!("tcp association {address} failed: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tcp_remote_byte_sink_close_treats_not_connected_as_idempotent_shutdown() {
+        let result = map_tcp_shutdown_result(
+            "kairo://peer@127.0.0.1:25520",
+            Err(io::Error::from(io::ErrorKind::NotConnected)),
+        );
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn tcp_remote_byte_sink_close_reports_other_shutdown_errors() {
+        let error = map_tcp_shutdown_result(
+            "kairo://peer@127.0.0.1:25520",
+            Err(io::Error::new(io::ErrorKind::ConnectionReset, "reset")),
+        )
+        .expect_err("non-idempotent shutdown errors should propagate");
+
+        assert!(matches!(error, RemoteError::Outbound(_)));
+        assert!(
+            error
+                .to_string()
+                .contains("tcp close to kairo://peer@127.0.0.1:25520 failed: reset")
+        );
+    }
 }
