@@ -305,7 +305,7 @@ fn ddata_tcp_peer_bootstrap_delivers_remote_read_request() -> TestResult {
         node_a.send_read_to(&node_b, "example-counter")?;
         let received = node_b.wait_for_request_count(1, Duration::from_secs(2));
         assert_eq!(received.len(), 1);
-        assert_eq!(received[0].0, ReplicaId::new("ddata-node-a"));
+        assert_eq!(received[0].0, ReplicaId::from(node_a.self_node()));
         let read = node_b.decode_read(received[0].1.clone())?;
         assert_eq!(read.key, "example-counter");
         assert_eq!(read.from, Some(ReplicaId::from(node_a.self_node())));

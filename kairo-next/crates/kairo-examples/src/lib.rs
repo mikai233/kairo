@@ -15,7 +15,8 @@
 //! - `ask_pipe_to_self`: synchronous actor turns with ask and external work
 //!   returning through mailbox messages.
 //! - `cluster_sharding_local`: local coordinator, shard region, stable shard
-//!   hash, `EntityRef`, and entity-backed shard delivery.
+//!   hash, `EntityRef`, entity-backed shard delivery, passivation/restart,
+//!   and graceful local shard movement.
 //! - `remote_ping_pong`: two TCP remoting actor systems exchanging a typed
 //!   ping and pong through registered stable message codecs.
 //! - `ddata_counter`: local distributed-data `GCounter` updates through a

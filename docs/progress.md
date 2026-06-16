@@ -2573,14 +2573,16 @@ Implemented:
 - The local cluster-sharding example now exposes passivation helpers that
   send `ShardMsg::Passivate` through the hosted local shard, wait for the
   entity to disappear from shard state, and prove routing through the same
-  `EntityRef` starts a fresh entity instance afterward.
+  `EntityRef` starts a fresh entity instance afterward; the runnable
+  `cluster_sharding_local` binary now exercises that passivation/restart path.
 - The local cluster-sharding example now also has a two-region graceful
   shutdown validation: it starts with a remembered shard backed by a shared
   remember store and hosted on `region-a`, sends a coordinator
   graceful-shutdown request for that region,
   waits until coordinator state and `region-b` shard lookup show the shard has
   moved to the surviving local region, and reads the replacement shard state
-  to prove the remembered `entity-1` is active after handoff.
+  to prove the remembered `entity-1` is active after handoff; the runnable
+  `cluster_sharding_local` binary now prints that graceful movement result.
 - `kairo-examples` now has integration smoke tests for the reusable
   `local_counter`, `ask_pipe_to_self`, and `cluster_sharding_local` modules,
   validating the example crate from the same public module boundary used by
