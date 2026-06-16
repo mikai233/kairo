@@ -1909,6 +1909,11 @@ Implemented:
   while the coordinator allocates the shard home, the selected region starts a
   store-backed local shard, the shard persists the remembered-start update, and
   the next delivery to that entity is a normal active-entity delivery.
+- `kairo-cluster-sharding` now also validates batched first-delivery remember
+  starts across the registered-coordinator allocation path: multiple buffered
+  first deliveries for an unknown remembered shard replay into the
+  store-backed shard, persist each remembered entity start, and activate both
+  entities with the shard buffer drained.
 - `kairo-cluster-sharding` now has a structured region route transport for
   forwarding sharded business envelopes to another known shard-region target.
   Region actors can forward later messages for known remote shard homes and can
@@ -3210,6 +3215,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding region_actor_persists_batched_remember_starts_after_buffered_allocation --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_route_resolution --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor restart_supervision_waits_for_descendant_grandchild_before_processing_messages --all-targets --all-features
 cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features

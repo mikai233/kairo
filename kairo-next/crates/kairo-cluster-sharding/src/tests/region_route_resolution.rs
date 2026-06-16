@@ -275,6 +275,172 @@ fn region_actor_allocates_remembered_shard_and_persists_first_delivery() {
 }
 
 #[test]
+fn region_actor_persists_batched_remember_starts_after_buffered_allocation() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-route-remembered-batch").unwrap();
+    let shard_store = kit
+        .system()
+        .spawn(
+            "shard-store",
+            RememberShardStoreActor::props(RememberShardStoreState::new("orders", "shard-1")),
+        )
+        .unwrap();
+    let (request_tx, request_rx) = mpsc::channel();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            Props::new(move || DelayedRegistrationCoordinator {
+                pending_registration: None,
+                request_tx,
+            }),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_remember_store_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                BTreeMap::from([("shard-1".to_string(), shard_store.clone())]),
+                Duration::from_millis(500),
+                RegionRegistrationConfig::new(coordinator.clone(), Duration::from_millis(500)),
+            ),
+        )
+        .unwrap();
+    let route = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("route")
+        .unwrap();
+    let first_delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("first-delivery")
+        .unwrap();
+    let second_delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("second-delivery")
+        .unwrap();
+    let local_shard = kit
+        .create_probe::<Option<ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+    let shard_store_state = kit
+        .create_probe::<RememberShardStoreSnapshot>("shard-store-state")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            route_reply_to: route.actor_ref(),
+            delivery_reply_to: first_delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        route.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-2", "second".to_string()),
+            route_reply_to: route.actor_ref(),
+            delivery_reply_to: second_delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        route.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: None,
+        }
+    );
+    assert!(
+        request_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+        "region must not request shard homes before registration ack"
+    );
+
+    coordinator
+        .tell(ShardCoordinatorMsg::SetAllRegionsRegistered {
+            all_registered: true,
+        })
+        .unwrap();
+    assert_eq!(
+        request_rx.recv_timeout(Duration::from_millis(500)).unwrap(),
+        "shard-1".to_string()
+    );
+    assert_eq!(
+        first_delivery
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: RememberShardUpdate::new(
+                ["entity-1".to_string()],
+                std::iter::empty::<String>(),
+            ),
+        }
+    );
+    assert_eq!(
+        second_delivery
+            .expect_msg(Duration::from_millis(500))
+            .unwrap(),
+        ShardDeliverPlan::Buffered {
+            entity_id: "entity-2".to_string(),
+        }
+    );
+
+    let mut activated = false;
+    for _ in 0..20 {
+        shard_store
+            .tell(RememberShardStoreMsg::GetState {
+                reply_to: shard_store_state.actor_ref(),
+            })
+            .unwrap();
+        let shard_snapshot = shard_store_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        let remembered_entities = shard_snapshot
+            .entities_by_key
+            .values()
+            .flat_map(|entities| entities.iter().cloned())
+            .collect::<BTreeSet<_>>();
+
+        region
+            .tell(ShardRegionMsg::GetLocalShard {
+                shard: "shard-1".to_string(),
+                reply_to: local_shard.actor_ref(),
+            })
+            .unwrap();
+        let shard = local_shard.expect_msg(Duration::from_millis(500)).unwrap();
+        if let Some(shard) = shard {
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: shard_state.actor_ref(),
+                })
+                .unwrap();
+            let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
+            activated = remembered_entities
+                == BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
+                && snapshot.active_entities == vec!["entity-1".to_string(), "entity-2".to_string()]
+                && snapshot.total_buffered == 0;
+        }
+
+        if activated {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        activated,
+        "buffered first deliveries should persist batched remembered starts before activation"
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_requests_buffered_shard_home_after_registration_ack() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-route-after-registration").unwrap();
     let (request_tx, request_rx) = mpsc::channel();
