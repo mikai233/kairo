@@ -246,6 +246,10 @@ Implemented:
   membership change after the routeful connector has stopped, proving the
   stopped connector unsubscribed from cluster events, does not emit stale
   adapter dead letters, and does not recreate a cleared socket route.
+- Distributed-data TCP peer connector lifecycle coverage now pins the same
+  post-stop unsubscribe boundary for routeful connectors: a follow-up
+  membership change after stop produces no stale adapter dead letters and does
+  not recreate a cleared distributed-data socket route.
 - Cluster TCP peer connector route application now runs through queued
   actor-owned tasks so blocking TCP dials do not hold the actor message turn;
   connector snapshots are served from cached runtime state and task
@@ -3898,6 +3902,11 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-distributed-data crdt_codecs --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data connector_clear_routes_removes_active_peer_routes --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
