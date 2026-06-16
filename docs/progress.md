@@ -450,6 +450,10 @@ Implemented:
 - Child-preserving restart coverage now also pins the direct parent-failure
   path: a restartable surviving child keeps the same ref/path, receives
   `PreRestart`, and rebuilds to fresh state after the parent recreates.
+- Child-preserving restart coverage now also pins parent-side child registry
+  semantics: after the parent actor instance restarts, a preserved child stays
+  visible through `Context::child("child")` with the same incarnation path and
+  continues to reserve its name against duplicate child creation.
 - `BackoffSupervisor` provides a structured on-stop supervisor actor with
   explicit `BackoffSupervisorSettings`, exponential restart delays capped by
   `max_backoff`, optional Pekko-style random-factor jitter, manual or automatic
@@ -3188,6 +3192,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor restart_preserving_children_keeps_child_lookup_and_name_reserved --all-targets --all-features
+cargo test -p kairo-actor supervision --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding multi_node_region_discovery_updates_shared_remember_store_for_new_entity --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_discovery_subscriber --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features

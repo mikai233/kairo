@@ -567,6 +567,8 @@ enum RestartParentMsg {
     },
     Fail,
     ChildCount(mpsc::Sender<usize>),
+    ChildPath(mpsc::Sender<Option<ActorPath>>),
+    SpawnDuplicateChild(mpsc::Sender<Result<(), String>>),
 }
 
 struct RestartParent;
@@ -601,6 +603,18 @@ impl Actor for RestartParent {
             RestartParentMsg::ChildCount(reply_to) => reply_to
                 .send(ctx.children().len())
                 .map_err(|error| ActorError::Message(error.to_string())),
+            RestartParentMsg::ChildPath(reply_to) => reply_to
+                .send(ctx.child("child").map(|child| child.path().clone()))
+                .map_err(|error| ActorError::Message(error.to_string())),
+            RestartParentMsg::SpawnDuplicateChild(reply_to) => {
+                let result = ctx
+                    .spawn("child", Props::new(|| Noop))
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                reply_to
+                    .send(result)
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
         }
     }
 }
@@ -1030,6 +1044,62 @@ fn restart_supervision_can_preserve_children() {
     parent.tell(RestartParentMsg::ChildCount(count_tx)).unwrap();
 
     assert_eq!(count_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+    assert!(child_stopped_rx.try_recv().is_err());
+}
+
+#[test]
+fn restart_preserving_children_keeps_child_lookup_and_name_reserved() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(|| RestartParent)
+                .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+    let (child_stopped_tx, child_stopped_rx) = mpsc::channel();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartParentMsg::SpawnChild {
+            stopped: child_stopped_tx,
+            reply_to: spawned_tx,
+        })
+        .unwrap();
+    spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (before_path_tx, before_path_rx) = mpsc::channel();
+    parent
+        .tell(RestartParentMsg::ChildPath(before_path_tx))
+        .unwrap();
+    let child_path = before_path_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .expect("child should be visible before restart");
+
+    parent.tell(RestartParentMsg::Fail).unwrap();
+    let (after_path_tx, after_path_rx) = mpsc::channel();
+    parent
+        .tell(RestartParentMsg::ChildPath(after_path_tx))
+        .unwrap();
+    assert_eq!(
+        after_path_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .expect("preserved child should stay visible after parent restart"),
+        child_path
+    );
+
+    let (duplicate_tx, duplicate_rx) = mpsc::channel();
+    parent
+        .tell(RestartParentMsg::SpawnDuplicateChild(duplicate_tx))
+        .unwrap();
+    assert_eq!(
+        duplicate_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .expect_err("preserved child should reserve its name"),
+        "actor `child` already exists"
+    );
     assert!(child_stopped_rx.try_recv().is_err());
 }
 
