@@ -1856,6 +1856,11 @@ Implemented:
   wait for acknowledgements, hand off the owner region's store-backed local
   shard child, complete the local handoff, and report whether the shard handoff
   finished successfully.
+- `kairo-cluster-sharding` handoff workers now consume the observed local shard
+  handoff plan instead of treating every forwarded local handoff as
+  stopper-based: `StopImmediately` and already-stopped shard plans complete the
+  worker directly, while `StartEntityStopper` asks the region for stopper
+  completion before reporting success.
 - `kairo-cluster-sharding` shard coordinator actors can now opt into typed
   handoff orchestration: rebalance plans spawn per-shard handoff worker
   children through a structured coordinator handoff module, worker completion
@@ -4412,5 +4417,12 @@ cargo test -p kairo-remote tcp_runtime --all-targets --all-features
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding handoff_worker --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding handoff --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_handoff --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

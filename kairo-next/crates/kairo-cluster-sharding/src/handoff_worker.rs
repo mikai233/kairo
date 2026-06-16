@@ -40,6 +40,30 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct CompletingRegion;
+
+    impl Recipient<ShardRegionMsg<String>> for CompletingRegion {
+        fn tell(
+            &self,
+            message: ShardRegionMsg<String>,
+        ) -> Result<(), SendError<ShardRegionMsg<String>>> {
+            match message {
+                ShardRegionMsg::HandOffToLocalShard { .. } => Ok(()),
+                ShardRegionMsg::CompleteLocalShardHandOff {
+                    shard, reply_to, ..
+                } => {
+                    let _ = reply_to.tell(RegionLocalHandOffCompletionPlan::Completed {
+                        shard: shard.clone(),
+                        stopped: ShardStopped { shard_id: shard },
+                    });
+                    Ok(())
+                }
+                other => Err(SendError::new(other, "unexpected region message")),
+            }
+        }
+    }
+
     use crate::ShardRegionMsg;
 
     #[test]
@@ -78,6 +102,111 @@ mod tests {
                 region: "remote-region".to_string(),
                 stopped: ShardStopped {
                     shard_id: "12".to_string(),
+                },
+            })
+            .unwrap();
+
+        assert_eq!(
+            done.expect_msg(Duration::from_millis(500)).unwrap(),
+            HandoffWorkerDone {
+                shard: "12".to_string(),
+                ok: true,
+            }
+        );
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn handoff_worker_finishes_from_local_shard_stop_immediately_plan() {
+        let kit = ActorSystemTestKit::new("handoff-worker-local-stop-immediately").unwrap();
+        let mut transport = HandoffTransport::new();
+        transport.insert_target(HandoffRegionTarget::new("local-region", AcceptingRegion));
+        let worker = kit
+            .system()
+            .spawn(
+                "worker",
+                HandoffWorkerActor::props(
+                    ShardRebalancePlan {
+                        shard: "12".to_string(),
+                        from_region: "local-region".to_string(),
+                        participants: Default::default(),
+                        begin_handoff: crate::BeginHandOff {
+                            shard_id: "12".to_string(),
+                        },
+                    },
+                    "stop".to_string(),
+                    Duration::from_secs(1),
+                    transport,
+                ),
+            )
+            .unwrap();
+        let done = kit.create_probe::<HandoffWorkerDone>("done").unwrap();
+
+        worker
+            .tell(HandoffWorkerMsg::Start {
+                reply_to: done.actor_ref(),
+            })
+            .unwrap();
+        worker
+            .tell(HandoffWorkerMsg::ShardHandOffObserved {
+                plan: ShardHandOffPlan::StopImmediately {
+                    shard: "12".to_string(),
+                    entities: vec!["entity-1".to_string()],
+                    stop_message: "stop".to_string(),
+                    stopped: ShardStopped {
+                        shard_id: "12".to_string(),
+                    },
+                },
+            })
+            .unwrap();
+
+        assert_eq!(
+            done.expect_msg(Duration::from_millis(500)).unwrap(),
+            HandoffWorkerDone {
+                shard: "12".to_string(),
+                ok: true,
+            }
+        );
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn handoff_worker_asks_local_region_completion_after_stopper_plan() {
+        let kit = ActorSystemTestKit::new("handoff-worker-local-stopper").unwrap();
+        let mut transport = HandoffTransport::new();
+        transport.insert_target(HandoffRegionTarget::new("local-region", CompletingRegion));
+        let worker = kit
+            .system()
+            .spawn(
+                "worker",
+                HandoffWorkerActor::props(
+                    ShardRebalancePlan {
+                        shard: "12".to_string(),
+                        from_region: "local-region".to_string(),
+                        participants: Default::default(),
+                        begin_handoff: crate::BeginHandOff {
+                            shard_id: "12".to_string(),
+                        },
+                    },
+                    "stop".to_string(),
+                    Duration::from_secs(1),
+                    transport,
+                ),
+            )
+            .unwrap();
+        let done = kit.create_probe::<HandoffWorkerDone>("done").unwrap();
+
+        worker
+            .tell(HandoffWorkerMsg::Start {
+                reply_to: done.actor_ref(),
+            })
+            .unwrap();
+        worker
+            .tell(HandoffWorkerMsg::ShardHandOffObserved {
+                plan: ShardHandOffPlan::StartEntityStopper {
+                    shard: "12".to_string(),
+                    entities: vec!["entity-1".to_string()],
+                    stop_message: "stop".to_string(),
                 },
             })
             .unwrap();
@@ -199,7 +328,9 @@ where
             HandoffWorkerMsg::LocalHandOffForwarded { plan } => {
                 self.apply_local_handoff(ctx, plan)?;
             }
-            HandoffWorkerMsg::ShardHandOffObserved { plan: _ } => {}
+            HandoffWorkerMsg::ShardHandOffObserved { plan } => {
+                self.apply_shard_handoff_observed(ctx, plan)?;
+            }
             HandoffWorkerMsg::LocalHandOffCompleted { plan } => {
                 self.apply_local_handoff_completion(ctx, plan)?;
             }
@@ -320,6 +451,35 @@ where
             RegionLocalHandOffPlan::ForwardedToLocalShard { shard, .. }
                 if shard == self.plan.shard =>
             {
+                // The forwarded wrapper only confirms that the region sent the
+                // handoff to the local shard. The shard handoff plan decides
+                // whether completion is immediate or stopper-based.
+            }
+            RegionLocalHandOffPlan::ReplyShardStopped { shard, .. } if shard == self.plan.shard => {
+                self.finish(ctx, true)?;
+            }
+            _ => self.finish(ctx, false)?,
+        }
+        Ok(())
+    }
+
+    fn apply_shard_handoff_observed(
+        &mut self,
+        ctx: &mut Context<HandoffWorkerMsg<M>>,
+        plan: ShardHandOffPlan<M>,
+    ) -> Result<(), ActorError> {
+        if self.phase != HandoffWorkerPhase::AwaitingShardStopped {
+            return Ok(());
+        }
+
+        match plan {
+            ShardHandOffPlan::ReplyShardStopped { shard, .. }
+            | ShardHandOffPlan::StopImmediately { shard, .. }
+                if shard == self.plan.shard =>
+            {
+                self.finish(ctx, true)?;
+            }
+            ShardHandOffPlan::StartEntityStopper { shard, .. } if shard == self.plan.shard => {
                 let reply_to =
                     ctx.message_adapter(|plan| HandoffWorkerMsg::LocalHandOffCompleted { plan })?;
                 let report = self.transport.send_complete_local_handoff_to(
@@ -332,8 +492,8 @@ where
                     self.finish(ctx, false)?;
                 }
             }
-            RegionLocalHandOffPlan::ReplyShardStopped { shard, .. } if shard == self.plan.shard => {
-                self.finish(ctx, true)?;
+            ShardHandOffPlan::AlreadyInProgress { shard } if shard == self.plan.shard => {
+                self.finish(ctx, false)?;
             }
             _ => self.finish(ctx, false)?,
         }
