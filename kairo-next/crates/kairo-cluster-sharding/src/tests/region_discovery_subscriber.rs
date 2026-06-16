@@ -490,6 +490,15 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
             "deliveries",
         )
         .unwrap();
+    let local_shard = nodes
+        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
+            "sharding-remembered-discovery-region",
+            "local-shard",
+        )
+        .unwrap();
+    let shard_state = nodes
+        .create_probe_on::<ShardSnapshot>("sharding-remembered-discovery-region", "shard-state")
+        .unwrap();
 
     publisher
         .tell(ClusterEventPublisherMsg::PublishChanges(
@@ -567,6 +576,81 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
         deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
         ShardDeliverPlan::Deliver {
             delivery: EntityDelivery::new("entity-1", "after-discovery".to_string()),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("remembered shard should be available for state inspection");
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-2", "first-new".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string()
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: RememberShardUpdate::new(
+                ["entity-2".to_string()],
+                std::iter::empty::<String>(),
+            ),
+        }
+    );
+
+    let mut entity_2_active = false;
+    for _ in 0..20 {
+        shard
+            .tell(ShardMsg::GetState {
+                reply_to: shard_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
+        entity_2_active = snapshot.active_entities.contains(&"entity-2".to_string());
+        if entity_2_active {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        entity_2_active,
+        "remember-start update should activate the newly delivered entity"
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-2", "after-remember-start".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string()
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-2", "after-remember-start".to_string()),
         }
     );
     nodes.shutdown(Duration::from_secs(1)).unwrap();

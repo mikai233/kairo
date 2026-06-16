@@ -1846,7 +1846,10 @@ Implemented:
   now hosts the shard through a local remember-entity store and verifies that
   first delivery to the pre-remembered entity goes through the normal region
   local-route boundary and is routed as recovered entity delivery rather than a
-  fresh start.
+  fresh start. It also now routes a brand-new entity through that automatically
+  hosted shard, observes the remembered-start update, waits for the store
+  callback to activate the entity, and verifies the next delivery is a normal
+  recovered-entity delivery.
 - `ShardRegionActor` remote `HostShard` handling now has focused coverage that
   a region receiving the stable remote host command can spawn a store-backed
   local shard, send the stable `ShardStarted` reply, and recover remembered
@@ -3141,6 +3144,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding multi_node_region_discovery_allocates_remembered_shard_on_registration --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
 cargo test -p kairo-distributed-data tcp_peer_bootstrap --all-targets --all-features
 cargo test -p kairo-remote --all-targets --all-features
