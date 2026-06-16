@@ -1467,6 +1467,12 @@ Implemented:
   `ReplicaId`, including reverse routes from peer-initiated associations, so
   full-mesh delivery no longer reports every accepted request as the
   constructor fallback peer.
+- Distributed-data TCP peer routes now adopt already-installed reverse
+  association routes from accepted handshakes instead of redialing and
+  replacing them. The full-mesh bootstrap validation now sends
+  stable-manifest read requests from both non-first peers back to the first
+  node through those adopted routes, preserving the expected replica, sender,
+  and recipient metadata.
 - `kairo-distributed-data` built-in CRDT codec round-trip and rejection tests
   now live in a focused sibling test module.
 - `kairo-distributed-data` delta propagation log versioning, node selection,
@@ -4148,5 +4154,13 @@ cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_pee
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_routes --all-targets --all-features
+cargo test -p kairo-remote association_cache --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```

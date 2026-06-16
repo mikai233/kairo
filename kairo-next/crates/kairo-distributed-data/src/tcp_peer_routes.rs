@@ -64,7 +64,7 @@ pub struct ReplicatorTcpPeerRoutes {
 
 struct ReplicatorTcpPeerRouteEntry {
     target: ClusterAssociationPeerTarget,
-    registration: RemoteAssociationRouteRegistration,
+    registration: Option<RemoteAssociationRouteRegistration>,
 }
 
 impl ReplicatorTcpPeerRoutes {
@@ -125,10 +125,12 @@ impl ReplicatorTcpPeerRoutes {
         report: &mut ReplicatorTcpPeerRouteReport,
     ) {
         if let Some(entry) = self.registrations.remove(&peer_key(&target)) {
-            runtime.remove_route_with_reason(
-                entry.registration.address(),
-                "distributed-data peer route removed",
-            );
+            let address = entry
+                .registration
+                .as_ref()
+                .map(RemoteAssociationRouteRegistration::address)
+                .unwrap_or_else(|| entry.target.association());
+            runtime.remove_route_with_reason(address, "distributed-data peer route removed");
             report.removed.push(target);
         } else if runtime
             .remove_route_with_reason(target.association(), "distributed-data peer route removed")
@@ -150,6 +152,25 @@ impl ReplicatorTcpPeerRoutes {
             return Ok(());
         }
 
+        if runtime
+            .association_cache()
+            .contains_route(target.association())
+        {
+            runtime.register_source_replica(
+                target.association().clone(),
+                crate::ReplicaId::from(target.node()),
+            );
+            self.registrations.insert(
+                peer_key(&target),
+                ReplicatorTcpPeerRouteEntry {
+                    target: target.clone(),
+                    registration: None,
+                },
+            );
+            report.skipped.push(target);
+            return Ok(());
+        }
+
         let registration = runtime
             .dial_peer(
                 target.association().clone(),
@@ -163,7 +184,7 @@ impl ReplicatorTcpPeerRoutes {
             peer_key(&target),
             ReplicatorTcpPeerRouteEntry {
                 target: target.clone(),
-                registration,
+                registration: Some(registration),
             },
         );
         report.dialed.push(target);

@@ -962,7 +962,14 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let first_kit = ActorSystemTestKit::new("ddata-bootstrap-first").unwrap();
     let second_kit = ActorSystemTestKit::new("ddata-bootstrap-second").unwrap();
     let third_kit = ActorSystemTestKit::new("ddata-bootstrap-third").unwrap();
-    let first_runtime = bind_runtime("ddata-bootstrap-first", 1, 11, ReplicaId::new("first"));
+    let first_requests = Arc::new(RecordingRequests::default());
+    let first_runtime = bind_runtime_with_requests(
+        "ddata-bootstrap-first",
+        1,
+        11,
+        ReplicaId::new("first"),
+        first_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
     let first_cache = first_runtime.association_cache().clone();
     let first_node = first_runtime.self_node().clone();
     let first_settings = first_runtime.runtime().settings().clone();
@@ -1116,7 +1123,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     assert_eq!(third_read.from, Some(ReplicaId::from(&first_node)));
     assert_eq!(third_read.key, "counter-third");
     assert_eq!(third_received[0].1.recipient, third_ref);
-    assert_eq!(third_received[0].1.sender, Some(first_ref));
+    assert_eq!(third_received[0].1.sender, Some(first_ref.clone()));
 
     for publisher in [&second_publisher, &third_publisher] {
         publisher
@@ -1198,7 +1205,71 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     );
     assert_eq!(second_read_from_third.key, "counter-second-from-third");
     assert_eq!(second_envelope_from_third.recipient, second_ref.clone());
-    assert_eq!(second_envelope_from_third.sender, Some(third_ref));
+    assert_eq!(second_envelope_from_third.sender, Some(third_ref.clone()));
+
+    let second_to_first = outbound(
+        ReplicaId::from(&first_node),
+        first_ref.clone(),
+        second_ref.clone(),
+        registry.clone(),
+        second_cache.clone(),
+    );
+    let (first_from_second, first_envelope_from_second, first_read_from_second) =
+        send_read_until_key_received(
+            &second_to_first,
+            &first_requests,
+            &registry,
+            ReplicatorRead {
+                key: "counter-first-from-second".to_string(),
+                from: Some(ReplicaId::from(&second_node)),
+            },
+            "counter-first-from-second",
+            Duration::from_secs(1),
+        );
+    assert_eq!(first_from_second, ReplicaId::from(&second_node));
+    assert_eq!(
+        first_envelope_from_second.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    assert_eq!(
+        first_read_from_second.from,
+        Some(ReplicaId::from(&second_node))
+    );
+    assert_eq!(first_read_from_second.key, "counter-first-from-second");
+    assert_eq!(first_envelope_from_second.recipient, first_ref.clone());
+    assert_eq!(first_envelope_from_second.sender, Some(second_ref.clone()));
+
+    let third_to_first = outbound(
+        ReplicaId::from(&first_node),
+        first_ref.clone(),
+        third_ref.clone(),
+        registry.clone(),
+        third_cache.clone(),
+    );
+    let (first_from_third, first_envelope_from_third, first_read_from_third) =
+        send_read_until_key_received(
+            &third_to_first,
+            &first_requests,
+            &registry,
+            ReplicatorRead {
+                key: "counter-first-from-third".to_string(),
+                from: Some(ReplicaId::from(&third_node)),
+            },
+            "counter-first-from-third",
+            Duration::from_secs(1),
+        );
+    assert_eq!(first_from_third, ReplicaId::from(&third_node));
+    assert_eq!(
+        first_envelope_from_third.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    assert_eq!(
+        first_read_from_third.from,
+        Some(ReplicaId::from(&third_node))
+    );
+    assert_eq!(first_read_from_third.key, "counter-first-from-third");
+    assert_eq!(first_envelope_from_third.recipient, first_ref.clone());
+    assert_eq!(first_envelope_from_third.sender, Some(third_ref));
 
     let reduced_gossip = Gossip::from_members([
         Member::new(first_node.clone(), Vec::new()).with_status(MemberStatus::Up),

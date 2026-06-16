@@ -176,6 +176,13 @@ impl RemoteAssociationCache {
             .len()
     }
 
+    pub fn contains_route(&self, address: &RemoteAssociationAddress) -> bool {
+        self.routes
+            .read()
+            .expect("remote association cache lock poisoned")
+            .contains_key(address)
+    }
+
     pub fn address_for_recipient(
         &self,
         recipient: &ActorRefWireData,
@@ -305,6 +312,9 @@ mod tests {
                 outbound.clone() as Arc<dyn RemoteOutbound>,
             )
             .unwrap();
+        assert!(cache.contains_route(
+            &RemoteAssociationAddress::new("kairo", "remote", "127.0.0.1", Some(25520)).unwrap()
+        ));
         cache.send(target.clone()).unwrap();
 
         let sent = outbound.sent();
