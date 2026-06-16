@@ -692,6 +692,30 @@ fn remote_envelope_wire_decode_rejects_invalid_actor_ref_path() {
 }
 
 #[test]
+fn remote_envelope_wire_decode_rejects_invalid_sender_actor_ref_path() {
+    let message = SerializedMessage::new(
+        7,
+        Manifest::new("kairo.test.CounterCommand"),
+        3,
+        Bytes::from_static(&[1, 2, 3]),
+    );
+    let mut writer = WireWriter::new();
+    writer
+        .write_string("kairo://system@127.0.0.1:25520/user/counter#9")
+        .unwrap();
+    writer
+        .write_optional_string(Some("/user/not-a-canonical-sender"))
+        .unwrap();
+    message.write_wire(&mut writer).unwrap();
+    let bytes = writer.finish();
+
+    assert_eq!(
+        RemoteEnvelope::decode_wire(&bytes).unwrap_err(),
+        SerializationError::InvalidActorRefPath("/user/not-a-canonical-sender".to_string())
+    );
+}
+
+#[test]
 fn actor_ref_resolution_goes_through_provider_trait() {
     struct Resolver;
 

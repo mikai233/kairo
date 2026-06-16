@@ -701,6 +701,9 @@ Implemented:
   actor-ref wire data internally consistent before delivery.
 - `RemoteEnvelope` carries actor-ref wire data for recipient and optional
   sender rather than unstructured path strings.
+- `RemoteEnvelope` wire decoding now has focused coverage for rejecting
+  malformed optional sender actor-ref metadata, keeping reply/correlation
+  paths on the same validated actor-ref boundary as recipients.
 - `kairo-remote`, `kairo-cluster`, `kairo-distributed-data`, and
   `kairo-cluster-sharding` now have focused `protocol` modules declaring the
   first stable `RemoteMessage` manifests for remote watch/heartbeat, cluster
@@ -3999,5 +4002,10 @@ cargo test -p kairo-actor supervision --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-serialization remote_envelope_wire_decode_rejects_invalid_sender_actor_ref_path --all-targets --all-features
+cargo test -p kairo-serialization --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
 git diff --check
 ```
