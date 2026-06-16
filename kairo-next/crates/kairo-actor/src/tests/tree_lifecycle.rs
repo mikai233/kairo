@@ -390,6 +390,7 @@ fn context_stop_can_stop_direct_child_without_stopping_parent() {
         })
         .unwrap();
     let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
 
     parent
         .tell(ChildStopMsg::StopChild { reply_to: stop_tx })
@@ -399,6 +400,7 @@ fn context_stop_can_stop_direct_child_without_stopping_parent() {
     child_stopped_rx
         .recv_timeout(Duration::from_secs(1))
         .unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
     parent.tell(ChildStopMsg::Ping(ping_tx)).unwrap();
     parent
         .tell(ChildStopMsg::ChildPath(child_lookup_tx))
