@@ -63,6 +63,10 @@ Implemented:
   child window: a restarting parent does not process queued user messages until
   a direct child that began stopping before the parent failure has fully
   terminated, and those queued messages are delivered after restart.
+- Restart-time child lifecycle coverage now also pins recursive descendant
+  waiting: a restarting parent with a child whose grandchild is still in
+  `PostStop` does not process queued user messages until the grandchild and
+  child have both fully stopped.
 - Actor-system termination now has focused coverage that top-level actor stop
   waits recursively for descendant child termination before the system reports
   `terminated`.
@@ -3174,7 +3178,7 @@ Implemented:
 
 Not yet implemented:
 
-- Full actor tree lifecycle semantics beyond recursive local stop,
+- Full actor tree lifecycle semantics beyond recursive local stop, recursive
   restart-time child handling, and terminating-child name reservation.
 - Broader actor-system local/remote provider integration, optional codec
   helper crates, richer actor-system lifecycle wiring around the existing TCP
@@ -3206,6 +3210,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor restart_supervision_waits_for_descendant_grandchild_before_processing_messages --all-targets --all-features
+cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding region_actor_allocates_remembered_shard_and_persists_first_delivery --all-targets --all-features
 cargo test -p kairo-actor parent_stop_waits_for_descendant_grandchild_before_notifying_watchers --all-targets --all-features
 cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
