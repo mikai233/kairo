@@ -874,7 +874,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     );
     let third_membership_outbound = ClusterMembershipWireOutbound::new(
         third_node.clone(),
-        registry,
+        registry.clone(),
         ClusterMembershipRemoteEnvelopeOutbound::from_arc(first_outbound),
     );
     second_membership_outbound
@@ -936,6 +936,38 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &[first_node.clone(), second_node.clone()],
     );
     assert_eq!(third_cache.route_count(), 2);
+
+    let second_outbound = Arc::new(second_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let second_to_third_outbound = ClusterMembershipWireOutbound::new(
+        third_node.clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(second_outbound),
+    );
+    send_join_until_received(
+        &second_to_third_outbound,
+        &third_probes,
+        Join {
+            node: second_node.clone(),
+            roles: vec!["second-to-third".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
+    let third_outbound = Arc::new(third_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let third_to_second_outbound = ClusterMembershipWireOutbound::new(
+        second_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(third_outbound),
+    );
+    send_join_until_received(
+        &third_to_second_outbound,
+        &second_probes,
+        Join {
+            node: third_node.clone(),
+            roles: vec!["third-to-second".to_string()],
+        },
+        Duration::from_secs(1),
+    );
 
     let reduced_gossip = Gossip::from_members([
         Member::new(first_node.clone(), Vec::new()).with_status(MemberStatus::Up),

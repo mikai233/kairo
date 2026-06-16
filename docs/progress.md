@@ -2952,6 +2952,11 @@ Implemented:
   continues to deliver stable-manifest `Join` envelopes, sends to the removed
   peer reject through the association cache without another membership
   delivery, and the sender cache drops from two routes to one.
+- `kairo-cluster` TCP peer bootstrap full-mesh coverage now also drives
+  second-to-third and third-to-second membership delivery after all three
+  connectors install routes, so the three-node bootstrap test verifies
+  cross-peer socket delivery instead of only route counts outside the first
+  sender.
 - `kairo-distributed-data` TCP peer bootstrap coverage now pins sender-side
   route reduction with live delivery: after one of two remote peers leaves the
   sender's cluster membership view, the remaining replicator route continues
@@ -3067,8 +3072,8 @@ Not yet implemented:
   crate-level routeful `run_coordinated_shutdown` coverage.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
-  membership/downing socket validation and focused three-node
-  route-preservation coverage.
+  membership/downing socket validation, focused three-node route-preservation
+  coverage, and three-node bootstrap full-mesh membership delivery coverage.
 
 ## Last Validation
 
