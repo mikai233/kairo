@@ -260,6 +260,10 @@ Implemented:
   post-stop unsubscribe boundary for routeful connectors: a follow-up
   membership change after stop produces no stale adapter dead letters and does
   not recreate a cleared distributed-data socket route.
+- Distributed-data TCP peer connector lifecycle coverage now also pins the
+  pending-reconnect stop boundary: a connector stopped while a failed dial is
+  awaiting retry clears its owned retry state, unsubscribes from cluster
+  events, and does not install a route when the peer later becomes dialable.
 - Cluster-tools TCP peer connector lifecycle coverage now pins the same
   post-stop unsubscribe boundary for routeful pubsub/singleton connectors: a
   follow-up membership change after stop produces no stale adapter dead
