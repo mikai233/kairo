@@ -259,6 +259,12 @@ Implemented:
   connector from later membership changes: after a live route is cleared by
   the bootstrap shutdown task, a follow-up membership publication produces no
   stale adapter dead letters and does not recreate the socket route.
+- Distributed-data TCP peer bootstrap lifecycle coverage now proves the
+  bootstrap-registered coordinated-shutdown stop task unsubscribes its
+  connector from later membership changes: after a live route is cleared by
+  the bootstrap shutdown task, a follow-up membership publication produces no
+  stale adapter dead letters and does not recreate the distributed-data socket
+  route.
 - Cluster TCP peer connector route application now runs through queued
   actor-owned tasks so blocking TCP dials do not hold the actor message turn;
   connector snapshots are served from cached runtime state and task
@@ -3929,5 +3935,10 @@ cargo test -p kairo-cluster bootstrap_two_nodes_install_peer_routes_from_cluster
 cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```
