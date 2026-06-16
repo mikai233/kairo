@@ -1796,6 +1796,10 @@ Implemented:
   shard children after unexpected termination through a configurable failure
   backoff, while preserving Pekko's distinction that handoff and graceful
   shutdown stops are not failure restarts.
+- `kairo-cluster-sharding` shard region actors now track pending
+  remembered-shard restart timers so a coordinator handoff or graceful
+  shutdown that arrives before the backoff fires suppresses the stale restart
+  instead of rehosting a shard that is leaving the region.
 - `kairo-cluster-sharding` now has an actor-backed handoff worker that follows
   Pekko's rebalance worker sequence: send `BeginHandOff` to participants,
   wait for acknowledgements, hand off the owner region's store-backed local
@@ -3155,6 +3159,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding region_actor_does_not_restart_remembered_local_shard_after_graceful_shutdown_starts --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_does_not_restart_remembered_local_shard_after_handoff_begins --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor parent_stop_waits_for_already_stopping_child_before_notifying_watchers --all-targets --all-features
 cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features

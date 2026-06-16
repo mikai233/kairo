@@ -16,6 +16,8 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
+            pending_local_restarts: BTreeSet::new(),
+            suppressed_local_restarts: BTreeSet::new(),
         }
     }
 
@@ -35,6 +37,8 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
+            pending_local_restarts: BTreeSet::new(),
+            suppressed_local_restarts: BTreeSet::new(),
         }
     }
 
@@ -62,6 +66,8 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
+            pending_local_restarts: BTreeSet::new(),
+            suppressed_local_restarts: BTreeSet::new(),
         }
     }
 
@@ -88,6 +94,8 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
+            pending_local_restarts: BTreeSet::new(),
+            suppressed_local_restarts: BTreeSet::new(),
         }
     }
 
@@ -119,6 +127,8 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
+            pending_local_restarts: BTreeSet::new(),
+            suppressed_local_restarts: BTreeSet::new(),
         }
     }
 
@@ -146,6 +156,8 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
+            pending_local_restarts: BTreeSet::new(),
+            suppressed_local_restarts: BTreeSet::new(),
         }
     }
 
@@ -177,6 +189,8 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
+            pending_local_restarts: BTreeSet::new(),
+            suppressed_local_restarts: BTreeSet::new(),
         }
     }
 
@@ -202,6 +216,8 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
+            pending_local_restarts: BTreeSet::new(),
+            suppressed_local_restarts: BTreeSet::new(),
         }
     }
 
@@ -228,6 +244,8 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
+            pending_local_restarts: BTreeSet::new(),
+            suppressed_local_restarts: BTreeSet::new(),
         }
     }
 

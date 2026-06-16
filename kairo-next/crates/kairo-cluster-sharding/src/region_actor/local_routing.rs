@@ -158,6 +158,10 @@ where
         ctx: &Context<ShardRegionMsg<M>>,
         shard: ShardId,
     ) -> Result<(), ActorError> {
+        self.pending_local_restarts.remove(&shard);
+        if self.suppressed_local_restarts.remove(&shard) {
+            return Ok(());
+        }
         if self.local_shard_spawner.is_none() || self.local_shards.contains_key(&shard) {
             return Ok(());
         }

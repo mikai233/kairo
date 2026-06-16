@@ -47,6 +47,8 @@ where
     coordinator_discovery: Option<RegionCoordinatorDiscovery<M>>,
     home_requests: RegionHomeRequests<M>,
     route_transport: Option<RegionRouteTransport<M>>,
+    pending_local_restarts: BTreeSet<ShardId>,
+    suppressed_local_restarts: BTreeSet<ShardId>,
 }
 
 impl<M> Actor for ShardRegionActor<M>
@@ -130,10 +132,12 @@ where
                 let _ = reply_to.tell(plan);
             }
             ShardRegionMsg::BeginHandOff { shard, reply_to } => {
+                self.suppress_pending_local_restart(&shard);
                 let plan = self.runtime.begin_handoff(shard);
                 let _ = reply_to.tell(plan);
             }
             ShardRegionMsg::HandOff { shard, reply_to } => {
+                self.suppress_pending_local_restart(&shard);
                 let plan = self.runtime.handoff(shard);
                 let _ = reply_to.tell(plan);
             }
@@ -233,6 +237,7 @@ where
                 self.runtime.mark_shard_stopped(&shard);
                 self.local_shards.remove(&shard);
                 if let Some(backoff) = restart_backoff {
+                    self.pending_local_restarts.insert(shard.clone());
                     ctx.schedule_once_self(
                         backoff,
                         ShardRegionMsg::RestartLocalShard {
@@ -267,6 +272,12 @@ impl<M> ShardRegionActor<M>
 where
     M: Send + 'static,
 {
+    fn suppress_pending_local_restart(&mut self, shard: &ShardId) {
+        if self.pending_local_restarts.contains(shard) {
+            self.suppressed_local_restarts.insert(shard.clone());
+        }
+    }
+
     fn remembered_shard_restart_backoff(&self, shard: &ShardId) -> Option<Duration> {
         if !self.local_shards.contains_key(shard) {
             return None;
