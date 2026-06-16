@@ -480,6 +480,48 @@ fn watch_path_delivers_terminated_signal_once_when_notified() {
 }
 
 #[test]
+fn watch_path_delivers_terminated_for_each_subject_on_terminated_address() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let first = ActorPath::new("kairo://remote@127.0.0.1:25520/user/first#1");
+    let second = ActorPath::new("kairo://remote@127.0.0.1:25520/user/second#2");
+    let other = ActorPath::new("kairo://other@127.0.0.1:25521/user/other#3");
+
+    system.watch_path(watcher.clone(), first.clone()).unwrap();
+    system.watch_path(watcher.clone(), second.clone()).unwrap();
+    system.watch_path(watcher, other.clone()).unwrap();
+    system.notify_watched_address_terminated("kairo://remote@127.0.0.1:25520");
+    system.notify_watched_address_terminated("kairo://remote@127.0.0.1:25520");
+
+    let mut observed = [
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+    ];
+    observed.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+    assert_eq!(observed, [first, second]);
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+
+    system.notify_watched_path_terminated(&other);
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        other
+    );
+}
+
+#[test]
 fn watch_self_returns_explicit_error() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (terminated_tx, _terminated_rx) = mpsc::channel();

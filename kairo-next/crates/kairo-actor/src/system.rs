@@ -438,6 +438,13 @@ impl ActorSystem {
             .notify(subject, TerminationCause::Stopped);
     }
 
+    pub fn notify_watched_address_terminated(&self, address: &str) {
+        self.inner.death_watch.notify_matching(
+            |subject| subject.address().to_string() == address,
+            TerminationCause::Stopped,
+        );
+    }
+
     pub(crate) fn root_path(&self) -> ActorPath {
         ActorPath::new(self.address.to_string())
     }

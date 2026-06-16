@@ -118,4 +118,27 @@ impl DeathWatchRegistry {
             registration.notify(cause.clone());
         }
     }
+
+    pub(crate) fn notify_matching(
+        &self,
+        mut predicate: impl FnMut(&ActorPath) -> bool,
+        cause: TerminationCause,
+    ) {
+        let registrations = {
+            let mut watchers = self.watchers.lock().expect("death watch registry poisoned");
+            let subjects = watchers
+                .keys()
+                .filter(|subject| predicate(subject))
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut registrations = Vec::new();
+            for subject in subjects {
+                registrations.extend(watchers.remove(&subject).unwrap_or_default());
+            }
+            registrations
+        };
+        for registration in registrations {
+            registration.notify(cause.clone());
+        }
+    }
 }

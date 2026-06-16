@@ -1062,7 +1062,7 @@ fn tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch() {
     let sender = ActorSystem::builder("sender").build().unwrap();
     let registry = registry();
     let (sender_received_tx, _sender_received_rx) = mpsc::channel();
-    let (receiver_received_tx, _receiver_received_rx) = mpsc::channel();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
     let sender_target = sender
         .spawn(
             "target",
@@ -1074,8 +1074,8 @@ fn tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch() {
     let receiver_watcher = receiver
         .spawn(
             "watcher",
-            Props::new(move || Target {
-                received: receiver_received_tx,
+            Props::new(move || TerminationWatcher {
+                terminated: terminated_tx,
             }),
         )
         .unwrap();
@@ -1113,23 +1113,15 @@ fn tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch() {
     assert_eq!(sender_remote.association_cache().route_count(), 1);
     assert_eq!(receiver_remote.association_cache().route_count(), 1);
 
-    let sender_watchee = ActorRefWireData::new(remote_path_for_system(
-        sender_target.path().as_str(),
-        "sender",
-        sender_remote.settings(),
-    ))
-    .unwrap();
-    let receiver_watcher = ActorRefWireData::new(remote_path_for(
-        receiver_watcher.path().as_str(),
-        receiver_remote.settings(),
-    ))
-    .unwrap();
+    let remote_target = receiver_remote
+        .resolve::<Ping>(remote_path_for_system(
+            sender_target.path().as_str(),
+            "sender",
+            sender_remote.settings(),
+        ))
+        .unwrap();
     receiver_remote
-        .death_watch()
-        .tell(RemoteDeathWatchCommand::Watch(WatchRemote {
-            watchee: sender_watchee,
-            watcher: receiver_watcher,
-        }))
+        .watch_remote(receiver_watcher.clone(), &remote_target)
         .unwrap();
     receiver_observer
         .wait_for(Duration::from_secs(1), |effect| {
@@ -1178,6 +1170,10 @@ fn tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch() {
             )
         })
         .expect("receiver should route address-terminated frame to remote death-watch");
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        remote_target.path().clone()
+    );
 
     drop(registration);
     let sender_report = sender_remote.shutdown().unwrap();

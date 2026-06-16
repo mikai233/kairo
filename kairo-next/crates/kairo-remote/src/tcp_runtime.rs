@@ -46,6 +46,9 @@ impl RemoteDeathWatchEffectObserver for ActorSystemRemoteDeathWatchObserver {
         if let RemoteDeathWatchEffect::RemoteTerminated(message) = effect {
             self.system
                 .notify_watched_path_terminated(&ActorPath::new(message.watchee.path()));
+        } else if let RemoteDeathWatchEffect::AddressTerminated(message) = effect {
+            self.system
+                .notify_watched_address_terminated(&message.address);
         }
         Ok(())
     }

@@ -1034,6 +1034,11 @@ Implemented:
   coverage proves per-actor `RemoteTerminated` metadata becomes a local
   `Terminated` signal and that unwatch removes both local and remote
   registrations before later watchee termination.
+- Remote address termination now completes local path-based watches for every
+  watched actor on the terminated remote address; TCP loopback coverage proves
+  a stable `AddressTerminated` control message routed through remote
+  death-watch becomes a normal local `Signal::Terminated` for actors using
+  `watch_remote`.
 - TCP actor-system runtime tests now also send the stable `AddressTerminated`
   control protocol across a real association route and verify the receiver's
   actor-backed remote watcher observes the unreachable sender address with the
