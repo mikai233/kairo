@@ -67,7 +67,7 @@ pub struct ClusterTcpPeerRoutes {
 
 struct ClusterTcpPeerRouteEntry {
     target: ClusterAssociationPeerTarget,
-    registration: RemoteAssociationRouteRegistration,
+    registration: Option<RemoteAssociationRouteRegistration>,
 }
 
 impl ClusterTcpPeerRoutes {
@@ -125,10 +125,12 @@ impl ClusterTcpPeerRoutes {
         report: &mut ClusterTcpPeerRouteReport,
     ) {
         if let Some(entry) = self.registrations.remove(&peer_key(&target)) {
-            runtime.remove_route_with_reason(
-                entry.registration.address(),
-                "cluster peer route removed",
-            );
+            let address = entry
+                .registration
+                .as_ref()
+                .map(RemoteAssociationRouteRegistration::address)
+                .unwrap_or_else(|| entry.target.association());
+            runtime.remove_route_with_reason(address, "cluster peer route removed");
             report.removed.push(target);
         } else if runtime
             .remove_route_with_reason(target.association(), "cluster peer route removed")
@@ -150,6 +152,21 @@ impl ClusterTcpPeerRoutes {
             return Ok(());
         }
 
+        if runtime
+            .association_cache()
+            .contains_route(target.association())
+        {
+            self.registrations.insert(
+                peer_key(&target),
+                ClusterTcpPeerRouteEntry {
+                    target: target.clone(),
+                    registration: None,
+                },
+            );
+            report.skipped.push(target);
+            return Ok(());
+        }
+
         let registration = runtime
             .dial(target.association().clone())
             .map_err(|source| ClusterTcpPeerRouteError::Dial {
@@ -160,7 +177,7 @@ impl ClusterTcpPeerRoutes {
             peer_key(&target),
             ClusterTcpPeerRouteEntry {
                 target: target.clone(),
-                registration,
+                registration: Some(registration),
             },
         );
         report.dialed.push(target);

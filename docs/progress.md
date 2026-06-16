@@ -1473,6 +1473,12 @@ Implemented:
   stable-manifest read requests from both non-first peers back to the first
   node through those adopted routes, preserving the expected replica, sender,
   and recipient metadata.
+- Cluster and cluster-tools TCP peer routes now adopt already-installed
+  reverse association routes from accepted handshakes instead of redialing and
+  replacing them. Their full-mesh bootstrap validations now send membership
+  joins and pubsub publishes from both non-first peers back to the first node
+  through those adopted routes while preserving the membership-derived route
+  owner boundary.
 - `kairo-distributed-data` built-in CRDT codec round-trip and rejection tests
   now live in a focused sibling test module.
 - `kairo-distributed-data` delta propagation log versioning, node selection,
@@ -4162,5 +4168,14 @@ cargo test -p kairo-remote --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
+cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
+cargo test -p kairo-cluster tcp_peer_routes --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_routes --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```

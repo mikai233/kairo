@@ -876,7 +876,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let second_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-second").unwrap();
     let third_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-third").unwrap();
     let registry = registry();
-    let first_runtime = bind_runtime(
+    let (first_runtime, first_probes) = bind_runtime_with_probes(
         "cluster-tools-bootstrap-first",
         1,
         11,
@@ -1064,7 +1064,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let third_outbound = Arc::new(third_cache.clone()) as Arc<dyn RemoteOutbound>;
     let third_to_second = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
         second_node.clone(),
-        registry,
+        registry.clone(),
         third_outbound,
     );
     third_to_second
@@ -1079,6 +1079,46 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &second_probes,
         TopicName::new("peer-invoices"),
         TestMessage { value: 56 },
+    );
+
+    let second_outbound = Arc::new(second_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let second_to_first = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        first_node.clone(),
+        registry.clone(),
+        second_outbound,
+    );
+    second_to_first
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("first-orders"),
+            message: TestMessage { value: 67 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &first_probes,
+        TopicName::new("first-orders"),
+        TestMessage { value: 67 },
+    );
+
+    let third_outbound = Arc::new(third_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let third_to_first = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        first_node.clone(),
+        registry,
+        third_outbound,
+    );
+    third_to_first
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("first-invoices"),
+            message: TestMessage { value: 78 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &first_probes,
+        TopicName::new("first-invoices"),
+        TestMessage { value: 78 },
     );
 
     let reduced_gossip = Gossip::from_members([

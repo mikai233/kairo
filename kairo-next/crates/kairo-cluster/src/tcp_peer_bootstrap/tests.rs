@@ -795,7 +795,8 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let second_kit = ActorSystemTestKit::new("cluster-bootstrap-second").unwrap();
     let third_kit = ActorSystemTestKit::new("cluster-bootstrap-third").unwrap();
     let registry = registry();
-    let first_runtime = bind_runtime("cluster-bootstrap-first", 1, 11, &first_kit);
+    let (first_runtime, first_probes) =
+        bind_runtime_with_probes("cluster-bootstrap-first", 1, 11, &first_kit);
     let first_cache = first_runtime.association_cache().clone();
     let (second_runtime, second_probes) =
         bind_runtime_with_probes("cluster-bootstrap-second", 2, 22, &second_kit);
@@ -956,7 +957,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let third_outbound = Arc::new(third_cache.clone()) as Arc<dyn RemoteOutbound>;
     let third_to_second_outbound = ClusterMembershipWireOutbound::new(
         second_node.clone(),
-        registry,
+        registry.clone(),
         ClusterMembershipRemoteEnvelopeOutbound::from_arc(third_outbound),
     );
     send_join_until_received(
@@ -965,6 +966,38 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Join {
             node: third_node.clone(),
             roles: vec!["third-to-second".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
+    let second_outbound = Arc::new(second_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let second_to_first_outbound = ClusterMembershipWireOutbound::new(
+        first_node.clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(second_outbound),
+    );
+    send_join_until_received(
+        &second_to_first_outbound,
+        &first_probes,
+        Join {
+            node: second_node.clone(),
+            roles: vec!["second-to-first".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
+    let third_outbound = Arc::new(third_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let third_to_first_outbound = ClusterMembershipWireOutbound::new(
+        first_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(third_outbound),
+    );
+    send_join_until_received(
+        &third_to_first_outbound,
+        &first_probes,
+        Join {
+            node: third_node.clone(),
+            roles: vec!["third-to-first".to_string()],
         },
         Duration::from_secs(1),
     );
