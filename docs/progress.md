@@ -1900,6 +1900,11 @@ Implemented:
   message for an unknown shard. Coordinator replies are applied through the
   normal region runtime, local shard children are started when this region is
   selected, and the buffered delivery is replayed into the child shard actor.
+- `kairo-cluster-sharding` now validates the registered-coordinator
+  first-delivery path with remember entities enabled: the first route buffers
+  while the coordinator allocates the shard home, the selected region starts a
+  store-backed local shard, the shard persists the remembered-start update, and
+  the next delivery to that entity is a normal active-entity delivery.
 - `kairo-cluster-sharding` now has a structured region route transport for
   forwarding sharded business envelopes to another known shard-region target.
   Region actors can forward later messages for known remote shard homes and can
@@ -3181,12 +3186,12 @@ Not yet implemented:
   validation, and focused peer-runtime sender-side route-reduction delivery
   coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
-  orchestration beyond the current focused actor-level coverage and the
-  multi-node graceful-shutdown validation that now proves remembered entity
-  recovery after handoff plus passivated-entity removal before rehost through
-  a shared remember store, plus the multi-node discovery/shared-store
-  validation that now proves first-delivery remember writes after automatic
-  shard allocation.
+  orchestration beyond the current focused actor-level coverage, registered
+  coordinator first-delivery remember-store validation, multi-node
+  graceful-shutdown validation that proves remembered entity recovery after
+  handoff plus passivated-entity removal before rehost through a shared
+  remember store, and the multi-node discovery/shared-store validation that
+  proves first-delivery remember writes after automatic shard allocation.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
@@ -3201,6 +3206,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding region_actor_allocates_remembered_shard_and_persists_first_delivery --all-targets --all-features
 cargo test -p kairo-actor parent_stop_waits_for_descendant_grandchild_before_notifying_watchers --all-targets --all-features
 cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
