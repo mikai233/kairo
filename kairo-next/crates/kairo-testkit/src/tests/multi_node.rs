@@ -279,6 +279,13 @@ fn multi_node_testkit_rejects_empty_duplicate_and_unknown_nodes() {
         MultiNodeError::InvalidNodeName(name) if name == "  "
     ));
 
+    let padded =
+        MultiNodeTestKit::new([" node "]).expect_err("padded node name should be rejected");
+    assert!(matches!(
+        padded,
+        MultiNodeError::InvalidNodeName(name) if name == " node "
+    ));
+
     let duplicate =
         MultiNodeTestKit::new(["dup", "dup"]).expect_err("duplicate node names should be rejected");
     assert!(matches!(

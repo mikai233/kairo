@@ -15,7 +15,7 @@ pub type MultiNodeResult<T> = std::result::Result<T, MultiNodeError>;
 pub enum MultiNodeError {
     /// No nodes were supplied when constructing the harness.
     EmptyNodeSet,
-    /// One supplied node name was empty or whitespace-only.
+    /// One supplied node name was empty, whitespace-only, or had surrounding whitespace.
     InvalidNodeName(String),
     /// The same node name was supplied more than once.
     DuplicateNode(String),
@@ -119,9 +119,9 @@ pub struct MultiNodeTestKit {
 impl MultiNodeTestKit {
     /// Creates one local [`ActorSystemTestKit`] per named node.
     ///
-    /// The node names must be non-empty and unique. Systems created this way
-    /// use the normal scheduler; use [`Self::with_manual_time`] when tests
-    /// need deterministic clock advancement across every node.
+    /// The node names must be non-empty, trimmed, and unique. Systems created
+    /// this way use the normal scheduler; use [`Self::with_manual_time`] when
+    /// tests need deterministic clock advancement across every node.
     pub fn new<I, S>(node_names: I) -> MultiNodeResult<Self>
     where
         I: IntoIterator<Item = S>,
@@ -705,7 +705,7 @@ fn validate_node_names(names: &[String]) -> MultiNodeResult<()> {
 
     let mut seen = BTreeSet::new();
     for name in names {
-        if name.trim().is_empty() {
+        if name.trim().is_empty() || name.trim() != name {
             return Err(MultiNodeError::InvalidNodeName(name.clone()));
         }
         if !seen.insert(name) {

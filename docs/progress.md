@@ -508,8 +508,8 @@ Implemented:
   for deterministic integration tests, can create typed probes on specific
   nodes, wires optional manual time per node, can advance all manual-time node
   clocks together for synchronized multi-node scenarios, and reports empty,
-  blank, duplicate, unknown, or non-manual node errors explicitly without making
-  cluster membership part of the testkit.
+  blank, whitespace-padded, duplicate, unknown, or non-manual node errors
+  explicitly without making cluster membership part of the testkit.
 - `MultiNodeTestKit::advance_all_to_next` advances every manual-time node by the
   same smallest next-deadline delta, so multi-node tests can step distributed
   timers in shared time order without hard-coding per-node durations.
