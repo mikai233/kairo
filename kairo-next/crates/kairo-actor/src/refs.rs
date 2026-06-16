@@ -324,13 +324,27 @@ impl<M: Send + 'static> ActorRef<M> {
         }
     }
 
-    pub(crate) fn to_local_handle(&self) -> LocalActorHandle {
+    pub(crate) fn request_restart(&self) {
+        if !self.target.stopped.load(Ordering::Acquire)
+            && let Some(mailbox) = &self.target.mailbox
+        {
+            mailbox.enqueue_system(SystemMessage::Restart);
+        }
+    }
+
+    pub(crate) fn to_local_handle(&self, restartable: bool) -> LocalActorHandle {
         let actor = self.clone();
+        let restart_actor = self.clone();
         let supervisor_actor = self.clone();
         LocalActorHandle {
             path: self.path.clone(),
             terminated: Arc::clone(&self.target.terminated),
             stop: Arc::new(move || actor.request_stop()),
+            restart: Arc::new(move || {
+                if restartable {
+                    restart_actor.request_restart();
+                }
+            }),
             supervise: Arc::new(move |failure| supervisor_actor.request_supervision(failure)),
         }
     }

@@ -10,6 +10,7 @@ pub(crate) struct LocalActorHandle {
     pub(super) path: ActorPath,
     pub(super) terminated: Arc<TerminationLatch>,
     pub(super) stop: Arc<dyn Fn() + Send + Sync>,
+    pub(super) restart: Arc<dyn Fn() + Send + Sync>,
     pub(super) supervise: Arc<dyn Fn(SupervisionFailure) + Send + Sync>,
 }
 
@@ -28,6 +29,10 @@ impl LocalActorHandle {
 
     pub(crate) fn request_stop(&self) {
         (self.stop)();
+    }
+
+    pub(crate) fn request_restart(&self) {
+        (self.restart)();
     }
 
     pub(crate) fn request_supervision(&self, failure: SupervisionFailure) {

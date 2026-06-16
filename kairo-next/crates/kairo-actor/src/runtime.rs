@@ -22,7 +22,10 @@ use crate::system::{ActorSystem, ActorSystemInner};
 use crate::timers::TimerState;
 
 pub(crate) use lifecycle::stop_child_roots_until_deadline;
-use lifecycle::{stop_adapter_refs, stop_children, stop_children_for_restart};
+use lifecycle::{
+    restart_children_after_parent_restart, stop_adapter_refs, stop_children,
+    stop_children_for_restart,
+};
 
 pub(crate) fn run_actor<A>(
     mut props: Props<A>,
@@ -161,6 +164,31 @@ where
     match dequeued {
         Dequeued::System(SystemMessage::Stop) | Dequeued::Closed => {
             actor_ref.target.stopped.store(true, Ordering::Release);
+            false
+        }
+        Dequeued::System(SystemMessage::Restart) => {
+            let stop_reason = apply_receive_result(
+                restart_actor(
+                    actor_ref,
+                    actor,
+                    context,
+                    props,
+                    system_inner,
+                    props.supervisor().stop_children_on_restart(),
+                ),
+                actor_ref,
+                actor,
+                context,
+                props,
+                system_inner,
+                &mut run_state.supervision,
+            );
+            if stop_reason.is_some() || context.stop_requested {
+                if let Some(reason) = stop_reason {
+                    run_state.termination_cause = TerminationCause::Failed(reason);
+                }
+                actor_ref.target.stopped.store(true, Ordering::Release);
+            }
             false
         }
         Dequeued::System(SystemMessage::Signal(signal)) => {
@@ -510,6 +538,9 @@ where
     context.stop_requested = false;
     invoke_started(&mut restarted, context)?;
     *actor = restarted;
+    if !stop_children_on_restart {
+        restart_children_after_parent_restart(system_inner, actor_ref.path());
+    }
     Ok(())
 }
 
@@ -555,6 +586,9 @@ where
         match invoke_started(&mut restarted, context) {
             Ok(()) => {
                 *actor = restarted;
+                if !stop_children_on_restart {
+                    restart_children_after_parent_restart(system_inner, actor_ref.path());
+                }
                 return Ok(());
             }
             Err(error) => {

@@ -32,6 +32,15 @@ pub(super) fn stop_children_for_restart(system_inner: &ActorSystemInner, parent_
     let _ = stop_child_handles_with_timeout(children, Duration::MAX);
 }
 
+pub(super) fn restart_children_after_parent_restart(
+    system_inner: &ActorSystemInner,
+    parent_path: &ActorPath,
+) {
+    for child in system_inner.registry.child_handles(parent_path.as_str()) {
+        child.request_restart();
+    }
+}
+
 pub(crate) fn stop_children_with_timeout(
     system_inner: &ActorSystemInner,
     parent_path: &str,

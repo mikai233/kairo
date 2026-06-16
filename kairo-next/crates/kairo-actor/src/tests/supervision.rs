@@ -1149,6 +1149,10 @@ enum EscalationParentMsg {
         stopped: mpsc::Sender<()>,
         reply_to: mpsc::Sender<ActorRef<()>>,
     },
+    SpawnRestartableSibling {
+        restarted: mpsc::Sender<()>,
+        reply_to: mpsc::Sender<ActorRef<SupervisionMsg>>,
+    },
     SpawnStartupFailingChild {
         starts: Arc<AtomicU64>,
         reply_to: mpsc::Sender<ActorRef<StartupProbeMsg>>,
@@ -1182,6 +1186,21 @@ impl Actor for EscalationParent {
             }
             EscalationParentMsg::SpawnSibling { stopped, reply_to } => {
                 let sibling = ctx.spawn("sibling", Props::new(move || StopProbe { stopped }))?;
+                reply_to
+                    .send(sibling)
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            EscalationParentMsg::SpawnRestartableSibling {
+                restarted,
+                reply_to,
+            } => {
+                let sibling = ctx.spawn(
+                    "restartable-sibling",
+                    Props::restartable(move || SupervisionProbe {
+                        value: 0,
+                        restarted: Some(restarted.clone()),
+                    }),
+                )?;
                 reply_to
                     .send(sibling)
                     .map_err(|error| ActorError::Message(error.to_string()))
@@ -1324,6 +1343,57 @@ fn escalating_child_preserving_parent_restart_keeps_sibling_alive() {
     sibling_stopped_rx
         .recv_timeout(Duration::from_secs(1))
         .unwrap();
+}
+
+#[test]
+fn preserving_parent_restart_restarts_restartable_surviving_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (parent_restarted_tx, parent_restarted_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(move || EscalationParent {
+                restarted: Some(parent_restarted_tx.clone()),
+            })
+            .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+    let (sibling_restarted_tx, sibling_restarted_rx) = mpsc::channel();
+    let (sibling_tx, sibling_rx) = mpsc::channel();
+    let (child_tx, child_rx) = mpsc::channel();
+
+    parent
+        .tell(EscalationParentMsg::SpawnRestartableSibling {
+            restarted: sibling_restarted_tx,
+            reply_to: sibling_tx,
+        })
+        .unwrap();
+    let sibling = sibling_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let sibling_path = sibling.path().clone();
+    sibling.tell(SupervisionMsg::Increment).unwrap();
+    let (before_tx, before_rx) = mpsc::channel();
+    sibling.tell(SupervisionMsg::Get(before_tx)).unwrap();
+    assert_eq!(before_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+
+    parent
+        .tell(EscalationParentMsg::SpawnChild {
+            child_stopped: None,
+            reply_to: child_tx,
+        })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child.tell(EscalatingChildMsg::Fail).unwrap();
+
+    parent_restarted_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    sibling_restarted_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    let (after_tx, after_rx) = mpsc::channel();
+    sibling.tell(SupervisionMsg::Get(after_tx)).unwrap();
+    assert_eq!(after_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 0);
+    assert_eq!(sibling.path(), &sibling_path);
 }
 
 #[test]

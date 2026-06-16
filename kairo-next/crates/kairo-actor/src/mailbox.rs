@@ -10,6 +10,7 @@ use crate::timers::TimerEnvelope;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SystemMessage {
     Stop,
+    Restart,
     Signal(Signal),
     SupervisionFailure(SupervisionFailure),
 }

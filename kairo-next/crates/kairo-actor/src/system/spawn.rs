@@ -107,7 +107,7 @@ impl ActorSystem {
         let thread_system = self.clone();
         let parent_path_for_registry = parent_path.to_string();
         let parent_path_for_thread = parent_path.clone();
-        let actor_handle = actor_ref.to_local_handle();
+        let actor_handle = actor_ref.to_local_handle(props.can_restart());
         self.inner.registry.add_handle(actor_handle.clone());
         self.inner
             .registry

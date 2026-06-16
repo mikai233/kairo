@@ -96,6 +96,10 @@ impl<A: 'static> Props<A> {
         self.restart_builder.as_ref().map(|builder| builder())
     }
 
+    pub(crate) fn can_restart(&self) -> bool {
+        self.restart_builder.is_some()
+    }
+
     pub(crate) fn stash_capacity(&self) -> Option<usize> {
         self.stash_capacity
     }
