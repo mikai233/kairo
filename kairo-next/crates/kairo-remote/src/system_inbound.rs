@@ -174,6 +174,22 @@ mod tests {
         }
     }
 
+    struct PanickingPingCodec;
+
+    impl MessageCodec<Ping> for PanickingPingCodec {
+        fn serializer_id(&self) -> u32 {
+            901
+        }
+
+        fn encode(&self, message: &Ping) -> kairo_serialization::Result<Bytes> {
+            Ok(Bytes::from(vec![message.value]))
+        }
+
+        fn decode(&self, _payload: Bytes, _version: u16) -> kairo_serialization::Result<Ping> {
+            panic!("remote business codec decode failed")
+        }
+    }
+
     struct Target {
         received: mpsc::Sender<u8>,
     }
@@ -266,6 +282,13 @@ mod tests {
     fn registry() -> Arc<Registry> {
         let mut registry = Registry::new();
         registry.register::<Ping, _>(PingCodec).unwrap();
+        register_remote_protocol_codecs(&mut registry).unwrap();
+        Arc::new(registry)
+    }
+
+    fn panicking_registry() -> Arc<Registry> {
+        let mut registry = Registry::new();
+        registry.register::<Ping, _>(PanickingPingCodec).unwrap();
         register_remote_protocol_codecs(&mut registry).unwrap();
         Arc::new(registry)
     }
@@ -364,6 +387,61 @@ mod tests {
             .expect_err("missing business codec should fail");
 
         assert!(matches!(error, RemoteError::Serialization(_)));
+        assert_eq!(
+            diagnostics.records(),
+            vec![RemoteInboundDiagnostic::SerializationFailure {
+                recipient: local_actor("target"),
+                sender: Some(remote_actor("source")),
+                serializer_id: 901,
+                manifest: Ping::MANIFEST.to_string(),
+                version: Ping::VERSION,
+                reason: error.to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn system_inbound_reports_business_codec_panics_as_serialization_diagnostics() {
+        let system = ActorSystem::builder("receiver-business-panic-diagnostics")
+            .build()
+            .unwrap();
+        let registry = panicking_registry();
+        let effects = Arc::new(RecordingEffectSink::default());
+        let death_watch = system
+            .spawn(
+                "remote-watch",
+                RemoteDeathWatchActor::props(effects as Arc<dyn RemoteDeathWatchEffectSink>),
+            )
+            .unwrap();
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+        let inbound = ActorSystemRemoteInbound::<Ping>::with_diagnostics(
+            system.clone(),
+            registry,
+            death_watch,
+            42,
+            diagnostics.clone() as Arc<dyn RemoteInboundDiagnostics>,
+        );
+        let envelope = RemoteEnvelope::new(
+            local_actor("target"),
+            Some(remote_actor("source")),
+            SerializedMessage::new(
+                901,
+                Ping::MANIFEST.into(),
+                Ping::VERSION,
+                Bytes::from(vec![7]),
+            ),
+        );
+
+        let error = inbound
+            .handle_frame(
+                RemoteStreamId::Ordinary,
+                encode_remote_envelope_frame(&envelope).unwrap(),
+            )
+            .expect_err("panicking business codec should fail as serialization");
+
+        assert!(matches!(error, RemoteError::Serialization(_)));
+        assert!(error.to_string().contains("codec decode panicked"));
+        assert!(system.dead_letters().is_empty());
         assert_eq!(
             diagnostics.records(),
             vec![RemoteInboundDiagnostic::SerializationFailure {

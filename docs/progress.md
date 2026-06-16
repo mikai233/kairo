@@ -632,6 +632,10 @@ Implemented:
   router, so runtime-composed business message decode and local-delivery
   failures emit structured diagnostics before TCP socket wiring selects a
   concrete logging or metrics backend.
+- Actor-system remote inbound coverage now pins that business-codec decode
+  panics are contained at the serialization boundary, reported through
+  structured serialization diagnostics, and do not turn into local dead-letter
+  delivery attempts.
 - `RemoteInboundDiagnosticFilter` and
   `DiagnosticsConfig::remote_inbound_diagnostics` now map the
   `[observability.diagnostics]` serialization and remote-delivery flags onto
