@@ -636,6 +636,10 @@ Implemented:
   panics are contained at the serialization boundary, reported through
   structured serialization diagnostics, and do not turn into local dead-letter
   delivery attempts.
+- `RemoteActorRefProvider` now implements the local `ActorRefProvider`
+  boundary when composed with an actor system, delegating guardian and temp-path
+  access to the local provider while mapping owned canonical remote paths back
+  to local resolution and leaving foreign canonical paths non-local.
 - `RemoteInboundDiagnosticFilter` and
   `DiagnosticsConfig::remote_inbound_diagnostics` now map the
   `[observability.diagnostics]` serialization and remote-delivery flags onto

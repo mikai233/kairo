@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use kairo_actor::{ActorRef, ActorSystem, LocalActorRefProvider};
+use kairo_actor::{
+    ActorPath, ActorRef, ActorRefProvider, ActorRefResolveResult, ActorSystem, AnyActorRef,
+    LocalActorRefProvider,
+};
 use kairo_serialization::{
     ActorRefResolver, ActorRefWireData, Registry, RemoteMessage, SerializationError,
 };
@@ -191,6 +194,53 @@ impl RemoteActorRefProvider {
         self.canonical_address
             .as_ref()
             .and_then(|canonical| canonical.local_recipient_path(wire))
+    }
+
+    fn local_path_for_owned_actor_path(&self, path: &ActorPath) -> Option<String> {
+        let wire = ActorRefWireData::new(path.as_str().to_string()).ok()?;
+        self.local_path_for_owned_address(&wire)
+    }
+
+    fn require_local_provider(&self) -> &LocalActorRefProvider {
+        self.local_provider
+            .as_ref()
+            .expect("ActorRefProvider guardian and temp-path methods require a local actor system")
+    }
+}
+
+impl ActorRefProvider for RemoteActorRefProvider {
+    fn resolve(&self, path: &ActorPath) -> ActorRefResolveResult {
+        let Some(local_provider) = &self.local_provider else {
+            return ActorRefResolveResult::NonLocal(path.clone());
+        };
+        if let Some(local_path) = self.local_path_for_owned_actor_path(path) {
+            return local_provider.resolve(&ActorPath::new(local_path));
+        }
+        local_provider.resolve(path)
+    }
+
+    fn root_guardian(&self) -> AnyActorRef {
+        self.require_local_provider().root_guardian()
+    }
+
+    fn user_guardian(&self) -> AnyActorRef {
+        self.require_local_provider().user_guardian()
+    }
+
+    fn system_guardian(&self) -> AnyActorRef {
+        self.require_local_provider().system_guardian()
+    }
+
+    fn temp_guardian(&self) -> AnyActorRef {
+        self.require_local_provider().temp_guardian()
+    }
+
+    fn dead_letters(&self) -> AnyActorRef {
+        self.require_local_provider().dead_letters()
+    }
+
+    fn temp_path(&self, prefix: impl AsRef<str>) -> ActorPath {
+        self.require_local_provider().temp_path(prefix)
     }
 }
 
@@ -537,6 +587,76 @@ mod tests {
         assert_eq!(
             received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
             18
+        );
+    }
+
+    #[test]
+    fn provider_trait_maps_owned_canonical_path_to_local_resolution() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_system(system.clone());
+        let (received_tx, _received_rx) = mpsc::channel();
+        let target = system
+            .spawn(
+                "target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+        let canonical_path =
+            target
+                .path()
+                .as_str()
+                .replacen("kairo://local", "kairo://local@127.0.0.1:25520", 1);
+
+        let resolved = <RemoteActorRefProvider as ActorRefProvider>::resolve(
+            &provider,
+            &ActorPath::new(canonical_path),
+        );
+
+        assert!(matches!(resolved, ActorRefResolveResult::Local(_)));
+        assert_eq!(resolved.path().as_str(), target.path().as_str());
+    }
+
+    #[test]
+    fn provider_trait_keeps_foreign_canonical_paths_non_local() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_system(system);
+        let remote_path = ActorPath::new("kairo://remote@127.0.0.1:25521/user/worker#7");
+
+        let resolved =
+            <RemoteActorRefProvider as ActorRefProvider>::resolve(&provider, &remote_path);
+
+        assert!(matches!(resolved, ActorRefResolveResult::NonLocal(_)));
+        assert_eq!(resolved.path().as_str(), remote_path.as_str());
+    }
+
+    #[test]
+    fn provider_trait_delegates_guardian_and_temp_paths_to_local_provider() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_system(system.clone());
+
+        assert_eq!(
+            provider.root_guardian().path().as_str(),
+            system.provider().root_guardian().path().as_str()
+        );
+        assert_eq!(
+            provider.user_guardian().path().as_str(),
+            system.provider().user_guardian().path().as_str()
+        );
+        assert_eq!(
+            provider.system_guardian().path().as_str(),
+            system.provider().system_guardian().path().as_str()
+        );
+        assert_eq!(
+            provider.dead_letters().path().as_str(),
+            system.provider().dead_letters().path().as_str()
+        );
+        assert!(
+            provider
+                .temp_path("remote-provider")
+                .as_str()
+                .starts_with("kairo://local/temp/remote-provider$")
         );
     }
 
