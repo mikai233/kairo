@@ -989,7 +989,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     let third_outbound = Arc::new(third_cache.clone()) as Arc<dyn RemoteOutbound>;
     let third_to_first_outbound = ClusterMembershipWireOutbound::new(
         first_node.clone(),
-        registry,
+        registry.clone(),
         ClusterMembershipRemoteEnvelopeOutbound::from_arc(third_outbound),
     );
     send_join_until_received(
@@ -1028,6 +1028,46 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     );
     assert_eq!(second_cache.route_count(), 1);
     assert_eq!(third_cache.route_count(), 2);
+
+    let removed_second_to_third_error = second_to_third_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: second_node.clone(),
+                roles: vec!["second-to-third-after-reduction".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("second-to-third route should reject sends after third is removed");
+    assert!(
+        removed_second_to_third_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected second-to-third send error: {removed_second_to_third_error:?}"
+    );
+    third_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    send_join_until_received(
+        &second_membership_outbound,
+        &second_probes,
+        Join {
+            node: first_node.clone(),
+            roles: vec!["first-to-second-after-reduction".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
+    send_join_until_received(
+        &second_to_first_outbound,
+        &first_probes,
+        Join {
+            node: second_node.clone(),
+            roles: vec!["second-to-first-after-reduction".to_string()],
+        },
+        Duration::from_secs(1),
+    );
 
     run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
     assert_eq!(first_cache.route_count(), 0);

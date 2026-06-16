@@ -3000,7 +3000,10 @@ Implemented:
   second-to-third and third-to-second membership delivery after all three
   connectors install routes, so the three-node bootstrap test verifies
   cross-peer socket delivery instead of only route counts outside the first
-  sender.
+  sender. The same test now reduces the membership view to two nodes, verifies
+  second-to-third sends reject through the removed association route, and
+  proves first-to-second plus second-to-first membership delivery still works
+  across the surviving routes.
 - `kairo-distributed-data` TCP peer bootstrap coverage now pins sender-side
   route reduction with live delivery: after one of two remote peers leaves the
   sender's cluster membership view, the remaining replicator route continues
@@ -3144,6 +3147,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding multi_node_region_discovery_allocates_remembered_shard_on_registration --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
