@@ -372,6 +372,78 @@ fn restart_supervision_waits_for_stopping_children_before_processing_messages() 
 }
 
 #[test]
+fn restart_supervision_waits_for_already_stopping_child_before_processing_messages() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(|| ChildStoppingParent { child: None })
+                .with_supervisor(SupervisorStrategy::Restart),
+        )
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (stop_tx, stop_rx) = mpsc::channel();
+    let (replacement_tx, replacement_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+
+    parent
+        .tell(ChildStopMsg::StopChild { reply_to: stop_tx })
+        .unwrap();
+    stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    parent.tell(ChildStopMsg::Fail).unwrap();
+    parent
+        .tell(ChildStopMsg::SpawnReplacement {
+            reply_to: replacement_tx,
+        })
+        .unwrap();
+    parent.tell(ChildStopMsg::Ping(ping_tx)).unwrap();
+    assert!(
+        replacement_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "parent must not restart and process user messages while an already stopping child has not terminated"
+    );
+    assert!(
+        ping_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "parent must not process later user messages while restart waits for an already stopping child"
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    let replacement = replacement_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    assert!(
+        replacement
+            .as_str()
+            .starts_with(&format!("{}/child#", parent.path()))
+    );
+    assert_ne!(replacement, child_path);
+
+    assert_eq!(
+        ping_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "alive"
+    );
+}
+
+#[test]
 fn context_stop_can_stop_direct_child_without_stopping_parent() {
     let system = ActorSystem::builder("test").build().unwrap();
     let parent = system

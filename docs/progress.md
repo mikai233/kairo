@@ -55,6 +55,10 @@ Implemented:
 - Parent-stop coverage now also pins the already-stopping child window:
   watchers are not notified of parent termination until a direct child that
   began stopping before the parent stop request has fully terminated.
+- Restart-time child lifecycle coverage now also pins the already-stopping
+  child window: a restarting parent does not process queued user messages until
+  a direct child that began stopping before the parent failure has fully
+  terminated, and those queued messages are delivered after restart.
 - Actor-system termination now has focused coverage that top-level actor stop
   waits recursively for descendant child termination before the system reports
   `terminated`.
@@ -3159,6 +3163,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor restart_supervision_waits_for_already_stopping_child_before_processing_messages --all-targets --all-features
+cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding region_actor_does_not_restart_remembered_local_shard_after_graceful_shutdown_starts --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_does_not_restart_remembered_local_shard_after_handoff_begins --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
