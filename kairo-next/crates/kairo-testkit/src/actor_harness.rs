@@ -1,7 +1,9 @@
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorSystem, DeadLetter, Props, SendError};
+use kairo_actor::{
+    Actor, ActorError, ActorRef, ActorSystem, AnyActorRef, DeadLetter, Props, SendError,
+};
 
 use crate::{ActorSystemTestKit, ManualTime, TestProbe};
 
@@ -91,6 +93,16 @@ impl<M: Send + 'static> ActorHarness<M> {
         name: impl AsRef<str>,
     ) -> Result<TestProbe<DeadLetter>, ActorError> {
         self.kit.create_dead_letter_probe(name)
+    }
+
+    /// Creates an erased-ref probe already watching the subject actor.
+    pub fn watch_subject(
+        &self,
+        name: impl AsRef<str>,
+    ) -> Result<TestProbe<AnyActorRef>, ActorError> {
+        let probe = self.kit.create_probe(name)?;
+        probe.watch_terminated(&self.actor_ref)?;
+        Ok(probe)
     }
 
     /// Requests the subject actor to stop.

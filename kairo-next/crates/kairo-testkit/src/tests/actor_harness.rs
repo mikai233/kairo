@@ -70,6 +70,33 @@ fn actor_harness_expect_stopped_waits_for_subject_stop() {
 }
 
 #[test]
+fn actor_harness_watch_subject_observes_subject_stop() {
+    let harness = ActorHarness::spawn(
+        "actor-harness-watch-subject",
+        "subject",
+        Props::new(|| HarnessActor),
+    )
+    .expect("harness should spawn actor");
+    let watcher = harness
+        .watch_subject("watcher")
+        .expect("subject watcher should spawn");
+    let subject = harness.actor_ref();
+
+    harness.stop();
+
+    assert_eq!(
+        watcher.expect_msg(Duration::from_secs(1)).unwrap(),
+        subject.as_any()
+    );
+    harness
+        .expect_stopped(Duration::from_secs(1))
+        .expect("subject should stop");
+    harness
+        .shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn actor_harness_manual_time_drives_subject_scheduler() {
     let (harness, time) = ActorHarness::with_manual_time(
         "actor-harness-manual-time",
