@@ -2921,8 +2921,9 @@ Implemented:
   termination, and handoff tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` remember-entity shard runtime recovery, start/stop
   update, and batching tests now live in a focused sibling test module.
-- `kairo-cluster-sharding` entity-shard actor child delivery and handoff tests
-  now live in a focused sibling test module.
+- `kairo-cluster-sharding` entity-shard actor child delivery, passivation
+  buffering with child-incarnation replay, and handoff tests now live in a
+  focused sibling test module.
 - `kairo-actor` event-stream subscription, duplicate-subscription,
   unsubscribe, and exact-type tests now live in a focused sibling test module.
 - `kairo-actor` receptionist subscription, stop cleanup, and context-handle
