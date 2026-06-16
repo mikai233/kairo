@@ -561,6 +561,10 @@ enum RestartParentMsg {
         stopped: mpsc::Sender<()>,
         reply_to: mpsc::Sender<()>,
     },
+    SpawnRestartableChild {
+        restarted: mpsc::Sender<()>,
+        reply_to: mpsc::Sender<ActorRef<SupervisionMsg>>,
+    },
     Fail,
     ChildCount(mpsc::Sender<usize>),
 }
@@ -576,6 +580,21 @@ impl Actor for RestartParent {
                 ctx.spawn("child", Props::new(move || StopProbe { stopped }))?;
                 reply_to
                     .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartParentMsg::SpawnRestartableChild {
+                restarted,
+                reply_to,
+            } => {
+                let child = ctx.spawn(
+                    "restartable-child",
+                    Props::restartable(move || SupervisionProbe {
+                        value: 0,
+                        restarted: Some(restarted.clone()),
+                    }),
+                )?;
+                reply_to
+                    .send(child)
                     .map_err(|error| ActorError::Message(error.to_string()))
             }
             RestartParentMsg::Fail => Err(ActorError::Message("boom".to_string())),
@@ -1012,6 +1031,46 @@ fn restart_supervision_can_preserve_children() {
 
     assert_eq!(count_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
     assert!(child_stopped_rx.try_recv().is_err());
+}
+
+#[test]
+fn restart_preserving_children_restarts_restartable_child_after_parent_failure() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(|| RestartParent)
+                .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+    let (child_restarted_tx, child_restarted_rx) = mpsc::channel();
+    let (child_tx, child_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartParentMsg::SpawnRestartableChild {
+            restarted: child_restarted_tx,
+            reply_to: child_tx,
+        })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child_path = child.path().clone();
+    child.tell(SupervisionMsg::Increment).unwrap();
+    let (before_tx, before_rx) = mpsc::channel();
+    child.tell(SupervisionMsg::Get(before_tx)).unwrap();
+    assert_eq!(before_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+
+    parent.tell(RestartParentMsg::Fail).unwrap();
+    let (count_tx, count_rx) = mpsc::channel();
+    parent.tell(RestartParentMsg::ChildCount(count_tx)).unwrap();
+    assert_eq!(count_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+    child_restarted_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    let (after_tx, after_rx) = mpsc::channel();
+    child.tell(SupervisionMsg::Get(after_tx)).unwrap();
+    assert_eq!(after_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 0);
+    assert_eq!(child.path(), &child_path);
 }
 
 #[test]

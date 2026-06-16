@@ -416,6 +416,9 @@ Implemented:
   recreate after the parent has rebuilt, matching Pekko's `finishRecreate`
   ordering while preserving Kairo's explicit `Props::restartable` boundary for
   actors that can be rebuilt.
+- Child-preserving restart coverage now also pins the direct parent-failure
+  path: a restartable surviving child keeps the same ref/path, receives
+  `PreRestart`, and rebuilds to fresh state after the parent recreates.
 - `BackoffSupervisor` provides a structured on-stop supervisor actor with
   explicit `BackoffSupervisorSettings`, exponential restart delays capped by
   `max_backoff`, optional Pekko-style random-factor jitter, manual or automatic
@@ -3986,6 +3989,12 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor preserving_parent_restart_restarts_restartable_surviving_children --all-targets --all-features
+cargo test -p kairo-actor supervision --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor restart_preserving_children_restarts_restartable_child_after_parent_failure --all-targets --all-features
 cargo test -p kairo-actor supervision --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
