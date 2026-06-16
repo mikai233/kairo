@@ -656,6 +656,197 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
     nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn multi_node_region_discovery_updates_shared_remember_store_for_new_entity() {
+    let nodes = kairo_testkit::MultiNodeTestKit::new([
+        "sharding-discovery-shared-store",
+        "sharding-discovery-shared-coordinator",
+        "sharding-discovery-shared-region",
+    ])
+    .unwrap();
+    let store_kit = nodes.kit("sharding-discovery-shared-store").unwrap();
+    let coordinator_kit = nodes.kit("sharding-discovery-shared-coordinator").unwrap();
+    let region_kit = nodes.kit("sharding-discovery-shared-region").unwrap();
+    let region_node = remote_unique_node("sharding-discovery-shared-region", "127.0.0.1", 2692, 43);
+    let coordinator_node = remote_unique_node(
+        "sharding-discovery-shared-coordinator",
+        "127.0.0.1",
+        2693,
+        44,
+    );
+    let remember_store = store_kit
+        .system()
+        .spawn(
+            "remember-store-shard-1",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let publisher = region_kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(region_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state.merge_remembered_shards(["shard-1".to_string()]);
+    let coordinator = coordinator_kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    )
+    .with_local_coordinator(coordinator_node.clone(), coordinator.clone());
+    let region_remember_store = remember_store.clone();
+    let region = region_kit
+        .system()
+        .spawn(
+            "region-a",
+            Props::new(move || {
+                ShardRegionActor::<String>::new_with_remember_store_shards(
+                    "region-a",
+                    10,
+                    10,
+                    BTreeMap::from([("shard-1".to_string(), region_remember_store.clone())]),
+                    Duration::from_millis(500),
+                )
+                .with_coordinator_discovery(discovery.clone())
+            }),
+        )
+        .unwrap();
+    let _subscriber = region_kit
+        .system()
+        .spawn(
+            "region-discovery",
+            ShardRegionDiscoverySubscriber::<String>::props(cluster, region.clone()),
+        )
+        .unwrap();
+    let coordinator_state = nodes
+        .create_probe_on::<CoordinatorStateSnapshot>(
+            "sharding-discovery-shared-coordinator",
+            "coordinator-state",
+        )
+        .unwrap();
+    let routes = nodes
+        .create_probe_on::<RegionLocalRoutePlan<String>>(
+            "sharding-discovery-shared-region",
+            "routes",
+        )
+        .unwrap();
+    let deliveries = nodes
+        .create_probe_on::<ShardDeliverPlan<String>>(
+            "sharding-discovery-shared-region",
+            "deliveries",
+        )
+        .unwrap();
+    let store_state = nodes
+        .create_probe_on::<RememberShardStoreSnapshot>(
+            "sharding-discovery-shared-store",
+            "store-state",
+        )
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([cluster_member(
+                coordinator_node,
+                MemberStatus::Up,
+                ["backend"],
+                1,
+            )]),
+        ))
+        .unwrap();
+
+    let mut allocated = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        allocated = snapshot.unallocated_shards.is_empty()
+            && snapshot
+                .allocations
+                .get("region-a")
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
+        if allocated {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        allocated,
+        "shared-store remembered shard should be allocated after discovery registration"
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-2", "first".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string()
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: RememberShardUpdate::new(
+                ["entity-2".to_string()],
+                std::iter::empty::<String>(),
+            ),
+        }
+    );
+
+    let mut remembered = BTreeSet::new();
+    for _ in 0..20 {
+        remember_store
+            .tell(RememberShardStoreMsg::GetState {
+                reply_to: store_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
+        remembered = snapshot
+            .entities_by_key
+            .values()
+            .flat_map(|entities| entities.iter().cloned())
+            .collect();
+        if remembered.contains("entity-1") && remembered.contains("entity-2") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        remembered,
+        BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
+    );
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 fn wait_for_coordinator_registration(
     kit: &kairo_testkit::ActorSystemTestKit,
     coordinator: &ActorRef<ShardCoordinatorMsg<String>>,

@@ -1925,6 +1925,11 @@ Implemented:
   movement: a region registers with the first discovered local coordinator and
   re-registers with a newly selected local coordinator after cluster membership
   removes the previous coordinator.
+- Shard-region discovery subscriber coverage now also validates automatic
+  remembered-shard orchestration with a shared remember store: a discovered
+  coordinator allocates the remembered shard after region registration, the
+  region hosts the store-backed shard, and a first delivery for a new entity is
+  persisted back to the shared remember store.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -3166,7 +3171,9 @@ Not yet implemented:
   orchestration beyond the current focused actor-level coverage and the
   multi-node graceful-shutdown validation that now proves remembered entity
   recovery after handoff plus passivated-entity removal before rehost through
-  a shared remember store.
+  a shared remember store, plus the multi-node discovery/shared-store
+  validation that now proves first-delivery remember writes after automatic
+  shard allocation.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate, focused sender-side
   route-reduction delivery coverage, cluster and cluster-tools three-node
@@ -3181,6 +3188,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding multi_node_region_discovery_updates_shared_remember_store_for_new_entity --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_discovery_subscriber --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor restart_supervision_waits_for_already_stopping_child_before_processing_messages --all-targets --all-features
 cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
