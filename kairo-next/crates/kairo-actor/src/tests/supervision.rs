@@ -1055,6 +1055,64 @@ fn bounded_restart_supervision_can_preserve_children_until_limit_is_exceeded() {
         .unwrap();
 }
 
+#[test]
+fn bounded_child_preserving_restart_limit_resets_after_time_window() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(|| RestartParent).with_supervisor(
+                SupervisorStrategy::restart_with_limit_preserving_children(
+                    1,
+                    Duration::from_millis(25),
+                ),
+            ),
+        )
+        .unwrap();
+    let (child_stopped_tx, child_stopped_rx) = mpsc::channel();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartParentMsg::SpawnChild {
+            stopped: child_stopped_tx,
+            reply_to: spawned_tx,
+        })
+        .unwrap();
+    spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(RestartParentMsg::Fail).unwrap();
+    let (first_count_tx, first_count_rx) = mpsc::channel();
+    parent
+        .tell(RestartParentMsg::ChildCount(first_count_tx))
+        .unwrap();
+    assert_eq!(
+        first_count_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        1
+    );
+    assert!(child_stopped_rx.try_recv().is_err());
+
+    thread::sleep(Duration::from_millis(60));
+    parent.tell(RestartParentMsg::Fail).unwrap();
+    let (second_count_tx, second_count_rx) = mpsc::channel();
+    parent
+        .tell(RestartParentMsg::ChildCount(second_count_tx))
+        .unwrap();
+    assert_eq!(
+        second_count_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        1
+    );
+    assert!(child_stopped_rx.try_recv().is_err());
+
+    parent.tell(RestartParentMsg::Fail).unwrap();
+
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+    child_stopped_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+}
+
 enum EscalatingChildMsg {
     Fail,
 }

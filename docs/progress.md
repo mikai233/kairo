@@ -399,6 +399,10 @@ Implemented:
 - Bounded child-preserving restart supervision now has focused coverage that
   allowed restarts keep child refs live, while exceeding the restart budget
   stops the parent and then its preserved child through the normal stop path.
+- Bounded child-preserving restart supervision now also has focused
+  reset-window coverage: after the configured restart window elapses, another
+  restart is allowed without stopping the preserved child, while a later
+  failure inside the refreshed window stops the parent and child.
 - `SupervisorStrategy::Escalate` now routes a child receive failure back to
   the parent through a structured system message, so the parent applies its own
   supervision policy to the escalated failure. A parent with the default stop
@@ -3956,6 +3960,12 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor bounded_restart_supervision_can_preserve_children_until_limit_is_exceeded --all-targets --all-features
+cargo test -p kairo-actor supervision --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor bounded_child_preserving_restart_limit_resets_after_time_window --all-targets --all-features
 cargo test -p kairo-actor supervision --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
