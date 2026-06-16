@@ -1782,6 +1782,10 @@ Implemented:
   in an explicit remembering-stop state until confirmation, restart buffered
   messages through a follow-up remembered start, and batch stops behind an
   in-flight remember-store update.
+- `kairo-cluster-sharding` shard actor coverage now pins the
+  remembering-stop snapshot boundary: an entity waiting for its remembered stop
+  write remains internally tracked but is no longer reported as active, and the
+  snapshot clears it once the store update completes.
 - `kairo-cluster-sharding` shard actors can now start in an explicit
   remember-entity loading phase, stash normal shard messages until remembered
   entity IDs are loaded, recover those IDs, and replay the stashed messages in
@@ -3215,6 +3219,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding shard_actor_completes_remember_stop_update_before_removal --all-targets --all-features
+cargo test -p kairo-cluster-sharding shard_actor --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding region_actor_persists_batched_remember_starts_after_buffered_allocation --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_route_resolution --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features

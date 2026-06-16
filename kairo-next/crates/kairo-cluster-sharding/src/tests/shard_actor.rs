@@ -497,6 +497,7 @@ fn shard_actor_completes_remember_stop_update_before_removal() {
     let done = kit
         .create_probe::<RememberUpdateDonePlan<String>>("remember-done")
         .unwrap();
+    let state = kit.create_probe::<ShardSnapshot>("state").unwrap();
     let stop_update =
         RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
 
@@ -527,6 +528,21 @@ fn shard_actor_completes_remember_stop_update_before_removal() {
             update: stop_update.clone(),
         }
     );
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: Vec::new(),
+            entity_count: 1,
+            total_buffered: 0,
+            handoff_in_progress: false,
+        }
+    );
 
     shard
         .tell(ShardMsg::RememberUpdateDone {
@@ -539,6 +555,21 @@ fn shard_actor_completes_remember_stop_update_before_removal() {
         RememberUpdateDonePlan {
             deliveries: Vec::new(),
             next_update: None,
+        }
+    );
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: Vec::new(),
+            entity_count: 0,
+            total_buffered: 0,
+            handoff_in_progress: false,
         }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
