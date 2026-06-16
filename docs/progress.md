@@ -52,6 +52,10 @@ Implemented:
   messages while child termination is still in progress, and runs the parent's
   `stopped` hook and external death-watch notifications after children have
   terminated.
+- Parent-stop coverage now pins recursive descendant waiting: a stopping
+  parent with a child whose grandchild is still in `PostStop` does not mark
+  the parent terminated or notify external watchers until the grandchild and
+  child have both fully stopped.
 - Parent-stop coverage now also pins the already-stopping child window:
   watchers are not notified of parent termination until a direct child that
   began stopping before the parent stop request has fully terminated.
@@ -3197,6 +3201,7 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor parent_stop_waits_for_descendant_grandchild_before_notifying_watchers --all-targets --all-features
 cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
 cargo test -p kairo-actor restart_preserving_children_keeps_child_lookup_and_name_reserved --all-targets --all-features
