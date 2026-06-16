@@ -396,6 +396,9 @@ Implemented:
   watch registration for a preserved child survives the parent actor instance
   restart and still delivers the custom termination message when that child
   stops later, matching Pekko's cell-owned death-watch state.
+- Bounded child-preserving restart supervision now has focused coverage that
+  allowed restarts keep child refs live, while exceeding the restart budget
+  stops the parent and then its preserved child through the normal stop path.
 - `SupervisorStrategy::Escalate` now routes a child receive failure back to
   the parent through a structured system message, so the parent applies its own
   supervision policy to the escalated failure. A parent with the default stop
@@ -3951,5 +3954,11 @@ cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_c
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor bounded_restart_supervision_can_preserve_children_until_limit_is_exceeded --all-targets --all-features
+cargo test -p kairo-actor supervision --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```
