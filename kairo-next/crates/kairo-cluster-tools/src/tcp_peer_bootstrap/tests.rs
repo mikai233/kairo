@@ -191,6 +191,17 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
 
     run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
     assert_eq!(sender_cache.route_count(), 0);
+    sender_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up)
+            ]),
+        ))
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(sender_kit.system().dead_letters().is_empty());
+    assert_eq!(sender_cache.route_count(), 0);
+
     run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
     assert_eq!(receiver_cache.route_count(), 0);
     nodes.shutdown(Duration::from_secs(1)).unwrap();
