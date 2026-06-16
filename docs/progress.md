@@ -1399,6 +1399,10 @@ Implemented:
   reduction at the composed runtime layer: after two live replicator socket
   routes are installed, removing one peer from the cluster snapshot closes only
   that peer route and leaves the surviving route active until shutdown cleanup.
+- Distributed-data TCP peer runtime coverage now also proves the surviving
+  sender-side route still delivers a stable-manifest `ReplicatorRead` after the
+  same three-node membership reduction, with preserved source replica, sender
+  ref, recipient ref, and decoded payload.
 - Distributed-data TCP peer runtime shutdown now has focused lifecycle coverage
   proving that a failed dial's pending reconnect is cleared and reported even
   when the peer never becomes reachable.
@@ -3170,7 +3174,8 @@ Not yet implemented:
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
   two-node example smoke test, three-node bootstrap route/request-delivery
-  validation, and focused sender-side route-reduction delivery coverage.
+  validation, and focused peer-runtime sender-side route-reduction delivery
+  coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level coverage and the
   multi-node graceful-shutdown validation that now proves remembered entity
@@ -3279,6 +3284,7 @@ cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 git diff --check
+cargo test -p kairo-distributed-data peer_runtime_keeps_remaining_route_delivering_after_one_peer_is_removed --all-targets --all-features
 cargo test -p kairo-distributed-data peer_runtime_keeps_remaining_route_when_one_peer_is_removed --all-targets --all-features
 cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features

@@ -2,7 +2,7 @@ use super::*;
 
 mod route_tests {
     use std::net::TcpListener;
-    use std::sync::Arc;
+    use std::sync::{Arc, Condvar, Mutex};
     use std::time::{Duration, Instant};
 
     use kairo_actor::Address;
@@ -10,10 +10,13 @@ mod route_tests {
         CurrentClusterState, Member, MemberStatus, ReachabilityEvent, UniqueAddress,
     };
     use kairo_remote::RemoteSettings;
-    use kairo_serialization::RemoteEnvelope;
+    use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
 
     use super::*;
-    use crate::{ReplicatorRemoteReplyError, ReplicatorRemoteRequestError};
+    use crate::{
+        ReplicatorRead, ReplicatorRemoteReplyError, ReplicatorRemoteRequestError,
+        register_ddata_protocol_codecs,
+    };
 
     #[derive(Default)]
     struct IgnoreRequests;
@@ -37,6 +40,48 @@ mod route_tests {
             _from: ReplicaId,
             _envelope: RemoteEnvelope,
         ) -> Result<(), ReplicatorRemoteReplyError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingRequests {
+        received: Mutex<Vec<(ReplicaId, RemoteEnvelope)>>,
+        changed: Condvar,
+    }
+
+    impl RecordingRequests {
+        fn wait_for_len(&self, len: usize, timeout: Duration) -> Vec<(ReplicaId, RemoteEnvelope)> {
+            let deadline = Instant::now() + timeout;
+            let mut received = self.received.lock().expect("requests poisoned");
+            while received.len() < len {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    break;
+                };
+                let (next_received, wait) = self
+                    .changed
+                    .wait_timeout(received, remaining)
+                    .expect("requests poisoned");
+                received = next_received;
+                if wait.timed_out() {
+                    break;
+                }
+            }
+            received.clone()
+        }
+    }
+
+    impl ReplicatorRemoteRequestReceiver for RecordingRequests {
+        fn receive_request_from(
+            &self,
+            from: ReplicaId,
+            envelope: RemoteEnvelope,
+        ) -> Result<(), ReplicatorRemoteRequestError> {
+            self.received
+                .lock()
+                .expect("requests poisoned")
+                .push((from, envelope));
+            self.changed.notify_all();
             Ok(())
         }
     }
@@ -100,15 +145,46 @@ mod route_tests {
         system_uid: u64,
         port: u16,
     ) -> ReplicatorTcpAssociationRuntime {
+        bind_association_runtime_on_port_with_requests(
+            name,
+            local,
+            remote,
+            system_uid,
+            port,
+            Arc::new(IgnoreRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        )
+    }
+
+    fn bind_association_runtime_on_port_with_requests(
+        name: &str,
+        local: ReplicaId,
+        remote: ReplicaId,
+        system_uid: u64,
+        port: u16,
+        requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
+    ) -> ReplicatorTcpAssociationRuntime {
         ReplicatorTcpAssociationRuntime::bind(
             name,
             local,
             remote,
             system_uid,
             RemoteSettings::new("127.0.0.1", port),
-            Arc::new(IgnoreRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
+            requests,
             Arc::new(IgnoreReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
         )
+        .unwrap()
+    }
+
+    fn registry() -> Registry {
+        let mut registry = Registry::new();
+        register_ddata_protocol_codecs(&mut registry).unwrap();
+        registry
+    }
+
+    fn replicator_ref(system: &str, port: u16) -> ActorRefWireData {
+        ActorRefWireData::new(format!(
+            "kairo://{system}@127.0.0.1:{port}/system/replicator"
+        ))
         .unwrap()
     }
 
@@ -233,6 +309,110 @@ mod route_tests {
                 .iter()
                 .any(|target| target.node() == &second_node)
         );
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.peer_routes.removed.len(), 1);
+        assert!(sender_report.pending_reconnects.is_empty());
+        assert_eq!(sender_report.listener.accepted_associations, 0);
+        let second_report = second.shutdown().unwrap();
+        assert_eq!(second_report.accepted_associations, 1);
+        let third_report = third.shutdown().unwrap();
+        assert_eq!(third_report.accepted_associations, 1);
+    }
+
+    #[test]
+    fn peer_runtime_keeps_remaining_route_delivering_after_one_peer_is_removed() {
+        let retry_interval = Duration::from_millis(25);
+        let registry = registry();
+        let second_port = unused_port();
+        let third_port = unused_port();
+        let second_node = node("deliver-second", second_port, 2);
+        let third_node = node("deliver-third", third_port, 3);
+        let second_requests = Arc::new(RecordingRequests::default());
+        let mut sender = bind_peer_runtime(
+            "deliver-sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&second_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+        let second = bind_association_runtime_on_port_with_requests(
+            "deliver-second",
+            ReplicaId::from(&second_node),
+            ReplicaId::from(&sender_node),
+            22,
+            second_port,
+            second_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        );
+        let third = bind_association_runtime_on_port(
+            "deliver-third",
+            ReplicaId::from(&third_node),
+            ReplicaId::from(&sender_node),
+            33,
+            third_port,
+        );
+
+        let report = sender
+            .apply_snapshot(state(
+                vec![
+                    member(sender_node.clone()),
+                    member(second_node.clone()),
+                    member(third_node.clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        assert_eq!(report.dialed.len(), 2);
+        assert_eq!(sender.peer_route_count(), 2);
+        assert_eq!(sender.association_cache().route_count(), 2);
+        wait_for_reverse_route(&second);
+        wait_for_reverse_route(&third);
+
+        let report = sender
+            .apply_snapshot(state(
+                vec![member(sender_node.clone()), member(second_node.clone())],
+                vec![],
+            ))
+            .unwrap();
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let recipient = replicator_ref("deliver-second", second_port);
+        let sender_ref = replicator_ref(
+            sender_node.address.system(),
+            sender_node.address.port().unwrap(),
+        );
+        let read = ReplicatorRead {
+            key: "counter-after-route-reduction".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        };
+        let envelope = RemoteEnvelope::new(
+            recipient.clone(),
+            Some(sender_ref.clone()),
+            registry.serialize(&read).unwrap(),
+        );
+
+        sender
+            .association_cache()
+            .send_to_recipient(envelope)
+            .unwrap();
+
+        let received = second_requests.wait_for_len(1, Duration::from_secs(1));
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].0, ReplicaId::from(&sender_node));
+        assert_eq!(received[0].1.recipient, recipient);
+        assert_eq!(received[0].1.sender, Some(sender_ref));
+        assert_eq!(
+            received[0].1.message.manifest.as_str(),
+            ReplicatorRead::MANIFEST
+        );
+        let decoded = registry
+            .deserialize::<ReplicatorRead>(received[0].1.message.clone())
+            .unwrap();
+        assert_eq!(decoded, read);
 
         let sender_report = sender.shutdown().unwrap();
         assert_eq!(sender_report.peer_routes.removed.len(), 1);
