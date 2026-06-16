@@ -282,6 +282,9 @@ Implemented:
   supervision state, opportunistically collects finished lane readers, and
   detaches late socket readers so connector actor termination is not paced by
   OS socket read wakeups.
+- TCP remote byte-sink shutdown now treats platform `NotConnected` socket
+  shutdown errors as an idempotent close result, so an already-closed peer
+  socket does not fail otherwise successful remote runtime shutdown.
 - `RemoteSettings` now carries an optional TCP connect timeout while retaining
   the existing one-second default; socket-heavy tests use short explicit
   timeouts for deterministic failed-dial retry coverage.
@@ -2598,6 +2601,14 @@ Implemented:
 - `kairo-examples` now includes a runnable `cluster_tools_local` example that
   exercises local pubsub subscribe/publish/current-topics behavior and local
   singleton manager startup with typed access to the running singleton child.
+- `kairo-examples` now includes a runnable `cluster_tools_singleton` example
+  that drives two local singleton managers through a previous-oldest to
+  new-oldest handover, waits for the previous singleton child to stop, and
+  verifies the replacement starts afterward.
+- `kairo-examples` now includes a runnable `cluster_tools_distributed` example
+  that starts two distributed pubsub mediators, merges one mediator's registry
+  delta into the other, publishes to a remote topic subscriber, and validates
+  one-message-per-group delivery across a local and remote group.
 - `kairo-examples` now includes a runnable local cluster-sharding example that
   wires a shard coordinator, local shard region, `ShardingEnvelopeRouter`, and
   `EntityRef<String>` through reusable helper code and demonstrates stable
@@ -3075,6 +3086,17 @@ Implemented:
 - `docs/migration.md` now points users at the runnable local sharding example
   and the three loopback TCP peer bootstrap examples for cluster,
   distributed-data, and cluster-tools routes.
+- The README files and migration notes now list the runnable
+  `cluster_tools_singleton` example, describing its singleton handover
+  workflow and previous-child-stop-before-replacement-start ordering.
+- The README files and migration notes now list the runnable
+  `cluster_tools_distributed` example, describing its distributed pubsub
+  registry-delta merge, remote topic delivery, and one-message-per-group
+  routing coverage.
+- The root and `kairo-next` README validation sections now call out the
+  example crate and `kairo-testkit` local multi-node harness commands, making
+  the current M12 validation surface discoverable without reading the progress
+  log.
 - The `kairo` facade TOML loader now parses configuration input as a document
   table instead of a single TOML value, restoring empty-config defaults, file
   loading, unknown-key validation, and structured runtime settings tests with
@@ -3082,6 +3104,11 @@ Implemented:
 - GitHub Actions CI now mirrors the default next-workspace validation surface:
   formatting, clippy across all targets and features with warnings denied, and
   workspace tests across all targets and features.
+- GitHub Actions CI now also has an explicit examples and local multi-node
+  integration job that runs `kairo-examples` all-target tests,
+  `kairo-examples` doctests, and `kairo-testkit` multi-node harness tests,
+  making the M12 example and multi-node acceptance gates visible as named CI
+  checks.
 
 Not yet implemented:
 
@@ -4188,4 +4215,29 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
+cargo test -p kairo-examples cluster_tools_distributed_example_smoke --test examples_smoke --all-features
+cargo test -p kairo-examples --test examples_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo test -p kairo-examples --doc --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples cluster_tools_singleton_example_smoke --test examples_smoke --all-features
+cargo test -p kairo-examples remote_ping_pong_example_smoke --test examples_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo test -p kairo-examples --doc --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-remote tcp_remote_byte_sink_close --all-targets --all-features
+cargo test -p kairo-remote tcp_runtime --all-targets --all-features
+cargo test -p kairo-examples remote_ping_pong_example_smoke --test examples_smoke --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo test -p kairo-examples --doc --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
 ```

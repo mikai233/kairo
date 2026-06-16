@@ -25,6 +25,11 @@
 //!   member-up publication, member removal, and current-state request.
 //! - `cluster_tools_local`: local pubsub subscribe/publish/topics plus local
 //!   singleton manager startup and singleton access.
+//! - `cluster_tools_singleton`: two local singleton managers running a
+//!   previous-oldest to new-oldest handover workflow.
+//! - `cluster_tools_distributed`: two distributed pubsub mediators exchanging
+//!   registry deltas, remote topic publish delivery, and one-message-per-group
+//!   routing across local and remote groups.
 //! - `cluster_tcp_peer_bootstrap`: two local cluster TCP peer runtimes using
 //!   cluster-derived route plans.
 //! - `ddata_tcp_peer_bootstrap`: two local distributed-data TCP peer runtimes
@@ -60,7 +65,9 @@
 
 pub mod cluster_membership;
 pub mod cluster_tcp;
+pub mod cluster_tools_distributed;
 pub mod cluster_tools_local;
+pub mod cluster_tools_singleton;
 pub mod cluster_tools_tcp;
 pub mod configured_counter;
 pub mod counter;

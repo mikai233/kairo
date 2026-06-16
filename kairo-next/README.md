@@ -46,6 +46,8 @@ cargo run -p kairo-examples --example remote_ping_pong
 cargo run -p kairo-examples --example ddata_counter
 cargo run -p kairo-examples --example cluster_membership
 cargo run -p kairo-examples --example cluster_tools_local
+cargo run -p kairo-examples --example cluster_tools_singleton
+cargo run -p kairo-examples --example cluster_tools_distributed
 cargo run -p kairo-examples --example cluster_sharding_local
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
@@ -84,6 +86,15 @@ The `cluster_tools_local` example runs a local pubsub actor, verifies
 subscribe/publish/current-topics behavior, starts a singleton through the local
 singleton manager, and sends a typed message to the running singleton child.
 
+The `cluster_tools_singleton` example drives two local singleton managers
+through the previous-oldest to new-oldest handover workflow and verifies the
+replacement singleton starts only after the previous singleton has stopped.
+
+The `cluster_tools_distributed` example starts two distributed pubsub
+mediators, merges one mediator's registry delta into the other, publishes to a
+remote topic subscriber, and validates one-message-per-group delivery across
+local and remote groups.
+
 The `cluster_sharding_local` example wires a local shard coordinator, typed
 shard region, stable `ShardingEnvelopeRouter`, `EntityRef<String>`, and
 entity-backed shard actor. Business messages reach a typed entity child without
@@ -92,3 +103,21 @@ embedding the entity id in the business message.
 The TCP peer bootstrap examples demonstrate the current cluster,
 distributed-data, and cluster-tools route setup around the shared remote
 association primitives.
+
+## Validation
+
+The root CI workflow runs the normal next-workspace validation surface:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
+```
+
+Runnable examples and the local multi-node test harness can be checked
+directly while developing integration workflows:
+
+```bash
+cargo test -p kairo-examples --all-targets --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
+```

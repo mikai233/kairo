@@ -54,6 +54,8 @@ cargo run -p kairo-examples --example remote_ping_pong
 cargo run -p kairo-examples --example ddata_counter
 cargo run -p kairo-examples --example cluster_membership
 cargo run -p kairo-examples --example cluster_tools_local
+cargo run -p kairo-examples --example cluster_tools_singleton
+cargo run -p kairo-examples --example cluster_tools_distributed
 cargo run -p kairo-examples --example cluster_sharding_local
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
@@ -85,6 +87,15 @@ current-state request through the public cluster facade.
 The `cluster_tools_local` example demonstrates local cluster-tools workflows:
 pubsub subscribe/publish/topic listing and singleton manager startup with
 typed access to the running singleton child.
+
+The `cluster_tools_singleton` example demonstrates a two-manager singleton
+handover workflow: the new oldest requests handover, the previous oldest stops
+its singleton child, and the new oldest starts its replacement only after the
+previous child has stopped.
+
+The `cluster_tools_distributed` example demonstrates two distributed pubsub
+mediators exchanging registry deltas, remote topic publish delivery, and
+one-message-per-group routing across local and remote groups.
 
 The `cluster_sharding_local` example demonstrates:
 
@@ -134,4 +145,11 @@ Focused development usually runs the relevant crate target first, for example:
 ```bash
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+```
+
+Examples and local multi-node harness coverage can be validated directly:
+
+```bash
+cargo test -p kairo-examples --all-targets --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
 ```

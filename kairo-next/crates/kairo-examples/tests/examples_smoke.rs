@@ -4,9 +4,12 @@ use std::time::Duration;
 
 use kairo::cluster::MemberStatus;
 use kairo::cluster_sharding::PassivatePlan;
+use kairo::cluster_tools::SingletonManagerState;
 use kairo::prelude::*;
 use kairo_examples::cluster_membership::run_cluster_membership;
+use kairo_examples::cluster_tools_distributed::run_cluster_tools_distributed;
 use kairo_examples::cluster_tools_local::run_cluster_tools_local;
+use kairo_examples::cluster_tools_singleton::run_cluster_tools_singleton;
 use kairo_examples::configured_counter::{
     run_configured_counter, run_configured_counter_layers, run_configured_counter_standard,
 };
@@ -288,6 +291,55 @@ fn cluster_tools_local_example_smoke() -> Result<(), Box<dyn std::error::Error>>
     assert_eq!(observation.singleton_reply, "pong");
     assert!(observation.singleton_running);
     assert!(observation.singleton_path.is_some());
+    Ok(())
+}
+
+#[test]
+fn cluster_tools_distributed_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
+    let observation = run_cluster_tools_distributed("example-smoke-cluster-tools-distributed")?;
+
+    assert_eq!(observation.broadcast_topic, "orders");
+    assert_eq!(observation.remote_broadcast_message, "created");
+    assert_eq!(
+        observation.broadcast_targets,
+        vec!["remote-topic:kairo://example-smoke-cluster-tools-distributed@127.0.0.1:25521#2"]
+    );
+    assert_eq!(observation.group_topic, "jobs");
+    assert_eq!(observation.local_group_message, "run");
+    assert_eq!(observation.remote_group_message, "run");
+    assert_eq!(
+        observation.group_targets,
+        vec![
+            "local-group:blue",
+            "remote-group:red:kairo://example-smoke-cluster-tools-distributed@127.0.0.1:25521#2",
+        ]
+    );
+    assert!(observation.current_topics.is_empty());
+    assert_eq!(observation.remote_target_count, 1);
+    Ok(())
+}
+
+#[test]
+fn cluster_tools_singleton_example_smoke() -> Result<(), Box<dyn std::error::Error>> {
+    let observation = run_cluster_tools_singleton("example-smoke-cluster-tools-singleton")?;
+
+    assert!(observation.first_node.ends_with("#1"));
+    assert!(observation.second_node.ends_with("#2"));
+    assert!(observation.first_started);
+    assert!(observation.first_stopped);
+    assert!(observation.second_started);
+    assert!(observation.handover_requested);
+    assert!(observation.handover_in_progress);
+    assert!(observation.second_started_after_first_stopped);
+    assert_eq!(observation.first_state, SingletonManagerState::End);
+    assert_eq!(
+        observation.second_state,
+        SingletonManagerState::Oldest {
+            singleton_running: true,
+        }
+    );
+    assert!(observation.first_singleton_path.is_none());
+    assert!(observation.second_singleton_path.is_some());
     Ok(())
 }
 

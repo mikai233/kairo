@@ -39,7 +39,8 @@ The legacy tree can be removed after these release-hardening gates are met:
 
 - the `kairo` facade is the documented entry point for normal users;
 - examples cover the local actor, configuration, remote, cluster,
-  distributed-data, sharding, singleton, and pubsub workflows;
+  distributed-data, sharding, singleton, local pubsub, and distributed pubsub
+  workflows;
 - full workspace CI runs formatting, clippy with warnings denied, and tests for
   `kairo-next/crates/*`;
 - workspace and active crate manifests do not depend on `crates/`;
@@ -360,6 +361,24 @@ access to the singleton child:
 
 ```bash
 cargo run -p kairo-examples --example cluster_tools_local
+```
+
+The runnable `cluster_tools_singleton` example focuses on singleton handover:
+two local singleton managers model the previous-oldest to new-oldest protocol,
+the previous owner stops its singleton child, and the new owner starts the
+replacement only after that stop is observed:
+
+```bash
+cargo run -p kairo-examples --example cluster_tools_singleton
+```
+
+The runnable `cluster_tools_distributed` example shows distributed pubsub
+usage without relying on the legacy crates: two mediators exchange registry
+deltas, a publish from one mediator reaches a remote topic subscriber, and
+one-message-per-group delivery reaches one local group and one remote group:
+
+```bash
+cargo run -p kairo-examples --example cluster_tools_distributed
 ```
 
 ## Validation
