@@ -98,3 +98,46 @@ fn local_topic_unsubscribe_and_remove_subscriber_updates_empty_state() {
     assert!(report.no_subscribers);
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn local_topic_publish_prunes_stopped_direct_subscribers() {
+    let kit = ActorSystemTestKit::new("topic-prune-direct").unwrap();
+    let direct = kit.create_probe::<String>("direct").unwrap();
+    let mut topic = LocalTopic::new(TopicName::new("events"));
+
+    topic.subscribe(direct.actor_ref());
+    kit.system().stop(&direct.actor_ref());
+    assert!(direct.actor_ref().wait_for_stop(Duration::from_millis(500)));
+
+    let report = topic.publish("ignored".to_string(), TopicPublishMode::Broadcast);
+
+    assert_eq!(report.delivered, 0);
+    assert_eq!(report.failed, 0);
+    assert!(report.no_subscribers);
+    assert!(topic.is_empty());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn local_topic_group_publish_skips_and_prunes_stopped_subscriber() {
+    let kit = ActorSystemTestKit::new("topic-prune-group").unwrap();
+    let red_a = kit.create_probe::<String>("red-a").unwrap();
+    let red_b = kit.create_probe::<String>("red-b").unwrap();
+    let mut topic = LocalTopic::new(TopicName::new("jobs"));
+
+    topic.subscribe_group("red", red_a.actor_ref());
+    topic.subscribe_group("red", red_b.actor_ref());
+    kit.system().stop(&red_a.actor_ref());
+    assert!(red_a.actor_ref().wait_for_stop(Duration::from_millis(500)));
+
+    let report = topic.publish_group("red", "work".to_string());
+
+    assert_eq!(report.delivered, 1);
+    assert_eq!(report.failed, 0);
+    assert!(!report.no_subscribers);
+    assert_eq!(topic.group_subscriber_count("red"), 1);
+    red_b
+        .expect_msg_eq("work".to_string(), Duration::from_millis(200))
+        .unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}

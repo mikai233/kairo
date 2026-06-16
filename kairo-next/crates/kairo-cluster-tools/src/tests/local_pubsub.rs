@@ -91,6 +91,31 @@ fn local_pubsub_removes_subscriber_from_all_topics() {
 }
 
 #[test]
+fn local_pubsub_publish_prunes_stopped_subscriber_and_removes_empty_topic() {
+    let kit = ActorSystemTestKit::new("pubsub-prune-stopped").unwrap();
+    let subscriber = kit.create_probe::<String>("subscriber").unwrap();
+    let topic = TopicName::new("orders");
+    let mut pubsub = LocalPubSub::new();
+
+    pubsub.subscribe(topic.clone(), subscriber.actor_ref());
+    kit.system().stop(&subscriber.actor_ref());
+    assert!(
+        subscriber
+            .actor_ref()
+            .wait_for_stop(Duration::from_millis(500))
+    );
+
+    let report = pubsub.publish(&topic, "ignored".to_string(), TopicPublishMode::Broadcast);
+
+    assert_eq!(report.topic, topic);
+    assert_eq!(report.report.delivered, 0);
+    assert_eq!(report.report.failed, 0);
+    assert!(report.report.no_subscribers);
+    assert!(pubsub.current_topics().is_empty());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn local_pubsub_publishes_only_to_selected_group() {
     let kit = ActorSystemTestKit::new("pubsub-group-target").unwrap();
     let red_a = kit.create_probe::<String>("red-a").unwrap();

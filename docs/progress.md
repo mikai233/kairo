@@ -2202,6 +2202,10 @@ Implemented:
   that wraps the local pubsub state in synchronous actor turns, sends typed
   subscribe acks, publish reports, and current-topic replies, watches
   subscribers, and removes terminated subscribers from all local topics.
+- Local pubsub publish now prunes stopped subscriber refs as stale targets
+  when a publish races ahead of the mediator's death-watch signal, so the
+  publish report reflects no remaining subscribers instead of a transient
+  failed delivery to an already stopped actor.
 - `kairo-cluster-tools` local pubsub state and actor boundary tests now live
   in a focused sibling test module.
 - `kairo-cluster-tools` now has a focused distributed pubsub registration
@@ -4117,5 +4121,11 @@ cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools local_topic --all-targets --all-features
+cargo test -p kairo-cluster-tools local_pubsub --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```

@@ -165,26 +165,38 @@ impl<M: Send + 'static> LocalTopic<M> {
         M: Clone,
     {
         let mut report = TopicPublishReport::empty_for_no_subscribers();
-        if let Some(group) = self.groups.get_mut(group)
-            && let Some(subscriber) = group.next_subscriber()
-        {
-            record_delivery(&mut report, &subscriber, message);
+        if let Some(group_state) = self.groups.get_mut(group) {
+            group_state.publish_one(message, &mut report);
+            if group_state.subscribers.is_empty() {
+                self.groups.remove(group);
+            }
         }
         report
     }
 
-    fn publish_broadcast(&self, message: M) -> TopicPublishReport
+    fn publish_broadcast(&mut self, message: M) -> TopicPublishReport
     where
         M: Clone,
     {
         let mut report = TopicPublishReport::empty_for_no_subscribers();
-        for subscriber in &self.subscribers {
-            record_delivery(&mut report, subscriber, message.clone());
-        }
-        for group in self.groups.values() {
-            for subscriber in &group.subscribers {
-                record_delivery(&mut report, subscriber, message.clone());
-            }
+        self.subscribers
+            .retain(|subscriber| record_delivery(&mut report, subscriber, message.clone()));
+        let empty_groups: Vec<_> = self
+            .groups
+            .iter_mut()
+            .filter_map(|(group_name, group)| {
+                group
+                    .subscribers
+                    .retain(|subscriber| record_delivery(&mut report, subscriber, message.clone()));
+                if group.subscribers.is_empty() {
+                    Some(group_name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for group_name in empty_groups {
+            self.groups.remove(&group_name);
         }
         report
     }
@@ -195,9 +207,16 @@ impl<M: Send + 'static> LocalTopic<M> {
     {
         let mut report = TopicPublishReport::empty_for_no_subscribers();
         for group in self.groups.values_mut() {
-            if let Some(subscriber) = group.next_subscriber() {
-                record_delivery(&mut report, &subscriber, message.clone());
-            }
+            group.publish_one(message.clone(), &mut report);
+        }
+        let empty_groups: Vec<_> = self
+            .groups
+            .iter()
+            .filter(|(_, group)| group.subscribers.is_empty())
+            .map(|(group_name, _)| group_name.clone())
+            .collect();
+        for group_name in empty_groups {
+            self.groups.remove(&group_name);
         }
         report
     }
@@ -255,6 +274,22 @@ impl<M: Send + 'static> LocalTopicGroup<M> {
         self.next_index = (index + 1) % self.subscribers.len();
         Some(self.subscribers[index].clone())
     }
+
+    fn publish_one(&mut self, message: M, report: &mut TopicPublishReport)
+    where
+        M: Clone,
+    {
+        let attempts = self.subscribers.len();
+        for _ in 0..attempts {
+            let Some(subscriber) = self.next_subscriber() else {
+                return;
+            };
+            if record_delivery(report, &subscriber, message.clone()) {
+                return;
+            }
+            self.remove_subscriber_path(subscriber.path());
+        }
+    }
 }
 
 fn insert_unique<M: Send + 'static>(
@@ -280,9 +315,16 @@ fn record_delivery<M: Send + 'static>(
     report: &mut TopicPublishReport,
     subscriber: &ActorRef<M>,
     message: M,
-) {
+) -> bool {
     match subscriber.tell(message) {
-        Ok(()) => report.record_success(),
-        Err(_) => report.record_failure(),
+        Ok(()) => {
+            report.record_success();
+            true
+        }
+        Err(_) if subscriber.is_stopped() => false,
+        Err(_) => {
+            report.record_failure();
+            true
+        }
     }
 }

@@ -130,6 +130,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
             .get_mut(topic)
             .map(|topic_state| topic_state.publish(message, mode))
             .unwrap_or_else(TopicPublishReport::empty_for_no_subscribers);
+        self.remove_topic_if_empty(topic);
         PubSubTopicReport {
             topic: topic.clone(),
             report,
@@ -145,6 +146,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
             .get_mut(topic)
             .map(|topic_state| topic_state.publish_group(group, message))
             .unwrap_or_else(TopicPublishReport::empty_for_no_subscribers);
+        self.remove_topic_if_empty(topic);
         PubSubTopicReport {
             topic: topic.clone(),
             report,
