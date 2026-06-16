@@ -1,14 +1,16 @@
 use std::sync::Arc;
 
 use crate::{
-    AssociationOutboundPipeline, RemoteAssociationAddress, RemoteAssociationCache, RemoteByteSink,
-    RemoteLaneClassifier, RemoteOutbound,
+    AssociationOutboundPipeline, RemoteAssociation, RemoteAssociationAddress,
+    RemoteAssociationCache, RemoteAssociationDiagnostics, RemoteByteSink, RemoteLaneClassifier,
+    RemoteOutbound,
 };
 
 #[derive(Clone)]
 pub struct RemoteAssociationRouteInstaller {
     cache: RemoteAssociationCache,
     classifier: RemoteLaneClassifier,
+    diagnostics: Option<Arc<dyn RemoteAssociationDiagnostics>>,
 }
 
 impl RemoteAssociationRouteInstaller {
@@ -16,11 +18,17 @@ impl RemoteAssociationRouteInstaller {
         Self {
             cache,
             classifier: RemoteLaneClassifier::default(),
+            diagnostics: None,
         }
     }
 
     pub fn with_classifier(mut self, classifier: RemoteLaneClassifier) -> Self {
         self.classifier = classifier;
+        self
+    }
+
+    pub fn with_diagnostics(mut self, diagnostics: Arc<dyn RemoteAssociationDiagnostics>) -> Self {
+        self.diagnostics = Some(diagnostics);
         self
     }
 
@@ -35,8 +43,12 @@ impl RemoteAssociationRouteInstaller {
         ordinary: Arc<dyn RemoteByteSink>,
         large: Arc<dyn RemoteByteSink>,
     ) -> RemoteAssociationRouteRegistration {
-        let pipeline = AssociationOutboundPipeline::new(
-            address.to_string(),
+        let mut association = RemoteAssociation::new(address.to_string());
+        if let Some(diagnostics) = &self.diagnostics {
+            association = association.with_diagnostics(diagnostics.clone());
+        }
+        let pipeline = AssociationOutboundPipeline::from_association(
+            association,
             self.classifier.clone(),
             control,
             ordinary,
@@ -94,8 +106,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        RemoteError, RemoteStreamDecoder, RemoteStreamFrame, RemoteStreamId,
-        decode_remote_envelope_frame,
+        RemoteAssociationDiagnostic, RemoteAssociationDiagnostics, RemoteError,
+        RemoteStreamDecoder, RemoteStreamFrame, RemoteStreamId, decode_remote_envelope_frame,
     };
 
     #[derive(Default)]
@@ -113,6 +125,29 @@ mod tests {
         fn send_bytes(&self, bytes: Bytes) -> crate::Result<()> {
             self.writes.lock().expect("byte sink poisoned").push(bytes);
             Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct CollectingDiagnostics {
+        records: Mutex<Vec<RemoteAssociationDiagnostic>>,
+    }
+
+    impl CollectingDiagnostics {
+        fn records(&self) -> Vec<RemoteAssociationDiagnostic> {
+            self.records
+                .lock()
+                .expect("association diagnostics poisoned")
+                .clone()
+        }
+    }
+
+    impl RemoteAssociationDiagnostics for CollectingDiagnostics {
+        fn record(&self, diagnostic: RemoteAssociationDiagnostic) {
+            self.records
+                .lock()
+                .expect("association diagnostics poisoned")
+                .push(diagnostic);
         }
     }
 
@@ -221,5 +256,29 @@ mod tests {
 
         assert!(installer.remove_route(&address()).is_some());
         assert_eq!(cache.route_count(), 0);
+    }
+
+    #[test]
+    fn installer_applies_diagnostics_to_stream_pipeline_association() {
+        let cache = RemoteAssociationCache::new();
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+        let installer = RemoteAssociationRouteInstaller::new(cache)
+            .with_diagnostics(diagnostics.clone() as Arc<dyn RemoteAssociationDiagnostics>);
+        let registration = installer.insert_stream_pipeline(
+            address(),
+            Arc::new(CollectingByteSink::default()),
+            Arc::new(CollectingByteSink::default()),
+            Arc::new(CollectingByteSink::default()),
+        );
+
+        registration.pipeline().close("peer route removed").unwrap();
+
+        assert_eq!(
+            diagnostics.records(),
+            vec![RemoteAssociationDiagnostic::Closed {
+                remote: "kairo://remote@127.0.0.1:25520".to_string(),
+                reason: "peer route removed".to_string(),
+            }]
+        );
     }
 }

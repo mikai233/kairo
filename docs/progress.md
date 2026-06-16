@@ -655,6 +655,10 @@ Implemented:
   the remote address and reason, and
   `[observability.diagnostics].association_close_events` filters those events
   separately from quarantine events.
+- `RemoteAssociationRouteInstaller::with_diagnostics` now carries association
+  diagnostic observers into installed stream pipelines, so route removal and
+  runtime shutdown close reasons are observable through the same backend-neutral
+  association diagnostic channel.
 - `ClusterEventPublisher::with_diagnostics`,
   `ClusterDiagnosticFilter`, and `DiagnosticsConfig::cluster_diagnostics` now
   surface backend-neutral gossip state-change diagnostics with previous gossip,
