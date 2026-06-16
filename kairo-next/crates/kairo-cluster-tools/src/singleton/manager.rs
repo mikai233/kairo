@@ -177,6 +177,20 @@ impl SingletonManagerRuntime {
         }
     }
 
+    pub fn hand_over_retry(&mut self) -> Vec<SingletonManagerEffect> {
+        match &self.state {
+            SingletonManagerState::BecomingOldest {
+                previous_oldest,
+                handover_started: false,
+            } => previous_oldest
+                .first()
+                .cloned()
+                .map(|to| vec![SingletonManagerEffect::SendHandOverToMe { to }])
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
     pub fn take_over_from_me(&mut self, from: UniqueAddress) -> Vec<SingletonManagerEffect> {
         match &mut self.state {
             SingletonManagerState::BecomingOldest {

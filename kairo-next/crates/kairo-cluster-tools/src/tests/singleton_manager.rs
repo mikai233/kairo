@@ -162,6 +162,51 @@ fn singleton_manager_responds_to_takeover_only_when_becoming_or_oldest() {
 }
 
 #[test]
+fn singleton_manager_retries_handover_until_previous_oldest_confirms_progress() {
+    let node_a = node("handover-retry-a", 1);
+    let node_b = node("handover-retry-b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_b.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let mut manager = SingletonManagerRuntime::new(node_b.clone());
+    assert!(manager.apply_initial_observation(observation).is_empty());
+    assert_eq!(
+        manager.apply_oldest_change(SingletonOldestChange::OldestChanged(Some(node_b))),
+        vec![SingletonManagerEffect::SendHandOverToMe { to: node_a.clone() }]
+    );
+
+    assert_eq!(
+        manager.hand_over_retry(),
+        vec![SingletonManagerEffect::SendHandOverToMe { to: node_a.clone() }]
+    );
+
+    assert!(manager.hand_over_in_progress(&node_a).is_empty());
+    assert!(manager.hand_over_retry().is_empty());
+}
+
+#[test]
+fn singleton_manager_retry_is_ignored_outside_becoming_oldest() {
+    let node_a = node("handover-retry-oldest", 1);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [member(node_a.clone(), MemberStatus::Up, 1)],
+    );
+    let mut manager = SingletonManagerRuntime::new(node_a);
+    assert_eq!(
+        manager.apply_initial_observation(observation),
+        vec![SingletonManagerEffect::StartSingleton]
+    );
+
+    assert!(manager.hand_over_retry().is_empty());
+}
+
+#[test]
 fn singleton_manager_actor_applies_initial_observation_in_mailbox_turn() {
     let node_a = node("singleton-actor-a", 1);
     let (_tracker, observation) = SingletonOldestTracker::from_members(
@@ -212,6 +257,87 @@ fn singleton_manager_actor_applies_initial_observation_in_mailbox_turn() {
             removed_members: Vec::new(),
         }
     );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn singleton_manager_actor_retries_handover_in_mailbox_turn() {
+    let node_a = node("singleton-actor-retry-a", 1);
+    let node_b = node("singleton-actor-retry-b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_b.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let kit = ActorSystemTestKit::new("singleton-manager-actor-retry").unwrap();
+    let manager = kit
+        .system()
+        .spawn(
+            "singleton-manager",
+            SingletonManagerActor::props(node_b.clone()),
+        )
+        .unwrap();
+    let effects = kit
+        .create_probe::<Vec<SingletonManagerEffect>>("effects")
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::ApplyInitialObservation {
+            observation,
+            reply_to: Some(effects.actor_ref()),
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(Vec::new(), Duration::from_millis(500))
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::ApplyOldestChange {
+            change: SingletonOldestChange::OldestChanged(Some(node_b)),
+            reply_to: Some(effects.actor_ref()),
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendHandOverToMe { to: node_a.clone() }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::HandOverRetry {
+            reply_to: Some(effects.actor_ref()),
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendHandOverToMe { to: node_a.clone() }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::HandOverInProgress {
+            from: node_a,
+            reply_to: Some(effects.actor_ref()),
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(Vec::new(), Duration::from_millis(500))
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::HandOverRetry {
+            reply_to: Some(effects.actor_ref()),
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(Vec::new(), Duration::from_millis(500))
+        .unwrap();
+
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

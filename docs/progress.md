@@ -2253,12 +2253,14 @@ Implemented:
   that turns oldest-member observations and handover messages into explicit
   start-singleton, stop-singleton, handover, takeover, and manager-stop
   effects, covering safe immediate startup, delayed takeover, previous-oldest
-  removal, and handover completion before actor wiring is added.
+  removal, handover retry while becoming oldest, and handover completion before
+  actor wiring is added.
 - `kairo-cluster-tools` now has an actor-backed singleton manager boundary
   that wraps the focused handover runtime in synchronous actor turns, accepts
   explicit initial-observation, oldest-change, member-removal, handover, and
-  termination protocol messages, and replies with deterministic planned
-  effects plus state snapshots for future transport and singleton-child wiring.
+  termination protocol messages, exposes the same handover-retry hook for
+  later timer wiring, and replies with deterministic planned effects plus
+  state snapshots for future transport and singleton-child wiring.
 - `kairo-cluster-tools` singleton manager runtime and actor boundary tests now
   live in a focused sibling test module instead of the broad crate-level test
   file.
@@ -4424,5 +4426,10 @@ cargo test -p kairo-cluster-sharding region_actor_handoff --all-targets --all-fe
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools singleton_manager --all-targets --all-features -- --nocapture
+cargo fmt --all -- --check
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```
