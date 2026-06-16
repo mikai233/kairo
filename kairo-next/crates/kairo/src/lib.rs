@@ -68,6 +68,7 @@
 //! [observability.diagnostics]
 //! dead_letters = true
 //! remote_delivery_failures = true
+//! association_close_events = true
 //! "#,
 //! )?;
 //!
@@ -95,8 +96,10 @@
 //! Observability settings stay backend-neutral. The dead-letter flag maps into
 //! the actor-system builder, while remote inbound diagnostics can be filtered
 //! with `DiagnosticsConfig::remote_inbound_diagnostics` before installing a
-//! caller-provided observer. Cluster gossip diagnostics use the same pattern
-//! through `DiagnosticsConfig::cluster_diagnostics`.
+//! caller-provided observer. Remote association and cluster gossip diagnostics
+//! use the same pattern through
+//! `DiagnosticsConfig::remote_association_diagnostics` and
+//! `DiagnosticsConfig::cluster_diagnostics`.
 //!
 //! `kairo::prelude` exports the common typed actor API plus enabled facade
 //! features. For subsystem-specific protocols and lower-level test fixtures,

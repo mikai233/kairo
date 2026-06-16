@@ -639,6 +639,7 @@ impl DiagnosticsConfig {
         self.remote_delivery_failures
             || self.serialization_failures
             || self.quarantine_events
+            || self.association_close_events
             || self.gossip_state_changes
     }
 
@@ -665,7 +666,10 @@ impl DiagnosticsConfig {
     pub fn remote_association_diagnostic_filter(
         &self,
     ) -> kairo_remote::RemoteAssociationDiagnosticFilter {
-        kairo_remote::RemoteAssociationDiagnosticFilter::new(self.quarantine_events)
+        kairo_remote::RemoteAssociationDiagnosticFilter::with_categories(
+            self.quarantine_events,
+            self.association_close_events,
+        )
     }
 
     #[cfg(feature = "remote")]

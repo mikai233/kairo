@@ -196,6 +196,7 @@ dead_letters = true
 remote_delivery_failures = false
 serialization_failures = true
 quarantine_events = false
+association_close_events = false
 gossip_state_changes = true
 "#,
     )
@@ -283,6 +284,7 @@ gossip_state_changes = true
     assert!(!settings.observability.diagnostics.remote_delivery_failures);
     assert!(settings.observability.diagnostics.serialization_failures);
     assert!(!settings.observability.diagnostics.quarantine_events);
+    assert!(!settings.observability.diagnostics.association_close_events);
     assert!(settings.observability.diagnostics.gossip_state_changes);
 }
 
@@ -346,6 +348,7 @@ dead_letters = false
 remote_delivery_failures = false
 serialization_failures = false
 quarantine_events = false
+association_close_events = false
 gossip_state_changes = false
 "#,
     )
@@ -358,6 +361,7 @@ gossip_state_changes = false
             remote_delivery_failures: false,
             serialization_failures: false,
             quarantine_events: false,
+            association_close_events: false,
             gossip_state_changes: false,
         }
     );
@@ -446,11 +450,12 @@ serialization_failures = false
 
 #[cfg(feature = "remote")]
 #[test]
-fn diagnostics_config_filters_remote_association_quarantine_events() {
+fn diagnostics_config_filters_remote_association_categories() {
     let settings = parse_toml_str(
         r#"
 [observability.diagnostics]
 quarantine_events = true
+association_close_events = false
 "#,
     )
     .unwrap();
@@ -461,12 +466,16 @@ quarantine_events = true
         .remote_association_diagnostics(
             diagnostics.clone() as Arc<dyn kairo_remote::RemoteAssociationDiagnostics>
         )
-        .expect("quarantine diagnostics should install observer");
+        .expect("association diagnostics should install observer");
 
     observer.record(kairo_remote::RemoteAssociationDiagnostic::Quarantined {
         remote: "kairo://remote@127.0.0.1:25520".to_string(),
         remote_uid: Some(12),
         reason: "uid mismatch".to_string(),
+    });
+    observer.record(kairo_remote::RemoteAssociationDiagnostic::Closed {
+        remote: "kairo://remote@127.0.0.1:25520".to_string(),
+        reason: "transport stopped".to_string(),
     });
 
     assert_eq!(
@@ -486,6 +495,7 @@ fn diagnostics_config_omits_remote_association_observer_when_disabled() {
         r#"
 [observability.diagnostics]
 quarantine_events = false
+association_close_events = false
 "#,
     )
     .unwrap();
@@ -983,6 +993,7 @@ dead_letters = true
 remote_delivery_failures = true
 serialization_failures = true
 quarantine_events = true
+association_close_events = true
 gossip_state_changes = true
 "#,
     )
@@ -1050,6 +1061,7 @@ quarantine_events = false
     assert!(settings.observability.diagnostics.remote_delivery_failures);
     assert!(settings.observability.diagnostics.serialization_failures);
     assert!(!settings.observability.diagnostics.quarantine_events);
+    assert!(settings.observability.diagnostics.association_close_events);
     assert!(settings.observability.diagnostics.gossip_state_changes);
 }
 

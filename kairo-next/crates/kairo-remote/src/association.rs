@@ -35,6 +35,10 @@ pub enum RemoteAssociationDiagnostic {
         remote_uid: Option<u64>,
         reason: String,
     },
+    Closed {
+        remote: String,
+        reason: String,
+    },
 }
 
 pub trait RemoteAssociationDiagnostics: Send + Sync + 'static {
@@ -44,28 +48,41 @@ pub trait RemoteAssociationDiagnostics: Send + Sync + 'static {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RemoteAssociationDiagnosticFilter {
     quarantine_events: bool,
+    close_events: bool,
 }
 
 impl RemoteAssociationDiagnosticFilter {
     pub fn new(quarantine_events: bool) -> Self {
-        Self { quarantine_events }
+        Self::with_categories(quarantine_events, quarantine_events)
+    }
+
+    pub fn with_categories(quarantine_events: bool, close_events: bool) -> Self {
+        Self {
+            quarantine_events,
+            close_events,
+        }
     }
 
     pub fn all() -> Self {
-        Self::new(true)
+        Self::with_categories(true, true)
     }
 
     pub fn disabled() -> Self {
-        Self::new(false)
+        Self::with_categories(false, false)
     }
 
     pub fn quarantine_events(&self) -> bool {
         self.quarantine_events
     }
 
+    pub fn close_events(&self) -> bool {
+        self.close_events
+    }
+
     pub fn observes(&self, diagnostic: &RemoteAssociationDiagnostic) -> bool {
         match diagnostic {
             RemoteAssociationDiagnostic::Quarantined { .. } => self.quarantine_events,
+            RemoteAssociationDiagnostic::Closed { .. } => self.close_events,
         }
     }
 
@@ -158,9 +175,14 @@ impl RemoteAssociation {
     }
 
     pub fn close(&mut self, reason: impl Into<String>) {
+        let reason = reason.into();
         self.state = AssociationState::Closed {
-            reason: reason.into(),
+            reason: reason.clone(),
         };
+        self.record_diagnostic(RemoteAssociationDiagnostic::Closed {
+            remote: self.remote_address.clone(),
+            reason,
+        });
     }
 
     pub fn ensure_send_allowed(&self) -> Result<()> {
@@ -274,7 +296,24 @@ mod tests {
     }
 
     #[test]
-    fn association_diagnostic_filter_controls_quarantine_events() {
+    fn association_reports_close_diagnostics() {
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+        let mut association = RemoteAssociation::new("kairo://sys@127.0.0.1:25520")
+            .with_diagnostics(diagnostics.clone() as Arc<dyn RemoteAssociationDiagnostics>);
+
+        association.close("transport stopped");
+
+        assert_eq!(
+            diagnostics.records(),
+            vec![RemoteAssociationDiagnostic::Closed {
+                remote: "kairo://sys@127.0.0.1:25520".to_string(),
+                reason: "transport stopped".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn association_diagnostic_filter_controls_quarantine_and_close_events() {
         let diagnostics = Arc::new(CollectingDiagnostics::default());
         assert!(
             RemoteAssociationDiagnosticFilter::disabled()
@@ -282,15 +321,23 @@ mod tests {
                 .is_none()
         );
 
-        let observer = RemoteAssociationDiagnosticFilter::all()
+        let observer = RemoteAssociationDiagnosticFilter::with_categories(true, false)
             .wrap(diagnostics.clone() as Arc<dyn RemoteAssociationDiagnostics>)
-            .expect("quarantine diagnostics should install observer");
+            .expect("association diagnostics should install observer");
         observer.record(RemoteAssociationDiagnostic::Quarantined {
             remote: "kairo://sys@127.0.0.1:25520".to_string(),
             remote_uid: Some(7),
             reason: "uid mismatch".to_string(),
         });
+        observer.record(RemoteAssociationDiagnostic::Closed {
+            remote: "kairo://sys@127.0.0.1:25520".to_string(),
+            reason: "transport stopped".to_string(),
+        });
 
         assert_eq!(diagnostics.records().len(), 1);
+        assert!(matches!(
+            diagnostics.records()[0],
+            RemoteAssociationDiagnostic::Quarantined { .. }
+        ));
     }
 }

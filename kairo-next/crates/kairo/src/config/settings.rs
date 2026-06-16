@@ -271,6 +271,8 @@ pub struct DiagnosticsConfig {
     pub serialization_failures: bool,
     /// Record association quarantine events.
     pub quarantine_events: bool,
+    /// Record association close and shutdown events.
+    pub association_close_events: bool,
     /// Record cluster gossip state changes.
     pub gossip_state_changes: bool,
 }
@@ -282,6 +284,7 @@ impl Default for DiagnosticsConfig {
             remote_delivery_failures: true,
             serialization_failures: true,
             quarantine_events: true,
+            association_close_events: true,
             gossip_state_changes: true,
         }
     }

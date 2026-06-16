@@ -500,6 +500,7 @@ fn parse_diagnostics(value: &Value) -> Result<DiagnosticsConfig, ConfigError> {
             "remote_delivery_failures",
             "serialization_failures",
             "quarantine_events",
+            "association_close_events",
             "gossip_state_changes",
         ],
     )?;
@@ -531,6 +532,13 @@ fn parse_diagnostics(value: &Value) -> Result<DiagnosticsConfig, ConfigError> {
         "observability.diagnostics.quarantine_events",
     )? {
         config.quarantine_events = enabled;
+    }
+    if let Some(enabled) = optional_bool(
+        table,
+        "association_close_events",
+        "observability.diagnostics.association_close_events",
+    )? {
+        config.association_close_events = enabled;
     }
     if let Some(enabled) = optional_bool(
         table,

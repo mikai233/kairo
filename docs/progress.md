@@ -651,6 +651,10 @@ Implemented:
   association quarantine diagnostics with remote address, optional remote UID,
   and reason, while honoring the
   `[observability.diagnostics].quarantine_events` flag.
+- Remote association diagnostics now also surface structured close events with
+  the remote address and reason, and
+  `[observability.diagnostics].association_close_events` filters those events
+  separately from quarantine events.
 - `ClusterEventPublisher::with_diagnostics`,
   `ClusterDiagnosticFilter`, and `DiagnosticsConfig::cluster_diagnostics` now
   surface backend-neutral gossip state-change diagnostics with previous gossip,
