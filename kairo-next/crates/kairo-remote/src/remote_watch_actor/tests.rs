@@ -104,6 +104,14 @@ fn watcher(name: &str) -> ActorRefWireData {
     ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
 }
 
+fn local_watchee(name: &str) -> ActorRefWireData {
+    ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
+}
+
+fn remote_watcher(name: &str) -> ActorRefWireData {
+    ActorRefWireData::new(format!("kairo://remote@127.0.0.1:25520/user/{name}")).unwrap()
+}
+
 #[test]
 fn remote_watch_actor_emits_watch_heartbeat_and_unwatch_effects() {
     let (_system, actor, sink) = spawn_remote_watcher("watcher");
@@ -293,4 +301,52 @@ fn remote_watch_actor_removes_inbound_watch_without_outbound_effects() {
         }
     );
     assert!(sink.wait_for_len(1, Duration::from_millis(50)).is_empty());
+}
+
+#[test]
+fn remote_watch_actor_notifies_remote_watchers_when_local_watchee_terminates() {
+    let (system, actor, sink) = spawn_remote_watcher("watcher");
+    let (stats_probe, stats_rx) = stats_probe(&system);
+    let watchee = local_watchee("target");
+    let watcher = remote_watcher("observer");
+
+    actor
+        .tell(RemoteDeathWatchCommand::InboundWatch(WatchRemote {
+            watchee: watchee.clone(),
+            watcher: watcher.clone(),
+        }))
+        .unwrap();
+    actor
+        .tell(RemoteDeathWatchCommand::LocalWatcheeTerminated {
+            watchee: watchee.clone(),
+            existence_confirmed: true,
+        })
+        .unwrap();
+    actor
+        .tell(RemoteDeathWatchCommand::GetStats {
+            reply_to: stats_probe,
+        })
+        .unwrap();
+
+    assert_eq!(
+        sink.wait_for_len(1, Duration::from_secs(1)),
+        vec![RemoteDeathWatchEffect::SendRemoteTerminated {
+            watcher,
+            message: RemoteTerminated {
+                watchee,
+                existence_confirmed: true
+            }
+        }]
+    );
+    assert_eq!(
+        stats_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RemoteDeathWatchStats {
+            watching: 0,
+            watched_addresses: 0,
+            inbound_watching: 0,
+            unreachable_addresses: 0,
+            watching_refs: Vec::new(),
+            watching_addresses: Vec::new(),
+        }
+    );
 }

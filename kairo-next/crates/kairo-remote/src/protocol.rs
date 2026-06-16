@@ -23,6 +23,17 @@ impl RemoteMessage for UnwatchRemote {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteTerminated {
+    pub watchee: ActorRefWireData,
+    pub existence_confirmed: bool,
+}
+
+impl RemoteMessage for RemoteTerminated {
+    const MANIFEST: &'static str = "kairo.remote.terminated";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteHeartbeat {
     pub from_uid: u64,
 }
@@ -63,6 +74,7 @@ mod tests {
     fn remote_system_manifests_are_stable() {
         assert_eq!(WatchRemote::MANIFEST, "kairo.remote.watch-remote");
         assert_eq!(UnwatchRemote::MANIFEST, "kairo.remote.unwatch-remote");
+        assert_eq!(RemoteTerminated::MANIFEST, "kairo.remote.terminated");
         assert_eq!(RemoteHeartbeat::MANIFEST, "kairo.remote.heartbeat");
         assert_eq!(RemoteHeartbeatAck::MANIFEST, "kairo.remote.heartbeat-ack");
         assert_eq!(
@@ -70,5 +82,6 @@ mod tests {
             "kairo.remote.address-terminated"
         );
         assert!(!WatchRemote::MANIFEST.contains(std::any::type_name::<WatchRemote>()));
+        assert!(!RemoteTerminated::MANIFEST.contains(std::any::type_name::<RemoteTerminated>()));
     }
 }

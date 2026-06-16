@@ -4,13 +4,17 @@ use kairo_serialization::{
     WireReader, WireWriter,
 };
 
-use crate::{AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, UnwatchRemote, WatchRemote};
+use crate::{
+    AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, RemoteTerminated, UnwatchRemote,
+    WatchRemote,
+};
 
 pub const WATCH_REMOTE_SERIALIZER_ID: u32 = 1_000;
 pub const UNWATCH_REMOTE_SERIALIZER_ID: u32 = 1_001;
 pub const REMOTE_HEARTBEAT_SERIALIZER_ID: u32 = 1_002;
 pub const REMOTE_HEARTBEAT_ACK_SERIALIZER_ID: u32 = 1_003;
 pub const ADDRESS_TERMINATED_SERIALIZER_ID: u32 = 1_004;
+pub const REMOTE_TERMINATED_SERIALIZER_ID: u32 = 1_005;
 
 pub fn register_remote_protocol_codecs(registry: &mut Registry) -> kairo_serialization::Result<()> {
     registry.register::<WatchRemote, _>(WatchRemoteCodec)?;
@@ -18,6 +22,7 @@ pub fn register_remote_protocol_codecs(registry: &mut Registry) -> kairo_seriali
     registry.register::<RemoteHeartbeat, _>(RemoteHeartbeatCodec)?;
     registry.register::<RemoteHeartbeatAck, _>(RemoteHeartbeatAckCodec)?;
     registry.register::<AddressTerminated, _>(AddressTerminatedCodec)?;
+    registry.register::<RemoteTerminated, _>(RemoteTerminatedCodec)?;
     Ok(())
 }
 
@@ -69,6 +74,37 @@ impl MessageCodec<UnwatchRemote> for UnwatchRemoteCodec {
         let message = UnwatchRemote {
             watchee: ActorRefWireData::new(reader.read_string()?)?,
             watcher: ActorRefWireData::new(reader.read_string()?)?,
+        };
+        reader.ensure_finished()?;
+        Ok(message)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct RemoteTerminatedCodec;
+
+impl MessageCodec<RemoteTerminated> for RemoteTerminatedCodec {
+    fn serializer_id(&self) -> u32 {
+        REMOTE_TERMINATED_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &RemoteTerminated) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_string(message.watchee.path())?;
+        writer.write_bool(message.existence_confirmed);
+        Ok(writer.finish())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<RemoteTerminated> {
+        ensure_version::<RemoteTerminated>(version)?;
+        let mut reader = WireReader::new(&payload);
+        let message = RemoteTerminated {
+            watchee: ActorRefWireData::new(reader.read_string()?)?,
+            existence_confirmed: reader.read_bool()?,
         };
         reader.ensure_finished()?;
         Ok(message)
@@ -240,6 +276,27 @@ mod tests {
         assert_eq!(
             registry
                 .deserialize::<AddressTerminated>(serialized)
+                .unwrap(),
+            message
+        );
+    }
+
+    #[test]
+    fn remote_protocol_codecs_round_trip_remote_terminated() {
+        let registry = registry();
+        let message = RemoteTerminated {
+            watchee: ActorRefWireData::new("kairo://sys@127.0.0.1:25520/user/a#1").unwrap(),
+            existence_confirmed: true,
+        };
+
+        let serialized = registry.serialize(&message).unwrap();
+
+        assert_eq!(serialized.serializer_id, REMOTE_TERMINATED_SERIALIZER_ID);
+        assert_eq!(serialized.manifest.as_str(), RemoteTerminated::MANIFEST);
+        assert_eq!(serialized.version, RemoteTerminated::VERSION);
+        assert_eq!(
+            registry
+                .deserialize::<RemoteTerminated>(serialized)
                 .unwrap(),
             message
         );

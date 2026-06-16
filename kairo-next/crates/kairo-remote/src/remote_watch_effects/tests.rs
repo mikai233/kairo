@@ -2,7 +2,10 @@ use std::sync::{Arc, Mutex};
 
 use kairo_serialization::RemoteMessage;
 
-use crate::{AddressTerminated, RemoteError, RemoteHeartbeatAck, register_remote_protocol_codecs};
+use crate::{
+    AddressTerminated, RemoteError, RemoteHeartbeatAck, RemoteTerminated,
+    register_remote_protocol_codecs,
+};
 
 use super::*;
 
@@ -68,6 +71,14 @@ fn watchee(name: &str) -> ActorRefWireData {
 
 fn watcher(name: &str) -> ActorRefWireData {
     ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
+}
+
+fn local_watchee(name: &str) -> ActorRefWireData {
+    ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
+}
+
+fn remote_watcher(name: &str) -> ActorRefWireData {
+    ActorRefWireData::new(format!("kairo://remote@127.0.0.1:25520/user/{name}")).unwrap()
 }
 
 fn local_watcher() -> ActorRefWireData {
@@ -171,6 +182,40 @@ fn outbound_sink_treats_rewatch_as_another_watch_message() {
     let decoded: WatchRemote = registry.deserialize(envelopes[0].message.clone()).unwrap();
     assert_eq!(decoded.watchee, watchee);
     assert_eq!(decoded.watcher, watcher);
+}
+
+#[test]
+fn outbound_sink_serializes_remote_terminated_to_remote_watcher() {
+    let outbound = Arc::new(CollectingOutbound::default());
+    let registry = registry();
+    let sink = RemoteDeathWatchOutboundSink::with_local_watcher(
+        registry.clone(),
+        outbound.clone() as Arc<dyn RemoteOutbound>,
+        Arc::new(IgnoreRemoteDeathWatchEffects) as Arc<dyn RemoteDeathWatchEffectObserver>,
+        local_watcher(),
+    );
+    let watchee = local_watchee("target");
+    let watcher = remote_watcher("observer");
+
+    sink.apply(vec![RemoteDeathWatchEffect::SendRemoteTerminated {
+        watcher,
+        message: RemoteTerminated {
+            watchee: watchee.clone(),
+            existence_confirmed: true,
+        },
+    }])
+    .unwrap();
+
+    let envelopes = outbound.envelopes();
+    assert_eq!(envelopes.len(), 1);
+    assert_remote_watcher_envelope(&envelopes[0]);
+    assert_eq!(
+        envelopes[0].sender.as_ref().map(ActorRefWireData::path),
+        Some("kairo://local@127.0.0.1:25521/system/remote-watch")
+    );
+    let decoded: RemoteTerminated = registry.deserialize(envelopes[0].message.clone()).unwrap();
+    assert_eq!(decoded.watchee, watchee);
+    assert!(decoded.existence_confirmed);
 }
 
 #[test]

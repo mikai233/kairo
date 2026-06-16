@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
+use kairo_serialization::ActorRefWireData;
 
 use crate::{
     RemoteDeathWatchEffect, RemoteDeathWatchState, RemoteError, RemoteHeartbeat,
-    RemoteHeartbeatAck, UnwatchRemote, WatchRemote,
+    RemoteHeartbeatAck, RemoteTerminated, UnwatchRemote, WatchRemote,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +24,11 @@ pub enum RemoteDeathWatchCommand {
     Unwatch(UnwatchRemote),
     InboundWatch(WatchRemote),
     InboundUnwatch(UnwatchRemote),
+    LocalWatcheeTerminated {
+        watchee: ActorRefWireData,
+        existence_confirmed: bool,
+    },
+    RemoteTerminated(RemoteTerminated),
     HeartbeatTick {
         local_uid: u64,
     },
@@ -115,6 +121,19 @@ impl Actor for RemoteDeathWatchActor {
                 let effects = self
                     .state
                     .inbound_unwatch(&message.watchee, &message.watcher);
+                self.apply_effects(effects)
+            }
+            RemoteDeathWatchCommand::LocalWatcheeTerminated {
+                watchee,
+                existence_confirmed,
+            } => {
+                let effects = self
+                    .state
+                    .local_watchee_terminated(&watchee, existence_confirmed);
+                self.apply_effects(effects)
+            }
+            RemoteDeathWatchCommand::RemoteTerminated(message) => {
+                let effects = self.state.remote_watchee_terminated(message);
                 self.apply_effects(effects)
             }
             RemoteDeathWatchCommand::HeartbeatTick { local_uid } => {

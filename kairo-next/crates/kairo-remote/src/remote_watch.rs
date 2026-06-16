@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_serialization::ActorRefWireData;
 
-use crate::{AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, UnwatchRemote, WatchRemote};
+use crate::{
+    AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, RemoteTerminated, UnwatchRemote,
+    WatchRemote,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteDeathWatchEffect {
@@ -26,6 +29,11 @@ pub enum RemoteDeathWatchEffect {
         message: RemoteHeartbeatAck,
     },
     RewatchRemote(WatchRemote),
+    SendRemoteTerminated {
+        watcher: ActorRefWireData,
+        message: RemoteTerminated,
+    },
+    RemoteTerminated(RemoteTerminated),
     AddressTerminated(AddressTerminated),
 }
 
@@ -230,6 +238,54 @@ impl RemoteDeathWatchState {
             self.inbound_watches.remove(&watchee_path);
         }
         Vec::new()
+    }
+
+    pub fn local_watchee_terminated(
+        &mut self,
+        watchee: &ActorRefWireData,
+        existence_confirmed: bool,
+    ) -> Vec<RemoteDeathWatchEffect> {
+        let watchee_path = watchee.path().to_string();
+        let Some(entry) = self.inbound_watches.remove(&watchee_path) else {
+            return Vec::new();
+        };
+
+        entry
+            .watchers
+            .into_values()
+            .map(|watcher| RemoteDeathWatchEffect::SendRemoteTerminated {
+                watcher,
+                message: RemoteTerminated {
+                    watchee: watchee.clone(),
+                    existence_confirmed,
+                },
+            })
+            .collect()
+    }
+
+    pub fn remote_watchee_terminated(
+        &mut self,
+        message: RemoteTerminated,
+    ) -> Vec<RemoteDeathWatchEffect> {
+        let watchee_path = message.watchee.path().to_string();
+        let Some(entry) = self.watchees.remove(&watchee_path) else {
+            return Vec::new();
+        };
+
+        let mut effects = vec![RemoteDeathWatchEffect::RemoteTerminated(message)];
+        let address = entry.address;
+        let mut remove_address = false;
+        if let Some(watchees) = self.watchees_by_address.get_mut(&address) {
+            watchees.remove(&watchee_path);
+            remove_address = watchees.is_empty();
+        }
+        if remove_address {
+            self.watchees_by_address.remove(&address);
+            self.address_uids.remove(&address);
+            self.unreachable.remove(&address);
+            effects.push(RemoteDeathWatchEffect::StopHeartbeat { address });
+        }
+        effects
     }
 
     pub fn heartbeat_due(&self, local_uid: u64) -> Vec<RemoteDeathWatchEffect> {

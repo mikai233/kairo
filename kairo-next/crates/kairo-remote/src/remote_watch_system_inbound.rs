@@ -4,7 +4,8 @@ use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage};
 
 use crate::{
     AddressTerminated, InboundMessage, RemoteDeathWatchProtocolDelivery, RemoteError,
-    RemoteHeartbeat, RemoteHeartbeatAck, RemoteInboundDelivery, Result, UnwatchRemote, WatchRemote,
+    RemoteHeartbeat, RemoteHeartbeatAck, RemoteInboundDelivery, RemoteTerminated, Result,
+    UnwatchRemote, WatchRemote,
 };
 
 #[derive(Clone)]
@@ -30,6 +31,7 @@ impl RemoteDeathWatchSystemInbound {
         match envelope.message.manifest.as_str() {
             WatchRemote::MANIFEST => self.receive_typed::<WatchRemote>(envelope),
             UnwatchRemote::MANIFEST => self.receive_typed::<UnwatchRemote>(envelope),
+            RemoteTerminated::MANIFEST => self.receive_typed::<RemoteTerminated>(envelope),
             RemoteHeartbeat::MANIFEST => self.receive_typed::<RemoteHeartbeat>(envelope),
             RemoteHeartbeatAck::MANIFEST => self.receive_typed::<RemoteHeartbeatAck>(envelope),
             AddressTerminated::MANIFEST => self.receive_typed::<AddressTerminated>(envelope),
@@ -65,7 +67,7 @@ mod tests {
     use super::*;
     use crate::{
         RemoteDeathWatchActor, RemoteDeathWatchEffect, RemoteDeathWatchEffectSink,
-        register_remote_protocol_codecs,
+        RemoteTerminated, register_remote_protocol_codecs,
     };
 
     #[derive(Default)]
@@ -277,6 +279,46 @@ mod tests {
                 uid: Some(9),
             })) if address == "kairo://remote@127.0.0.1:25520"
         ));
+    }
+
+    #[test]
+    fn system_inbound_deserializes_remote_terminated_and_clears_watch() {
+        let registry = registry();
+        let sink = Arc::new(RecordingEffectSink::default());
+        let (inbound, watcher_actor) = inbound(registry.clone(), sink.clone());
+        let watchee = watchee("target");
+        let watcher = watcher("observer");
+
+        watcher_actor
+            .tell(crate::RemoteDeathWatchCommand::Watch(WatchRemote {
+                watchee: watchee.clone(),
+                watcher,
+            }))
+            .unwrap();
+        inbound
+            .receive(envelope(
+                &registry,
+                &RemoteTerminated {
+                    watchee: watchee.clone(),
+                    existence_confirmed: true,
+                },
+                Some(remote_watcher()),
+            ))
+            .unwrap();
+
+        let effects = sink.wait_for_len(4, Duration::from_secs(1));
+        assert_eq!(
+            effects[2..],
+            [
+                RemoteDeathWatchEffect::RemoteTerminated(RemoteTerminated {
+                    watchee,
+                    existence_confirmed: true
+                }),
+                RemoteDeathWatchEffect::StopHeartbeat {
+                    address: "kairo://remote@127.0.0.1:25520".to_string()
+                }
+            ]
+        );
     }
 
     #[test]

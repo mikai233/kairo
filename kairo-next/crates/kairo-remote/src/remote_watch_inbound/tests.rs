@@ -5,7 +5,7 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context
 
 use crate::{
     AddressTerminated, RemoteDeathWatchActor, RemoteDeathWatchEffect, RemoteDeathWatchEffectSink,
-    RemoteDeathWatchStats,
+    RemoteDeathWatchStats, RemoteTerminated,
 };
 
 use super::*;
@@ -248,6 +248,50 @@ fn inbound_address_terminated_marks_watched_address_unreachable() {
             uid: Some(7),
         })) if address == "kairo://remote@127.0.0.1:25520"
     ));
+}
+
+#[test]
+fn inbound_remote_terminated_removes_watched_remote_ref() {
+    let (system, actor, sink) = spawn_remote_watcher();
+    let delivery = RemoteDeathWatchProtocolDelivery::new(actor.clone(), 42);
+    let (stats_probe, stats_rx) = stats_probe(&system);
+    let watchee = watchee("target");
+    let watcher = watcher("observer");
+    actor
+        .tell(RemoteDeathWatchCommand::Watch(WatchRemote {
+            watchee: watchee.clone(),
+            watcher,
+        }))
+        .unwrap();
+
+    delivery
+        .deliver(inbound_message(RemoteTerminated {
+            watchee: watchee.clone(),
+            existence_confirmed: true,
+        }))
+        .unwrap();
+    actor
+        .tell(RemoteDeathWatchCommand::GetStats {
+            reply_to: stats_probe,
+        })
+        .unwrap();
+
+    let effects = sink.wait_for_len(4, Duration::from_secs(1));
+    assert_eq!(
+        effects[2..],
+        [
+            RemoteDeathWatchEffect::RemoteTerminated(RemoteTerminated {
+                watchee,
+                existence_confirmed: true
+            }),
+            RemoteDeathWatchEffect::StopHeartbeat {
+                address: "kairo://remote@127.0.0.1:25520".to_string()
+            }
+        ]
+    );
+    let stats = stats_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(stats.watching, 0);
+    assert_eq!(stats.watched_addresses, 0);
 }
 
 #[test]

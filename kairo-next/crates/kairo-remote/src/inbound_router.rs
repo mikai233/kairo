@@ -5,8 +5,8 @@ use kairo_serialization::RemoteMessage;
 
 use crate::{
     AddressTerminated, RemoteDeathWatchSystemInbound, RemoteError, RemoteFrameHandler,
-    RemoteHeartbeat, RemoteHeartbeatAck, RemoteInbound, RemoteStreamId, Result, UnwatchRemote,
-    WatchRemote, decode_remote_envelope_frame,
+    RemoteHeartbeat, RemoteHeartbeatAck, RemoteInbound, RemoteStreamId, RemoteTerminated, Result,
+    UnwatchRemote, WatchRemote, decode_remote_envelope_frame,
 };
 
 pub struct RemoteInboundFrameRouter<M> {
@@ -62,6 +62,7 @@ pub fn is_remote_death_watch_manifest(manifest: &str) -> bool {
         manifest,
         WatchRemote::MANIFEST
             | UnwatchRemote::MANIFEST
+            | RemoteTerminated::MANIFEST
             | RemoteHeartbeat::MANIFEST
             | RemoteHeartbeatAck::MANIFEST
             | AddressTerminated::MANIFEST
@@ -82,7 +83,8 @@ mod tests {
     use super::*;
     use crate::{
         InboundMessage, RemoteDeathWatchActor, RemoteDeathWatchEffect, RemoteDeathWatchEffectSink,
-        RemoteInboundDelivery, encode_remote_envelope_frame, register_remote_protocol_codecs,
+        RemoteInboundDelivery, RemoteTerminated, encode_remote_envelope_frame,
+        register_remote_protocol_codecs,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -254,6 +256,19 @@ mod tests {
         )
     }
 
+    fn remote_terminated_envelope(registry: &Registry) -> RemoteEnvelope {
+        RemoteEnvelope::new(
+            local_watcher(),
+            Some(remote_watcher()),
+            registry
+                .serialize(&RemoteTerminated {
+                    watchee: watcher("target"),
+                    existence_confirmed: true,
+                })
+                .unwrap(),
+        )
+    }
+
     struct RouterFixture {
         router: RemoteInboundFrameRouter<Business>,
         death_watch: ActorRef<crate::RemoteDeathWatchCommand>,
@@ -376,6 +391,38 @@ mod tests {
     }
 
     #[test]
+    fn router_sends_remote_terminated_frames_to_system_inbound() {
+        let registry = registry();
+        let delivery = Arc::new(CollectingBusinessDelivery::default());
+        let effects = Arc::new(RecordingEffectSink::default());
+        let fixture = router(registry.clone(), delivery.clone(), effects.clone());
+        let frame = encode_remote_envelope_frame(&remote_terminated_envelope(&registry)).unwrap();
+        let remote_watchee = watcher("target");
+
+        fixture
+            .death_watch
+            .tell(crate::RemoteDeathWatchCommand::Watch(WatchRemote {
+                watchee: remote_watchee.clone(),
+                watcher: watchee("observer"),
+            }))
+            .unwrap();
+        fixture
+            .router
+            .handle_frame(RemoteStreamId::Control, frame)
+            .expect("remote-terminated frame should route");
+
+        assert!(delivery.messages().is_empty());
+        let observed = effects.wait_for_len(4, Duration::from_secs(1));
+        assert_eq!(
+            observed[2],
+            RemoteDeathWatchEffect::RemoteTerminated(RemoteTerminated {
+                watchee: remote_watchee,
+                existence_confirmed: true
+            })
+        );
+    }
+
+    #[test]
     fn router_rejects_death_watch_frames_on_non_control_lane() {
         let registry = registry();
         let delivery = Arc::new(CollectingBusinessDelivery::default());
@@ -396,6 +443,7 @@ mod tests {
     fn death_watch_manifest_helper_matches_only_remote_watch_protocol() {
         assert!(is_remote_death_watch_manifest(WatchRemote::MANIFEST));
         assert!(is_remote_death_watch_manifest(UnwatchRemote::MANIFEST));
+        assert!(is_remote_death_watch_manifest(RemoteTerminated::MANIFEST));
         assert!(is_remote_death_watch_manifest(RemoteHeartbeat::MANIFEST));
         assert!(is_remote_death_watch_manifest(RemoteHeartbeatAck::MANIFEST));
         assert!(is_remote_death_watch_manifest(AddressTerminated::MANIFEST));

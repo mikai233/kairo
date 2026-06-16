@@ -5,8 +5,9 @@ use bytes::Bytes;
 use kairo_serialization::{RemoteEnvelope, RemoteMessage};
 
 use crate::{
-    AddressTerminated, RemoteError, RemoteHeartbeat, RemoteHeartbeatAck, RemoteOutbound, Result,
-    UnwatchRemote, WatchRemote, encode_remote_envelope_frame, stream::RemoteStreamId,
+    AddressTerminated, RemoteError, RemoteHeartbeat, RemoteHeartbeatAck, RemoteOutbound,
+    RemoteTerminated, Result, UnwatchRemote, WatchRemote, encode_remote_envelope_frame,
+    stream::RemoteStreamId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +24,7 @@ impl RemoteLaneClassifier {
         };
         classifier.add_control_manifest(WatchRemote::MANIFEST);
         classifier.add_control_manifest(UnwatchRemote::MANIFEST);
+        classifier.add_control_manifest(RemoteTerminated::MANIFEST);
         classifier.add_control_manifest(RemoteHeartbeat::MANIFEST);
         classifier.add_control_manifest(RemoteHeartbeatAck::MANIFEST);
         classifier.add_control_manifest(AddressTerminated::MANIFEST);
@@ -211,11 +213,36 @@ mod tests {
         )
     }
 
+    fn remote_terminated_envelope() -> RemoteEnvelope {
+        let registry = registry();
+        let watchee = ActorRefWireData::new("kairo://remote@127.0.0.1:25520/user/target").unwrap();
+        RemoteEnvelope::new(
+            ActorRefWireData::new("kairo://local@127.0.0.1:25521/system/remote-watch").unwrap(),
+            Some(
+                ActorRefWireData::new("kairo://remote@127.0.0.1:25520/system/remote-watch")
+                    .unwrap(),
+            ),
+            registry
+                .serialize(&RemoteTerminated {
+                    watchee,
+                    existence_confirmed: true,
+                })
+                .unwrap(),
+        )
+    }
+
     #[test]
     fn classifier_routes_remote_system_manifests_to_control_lane() {
         let envelope = watch_envelope();
         let frame = encode_remote_envelope_frame(&envelope).unwrap();
 
+        assert_eq!(
+            RemoteLaneClassifier::default().classify(&envelope, frame.len()),
+            RemoteStreamId::Control
+        );
+
+        let envelope = remote_terminated_envelope();
+        let frame = encode_remote_envelope_frame(&envelope).unwrap();
         assert_eq!(
             RemoteLaneClassifier::default().classify(&envelope, frame.len()),
             RemoteStreamId::Control

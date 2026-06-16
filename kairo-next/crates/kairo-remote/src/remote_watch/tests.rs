@@ -10,6 +10,14 @@ fn watcher(name: &str) -> ActorRefWireData {
     ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
 }
 
+fn local_watchee(name: &str) -> ActorRefWireData {
+    ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
+}
+
+fn remote_watcher(name: &str) -> ActorRefWireData {
+    ActorRefWireData::new(format!("kairo://remote@127.0.0.1:25520/user/{name}")).unwrap()
+}
+
 #[test]
 fn watch_records_pair_and_starts_heartbeat_for_first_address() {
     let mut state = RemoteDeathWatchState::new();
@@ -66,6 +74,67 @@ fn inbound_unwatch_removes_remote_watcher_without_outbound_effects() {
 
     assert!(effects.is_empty());
     assert_eq!(state.inbound_watching_count(), 0);
+}
+
+#[test]
+fn local_watchee_termination_notifies_inbound_remote_watchers_once() {
+    let mut state = RemoteDeathWatchState::new();
+    let watchee = local_watchee("target");
+    let first = remote_watcher("a");
+    let second = remote_watcher("b");
+    state.inbound_watch(watchee.clone(), second.clone());
+    state.inbound_watch(watchee.clone(), first.clone());
+
+    let effects = state.local_watchee_terminated(&watchee, true);
+
+    assert_eq!(
+        effects,
+        vec![
+            RemoteDeathWatchEffect::SendRemoteTerminated {
+                watcher: first,
+                message: RemoteTerminated {
+                    watchee: watchee.clone(),
+                    existence_confirmed: true
+                }
+            },
+            RemoteDeathWatchEffect::SendRemoteTerminated {
+                watcher: second,
+                message: RemoteTerminated {
+                    watchee: watchee.clone(),
+                    existence_confirmed: true
+                }
+            },
+        ]
+    );
+    assert_eq!(state.inbound_watching_count(), 0);
+    assert!(state.local_watchee_terminated(&watchee, true).is_empty());
+}
+
+#[test]
+fn remote_watchee_termination_removes_outbound_watch_and_stops_last_heartbeat() {
+    let mut state = RemoteDeathWatchState::new();
+    let watchee = watchee("target");
+    state.watch(watchee.clone(), watcher("observer"));
+
+    let effects = state.remote_watchee_terminated(RemoteTerminated {
+        watchee: watchee.clone(),
+        existence_confirmed: false,
+    });
+
+    assert_eq!(
+        effects,
+        vec![
+            RemoteDeathWatchEffect::RemoteTerminated(RemoteTerminated {
+                watchee,
+                existence_confirmed: false
+            }),
+            RemoteDeathWatchEffect::StopHeartbeat {
+                address: "kairo://remote@127.0.0.1:25520".to_string()
+            },
+        ]
+    );
+    assert_eq!(state.watching_count(), 0);
+    assert_eq!(state.watched_address_count(), 0);
 }
 
 #[test]

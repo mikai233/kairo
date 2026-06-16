@@ -6,7 +6,7 @@ use kairo_serialization::{
 
 use crate::{
     RemoteDeathWatchEffect, RemoteDeathWatchEffectSink, RemoteError, RemoteHeartbeat,
-    RemoteHeartbeatAck, RemoteOutbound, Result, UnwatchRemote, WatchRemote,
+    RemoteHeartbeatAck, RemoteOutbound, RemoteTerminated, Result, UnwatchRemote, WatchRemote,
 };
 
 const REMOTE_WATCHER_PATH: &str = "/system/remote-watch";
@@ -103,6 +103,15 @@ impl RemoteDeathWatchOutboundSink {
         self.send_remote(recipient, message)
     }
 
+    fn send_remote_terminated(
+        &self,
+        watcher: &ActorRefWireData,
+        message: &RemoteTerminated,
+    ) -> Result<()> {
+        let recipient = watcher_recipient_for_actor(watcher)?;
+        self.send_remote(recipient, message)
+    }
+
     fn send_remote<M>(&self, recipient: ActorRefWireData, message: &M) -> Result<()>
     where
         M: RemoteMessage,
@@ -130,9 +139,13 @@ impl RemoteDeathWatchEffectSink for RemoteDeathWatchOutboundSink {
                 RemoteDeathWatchEffect::SendHeartbeatAck { address, message } => {
                     self.send_heartbeat_ack(&address, &message)?
                 }
+                RemoteDeathWatchEffect::SendRemoteTerminated { watcher, message } => {
+                    self.send_remote_terminated(&watcher, &message)?
+                }
                 RemoteDeathWatchEffect::StartHeartbeat { .. }
                 | RemoteDeathWatchEffect::StopHeartbeat { .. }
                 | RemoteDeathWatchEffect::ResetFailureDetector { .. }
+                | RemoteDeathWatchEffect::RemoteTerminated(_)
                 | RemoteDeathWatchEffect::AddressTerminated(_) => {}
             }
         }

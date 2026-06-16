@@ -222,9 +222,9 @@ pub use association_registry::{RemoteAssociationHandle, RemoteAssociationRegistr
 pub use association_routes::{RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration};
 pub use codec::{
     ADDRESS_TERMINATED_SERIALIZER_ID, AddressTerminatedCodec, REMOTE_HEARTBEAT_ACK_SERIALIZER_ID,
-    REMOTE_HEARTBEAT_SERIALIZER_ID, RemoteHeartbeatAckCodec, RemoteHeartbeatCodec,
-    UNWATCH_REMOTE_SERIALIZER_ID, UnwatchRemoteCodec, WATCH_REMOTE_SERIALIZER_ID, WatchRemoteCodec,
-    register_remote_protocol_codecs,
+    REMOTE_HEARTBEAT_SERIALIZER_ID, REMOTE_TERMINATED_SERIALIZER_ID, RemoteHeartbeatAckCodec,
+    RemoteHeartbeatCodec, RemoteTerminatedCodec, UNWATCH_REMOTE_SERIALIZER_ID, UnwatchRemoteCodec,
+    WATCH_REMOTE_SERIALIZER_ID, WatchRemoteCodec, register_remote_protocol_codecs,
 };
 pub use error::{RemoteError, Result};
 pub use frame::{decode_remote_envelope_frame, encode_remote_envelope_frame};
@@ -240,7 +240,8 @@ pub use local_address::CanonicalLocalAddress;
 pub use local_delivery::LocalActorInboundDelivery;
 pub use outbound::RemoteOutbound;
 pub use protocol::{
-    AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, UnwatchRemote, WatchRemote,
+    AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, RemoteTerminated, UnwatchRemote,
+    WatchRemote,
 };
 pub use provider::{RemoteActorRefProvider, RemoteActorRefResolver};
 pub use remote_ref::RemoteActorRef;

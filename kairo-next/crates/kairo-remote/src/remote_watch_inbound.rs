@@ -3,7 +3,8 @@ use kairo_serialization::{ActorRefWireData, RemoteMessage};
 
 use crate::{
     AddressTerminated, InboundMessage, RemoteDeathWatchCommand, RemoteError, RemoteHeartbeat,
-    RemoteHeartbeatAck, RemoteInboundDelivery, Result, UnwatchRemote, WatchRemote,
+    RemoteHeartbeatAck, RemoteInboundDelivery, RemoteTerminated, Result, UnwatchRemote,
+    WatchRemote,
 };
 
 #[derive(Clone)]
@@ -65,6 +66,12 @@ impl RemoteInboundDelivery<RemoteHeartbeatAck> for RemoteDeathWatchProtocolDeliv
             address,
             ack: inbound.message,
         })
+    }
+}
+
+impl RemoteInboundDelivery<RemoteTerminated> for RemoteDeathWatchProtocolDelivery {
+    fn deliver(&self, inbound: InboundMessage<RemoteTerminated>) -> Result<()> {
+        self.tell(RemoteDeathWatchCommand::RemoteTerminated(inbound.message))
     }
 }
 

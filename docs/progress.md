@@ -770,9 +770,10 @@ Implemented:
 - `RemoteAssociation` records the initial association state transitions for
   idle, handshaking, active, quarantined, and closed remoting links.
 - `kairo-remote::register_remote_protocol_codecs` registers stable explicit
-  codecs and serializer ids for remote watch, unwatch, heartbeat,
-  heartbeat-ack, and address-terminated system messages using length-prefixed
-  actor-ref paths and big-endian numeric fields.
+  codecs and serializer ids for remote watch, unwatch, per-actor remote
+  termination, heartbeat, heartbeat-ack, and address-terminated system messages
+  using length-prefixed actor-ref paths, explicit boolean markers, and
+  big-endian numeric fields.
 - `RemoteInbound<M>` provides the first inbound envelope pipeline by
   deserializing `RemoteEnvelope` payloads through the registry and passing the
   typed message, recipient wire data, and optional sender wire data to an
@@ -950,33 +951,41 @@ Implemented:
   separate from outbound watch intent, so decoded wire watch/unwatch messages
   record the remote watcher of a local watchee without starting local outbound
   heartbeat monitoring or echoing another watch message back to the peer.
+- Remote death-watch state now emits stable per-actor `RemoteTerminated`
+  notifications to each recorded remote watcher when a local watchee
+  terminates, clears the inbound watch registration after notification, and
+  consumes received `RemoteTerminated` messages by removing the watched remote
+  ref and stopping heartbeat tracking when that was the final watched ref for
+  the remote address.
 - `kairo-remote` now has an actor-backed remote death-watch command handler
   that wraps the focused state machine in synchronous actor turns, emits
   transport-neutral effects through an explicit sink boundary, handles
   heartbeat ticks, heartbeat acks, unreachable observations, watch/unwatch
-  commands, inbound remote watch/unwatch registrations, and reports
-  deterministic watch statistics for tests and future diagnostics, including
-  ordered watched ref pairs and watched remote addresses in addition to
-  counters.
+  commands, inbound remote watch/unwatch registrations, local-watchee
+  termination, received remote termination, and reports deterministic watch
+  statistics for tests and future diagnostics, including ordered watched ref
+  pairs and watched remote addresses in addition to counters.
 - Remote death-watch actor coverage now lives in a focused sibling test module
   and validates inbound remote unwatch cleanup at the actor boundary, proving
   decoded inbound `UnwatchRemote` commands remove remote watchers without
   producing outbound watch or heartbeat effects.
 - `kairo-remote` now has a focused remote death-watch outbound effect sink
-  that serializes watch, unwatch, heartbeat, and re-watch effects through the
-  registered remote protocol codecs to the stable `/system/remote-watch`
-  recipient path on the target address, observes local timer/failure-detector
-  effects explicitly, and propagates missing-codec or outbound failures.
+  that serializes watch, unwatch, heartbeat, per-actor termination, and
+  re-watch effects through the registered remote protocol codecs to the stable
+  `/system/remote-watch` recipient path on the target address, observes local
+  timer/failure-detector effects explicitly, and propagates missing-codec or
+  outbound failures.
 - Remote death-watch outbound sink coverage now lives in a focused sibling
   test module and decodes the emitted `WatchRemote`, `RemoteHeartbeat`,
-  `UnwatchRemote`, and `RemoteHeartbeatAck` payloads to prove the effect sink
-  uses stable registered codecs rather than manifest-only assertions.
+  `UnwatchRemote`, `RemoteHeartbeatAck`, and `RemoteTerminated` payloads to
+  prove the effect sink uses stable registered codecs rather than manifest-only
+  assertions.
 - `kairo-remote` now has a focused remote death-watch inbound protocol
   delivery adapter that maps decoded remote watch/unwatch/heartbeat/heartbeat
-  ack messages into the actor-backed remote watcher, derives remote addresses
-  from stable sender actor-ref wire data, replies to inbound heartbeats with
-  local UID heartbeat acknowledgements, and drives re-watch effects from
-  heartbeat acks with new remote UIDs.
+  ack/terminated messages into the actor-backed remote watcher, derives remote
+  addresses from stable sender actor-ref wire data, replies to inbound
+  heartbeats with local UID heartbeat acknowledgements, and drives re-watch
+  effects from heartbeat acks with new remote UIDs.
 - Remote death-watch inbound protocol delivery coverage now lives in a focused
   sibling test module and validates that inbound `UnwatchRemote` removes the
   recorded remote watcher without producing outbound watch or heartbeat
@@ -987,10 +996,10 @@ Implemented:
   registered codecs, routes them to the actor-backed remote watcher, and
   rejects unknown death-watch manifests or missing codecs explicitly.
 - Remote death-watch system inbound and frame routing now also recognize the
-  stable `AddressTerminated` control manifest, preserve its optional remote
-  UID, and route it into the actor-backed remote watcher as an unreachable
-  address observation instead of treating a registered control-lane protocol
-  as ordinary business traffic.
+  stable `RemoteTerminated` and `AddressTerminated` control manifests, preserve
+  per-actor termination metadata and optional remote address UIDs, and route
+  them into the actor-backed remote watcher instead of treating registered
+  control-lane protocols as ordinary business traffic.
 - `kairo-remote` now has a focused inbound frame router that decodes remote
   envelope frames once, dispatches remote death-watch manifests from the
   control lane to the system inbound boundary, routes ordinary business
