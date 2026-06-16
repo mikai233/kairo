@@ -657,6 +657,10 @@ Implemented:
 - `Registry::deserialize_dyn` now decodes wire messages through the registered
   `(serializer_id, manifest)` codec into the dynamic runtime boundary while
   preserving the wire version for rolling-compatible codecs.
+- The dynamic typed-codec bridge catches panics from user codec
+  `encode`/`decode` implementations and reports them as structured
+  `SerializationError::Message` values, keeping remoting-facing registry calls
+  from unwinding through association tasks.
 - Focused serialization tests now pin missing-codec diagnostics for both
   unregistered outbound Rust message types and unregistered inbound
   `(serializer_id, manifest)` wire metadata.
@@ -4026,5 +4030,11 @@ cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-serialization registry_reports_codec_encode_panics_as_serialization_errors --all-targets --all-features
+cargo test -p kairo-serialization registry_reports_codec_decode_panics_as_serialization_errors --all-targets --all-features
+cargo test -p kairo-serialization --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
 git diff --check
 ```

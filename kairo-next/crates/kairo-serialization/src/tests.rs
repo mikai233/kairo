@@ -69,6 +69,13 @@ struct SingleByteCodec {
     serializer_id: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PanickingCodec {
+    serializer_id: u32,
+    panic_on_encode: bool,
+    panic_on_decode: bool,
+}
+
 impl MessageCodec<CounterCommand> for SingleByteCodec {
     fn serializer_id(&self) -> u32 {
         self.serializer_id
@@ -79,6 +86,26 @@ impl MessageCodec<CounterCommand> for SingleByteCodec {
     }
 
     fn decode(&self, payload: Bytes, _version: u16) -> crate::Result<CounterCommand> {
+        Ok(CounterCommand { amount: payload[0] })
+    }
+}
+
+impl MessageCodec<CounterCommand> for PanickingCodec {
+    fn serializer_id(&self) -> u32 {
+        self.serializer_id
+    }
+
+    fn encode(&self, message: &CounterCommand) -> crate::Result<Bytes> {
+        if self.panic_on_encode {
+            panic!("encode boom");
+        }
+        Ok(Bytes::from(vec![message.amount]))
+    }
+
+    fn decode(&self, payload: Bytes, _version: u16) -> crate::Result<CounterCommand> {
+        if self.panic_on_decode {
+            panic!("decode boom");
+        }
         Ok(CounterCommand { amount: payload[0] })
     }
 }
@@ -286,6 +313,54 @@ fn registry_reports_missing_inbound_wire_codec_with_metadata() {
             serializer_id: 41,
             manifest: "kairo.test.CounterCommand".to_string(),
         }
+    );
+}
+
+#[test]
+fn registry_reports_codec_encode_panics_as_serialization_errors() {
+    let mut registry = Registry::new();
+    registry
+        .register::<CounterCommand, _>(PanickingCodec {
+            serializer_id: 41,
+            panic_on_encode: true,
+            panic_on_decode: false,
+        })
+        .unwrap();
+
+    let error = registry
+        .serialize(&CounterCommand { amount: 5 })
+        .expect_err("codec panic should become a serialization error");
+
+    assert_eq!(
+        error,
+        SerializationError::Message("codec encode panicked: encode boom".to_string())
+    );
+}
+
+#[test]
+fn registry_reports_codec_decode_panics_as_serialization_errors() {
+    let mut registry = Registry::new();
+    registry
+        .register::<CounterCommand, _>(PanickingCodec {
+            serializer_id: 41,
+            panic_on_encode: false,
+            panic_on_decode: true,
+        })
+        .unwrap();
+    let wire = SerializedMessage::new(
+        41,
+        Manifest::new("kairo.test.CounterCommand"),
+        CounterCommand::VERSION,
+        Bytes::from_static(&[5]),
+    );
+
+    let error = registry
+        .deserialize_dyn(wire)
+        .expect_err("codec panic should become a serialization error");
+
+    assert_eq!(
+        error,
+        SerializationError::Message("codec decode panicked: decode boom".to_string())
     );
 }
 

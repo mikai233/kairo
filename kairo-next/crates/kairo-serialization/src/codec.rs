@@ -1,5 +1,6 @@
 use std::any::{Any, TypeId, type_name};
 use std::marker::PhantomData;
+use std::panic::{self, AssertUnwindSafe};
 
 use bytes::Bytes;
 
@@ -95,12 +96,24 @@ where
                 expected: type_name::<M>(),
             });
         };
-        self.codec.encode(message)
+        panic::catch_unwind(AssertUnwindSafe(|| self.codec.encode(message)))
+            .unwrap_or_else(|panic| Err(codec_panic_to_error("encode", panic)))
     }
 
     fn decode_dyn(&self, payload: Bytes, version: u16) -> Result<Box<dyn Any + Send>> {
-        self.codec
-            .decode(payload, version)
-            .map(|message| Box::new(message) as Box<dyn Any + Send>)
+        let message = panic::catch_unwind(AssertUnwindSafe(|| self.codec.decode(payload, version)))
+            .unwrap_or_else(|panic| Err(codec_panic_to_error("decode", panic)))?;
+        Ok(Box::new(message) as Box<dyn Any + Send>)
     }
+}
+
+fn codec_panic_to_error(operation: &str, panic: Box<dyn Any + Send>) -> SerializationError {
+    let message = if let Some(message) = panic.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = panic.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
+    };
+    SerializationError::Message(format!("codec {operation} panicked: {message}"))
 }
