@@ -1337,6 +1337,10 @@ Implemented:
   dialing-side lane readers, and routes bidirectional `/system/ddata`
   request/reply envelopes through the same socket association primitives used
   by actor remoting.
+- Distributed-data TCP association runtime coverage now proves the reverse
+  lane can carry a stable-manifest `ReplicatorRead` request, not only reply
+  traffic, so one handshaken association can move ddata request and reply
+  envelopes in both directions with preserved sender and recipient metadata.
 - The distributed-data TCP association runtime now explicitly closes active
   dialed outbound lane pipelines during shutdown, with coverage retaining a
   live route registration across shutdown to prove reader joins complete.
@@ -4138,5 +4142,11 @@ cargo test -p kairo-cluster-sharding region_registration --all-targets --all-fea
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data tcp_runtime_routes_replicator_requests_and_replies_over_bidirectional_association --all-targets --all-features
+cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```

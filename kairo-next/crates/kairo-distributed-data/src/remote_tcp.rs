@@ -505,7 +505,7 @@ mod tests {
             replica("sender"),
             sender_ref.clone(),
             receiver_ref.clone(),
-            registry,
+            registry.clone(),
             receiver.association_cache().clone(),
         );
         receiver_outbound
@@ -520,7 +520,30 @@ mod tests {
             ReplicatorReadResult::MANIFEST
         );
         assert_eq!(replies[0].1.recipient, sender_ref);
-        assert_eq!(replies[0].1.sender, Some(receiver_ref));
+        assert_eq!(replies[0].1.sender, Some(receiver_ref.clone()));
+
+        let receiver_request_outbound = outbound(
+            replica("sender"),
+            sender_ref.clone(),
+            receiver_ref.clone(),
+            registry,
+            receiver.association_cache().clone(),
+        );
+        receiver_request_outbound
+            .tell(ReplicatorRead {
+                key: "reverse-counter".to_string(),
+                from: Some(replica("receiver")),
+            })
+            .unwrap();
+        let reverse_requests = sender_requests.wait_for_len(1, Duration::from_secs(1));
+        assert_eq!(reverse_requests.len(), 1);
+        assert_eq!(reverse_requests[0].0, replica("receiver"));
+        assert_eq!(
+            reverse_requests[0].1.message.manifest.as_str(),
+            ReplicatorRead::MANIFEST
+        );
+        assert_eq!(reverse_requests[0].1.recipient, sender_ref);
+        assert_eq!(reverse_requests[0].1.sender, Some(receiver_ref));
 
         let sender_report = sender.shutdown().unwrap();
         assert_eq!(sender_report.accepted_associations, 0);
