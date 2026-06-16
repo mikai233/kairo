@@ -1019,6 +1019,12 @@ Implemented:
   the peer as an inbound local-watchee registration, heartbeat messages are
   acknowledged over the reverse lane, and the watcher re-sends watch metadata
   after observing the peer UID.
+- TCP actor-system runtime tests now also drive per-actor remote termination
+  over the same bidirectional association: a local watchee termination command
+  emits stable `RemoteTerminated` metadata on the hosting side, the remote
+  watcher consumes it through the system inbound router, clears its watched ref
+  and heartbeat address, and the hosting side clears the inbound watch
+  registration.
 - TCP actor-system runtime tests now also send the stable `AddressTerminated`
   control protocol across a real association route and verify the receiver's
   actor-backed remote watcher observes the unreachable sender address with the

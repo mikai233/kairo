@@ -14,7 +14,8 @@ use super::TcpRemoteActorSystem;
 use crate::{
     AddressTerminated, AssociationState, RemoteAssociationAddress, RemoteDeathWatchCommand,
     RemoteDeathWatchEffect, RemoteDeathWatchEffectObserver, RemoteDeathWatchStats, RemoteOutbound,
-    RemoteSettings, TcpAssociationIdentity, WatchRemote, register_remote_protocol_codecs,
+    RemoteSettings, RemoteTerminated, TcpAssociationIdentity, WatchRemote,
+    register_remote_protocol_codecs,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,6 +160,29 @@ fn wait_for_receiver_inbound_watch(
             Instant::now() < deadline,
             "timed out waiting for inbound remote-watch registration"
         );
+    }
+}
+
+fn wait_for_watch_stats(
+    death_watch: &ActorRef<RemoteDeathWatchCommand>,
+    reply_to: &ActorRef<RemoteDeathWatchStats>,
+    stats_rx: &mpsc::Receiver<RemoteDeathWatchStats>,
+    predicate: impl Fn(&RemoteDeathWatchStats) -> bool,
+    reason: &str,
+) -> RemoteDeathWatchStats {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        death_watch
+            .tell(RemoteDeathWatchCommand::GetStats {
+                reply_to: reply_to.clone(),
+            })
+            .unwrap();
+        if let Ok(stats) = stats_rx.recv_timeout(Duration::from_millis(20))
+            && predicate(&stats)
+        {
+            return stats;
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for {reason}");
     }
 }
 
@@ -514,6 +538,180 @@ fn tcp_remote_actor_system_round_trips_remote_death_watch_heartbeat_ack() {
             )
         })
         .expect("sender should rewatch after first heartbeat ack UID");
+
+    drop(registration);
+    let sender_report = sender_remote.shutdown().unwrap();
+    assert_eq!(sender_report.accepted_associations, 0);
+    let receiver_report = receiver_remote.shutdown().unwrap();
+    assert_eq!(receiver_report.accepted_associations, 1);
+}
+
+#[test]
+fn tcp_remote_actor_system_routes_remote_terminated_to_watcher() {
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let sender = ActorSystem::builder("sender").build().unwrap();
+    let registry = registry();
+    let (received_tx, _received_rx) = mpsc::channel();
+    let (sender_received_tx, _sender_received_rx) = mpsc::channel();
+    let target = receiver
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
+    let watcher = sender
+        .spawn(
+            "watcher",
+            Props::new(move || Target {
+                received: sender_received_tx,
+            }),
+        )
+        .unwrap();
+    let receiver_observer = Arc::new(RecordingObserver::default());
+    let sender_observer = Arc::new(RecordingObserver::default());
+    let receiver_remote = TcpRemoteActorSystem::<Ping>::bind_with_observer(
+        receiver.clone(),
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+        receiver_observer.clone() as Arc<dyn RemoteDeathWatchEffectObserver>,
+    )
+    .unwrap();
+    let sender_remote = TcpRemoteActorSystem::<Ping>::bind_with_observer(
+        sender.clone(),
+        registry,
+        RemoteSettings::new("127.0.0.1", 0),
+        22,
+        sender_observer.clone() as Arc<dyn RemoteDeathWatchEffectObserver>,
+    )
+    .unwrap();
+    let receiver_address = RemoteAssociationAddress::new(
+        "kairo",
+        "receiver",
+        receiver_remote.settings().canonical_hostname.clone(),
+        Some(receiver_remote.settings().canonical_port),
+    )
+    .unwrap();
+    let registration = sender_remote.dial(receiver_address).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while (sender_remote.association_cache().route_count() == 0
+        || receiver_remote.association_cache().route_count() == 0)
+        && Instant::now() < deadline
+    {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert_eq!(sender_remote.association_cache().route_count(), 1);
+    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+
+    let (receiver_stats_tx, receiver_stats_rx) = mpsc::channel();
+    let receiver_stats_probe = receiver_remote
+        .system()
+        .spawn(
+            "receiver-watch-stats",
+            Props::new(move || Probe {
+                sender: receiver_stats_tx,
+            }),
+        )
+        .unwrap();
+    let (sender_stats_tx, sender_stats_rx) = mpsc::channel();
+    let sender_stats_probe = sender_remote
+        .system()
+        .spawn(
+            "sender-watch-stats",
+            Props::new(move || Probe {
+                sender: sender_stats_tx,
+            }),
+        )
+        .unwrap();
+    let watchee = ActorRefWireData::new(remote_path_for(
+        target.path().as_str(),
+        receiver_remote.settings(),
+    ))
+    .unwrap();
+    let watcher = ActorRefWireData::new(remote_path_for_system(
+        watcher.path().as_str(),
+        "sender",
+        sender_remote.settings(),
+    ))
+    .unwrap();
+
+    sender_remote
+        .death_watch()
+        .tell(RemoteDeathWatchCommand::Watch(WatchRemote {
+            watchee: watchee.clone(),
+            watcher: watcher.clone(),
+        }))
+        .unwrap();
+    sender_observer
+        .wait_for(Duration::from_secs(1), |effect| {
+            matches!(
+                effect,
+                RemoteDeathWatchEffect::SendWatchRemote(WatchRemote {
+                    watchee: effect_watchee,
+                    watcher: effect_watcher,
+                }) if effect_watchee == &watchee && effect_watcher == &watcher
+            )
+        })
+        .expect("sender should send remote watch before termination");
+    let receiver_stats = wait_for_receiver_inbound_watch(
+        receiver_remote.death_watch(),
+        &receiver_stats_probe,
+        &receiver_stats_rx,
+    );
+    assert_eq!(receiver_stats.inbound_watching, 1);
+
+    receiver_remote
+        .death_watch()
+        .tell(RemoteDeathWatchCommand::LocalWatcheeTerminated {
+            watchee: watchee.clone(),
+            existence_confirmed: true,
+        })
+        .unwrap();
+
+    receiver_observer
+        .wait_for(Duration::from_secs(1), |effect| {
+            matches!(
+                effect,
+                RemoteDeathWatchEffect::SendRemoteTerminated {
+                    watcher: effect_watcher,
+                    message: RemoteTerminated {
+                        watchee: effect_watchee,
+                        existence_confirmed: true,
+                    },
+                } if effect_watchee == &watchee && effect_watcher == &watcher
+            )
+        })
+        .expect("receiver should send remote terminated over control lane");
+    sender_observer
+        .wait_for(Duration::from_secs(1), |effect| {
+            matches!(
+                effect,
+                RemoteDeathWatchEffect::RemoteTerminated(RemoteTerminated {
+                    watchee: effect_watchee,
+                    existence_confirmed: true,
+                }) if effect_watchee == &watchee
+            )
+        })
+        .expect("sender should route remote terminated to remote death-watch");
+    let sender_stats = wait_for_watch_stats(
+        sender_remote.death_watch(),
+        &sender_stats_probe,
+        &sender_stats_rx,
+        |stats| stats.watching == 0 && stats.watched_addresses == 0,
+        "sender watch state cleanup after remote terminated",
+    );
+    assert_eq!(sender_stats.watching, 0);
+    assert_eq!(sender_stats.watched_addresses, 0);
+    let receiver_stats = wait_for_watch_stats(
+        receiver_remote.death_watch(),
+        &receiver_stats_probe,
+        &receiver_stats_rx,
+        |stats| stats.inbound_watching == 0,
+        "receiver inbound watch cleanup after local termination",
+    );
+    assert_eq!(receiver_stats.inbound_watching, 0);
 
     drop(registration);
     let sender_report = sender_remote.shutdown().unwrap();
