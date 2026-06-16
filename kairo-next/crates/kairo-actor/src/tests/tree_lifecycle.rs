@@ -487,6 +487,61 @@ fn stopping_child_name_is_reserved_until_termination_completes() {
 }
 
 #[test]
+fn stopping_child_remains_visible_until_termination_completes() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (stop_tx, stop_rx) = mpsc::channel();
+    let (stopping_lookup_tx, stopping_lookup_rx) = mpsc::channel();
+    let (terminated_lookup_tx, terminated_lookup_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+
+    parent
+        .tell(ChildStopMsg::StopChild { reply_to: stop_tx })
+        .unwrap();
+    stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    parent
+        .tell(ChildStopMsg::ChildPath(stopping_lookup_tx))
+        .unwrap();
+    assert_eq!(
+        stopping_lookup_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        Some(child_path.clone())
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+
+    parent
+        .tell(ChildStopMsg::ChildPath(terminated_lookup_tx))
+        .unwrap();
+    assert_eq!(
+        terminated_lookup_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        None
+    );
+}
+
+#[test]
 fn context_stop_rejects_actor_that_is_not_self_or_direct_child() {
     let system = ActorSystem::builder("test").build().unwrap();
     let parent = system

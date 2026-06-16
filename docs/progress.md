@@ -79,6 +79,9 @@ Implemented:
   `PostStop`; stopping children keep their logical names reserved until
   termination completes, and the names can be reused only after the stopped
   hook and local registry cleanup have run.
+- Context child lookup now has focused coverage that a stopping child remains
+  visible through `Context::child` until termination completes, matching the
+  same actor-tree reservation window that blocks same-name replacement.
 - User actor names follow stable actor path element validation; `$`-prefixed
   names are reserved for internal actors such as anonymous children.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop
@@ -4017,5 +4020,11 @@ cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor stopping_child_remains_visible_until_termination_completes --all-targets --all-features
+cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```
