@@ -52,6 +52,9 @@ Implemented:
   messages while child termination is still in progress, and runs the parent's
   `stopped` hook and external death-watch notifications after children have
   terminated.
+- Parent-stop coverage now also pins the already-stopping child window:
+  watchers are not notified of parent termination until a direct child that
+  began stopping before the parent stop request has fully terminated.
 - Actor-system termination now has focused coverage that top-level actor stop
   waits recursively for descendant child termination before the system reports
   `terminated`.
@@ -3152,6 +3155,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor parent_stop_waits_for_already_stopping_child_before_notifying_watchers --all-targets --all-features
+cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender --all-targets --all-features
 cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all -- --check

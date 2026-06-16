@@ -861,6 +861,69 @@ fn parent_stop_notifies_watchers_after_children_finish_stopping() {
 }
 
 #[test]
+fn parent_stop_waits_for_already_stopping_child_before_notifying_watchers() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (stop_tx, stop_rx) = mpsc::channel();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || ParentTerminationWatcher {
+                terminated: terminated_tx,
+            }),
+        )
+        .unwrap();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+    watcher
+        .tell(ParentTerminationWatcherMsg::Watch {
+            subject: parent.clone(),
+            registered: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent
+        .tell(ChildStopMsg::StopChild { reply_to: stop_tx })
+        .unwrap();
+    stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    system.stop(&parent);
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "parent termination must wait for an already stopping child"
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        parent.path().clone()
+    );
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
 fn parent_stop_does_not_process_user_messages_while_waiting_for_children() {
     let system = ActorSystem::builder("test").build().unwrap();
     let parent = system
