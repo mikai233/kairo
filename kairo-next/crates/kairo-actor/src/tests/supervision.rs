@@ -1145,6 +1145,10 @@ enum EscalationParentMsg {
         child_stopped: Option<mpsc::Sender<()>>,
         reply_to: mpsc::Sender<ActorRef<EscalatingChildMsg>>,
     },
+    SpawnSibling {
+        stopped: mpsc::Sender<()>,
+        reply_to: mpsc::Sender<ActorRef<()>>,
+    },
     SpawnStartupFailingChild {
         starts: Arc<AtomicU64>,
         reply_to: mpsc::Sender<ActorRef<StartupProbeMsg>>,
@@ -1174,6 +1178,12 @@ impl Actor for EscalationParent {
                 )?;
                 reply_to
                     .send(child)
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            EscalationParentMsg::SpawnSibling { stopped, reply_to } => {
+                let sibling = ctx.spawn("sibling", Props::new(move || StopProbe { stopped }))?;
+                reply_to
+                    .send(sibling)
                     .map_err(|error| ActorError::Message(error.to_string()))
             }
             EscalationParentMsg::SpawnStartupFailingChild { starts, reply_to } => {
@@ -1268,6 +1278,52 @@ fn escalate_supervision_restarts_parent_when_parent_strategy_restarts() {
     parent.tell(EscalationParentMsg::Ping(ping_tx)).unwrap();
     ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(!parent.is_stopped());
+}
+
+#[test]
+fn escalating_child_preserving_parent_restart_keeps_sibling_alive() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (restarted_tx, restarted_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(move || EscalationParent {
+                restarted: Some(restarted_tx.clone()),
+            })
+            .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+    let (sibling_stopped_tx, sibling_stopped_rx) = mpsc::channel();
+    let (sibling_tx, sibling_rx) = mpsc::channel();
+    let (child_tx, child_rx) = mpsc::channel();
+
+    parent
+        .tell(EscalationParentMsg::SpawnSibling {
+            stopped: sibling_stopped_tx,
+            reply_to: sibling_tx,
+        })
+        .unwrap();
+    let sibling = sibling_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    parent
+        .tell(EscalationParentMsg::SpawnChild {
+            child_stopped: None,
+            reply_to: child_tx,
+        })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    child.tell(EscalatingChildMsg::Fail).unwrap();
+    restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent.tell(EscalationParentMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    sibling.tell(()).unwrap();
+    assert!(sibling_stopped_rx.try_recv().is_err());
+    system.stop(&sibling);
+    sibling_stopped_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
 }
 
 #[test]

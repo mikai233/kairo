@@ -408,6 +408,10 @@ Implemented:
   supervision policy to the escalated failure. A parent with the default stop
   strategy stops, while a restartable parent can restart and stop its children
   through the existing restart path.
+- Escalated child failures now have focused child-preserving parent restart
+  coverage: when one child escalates and the parent restarts with
+  `restart_preserving_children`, sibling children stay live and can still be
+  stopped through the normal actor-system stop path.
 - `BackoffSupervisor` provides a structured on-stop supervisor actor with
   explicit `BackoffSupervisorSettings`, exponential restart delays capped by
   `max_backoff`, optional Pekko-style random-factor jitter, manual or automatic
@@ -3966,6 +3970,12 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor bounded_child_preserving_restart_limit_resets_after_time_window --all-targets --all-features
+cargo test -p kairo-actor supervision --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor escalating_child_preserving_parent_restart_keeps_sibling_alive --all-targets --all-features
 cargo test -p kairo-actor supervision --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
