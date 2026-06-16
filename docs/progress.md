@@ -508,8 +508,8 @@ Implemented:
   for deterministic integration tests, can create typed probes on specific
   nodes, wires optional manual time per node, can advance all manual-time node
   clocks together for synchronized multi-node scenarios, and reports empty,
-  duplicate, unknown, or non-manual node errors explicitly without making cluster
-  membership part of the testkit.
+  blank, duplicate, unknown, or non-manual node errors explicitly without making
+  cluster membership part of the testkit.
 - `MultiNodeTestKit::advance_all_to_next` advances every manual-time node by the
   same smallest next-deadline delta, so multi-node tests can step distributed
   timers in shared time order without hard-coding per-node durations.
@@ -4096,6 +4096,12 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-testkit fish_for_message --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit multi_node_testkit_rejects_empty_duplicate_and_unknown_nodes --all-targets --all-features
 cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check

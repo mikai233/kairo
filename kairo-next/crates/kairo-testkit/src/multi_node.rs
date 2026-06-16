@@ -15,6 +15,8 @@ pub type MultiNodeResult<T> = std::result::Result<T, MultiNodeError>;
 pub enum MultiNodeError {
     /// No nodes were supplied when constructing the harness.
     EmptyNodeSet,
+    /// One supplied node name was empty or whitespace-only.
+    InvalidNodeName(String),
     /// The same node name was supplied more than once.
     DuplicateNode(String),
     /// A helper was asked to operate on a node name that is not part of the harness.
@@ -47,6 +49,9 @@ impl Display for MultiNodeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyNodeSet => write!(f, "multi-node testkit requires at least one node"),
+            Self::InvalidNodeName(name) => {
+                write!(f, "invalid multi-node testkit node name `{name}`")
+            }
             Self::DuplicateNode(name) => write!(f, "duplicate multi-node testkit node `{name}`"),
             Self::UnknownNode(name) => write!(f, "unknown multi-node testkit node `{name}`"),
             Self::ManualTimeDisabled(name) => {
@@ -700,6 +705,9 @@ fn validate_node_names(names: &[String]) -> MultiNodeResult<()> {
 
     let mut seen = BTreeSet::new();
     for name in names {
+        if name.trim().is_empty() {
+            return Err(MultiNodeError::InvalidNodeName(name.clone()));
+        }
         if !seen.insert(name) {
             return Err(MultiNodeError::DuplicateNode(name.clone()));
         }

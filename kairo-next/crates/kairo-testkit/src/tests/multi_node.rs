@@ -273,6 +273,12 @@ fn multi_node_testkit_rejects_empty_duplicate_and_unknown_nodes() {
         MultiNodeTestKit::new(Vec::<String>::new()).expect_err("empty node set should be rejected");
     assert!(matches!(empty, MultiNodeError::EmptyNodeSet));
 
+    let blank = MultiNodeTestKit::new(["  "]).expect_err("blank node name should be rejected");
+    assert!(matches!(
+        blank,
+        MultiNodeError::InvalidNodeName(name) if name == "  "
+    ));
+
     let duplicate =
         MultiNodeTestKit::new(["dup", "dup"]).expect_err("duplicate node names should be rejected");
     assert!(matches!(
