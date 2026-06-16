@@ -223,12 +223,12 @@ fn remote_watch_actor_reports_stats_after_ordered_commands() {
     assert_eq!(
         stats_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         RemoteDeathWatchStats {
-            watching: 1,
-            watched_addresses: 1,
+            watching: 0,
+            watched_addresses: 0,
             inbound_watching: 0,
             unreachable_addresses: 1,
-            watching_refs: vec![WatchRemote { watchee, watcher }],
-            watching_addresses: vec!["kairo://remote@127.0.0.1:25520".to_string()],
+            watching_refs: vec![],
+            watching_addresses: vec![],
         }
     );
 }

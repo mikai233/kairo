@@ -271,14 +271,19 @@ mod tests {
             ))
             .unwrap();
 
-        let effects = sink.wait_for_len(3, Duration::from_secs(1));
-        assert!(matches!(
-            effects.last(),
-            Some(RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
+        let effects = sink.wait_for_len(4, Duration::from_secs(1));
+        assert!(effects.iter().any(|effect| matches!(
+            effect,
+            RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
                 address,
                 uid: Some(9),
-            })) if address == "kairo://remote@127.0.0.1:25520"
-        ));
+            }) if address == "kairo://remote@127.0.0.1:25520"
+        )));
+        assert!(effects.iter().any(|effect| matches!(
+            effect,
+            RemoteDeathWatchEffect::StopHeartbeat { address }
+                if address == "kairo://remote@127.0.0.1:25520"
+        )));
     }
 
     #[test]

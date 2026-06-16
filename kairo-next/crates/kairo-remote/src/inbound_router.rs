@@ -380,14 +380,19 @@ mod tests {
             .expect("address-terminated frame should route");
 
         assert!(delivery.messages().is_empty());
-        let observed = effects.wait_for_len(3, Duration::from_secs(1));
-        assert!(matches!(
-            observed.last(),
-            Some(RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
+        let observed = effects.wait_for_len(4, Duration::from_secs(1));
+        assert!(observed.iter().any(|effect| matches!(
+            effect,
+            RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
                 address,
                 uid: Some(11),
-            })) if address == "kairo://remote@127.0.0.1:25520"
-        ));
+            }) if address == "kairo://remote@127.0.0.1:25520"
+        )));
+        assert!(observed.iter().any(|effect| matches!(
+            effect,
+            RemoteDeathWatchEffect::StopHeartbeat { address }
+                if address == "kairo://remote@127.0.0.1:25520"
+        )));
     }
 
     #[test]

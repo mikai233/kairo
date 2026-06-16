@@ -238,14 +238,20 @@ fn unreachable_address_publishes_termination_once() {
 
     assert_eq!(
         effects,
-        vec![RemoteDeathWatchEffect::AddressTerminated(
-            AddressTerminated {
+        vec![
+            RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
                 address: "kairo://remote@127.0.0.1:25520".to_string(),
                 uid: Some(7),
+            }),
+            RemoteDeathWatchEffect::StopHeartbeat {
+                address: "kairo://remote@127.0.0.1:25520".to_string()
             }
-        )]
+        ]
     );
     assert!(state.is_unreachable("kairo://remote@127.0.0.1:25520"));
+    assert_eq!(state.watching_count(), 0);
+    assert_eq!(state.watched_address_count(), 0);
+    assert_eq!(state.address_uid("kairo://remote@127.0.0.1:25520"), None);
     assert!(
         state
             .mark_unreachable("kairo://remote@127.0.0.1:25520")
@@ -263,12 +269,15 @@ fn unreachable_address_can_use_explicit_uid_from_wire_protocol() {
 
     assert_eq!(
         effects,
-        vec![RemoteDeathWatchEffect::AddressTerminated(
-            AddressTerminated {
+        vec![
+            RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
                 address: "kairo://remote@127.0.0.1:25520".to_string(),
                 uid: Some(8),
+            }),
+            RemoteDeathWatchEffect::StopHeartbeat {
+                address: "kairo://remote@127.0.0.1:25520".to_string()
             }
-        )]
+        ]
     );
 }
 
@@ -297,13 +306,19 @@ fn duplicate_watch_after_unreachable_resets_failure_detector() {
     state.heartbeat_ack("kairo://remote@127.0.0.1:25520", 7);
     state.mark_unreachable("kairo://remote@127.0.0.1:25520");
 
-    let effects = state.watch(watchee, watcher);
+    let effects = state.watch(watchee.clone(), watcher.clone());
 
     assert_eq!(
         effects,
-        vec![RemoteDeathWatchEffect::ResetFailureDetector {
-            address: "kairo://remote@127.0.0.1:25520".to_string()
-        }]
+        vec![
+            RemoteDeathWatchEffect::ResetFailureDetector {
+                address: "kairo://remote@127.0.0.1:25520".to_string()
+            },
+            RemoteDeathWatchEffect::StartHeartbeat {
+                address: "kairo://remote@127.0.0.1:25520".to_string()
+            },
+            RemoteDeathWatchEffect::SendWatchRemote(WatchRemote { watchee, watcher })
+        ]
     );
     assert_eq!(state.address_uid("kairo://remote@127.0.0.1:25520"), None);
     assert!(!state.is_unreachable("kairo://remote@127.0.0.1:25520"));

@@ -332,18 +332,26 @@ impl RemoteDeathWatchState {
         uid: Option<u64>,
     ) -> Vec<RemoteDeathWatchEffect> {
         let address = address.into();
-        if !self.watchees_by_address.contains_key(&address)
-            || !self.unreachable.insert(address.clone())
-        {
+        let Some(watchee_paths) = self.watchees_by_address.remove(&address) else {
+            return Vec::new();
+        };
+        if !self.unreachable.insert(address.clone()) {
+            self.watchees_by_address.insert(address, watchee_paths);
             return Vec::new();
         }
 
-        vec![RemoteDeathWatchEffect::AddressTerminated(
-            AddressTerminated {
+        for watchee_path in watchee_paths {
+            self.watchees.remove(&watchee_path);
+        }
+        let observed_uid = uid.or_else(|| self.address_uids.remove(&address));
+
+        vec![
+            RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
                 address: address.clone(),
-                uid: uid.or_else(|| self.address_uids.get(&address).copied()),
-            },
-        )]
+                uid: observed_uid,
+            }),
+            RemoteDeathWatchEffect::StopHeartbeat { address },
+        ]
     }
 
     fn watch_pairs_for_address(&self, address: &str) -> Vec<WatchRemote> {

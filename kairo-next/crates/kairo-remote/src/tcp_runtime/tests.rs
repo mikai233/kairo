@@ -1113,6 +1113,16 @@ fn tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch() {
     assert_eq!(sender_remote.association_cache().route_count(), 1);
     assert_eq!(receiver_remote.association_cache().route_count(), 1);
 
+    let (receiver_stats_tx, receiver_stats_rx) = mpsc::channel();
+    let receiver_stats_probe = receiver_remote
+        .system()
+        .spawn(
+            "receiver-watch-stats",
+            Props::new(move || Probe {
+                sender: receiver_stats_tx,
+            }),
+        )
+        .unwrap();
     let remote_target = receiver_remote
         .resolve::<Ping>(remote_path_for_system(
             sender_target.path().as_str(),
@@ -1174,6 +1184,15 @@ fn tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch() {
         terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         remote_target.path().clone()
     );
+    let receiver_stats = wait_for_watch_stats(
+        receiver_remote.death_watch(),
+        &receiver_stats_probe,
+        &receiver_stats_rx,
+        |stats| stats.watching == 0 && stats.watched_addresses == 0,
+        "receiver watch state cleanup after address terminated",
+    );
+    assert_eq!(receiver_stats.watching, 0);
+    assert_eq!(receiver_stats.watched_addresses, 0);
 
     drop(registration);
     let sender_report = sender_remote.shutdown().unwrap();
