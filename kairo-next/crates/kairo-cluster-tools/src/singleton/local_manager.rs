@@ -4,15 +4,19 @@ use kairo_actor::{Actor, ActorPath, ActorRef, ActorResult, Context, Props};
 use kairo_cluster::UniqueAddress;
 
 use crate::{
-    SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerState, SingletonOldestChange,
-    SingletonOldestObservation,
+    SingletonManagerEffect, SingletonManagerRuntime, SingletonManagerSettings,
+    SingletonManagerState, SingletonOldestChange, SingletonOldestObservation,
 };
+
+const HAND_OVER_RETRY_TIMER_KEY: &str = "local-singleton-manager-handover-retry";
 
 pub struct LocalSingletonManagerActor<A>
 where
     A: Actor,
 {
     runtime: SingletonManagerRuntime,
+    settings: SingletonManagerSettings,
+    effect_sink: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     singleton_name: String,
     singleton_props: Arc<dyn Fn() -> Props<A> + Send + Sync>,
     termination_message: A::Msg,
@@ -35,6 +39,8 @@ where
     {
         Self {
             runtime: SingletonManagerRuntime::new(self_node),
+            settings: SingletonManagerSettings::default(),
+            effect_sink: None,
             singleton_name: singleton_name.into(),
             singleton_props: Arc::new(singleton_props),
             termination_message,
@@ -55,6 +61,32 @@ where
         let singleton_props = Arc::new(singleton_props);
         Props::new(move || Self {
             runtime: SingletonManagerRuntime::new(self_node),
+            settings: SingletonManagerSettings::default(),
+            effect_sink: None,
+            singleton_name,
+            singleton_props,
+            termination_message: termination_message.clone(),
+            singleton: None,
+        })
+    }
+
+    pub fn props_with_effect_sink<F>(
+        self_node: UniqueAddress,
+        singleton_name: impl Into<String>,
+        singleton_props: F,
+        termination_message: A::Msg,
+        settings: SingletonManagerSettings,
+        effect_sink: ActorRef<Vec<SingletonManagerEffect>>,
+    ) -> Props<Self>
+    where
+        F: Fn() -> Props<A> + Send + Sync + 'static,
+    {
+        let singleton_name = singleton_name.into();
+        let singleton_props = Arc::new(singleton_props);
+        Props::new(move || Self {
+            runtime: SingletonManagerRuntime::new(self_node),
+            settings,
+            effect_sink: Some(effect_sink.clone()),
             singleton_name,
             singleton_props,
             termination_message: termination_message.clone(),
@@ -64,6 +96,33 @@ where
 
     pub fn runtime(&self) -> &SingletonManagerRuntime {
         &self.runtime
+    }
+
+    fn emit_effects(
+        &self,
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+        effects: Vec<SingletonManagerEffect>,
+    ) {
+        if !effects.is_empty()
+            && let Some(effect_sink) = &self.effect_sink
+        {
+            let _ = effect_sink.tell(effects.clone());
+        }
+        reply_effects(reply_to, effects);
+    }
+
+    fn reconcile_hand_over_retry_timer(&self, ctx: &mut Context<LocalSingletonManagerMsg<A::Msg>>) {
+        let should_retry = self.settings.automatic_hand_over_retries()
+            && self.runtime.hand_over_retry_target().is_some();
+        if should_retry && !ctx.is_timer_active(HAND_OVER_RETRY_TIMER_KEY) {
+            ctx.start_single_timer(
+                HAND_OVER_RETRY_TIMER_KEY,
+                self.settings.hand_over_retry_interval(),
+                LocalSingletonManagerMsg::HandOverRetry { reply_to: None },
+            );
+        } else if !should_retry {
+            ctx.cancel_timer(HAND_OVER_RETRY_TIMER_KEY);
+        }
     }
 
     fn apply_effects(
@@ -180,52 +239,63 @@ where
             } => {
                 let effects = self.runtime.apply_initial_observation(observation);
                 self.apply_effects(ctx, &effects)?;
-                reply_effects(reply_to, effects);
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::ApplyOldestChange { change, reply_to } => {
                 let effects = self.runtime.apply_oldest_change(change);
                 self.apply_effects(ctx, &effects)?;
-                reply_effects(reply_to, effects);
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::MarkRemoved { node, reply_to } => {
                 let effects = self.runtime.mark_removed(node);
                 self.apply_effects(ctx, &effects)?;
-                reply_effects(reply_to, effects);
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::HandOverToMe { from, reply_to } => {
                 let effects = self.runtime.hand_over_to_me(from);
                 self.apply_effects(ctx, &effects)?;
-                reply_effects(reply_to, effects);
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::HandOverInProgress { from, reply_to } => {
                 let effects = self.runtime.hand_over_in_progress(&from);
                 self.apply_effects(ctx, &effects)?;
-                reply_effects(reply_to, effects);
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::HandOverDone { from, reply_to } => {
                 let effects = self.runtime.hand_over_done(&from);
                 self.apply_effects(ctx, &effects)?;
-                reply_effects(reply_to, effects);
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::HandOverRetry { reply_to } => {
                 let effects = self.runtime.hand_over_retry();
                 self.apply_effects(ctx, &effects)?;
-                reply_effects(reply_to, effects);
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::TakeOverFromMe { from, reply_to } => {
                 let effects = self.runtime.take_over_from_me(from);
                 self.apply_effects(ctx, &effects)?;
-                reply_effects(reply_to, effects);
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::SingletonTerminated => {
                 self.singleton = None;
                 let effects = self.runtime.singleton_terminated();
                 self.apply_effects(ctx, &effects)?;
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(None, effects);
             }
             LocalSingletonManagerMsg::StopManager { reply_to } => {
                 let effects = self.runtime.stop_manager();
                 self.apply_effects(ctx, &effects)?;
-                reply_effects(reply_to, effects);
+                self.reconcile_hand_over_retry_timer(ctx);
+                self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::GetState { reply_to } => {
                 let _ = reply_to.tell(LocalSingletonManagerSnapshot::from_manager(self));

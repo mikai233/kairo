@@ -2261,6 +2261,12 @@ Implemented:
   termination protocol messages, exposes the same handover-retry hook for
   later timer wiring, and replies with deterministic planned effects plus
   state snapshots for future transport and singleton-child wiring.
+- `kairo-cluster-tools` singleton manager and local singleton manager actors
+  now own Pekko-style handover retry timers while becoming oldest: entering the
+  waiting state schedules a configurable single retry tick, the tick emits
+  `HandOverToMe` through an optional effect sink and reschedules while still
+  waiting, and `HandOverInProgress` or any later state transition cancels the
+  retry timer.
 - `kairo-cluster-tools` singleton manager runtime and actor boundary tests now
   live in a focused sibling test module instead of the broad crate-level test
   file.
@@ -4428,6 +4434,13 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-cluster-tools singleton_manager --all-targets --all-features -- --nocapture
+cargo fmt --all -- --check
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools singleton_manager --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools local_singleton_manager --all-targets --all-features -- --nocapture
+cargo fmt --all
 cargo fmt --all -- --check
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings

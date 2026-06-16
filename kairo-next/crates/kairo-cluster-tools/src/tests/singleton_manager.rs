@@ -342,6 +342,81 @@ fn singleton_manager_actor_retries_handover_in_mailbox_turn() {
 }
 
 #[test]
+fn singleton_manager_actor_automatic_timer_retries_handover_until_progress() {
+    assert_eq!(
+        SingletonManagerSettings::new(Duration::ZERO).unwrap_err(),
+        SingletonManagerSettingsError::ZeroHandOverRetryInterval
+    );
+
+    let node_a = node("singleton-actor-auto-retry-a", 1);
+    let node_b = node("singleton-actor-auto-retry-b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_b.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let retry_interval = Duration::from_millis(25);
+    let settings = SingletonManagerSettings::new(retry_interval).unwrap();
+    let (kit, time) =
+        ActorSystemTestKit::with_manual_time("singleton-manager-actor-auto-retry").unwrap();
+    let effects = kit
+        .create_probe::<Vec<SingletonManagerEffect>>("effects")
+        .unwrap();
+    let manager = kit
+        .system()
+        .spawn(
+            "singleton-manager",
+            SingletonManagerActor::props_with_effect_sink(
+                node_b.clone(),
+                settings,
+                effects.actor_ref(),
+            ),
+        )
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::ApplyInitialObservation {
+            observation,
+            reply_to: None,
+        })
+        .unwrap();
+    manager
+        .tell(SingletonManagerMsg::ApplyOldestChange {
+            change: SingletonOldestChange::OldestChanged(Some(node_b)),
+            reply_to: None,
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendHandOverToMe { to: node_a.clone() }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    time.advance(retry_interval);
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendHandOverToMe { to: node_a.clone() }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::HandOverInProgress {
+            from: node_a,
+            reply_to: None,
+        })
+        .unwrap();
+    time.advance(retry_interval);
+    effects.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn singleton_manager_actor_runs_handover_protocol_messages_in_order() {
     let node_a = node("singleton-actor-a", 1);
     let node_b = node("singleton-actor-b", 2);

@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::Duration;
 
 use kairo_cluster::UniqueAddress;
 
@@ -41,6 +42,66 @@ pub enum SingletonManagerEffect {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SingletonManagerSettingsError {
+    ZeroHandOverRetryInterval,
+}
+
+impl std::fmt::Display for SingletonManagerSettingsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ZeroHandOverRetryInterval => {
+                write!(
+                    f,
+                    "singleton manager handover retry interval must be non-zero"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for SingletonManagerSettingsError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingletonManagerSettings {
+    hand_over_retry_interval: Duration,
+    automatic_hand_over_retries: bool,
+}
+
+impl SingletonManagerSettings {
+    pub fn new(hand_over_retry_interval: Duration) -> Result<Self, SingletonManagerSettingsError> {
+        if hand_over_retry_interval.is_zero() {
+            return Err(SingletonManagerSettingsError::ZeroHandOverRetryInterval);
+        }
+        Ok(Self {
+            hand_over_retry_interval,
+            automatic_hand_over_retries: true,
+        })
+    }
+
+    pub fn with_automatic_hand_over_retries(mut self, automatic: bool) -> Self {
+        self.automatic_hand_over_retries = automatic;
+        self
+    }
+
+    pub fn hand_over_retry_interval(&self) -> Duration {
+        self.hand_over_retry_interval
+    }
+
+    pub fn automatic_hand_over_retries(&self) -> bool {
+        self.automatic_hand_over_retries
+    }
+}
+
+impl Default for SingletonManagerSettings {
+    fn default() -> Self {
+        Self {
+            hand_over_retry_interval: Duration::from_secs(1),
+            automatic_hand_over_retries: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SingletonManagerRuntime {
     self_node: UniqueAddress,
     state: SingletonManagerState,
@@ -62,6 +123,16 @@ impl SingletonManagerRuntime {
 
     pub fn state(&self) -> &SingletonManagerState {
         &self.state
+    }
+
+    pub fn hand_over_retry_target(&self) -> Option<&UniqueAddress> {
+        match &self.state {
+            SingletonManagerState::BecomingOldest {
+                previous_oldest,
+                handover_started: false,
+            } => previous_oldest.first(),
+            _ => None,
+        }
     }
 
     pub fn removed_members(&self) -> &HashSet<UniqueAddress> {
