@@ -473,6 +473,9 @@ Implemented:
 - `TestProbe::fish_for_message` classifies probe messages as complete, fail,
   continue-and-collect, or continue-and-ignore under one shared deadline, with
   the fishing outcome API kept in a focused testkit module.
+- `TestProbe::fish_for_message` timeout diagnostics now report both collected
+  and ignored message counts, so failed fishing assertions expose skipped
+  traffic without requiring ad hoc logging in tests.
 - `kairo-testkit::within` and `TestProbe::within` now provide a Rust-shaped
   shared-deadline scope with explicit remaining-time access for composing
   multiple probe assertions under one timeout.
@@ -4091,5 +4094,11 @@ cargo test -p kairo-serialization registry_reports_codec_decode_panics_as_serial
 cargo test -p kairo-serialization --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit fish_for_message --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```

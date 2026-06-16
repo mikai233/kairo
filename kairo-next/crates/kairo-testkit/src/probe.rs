@@ -224,6 +224,7 @@ impl<M: Send + 'static> TestProbe<M> {
     {
         let deadline = std::time::Instant::now() + timeout;
         let mut seen = Vec::new();
+        let mut ignored = 0;
 
         loop {
             let remaining = remaining_until(deadline).unwrap_or(Duration::ZERO);
@@ -233,6 +234,7 @@ impl<M: Send + 'static> TestProbe<M> {
                     return Err(ProbeError::FishTimeout {
                         timeout,
                         seen: seen.len(),
+                        ignored,
                     });
                 }
                 Err(RecvTimeoutError::Disconnected) => return Err(ProbeError::Closed),
@@ -245,7 +247,9 @@ impl<M: Send + 'static> TestProbe<M> {
                 }
                 FishingOutcome::Fail(reason) => return Err(ProbeError::FishingFailed(reason)),
                 FishingOutcome::Continue => seen.push(message),
-                FishingOutcome::ContinueAndIgnore => {}
+                FishingOutcome::ContinueAndIgnore => {
+                    ignored += 1;
+                }
             }
         }
     }
@@ -387,6 +391,8 @@ pub enum ProbeError {
         timeout: Duration,
         /// Number of non-ignored messages seen before the timeout.
         seen: usize,
+        /// Number of ignored messages seen before the timeout.
+        ignored: usize,
     },
     /// The probe actor did not stop before the timeout elapsed.
     StopTimeout {
@@ -424,10 +430,14 @@ impl Display for ProbeError {
                     "timed out after {timeout:?} while expecting {expected} messages and receiving {received}"
                 )
             }
-            Self::FishTimeout { timeout, seen } => {
+            Self::FishTimeout {
+                timeout,
+                seen,
+                ignored,
+            } => {
                 write!(
                     f,
-                    "timed out after {timeout:?} while fishing for message after seeing {seen} collected messages"
+                    "timed out after {timeout:?} while fishing for message after seeing {seen} collected messages and {ignored} ignored messages"
                 )
             }
             Self::StopTimeout { actor, timeout } => {

@@ -84,7 +84,46 @@ fn test_probe_fish_for_message_reports_collected_timeout_count() {
         .fish_for_message(Duration::from_millis(5), |_| FishingOutcome::Continue)
         .expect_err("fishing should time out");
 
-    assert!(matches!(error, ProbeError::FishTimeout { seen: 1, .. }));
+    assert!(matches!(
+        error,
+        ProbeError::FishTimeout {
+            seen: 1,
+            ignored: 0,
+            ..
+        }
+    ));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_fish_for_message_reports_ignored_timeout_count() {
+    let kit =
+        ActorSystemTestKit::new("test-probe-fish-timeout-ignored").expect("system should build");
+    let probe = kit.create_probe::<u8>("probe").expect("probe should spawn");
+
+    for message in [1, 2] {
+        probe
+            .actor_ref()
+            .tell(message)
+            .expect("probe tell should enqueue");
+    }
+
+    let error = probe
+        .fish_for_message(Duration::from_millis(5), |message| match message {
+            1 => FishingOutcome::ContinueAndIgnore,
+            _ => FishingOutcome::Continue,
+        })
+        .expect_err("fishing should time out");
+
+    assert!(matches!(
+        error,
+        ProbeError::FishTimeout {
+            seen: 1,
+            ignored: 1,
+            ..
+        }
+    ));
     kit.shutdown(Duration::from_secs(1))
         .expect("system should terminate");
 }
