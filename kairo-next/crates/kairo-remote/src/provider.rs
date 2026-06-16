@@ -136,7 +136,7 @@ impl RemoteActorRefProvider {
         actor_ref: &ActorRef<M>,
     ) -> Result<ActorRefWireData>
     where
-        M: RemoteMessage,
+        M: Send + 'static,
     {
         let path = actor_ref.path().as_str();
         let canonical_path = self

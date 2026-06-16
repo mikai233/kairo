@@ -1025,6 +1025,15 @@ Implemented:
   watcher consumes it through the system inbound router, clears its watched ref
   and heartbeat address, and the hosting side clears the inbound watch
   registration.
+- `ActorSystem` now exposes provider-facing path death-watch hooks, allowing
+  remoting to register a local watcher for a remote actor path and later
+  complete that watch as a normal local `Signal::Terminated` without requiring
+  local watcher messages to implement remote serialization.
+- `TcpRemoteActorSystem` now exposes `watch_remote` and `unwatch_remote`
+  helpers for local actors watching `RemoteActorRef<M>` values; TCP loopback
+  coverage proves per-actor `RemoteTerminated` metadata becomes a local
+  `Terminated` signal and that unwatch removes both local and remote
+  registrations before later watchee termination.
 - TCP actor-system runtime tests now also send the stable `AddressTerminated`
   control protocol across a real association route and verify the receiver's
   actor-backed remote watcher observes the unreachable sender address with the

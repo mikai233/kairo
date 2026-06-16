@@ -3,17 +3,18 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use kairo_actor::{ActorError, ActorRef, ActorSystem};
+use kairo_actor::{ActorError, ActorPath, ActorRef, ActorSystem};
 use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
 
 use crate::{
     ActorSystemRemoteInbound, AssociationOutboundPipeline, RemoteActorRef, RemoteActorRefProvider,
     RemoteActorRefResolver, RemoteAssociationAddress, RemoteAssociationCache,
     RemoteAssociationRegistry, RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration,
-    RemoteDeathWatchCommand, RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink,
-    RemoteError, RemoteOutbound, RemoteSettings, ResolvedActorRef, Result, TcpAssociationDialer,
-    TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
-    TcpAssociationReaderHandle, TcpAssociationStreamReader,
+    RemoteDeathWatchCommand, RemoteDeathWatchEffect, RemoteDeathWatchEffectObserver,
+    RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound, RemoteSettings, ResolvedActorRef,
+    Result, TcpAssociationDialer, TcpAssociationListener, TcpAssociationListenerHandle,
+    TcpAssociationListenerReport, TcpAssociationReaderHandle, TcpAssociationStreamReader,
+    UnwatchRemote, WatchRemote,
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -32,6 +33,22 @@ pub struct TcpRemoteActorSystem<M> {
     death_watch: ActorRef<RemoteDeathWatchCommand>,
     listener: Arc<Mutex<Option<TcpAssociationListenerHandle>>>,
     _message: PhantomData<fn(M)>,
+}
+
+struct ActorSystemRemoteDeathWatchObserver {
+    system: ActorSystem,
+    inner: Arc<dyn RemoteDeathWatchEffectObserver>,
+}
+
+impl RemoteDeathWatchEffectObserver for ActorSystemRemoteDeathWatchObserver {
+    fn observe(&self, effect: &RemoteDeathWatchEffect) -> Result<()> {
+        self.inner.observe(effect)?;
+        if let RemoteDeathWatchEffect::RemoteTerminated(message) = effect {
+            self.system
+                .notify_watched_path_terminated(&ActorPath::new(message.watchee.path()));
+        }
+        Ok(())
+    }
 }
 
 impl<M> TcpRemoteActorSystem<M>
@@ -82,6 +99,10 @@ where
         let association_registry = RemoteAssociationRegistry::new();
         let outbound = Arc::new(association_cache.clone()) as Arc<dyn RemoteOutbound>;
         let local_watcher = local_watcher_for(&system, &effective_settings)?;
+        let observer = Arc::new(ActorSystemRemoteDeathWatchObserver {
+            system: system.clone(),
+            inner: observer,
+        });
         let death_watch_sink = Arc::new(RemoteDeathWatchOutboundSink::with_local_watcher(
             registry.clone(),
             outbound.clone(),
@@ -208,6 +229,59 @@ where
         N: RemoteMessage,
     {
         self.provider.resolver()
+    }
+
+    pub fn watch_remote<W, N>(
+        &self,
+        watcher: ActorRef<W>,
+        watchee: &RemoteActorRef<N>,
+    ) -> Result<()>
+    where
+        W: Send + 'static,
+        N: RemoteMessage,
+    {
+        let watcher_wire = self.provider.local_actor_ref_to_wire_data(&watcher)?;
+        self.system
+            .watch_path(watcher.clone(), watchee.path().clone())
+            .map_err(|error| RemoteError::Inbound(error.to_string()))?;
+        if let Err(error) = self
+            .death_watch
+            .tell(RemoteDeathWatchCommand::Watch(WatchRemote {
+                watchee: watchee.recipient().clone(),
+                watcher: watcher_wire,
+            }))
+        {
+            self.system.unwatch_path(watcher.path(), watchee.path());
+            return Err(RemoteError::Inbound(format!(
+                "failed to register remote watch: {}",
+                error.reason()
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn unwatch_remote<W, N>(
+        &self,
+        watcher: &ActorRef<W>,
+        watchee: &RemoteActorRef<N>,
+    ) -> Result<()>
+    where
+        W: Send + 'static,
+        N: RemoteMessage,
+    {
+        let watcher_wire = self.provider.local_actor_ref_to_wire_data(watcher)?;
+        self.system.unwatch_path(watcher.path(), watchee.path());
+        self.death_watch
+            .tell(RemoteDeathWatchCommand::Unwatch(UnwatchRemote {
+                watchee: watchee.recipient().clone(),
+                watcher: watcher_wire,
+            }))
+            .map_err(|error| {
+                RemoteError::Inbound(format!(
+                    "failed to unregister remote watch: {}",
+                    error.reason()
+                ))
+            })
     }
 
     pub fn shutdown(self) -> Result<TcpAssociationListenerReport> {

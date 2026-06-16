@@ -449,6 +449,37 @@ fn watch_delivers_terminated_signal_once() {
 }
 
 #[test]
+fn watch_path_delivers_terminated_signal_once_when_notified() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let subject = ActorPath::new("kairo://remote@127.0.0.1:25520/user/target#99");
+
+    system.watch_path(watcher.clone(), subject.clone()).unwrap();
+    system.watch_path(watcher, subject.clone()).unwrap();
+    system.notify_watched_path_terminated(&subject);
+    system.notify_watched_path_terminated(&subject);
+
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject
+    );
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+}
+
+#[test]
 fn watch_self_returns_explicit_error() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (terminated_tx, _terminated_rx) = mpsc::channel();

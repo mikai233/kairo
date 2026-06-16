@@ -408,8 +408,34 @@ impl ActorSystem {
         self.unwatch_path(watcher.path(), subject.path());
     }
 
-    pub(crate) fn unwatch_path(&self, watcher: &ActorPath, subject: &ActorPath) {
+    pub fn watch_path<M>(&self, watcher: ActorRef<M>, subject: ActorPath) -> Result<(), ActorError>
+    where
+        M: Send + 'static,
+    {
+        if watcher.path() == &subject {
+            return Err(ActorError::InvalidWatchTarget {
+                actor: watcher.path().to_string(),
+            });
+        }
+        let subject_ref = AnyActorRef::from_path(subject.clone());
+        let registration = DeathWatchRegistration::new(
+            watcher.path().clone(),
+            DeathWatchKind::Signal,
+            move |_| {
+                watcher.send_system_signal(Signal::Terminated(subject_ref));
+            },
+        );
+        self.inner.death_watch.watch(subject, registration)
+    }
+
+    pub fn unwatch_path(&self, watcher: &ActorPath, subject: &ActorPath) {
         self.inner.death_watch.unwatch(subject, watcher);
+    }
+
+    pub fn notify_watched_path_terminated(&self, subject: &ActorPath) {
+        self.inner
+            .death_watch
+            .notify(subject, TerminationCause::Stopped);
     }
 
     pub(crate) fn root_path(&self) -> ActorPath {
