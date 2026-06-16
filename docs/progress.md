@@ -2974,6 +2974,11 @@ Implemented:
   removed peer reject through the association cache without another mediator
   delivery, and the sender cache drops from two routes to one before
   coordinated shutdown clears it.
+- `kairo-cluster-tools` TCP peer bootstrap full-mesh coverage now also drives
+  second-to-third and third-to-second pubsub publish delivery after all three
+  connectors install routes, so the three-node tools bootstrap test verifies
+  cross-peer socket delivery instead of only route counts outside the first
+  publisher.
 - `kairo-distributed-data` TCP peer bootstrap two-node route coverage now
   pins coordinated shutdown cleanup of installed association routes on both
   peers after cluster membership installs them.
@@ -3067,8 +3072,9 @@ Not yet implemented:
   a shared remember store.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate, focused sender-side
-  route-reduction delivery coverage, and example routeful coordinated-shutdown
-  smoke tests; cluster, distributed-data, and cluster-tools bootstraps now have
+  route-reduction delivery coverage, cluster and cluster-tools three-node
+  full-mesh delivery coverage, and example routeful coordinated-shutdown smoke
+  tests; cluster, distributed-data, and cluster-tools bootstraps now have
   crate-level routeful `run_coordinated_shutdown` coverage.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node

@@ -968,7 +968,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     );
     let third_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
         third_node.clone(),
-        registry,
+        registry.clone(),
         first_outbound,
     );
     second_outbound
@@ -1040,6 +1040,46 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &[first_node.clone(), second_node.clone()],
     );
     assert_eq!(third_cache.route_count(), 2);
+
+    let second_outbound = Arc::new(second_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let second_to_third = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        third_node.clone(),
+        registry.clone(),
+        second_outbound,
+    );
+    second_to_third
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("peer-orders"),
+            message: TestMessage { value: 45 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &third_probes,
+        TopicName::new("peer-orders"),
+        TestMessage { value: 45 },
+    );
+
+    let third_outbound = Arc::new(third_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let third_to_second = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        second_node.clone(),
+        registry,
+        third_outbound,
+    );
+    third_to_second
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("peer-invoices"),
+            message: TestMessage { value: 56 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &second_probes,
+        TopicName::new("peer-invoices"),
+        TestMessage { value: 56 },
+    );
 
     let reduced_gossip = Gossip::from_members([
         Member::new(first_node.clone(), Vec::new()).with_status(MemberStatus::Up),
