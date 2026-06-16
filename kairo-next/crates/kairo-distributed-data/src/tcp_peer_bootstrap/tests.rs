@@ -1269,7 +1269,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     );
     assert_eq!(first_read_from_third.key, "counter-first-from-third");
     assert_eq!(first_envelope_from_third.recipient, first_ref.clone());
-    assert_eq!(first_envelope_from_third.sender, Some(third_ref));
+    assert_eq!(first_envelope_from_third.sender, Some(third_ref.clone()));
 
     let reduced_gossip = Gossip::from_members([
         Member::new(first_node.clone(), Vec::new()).with_status(MemberStatus::Up),
@@ -1297,6 +1297,61 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     );
     assert_eq!(second_cache.route_count(), 1);
     assert_eq!(third_cache.route_count(), 2);
+
+    let removed_second_to_third_error = second_to_third
+        .tell(ReplicatorRead {
+            key: "counter-third-after-reduction".to_string(),
+            from: Some(ReplicaId::from(&second_node)),
+        })
+        .expect_err("second-to-third route should reject sends after third is removed");
+    assert!(
+        removed_second_to_third_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected second-to-third send error: {removed_second_to_third_error:?}"
+    );
+
+    let (second_after_reduction_from_first, _, second_after_reduction_read) =
+        send_read_until_key_received(
+            &to_second,
+            &second_requests,
+            &registry,
+            ReplicatorRead {
+                key: "counter-second-after-reduction".to_string(),
+                from: Some(ReplicaId::from(&first_node)),
+            },
+            "counter-second-after-reduction",
+            Duration::from_secs(1),
+        );
+    assert_eq!(
+        second_after_reduction_from_first,
+        ReplicaId::from(&first_node)
+    );
+    assert_eq!(
+        second_after_reduction_read.from,
+        Some(ReplicaId::from(&first_node))
+    );
+
+    let (first_after_reduction_from_second, _, first_after_reduction_read) =
+        send_read_until_key_received(
+            &second_to_first,
+            &first_requests,
+            &registry,
+            ReplicatorRead {
+                key: "counter-first-after-reduction".to_string(),
+                from: Some(ReplicaId::from(&second_node)),
+            },
+            "counter-first-after-reduction",
+            Duration::from_secs(1),
+        );
+    assert_eq!(
+        first_after_reduction_from_second,
+        ReplicaId::from(&second_node)
+    );
+    assert_eq!(
+        first_after_reduction_read.from,
+        Some(ReplicaId::from(&second_node))
+    );
 
     run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
     assert_eq!(first_cache.route_count(), 0);

@@ -1419,11 +1419,10 @@ Implemented:
   view and validates the surviving nodes remove the departed node's active
   route through the connector boundary. The same route-reduction scenario now
   also proves sends to the removed peer reject through the association cache
-  and do not deliver another request to that removed peer, while the remaining
-  route still carries stable `ReplicatorRead` traffic. The test now also pins
-  the underlying association-cache route counts across full mesh, reduced
-  membership, and coordinated shutdown cleanup for all three bootstrap-owned
-  runtimes.
+  while the remaining first/second routes still carry stable `ReplicatorRead`
+  traffic in both directions. The test now also pins the underlying
+  association-cache route counts across full mesh, reduced membership, and
+  coordinated shutdown cleanup for all three bootstrap-owned runtimes.
 - Distributed-data TCP peer bootstrap lifecycle coverage now validates
   membership removal: after two bound runtimes install socket routes from a
   shared gossip snapshot, publishing a sender-side snapshot without the peer
