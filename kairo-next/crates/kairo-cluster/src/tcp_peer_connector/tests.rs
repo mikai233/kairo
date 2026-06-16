@@ -397,6 +397,81 @@ fn connector_clear_routes_removes_active_peer_routes() {
 }
 
 #[test]
+fn connector_stop_clears_pending_reconnect_and_unsubscribes_from_cluster() {
+    let _guard = connector_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("cluster-tcp-peer-connector-stop-pending-sender").unwrap();
+    let receiver_kit =
+        ActorSystemTestKit::new("cluster-tcp-peer-connector-stop-pending-receiver").unwrap();
+    let registry = registry();
+    let retry_interval = Duration::from_millis(25);
+    let sender_runtime = bind_peer_runtime(
+        "sender",
+        1,
+        11,
+        RemoteSettings::new("127.0.0.1", 0),
+        retry_interval,
+        &sender_kit,
+        registry.clone(),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let receiver_port = unused_port();
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = node("receiver", receiver_port, 2);
+    let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+    let cluster = Cluster::new(publisher.clone());
+    let snapshots = sender_kit
+        .create_probe::<ClusterTcpPeerConnectorSnapshot>("stop-pending-snapshots")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(sender_node.clone()), member(receiver_node.clone())]),
+        ))
+        .unwrap();
+    let connector = sender_kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ClusterTcpPeerConnector::with_settings(
+                    cluster,
+                    sender_runtime,
+                    ClusterTcpPeerConnectorSettings::new(retry_interval)
+                        .unwrap()
+                        .with_automatic_retry_ticks(false),
+                )
+            }),
+        )
+        .unwrap();
+
+    let snapshot = eventually_snapshot(&connector, &snapshots, |snapshot| {
+        snapshot.pending_reconnects.len() == 1
+    });
+    assert_eq!(snapshot.route_count, 0);
+    assert_eq!(snapshot.pending_reconnects[0].target.node(), &receiver_node);
+
+    sender_kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+
+    let receiver_runtime =
+        bind_association_runtime_on_port("receiver", 2, 22, receiver_port, &receiver_kit, registry);
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(sender_node), member(receiver_node)]),
+        ))
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+
+    assert!(sender_kit.system().dead_letters().is_empty());
+    assert_eq!(sender_cache.route_count(), 0);
+
+    receiver_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn connector_automatic_retry_timer_drives_due_peer_routes() {
     let _guard = connector_socket_test_lock();
     assert_eq!(
