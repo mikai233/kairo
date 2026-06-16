@@ -372,6 +372,193 @@ fn region_actor_self_registers_with_local_coordinator_for_handoff() {
 }
 
 #[test]
+fn region_actor_self_registers_with_shared_remember_store_refs_for_rehost() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("region-shared-remember-registration").unwrap();
+    let remember_store = kit
+        .system()
+        .spawn(
+            "remember-shard-1",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let store_refs = BTreeMap::from([("shard-1".to_string(), remember_store)]);
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                RebalanceThenAllocateStrategy::new(["shard-1"], "region-b"),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region_a = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_remember_store_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                store_refs.clone(),
+                Duration::from_millis(500),
+                RegionRegistrationConfig::new(coordinator.clone(), Duration::from_millis(20)),
+            ),
+        )
+        .unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_remember_store_shards_and_registration(
+                "region-b",
+                10,
+                10,
+                store_refs,
+                Duration::from_millis(500),
+                RegionRegistrationConfig::new(coordinator.clone(), Duration::from_millis(20)),
+            ),
+        )
+        .unwrap();
+    let coordinator_state = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let rebalance = kit
+        .create_probe::<Result<RebalancePlan, ShardingError>>("rebalance")
+        .unwrap();
+    let region_b_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-b-state")
+        .unwrap();
+    let local_shard = kit
+        .create_probe::<Option<kairo_actor::ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    let mut registered = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let state = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        registered = state.allocations.contains_key("region-a")
+            && state.allocations.contains_key("region-b");
+        if registered {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        registered,
+        "shared-store regions should self-register with coordinator"
+    );
+
+    region_a
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::ApplyEvent {
+            event: CoordinatorEvent::ShardHomeAllocated {
+                shard: "shard-1".to_string(),
+                region: "region-a".to_string(),
+            },
+            reply_to: None,
+        })
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::PlanRebalance {
+            reply_to: rebalance.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        rebalance
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        RebalancePlan::Started { ref shards }
+            if shards.len() == 1 && shards[0].shard == "shard-1"
+    ));
+
+    let mut completed = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let state = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        completed = state
+            .allocations
+            .get("region-b")
+            .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
+        if completed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        completed,
+        "handoff should reallocate remembered shard to region-b"
+    );
+
+    region_b
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_b_state.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        region_b_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .contains("shard-1")
+    );
+    region_b
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-rehost".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-rehost".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_registers_with_discovered_local_coordinator() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-discovered-registration").unwrap();
     let coordinator_node = remote_node("region-discovered-registration", "127.0.0.1", 2651);

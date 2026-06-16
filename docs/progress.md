@@ -1804,6 +1804,11 @@ Implemented:
   coordinator acknowledges it, expose registration status in region snapshots,
   and use the registered typed region target for coordinator-driven local
   handoff without requiring callers to send explicit registration messages.
+- `kairo-cluster-sharding` shard region actors can now combine shared
+  remember-shard store refs with local coordinator self-registration, so
+  multiple regions can share recovered entity state while automatic
+  registration and coordinator-driven rehost orchestration stay on the normal
+  actor startup path.
 - `kairo-cluster-sharding` shard coordinator runtime and actors now allocate
   remembered but unallocated shard homes after remembered-shard loading or
   local region registration, mirroring Pekko's remembered-entity coordinator
@@ -4127,5 +4132,11 @@ cargo test -p kairo-cluster-tools local_pubsub --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_actor_self_registers_with_shared_remember_store_refs_for_rehost --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_registration --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
