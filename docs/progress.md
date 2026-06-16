@@ -1619,6 +1619,11 @@ Implemented:
   actor adapter that exposes the `ActorRef<ShardingEnvelope<M>>` boundary
   expected by `EntityRef<M>`, computes shard ids with the documented stable
   hash, and forwards envelopes into the registered shard-region actor.
+- `kairo-cluster-sharding` now has an optional `EntityMessageExtractor`
+  adapter and actor-backed `EntityMessageExtractorRouter` for input protocols
+  that embed or derive entity ids. The adapter emits `ShardingEnvelope<M>` with
+  either computed stable shard ids or explicit extracted shard ids, while
+  unmatched inputs are ignored at the boundary.
 - Shard IDs use documented 64-bit FNV-1a over entity id bytes with
   `hash % shard_count`; `DEFAULT_SHARD_COUNT` is 100.
 - `kairo-cluster-sharding` now has a source-level guard that scans active
@@ -4177,5 +4182,10 @@ cargo test -p kairo-cluster --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding entity_message_extractor --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

@@ -23,7 +23,8 @@ use kairo_serialization::{
 use crate::{
     BeginHandOff, BeginHandOffAck, BeginHandOffPlan, CoordinatorDiscoverySettings,
     CoordinatorEvent, CoordinatorRuntime, CoordinatorState, CoordinatorStateSnapshot,
-    DEFAULT_SHARD_COUNT, EntityActorFactory, EntityDelivery, EntityRef, EntityShardActor,
+    DEFAULT_SHARD_COUNT, EntityActorFactory, EntityDelivery, EntityMessageExtractor,
+    EntityMessageExtractorRouter, EntityRef, EntityShardActor, ExtractedEntityMessage,
     GetShardHome, GetShardHomeIgnoreReason, GetShardHomePlan, GracefulShutdownReq, HandOff,
     HandOffPlan, HandoffDeliveryFailure, HandoffDeliveryTarget, HandoffRegionTarget,
     HandoffTransport, HandoffWorkerActor, HandoffWorkerDone, HandoffWorkerMsg, HostShard,

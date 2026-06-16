@@ -5,7 +5,10 @@
 //! region `ActorRef<ShardingEnvelope<M>>`, or bind one entity id into an
 //! [`EntityRef<M>`]. Sending through an entity ref wraps the business `M` in a
 //! [`ShardingEnvelope<M>`] before it reaches the region. The entity actor
-//! itself receives `M`, not the envelope.
+//! itself receives `M`, not the envelope. Protocols that already carry or can
+//! derive routing metadata can use [`EntityMessageExtractorRouter`] with an
+//! [`EntityMessageExtractor`] to adapt input messages into envelopes without
+//! forcing entity ids into the entity actor protocol.
 //!
 //! This follows Pekko's observable typed-sharding model without making
 //! [`EntityRef`] a normal watchable actor ref. Entity lifetime is owned by the
@@ -76,6 +79,7 @@ mod entity_shard_actor;
 mod entity_type;
 mod envelope;
 mod errors;
+mod extractor;
 mod handoff_transport;
 mod handoff_worker;
 mod hashing;
@@ -154,6 +158,7 @@ pub use entity_shard_actor::EntityShardActor;
 pub use entity_type::EntityTypeKey;
 pub use envelope::ShardingEnvelope;
 pub use errors::ShardingError;
+pub use extractor::{EntityMessageExtractor, EntityMessageExtractorRouter, ExtractedEntityMessage};
 pub use handoff_transport::{
     HandoffDeliveryFailure, HandoffDeliveryReport, HandoffDeliveryTarget, HandoffRegionTarget,
     HandoffTransport,

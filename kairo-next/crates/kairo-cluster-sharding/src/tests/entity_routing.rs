@@ -148,6 +148,160 @@ fn entity_ref_routes_through_registered_region_to_entity_actor() {
 }
 
 #[test]
+fn entity_message_extractor_router_routes_extracted_id_to_entity_actor() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("sharding-extractor-entity-child").unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let entity_factory = EntityActorFactory::new(move |entity_id| RecordingEntity {
+        entity_id,
+        observed: observed_tx.clone(),
+    });
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_entity_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                entity_factory,
+                coordinator,
+                Duration::from_millis(20),
+            ),
+        )
+        .unwrap();
+    let router = kit
+        .system()
+        .spawn(
+            "extractor-router",
+            EntityMessageExtractorRouter::props(region, DEFAULT_SHARD_COUNT, RoutedInputExtractor),
+        )
+        .unwrap();
+
+    router
+        .tell(RoutedInput::new("entity-1", None, "first"))
+        .unwrap();
+
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("entity-1".to_string(), "first".to_string())
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn entity_message_extractor_router_honors_extracted_shard_id() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("sharding-extractor-explicit-shard").unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let entity_factory = EntityActorFactory::new(move |entity_id| RecordingEntity {
+        entity_id,
+        observed: observed_tx.clone(),
+    });
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_entity_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                entity_factory,
+                coordinator,
+                Duration::from_millis(20),
+            ),
+        )
+        .unwrap();
+    let router = kit
+        .system()
+        .spawn(
+            "extractor-router",
+            EntityMessageExtractorRouter::props(
+                region.clone(),
+                DEFAULT_SHARD_COUNT,
+                RoutedInputExtractor,
+            ),
+        )
+        .unwrap();
+
+    router
+        .tell(RoutedInput::new(
+            "entity-1",
+            Some("explicit-shard"),
+            "first",
+        ))
+        .unwrap();
+
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("entity-1".to_string(), "first".to_string())
+    );
+    let shard_ref = wait_for_local_shard(&kit, &region, "explicit-shard");
+    let snapshot = kit.create_probe::<ShardSnapshot>("shard-snapshot").unwrap();
+    shard_ref
+        .tell(ShardMsg::GetState {
+            reply_to: snapshot.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        snapshot
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .active_entities,
+        vec!["entity-1".to_string()]
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn entity_message_extractor_router_ignores_unmatched_input() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("sharding-extractor-unmatched").unwrap();
+    let region = kit
+        .create_probe::<ShardRegionMsg<String>>("region")
+        .unwrap();
+    let router = kit
+        .system()
+        .spawn(
+            "extractor-router",
+            EntityMessageExtractorRouter::props(
+                region.actor_ref(),
+                DEFAULT_SHARD_COUNT,
+                RoutedInputExtractor,
+            ),
+        )
+        .unwrap();
+
+    router.tell(RoutedInput::new("", None, "dropped")).unwrap();
+
+    region.expect_no_msg(Duration::from_millis(100)).unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn remote_region_route_envelope_reenters_local_region_delivery() {
     let kit = kairo_testkit::ActorSystemTestKit::new("sharding-remote-region-route").unwrap();
     let mut registry = Registry::new();
@@ -244,6 +398,44 @@ fn remote_region_route_envelope_reenters_local_region_delivery() {
         ("entity-1".to_string(), "first".to_string())
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RoutedInput {
+    entity_id: String,
+    shard_id: Option<String>,
+    payload: String,
+}
+
+impl RoutedInput {
+    fn new(entity_id: &str, shard_id: Option<&str>, payload: &str) -> Self {
+        Self {
+            entity_id: entity_id.to_string(),
+            shard_id: shard_id.map(str::to_string),
+            payload: payload.to_string(),
+        }
+    }
+}
+
+struct RoutedInputExtractor;
+
+impl EntityMessageExtractor<RoutedInput, String> for RoutedInputExtractor {
+    fn extract(&mut self, message: RoutedInput) -> Option<ExtractedEntityMessage<String>> {
+        if message.entity_id.is_empty() {
+            return None;
+        }
+        match message.shard_id {
+            Some(shard_id) => Some(ExtractedEntityMessage::with_shard_id(
+                message.entity_id,
+                shard_id,
+                message.payload,
+            )),
+            None => Some(ExtractedEntityMessage::new(
+                message.entity_id,
+                message.payload,
+            )),
+        }
+    }
 }
 
 #[test]
