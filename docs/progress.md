@@ -1597,6 +1597,10 @@ Implemented:
   stable-manifest read requests from both non-first peers back to the first
   node through those adopted routes, preserving the expected replica, sender,
   and recipient metadata.
+- Distributed-data TCP peer-route owner coverage now also pins adoption of an
+  already-installed outbound runtime association route: the route is reported
+  as skipped instead of dialed again, tracked by the owner, and removed when
+  the owner clears routes.
 - Cluster and cluster-tools TCP peer routes now adopt already-installed
   reverse association routes from accepted handshakes instead of redialing and
   replacing them. Their full-mesh bootstrap validations now send membership
@@ -4661,5 +4665,13 @@ cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data peer_routes_adopt_existing_ddata_tcp_runtime_route_and_clear_it --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_routes --all-targets --all-features
+cargo test -p kairo-distributed-data connector_subscribes_to_cluster_events_and_updates_replicator_routes --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```

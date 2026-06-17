@@ -394,6 +394,60 @@ mod tests {
     }
 
     #[test]
+    fn peer_routes_adopt_existing_ddata_tcp_runtime_route_and_clear_it() {
+        let sender = bind_runtime(
+            "existing-sender",
+            replica("sender"),
+            replica("receiver"),
+            11,
+        );
+        let receiver = bind_runtime(
+            "existing-receiver",
+            replica("receiver"),
+            replica("sender"),
+            22,
+        );
+        let sender_node = node("existing-sender", sender.settings().canonical_port, 1);
+        let receiver_node = node("existing-receiver", receiver.settings().canonical_port, 2);
+        let mut planner = ClusterAssociationPeerState::new(sender_node.clone());
+        let mut routes = ReplicatorTcpPeerRoutes::new();
+        sender
+            .dial_peer(
+                receiver.local_address().clone(),
+                ReplicaId::from(&receiver_node),
+            )
+            .unwrap();
+        wait_for_reverse_route(&receiver);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![member(sender_node), member(receiver_node.clone())],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+
+        assert!(report.dialed.is_empty());
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(report.skipped[0].node(), &receiver_node);
+        assert_eq!(routes.route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let clear_report = routes.clear(&sender);
+
+        assert_eq!(clear_report.removed.len(), 1);
+        assert_eq!(clear_report.removed[0].node(), &receiver_node);
+        assert_eq!(routes.route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.accepted_associations, 0);
+        let receiver_report = receiver.shutdown().unwrap();
+        assert_eq!(receiver_report.accepted_associations, 1);
+    }
+
+    #[test]
     fn clear_without_routes_reports_no_work() {
         let sender = bind_runtime("clear", replica("clear"), replica("peer"), 33);
         let mut routes = ReplicatorTcpPeerRoutes::new();
