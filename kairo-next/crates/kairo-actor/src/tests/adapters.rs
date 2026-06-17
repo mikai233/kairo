@@ -275,6 +275,59 @@ fn message_adapter_rejects_and_drops_stale_messages_after_owner_restart() {
 }
 
 #[test]
+fn message_adapter_survives_owner_resume_supervision() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "adapter",
+            Props::new(|| AdapterProbe { adapted_count: 0 })
+                .with_supervisor(SupervisorStrategy::Resume),
+        )
+        .unwrap();
+    let (adapter_tx, adapter_rx) = mpsc::channel();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (queued_tx, queued_rx) = mpsc::channel();
+
+    actor
+        .tell(AdapterProbeMsg::CreateAdapter(adapter_tx))
+        .unwrap();
+    let adapter = adapter_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    actor
+        .tell(AdapterProbeMsg::BlockAndFail {
+            entered: entered_tx,
+            release: release_rx,
+        })
+        .unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    adapter
+        .tell(ExternalProbeMsg {
+            label: "queued",
+            reply_to: queued_tx,
+        })
+        .unwrap();
+    release_tx.send(()).unwrap();
+
+    assert_eq!(
+        queued_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("queued", 1)
+    );
+
+    let (late_tx, late_rx) = mpsc::channel();
+    adapter
+        .tell(ExternalProbeMsg {
+            label: "late",
+            reply_to: late_tx,
+        })
+        .unwrap();
+    assert_eq!(
+        late_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("late", 2)
+    );
+    assert!(!adapter.is_stopped());
+}
+
+#[test]
 fn message_adapter_notifies_watchers_after_owner_restart() {
     let system = ActorSystem::builder("test").build().unwrap();
     let actor = system

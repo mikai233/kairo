@@ -405,6 +405,10 @@ Implemented:
   death-watch subscribers for the adapter path when the owner stops or
   restarts, and discard already queued stale adapter messages after lifecycle
   cancellation.
+- Message adapter refs now have focused resume-supervision coverage showing
+  that queued adapted messages and the adapter ref remain live when the owner
+  resumes after a failed receive turn, matching Pekko's state-preserving
+  `Resume` semantics instead of applying restart cleanup.
 - `Context::message_adapter` now rejects new adapter refs after self-stop has
   been requested, so a stopping actor cannot create fresh function-ref style
   helpers during teardown.
@@ -3345,7 +3349,8 @@ Implemented:
   and notify death-watch subscribers when the owner tears down its adapter
   scope. The focused coverage now also asserts the watcher receives the
   adapter ref path as the terminated subject for both owner-stop and
-  owner-restart teardown.
+  owner-restart teardown, while resume supervision leaves the existing adapter
+  ref live and drains already queued adapted messages normally.
 - `kairo-actor` watch, watch_with, self-watch rejection, duplicate-watch
   rejection, unwatch, signal-failure, and parent-child watch tests now live in
   a focused sibling test module.
@@ -5239,5 +5244,12 @@ cargo fmt --all
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor message_adapter_survives_owner_resume_supervision --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor adapters --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```
