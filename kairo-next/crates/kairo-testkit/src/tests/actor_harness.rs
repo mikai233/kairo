@@ -97,6 +97,55 @@ fn actor_harness_watch_subject_observes_subject_stop() {
 }
 
 #[test]
+fn actor_harness_expect_subject_terminated_observes_subject_stop() {
+    let harness = ActorHarness::spawn(
+        "actor-harness-expect-subject-terminated",
+        "subject",
+        Props::new(|| HarnessActor),
+    )
+    .expect("harness should spawn actor");
+    let subject = harness.actor_ref();
+
+    harness.stop();
+
+    assert_eq!(
+        harness
+            .expect_subject_terminated("watcher", Duration::from_secs(1))
+            .expect("subject termination should be observed"),
+        subject.as_any()
+    );
+    harness
+        .shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn actor_harness_expect_subject_terminated_observes_already_stopped_subject() {
+    let harness = ActorHarness::spawn(
+        "actor-harness-expect-subject-terminated-stopped",
+        "subject",
+        Props::new(|| HarnessActor),
+    )
+    .expect("harness should spawn actor");
+    let subject = harness.actor_ref();
+
+    harness.stop();
+    harness
+        .expect_stopped(Duration::from_secs(1))
+        .expect("subject should stop before watch starts");
+
+    assert_eq!(
+        harness
+            .expect_subject_terminated("watcher", Duration::from_secs(1))
+            .expect("already stopped subject termination should be observed"),
+        subject.as_any()
+    );
+    harness
+        .shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn actor_harness_manual_time_drives_subject_scheduler() {
     let (harness, time) = ActorHarness::with_manual_time(
         "actor-harness-manual-time",

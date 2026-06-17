@@ -5,7 +5,7 @@ use kairo_actor::{
     Actor, ActorError, ActorRef, ActorSystem, AnyActorRef, DeadLetter, Props, SendError,
 };
 
-use crate::{ActorSystemTestKit, ManualTime, TestProbe};
+use crate::{ActorSystemTestKit, ManualTime, ProbeError, TestProbe, Within};
 
 /// Spawn-backed harness for tests centered on one actor under a real actor system.
 ///
@@ -103,6 +103,38 @@ impl<M: Send + 'static> ActorHarness<M> {
         let probe = self.kit.create_probe(name)?;
         probe.watch_terminated(&self.actor_ref)?;
         Ok(probe)
+    }
+
+    /// Creates an erased-ref probe, watches the subject, and waits for the
+    /// subject termination notification.
+    ///
+    /// This asserts the death-watch observation, not only the subject's local
+    /// termination latch. The explicit `watcher_name` keeps repeated assertions
+    /// from colliding on probe actor names.
+    pub fn expect_subject_terminated(
+        &self,
+        watcher_name: impl AsRef<str>,
+        timeout: Duration,
+    ) -> Result<AnyActorRef, ProbeError> {
+        let probe = self
+            .kit
+            .create_probe::<AnyActorRef>(watcher_name)
+            .map_err(|error| ProbeError::WatchFailed(error.to_string()))?;
+        probe.expect_terminated(&self.actor_ref, timeout)
+    }
+
+    /// Runs [`Self::expect_subject_terminated`] under a shared [`Within`]
+    /// deadline.
+    pub fn expect_subject_terminated_within(
+        &self,
+        watcher_name: impl AsRef<str>,
+        scope: &Within,
+    ) -> Result<AnyActorRef, ProbeError> {
+        let probe = self
+            .kit
+            .create_probe::<AnyActorRef>(watcher_name)
+            .map_err(|error| ProbeError::WatchFailed(error.to_string()))?;
+        probe.expect_terminated_within(&self.actor_ref, scope)
     }
 
     /// Requests the subject actor to stop.

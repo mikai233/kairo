@@ -539,6 +539,10 @@ Implemented:
 - `ActorHarness` can now create an `AnyActorRef` probe already watching the
   subject actor, so actor-centered tests can assert subject termination through
   the same testkit death-watch queue used by `TestProbe::watch_terminated`.
+- `ActorHarness` now also exposes direct subject termination assertions that
+  create an erased watcher, verify the delivered subject ref, compose with
+  shared `Within` deadlines, and observe already-stopped subjects through the
+  same death-watch path as probe assertions.
 - `ActorSystemTestKit` and `ActorHarness` can now create typed dead-letter
   probes by subscribing `TestProbe<DeadLetter>` instances to the local event
   stream.
@@ -3465,6 +3469,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-testkit actor_harness_expect_subject_terminated --all-targets --all-features
+cargo test -p kairo-testkit actor_harness --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
