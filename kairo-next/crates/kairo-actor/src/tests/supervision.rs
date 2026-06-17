@@ -117,6 +117,146 @@ impl Actor for StartupPanicProbe {
     }
 }
 
+#[derive(Debug)]
+struct PreRestartHelperResults {
+    spawn_task: Result<(), String>,
+    pipe_to_self: Result<(), String>,
+    adapter: Result<(), String>,
+    ask: Result<(), String>,
+    watch: Result<(), String>,
+    watch_with: Result<(), String>,
+    stash: Result<(), String>,
+    unstash_all: Result<(), String>,
+    schedule_once_self_cancelled: bool,
+    single_timer_active: bool,
+    fixed_delay_timer_active: bool,
+    fixed_rate_timer_active: bool,
+    receive_timeout: Option<Duration>,
+}
+
+enum PreRestartAskTargetMsg {
+    Request { _reply_to: ActorRef<()> },
+}
+
+struct PreRestartAskTarget;
+
+impl Actor for PreRestartAskTarget {
+    type Msg = PreRestartAskTargetMsg;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+enum PreRestartHelperMsg {
+    Fail,
+    Noop,
+    Get(mpsc::Sender<&'static str>),
+}
+
+struct PreRestartHelperProbe {
+    results: mpsc::Sender<PreRestartHelperResults>,
+    ask_target: ActorRef<PreRestartAskTargetMsg>,
+}
+
+impl Actor for PreRestartHelperProbe {
+    type Msg = PreRestartHelperMsg;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            PreRestartHelperMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            PreRestartHelperMsg::Noop => Ok(()),
+            PreRestartHelperMsg::Get(reply_to) => reply_to
+                .send("live")
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PreRestart => {
+                let spawn_task = ctx
+                    .spawn_task(|_| {})
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                let pipe_to_self = ctx
+                    .pipe_to_self(|| Ok::<(), ()>(()), |_| PreRestartHelperMsg::Noop)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                let adapter = ctx
+                    .message_adapter(|_: u8| PreRestartHelperMsg::Noop)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                let ask = ctx
+                    .ask(
+                        self.ask_target.clone(),
+                        Duration::from_secs(1),
+                        |reply_to| PreRestartAskTargetMsg::Request {
+                            _reply_to: reply_to,
+                        },
+                        |_| PreRestartHelperMsg::Noop,
+                    )
+                    .map_err(|error| error.to_string());
+                let watch = ctx
+                    .watch(&self.ask_target)
+                    .map_err(|error| error.to_string());
+                let watch_with = ctx
+                    .watch_with(&self.ask_target, PreRestartHelperMsg::Noop)
+                    .map_err(|error| error.to_string());
+                let stash = ctx
+                    .stash(PreRestartHelperMsg::Noop)
+                    .map_err(|error| error.to_string());
+                let unstash_all = ctx.unstash_all().map_err(|error| error.to_string());
+                let schedule_once_self_cancelled = ctx
+                    .schedule_once_self(Duration::from_secs(1), PreRestartHelperMsg::Noop)
+                    .is_cancelled();
+                ctx.start_single_timer(
+                    "late-single",
+                    Duration::from_secs(1),
+                    PreRestartHelperMsg::Noop,
+                );
+                let single_timer_active = ctx.is_timer_active("late-single");
+                ctx.start_timer_with_fixed_delay(
+                    "late-fixed-delay",
+                    Duration::from_secs(1),
+                    Duration::from_secs(1),
+                    PreRestartHelperMsg::Noop,
+                );
+                let fixed_delay_timer_active = ctx.is_timer_active("late-fixed-delay");
+                ctx.start_timer_at_fixed_rate(
+                    "late-fixed-rate",
+                    Duration::from_secs(1),
+                    Duration::from_secs(1),
+                    PreRestartHelperMsg::Noop,
+                );
+                let fixed_rate_timer_active = ctx.is_timer_active("late-fixed-rate");
+                ctx.set_receive_timeout(Duration::from_secs(1), PreRestartHelperMsg::Noop);
+                let receive_timeout = ctx.receive_timeout();
+                self.results
+                    .send(PreRestartHelperResults {
+                        spawn_task,
+                        pipe_to_self,
+                        adapter,
+                        ask,
+                        watch,
+                        watch_with,
+                        stash,
+                        unstash_all,
+                        schedule_once_self_cancelled,
+                        single_timer_active,
+                        fixed_delay_timer_active,
+                        fixed_rate_timer_active,
+                        receive_timeout,
+                    })
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            Signal::PostStop => self.stopped(ctx),
+            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
+        }
+    }
+}
+
 enum RestartStartupProbeMsg {
     Fail,
     GetStarts(mpsc::Sender<u64>),
@@ -570,6 +710,96 @@ fn default_pre_restart_invokes_stopped_cleanup_hook() {
     ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(!actor.is_stopped());
     system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn pre_restart_rejects_late_helper_creation() {
+    let system = ActorSystem::builder("restart-helper-cleanup")
+        .build()
+        .unwrap();
+    let ask_target = system
+        .spawn("pre-restart-ask-target", Props::new(|| PreRestartAskTarget))
+        .unwrap();
+    let (results_tx, results_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "pre-restart-helper",
+            Props::restartable(move || PreRestartHelperProbe {
+                results: results_tx.clone(),
+                ask_target: ask_target.clone(),
+            })
+            .with_supervisor(SupervisorStrategy::Restart),
+        )
+        .unwrap();
+
+    actor.tell(PreRestartHelperMsg::Fail).unwrap();
+
+    let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let expected = format!("actor `{}` is stopping", actor.path());
+    assert_eq!(
+        results
+            .spawn_task
+            .expect_err("spawn_task should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results
+            .pipe_to_self
+            .expect_err("pipe_to_self should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results.adapter.expect_err("adapter should be rejected"),
+        expected
+    );
+    assert_eq!(results.ask.expect_err("ask should be rejected"), expected);
+    assert_eq!(
+        results.watch.expect_err("watch should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results
+            .watch_with
+            .expect_err("watch_with should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results.stash.expect_err("stash should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results
+            .unstash_all
+            .expect_err("unstash_all should be rejected"),
+        expected
+    );
+    assert!(
+        results.schedule_once_self_cancelled,
+        "late self scheduling should return an already-cancelled handle"
+    );
+    assert!(
+        !results.single_timer_active,
+        "late single timers should not become active during PreRestart"
+    );
+    assert!(
+        !results.fixed_delay_timer_active,
+        "late fixed-delay timers should not become active during PreRestart"
+    );
+    assert!(
+        !results.fixed_rate_timer_active,
+        "late fixed-rate timers should not become active during PreRestart"
+    );
+    assert_eq!(
+        results.receive_timeout, None,
+        "late receive timeouts should not be armed during PreRestart"
+    );
+
+    let (reply_tx, reply_rx) = mpsc::channel();
+    actor.tell(PreRestartHelperMsg::Get(reply_tx)).unwrap();
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "live"
+    );
 }
 
 #[test]

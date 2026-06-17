@@ -200,6 +200,11 @@ Implemented:
   has run `PreRestart` cleanup and restart-time child teardown has completed,
   matching Pekko's observable recreate ordering while keeping Kairo's explicit
   Rust `Props::restartable` factory boundary.
+- Restart cleanup now treats `Signal::PreRestart` as an inactive owner scope
+  for helper creation: actor-owned tasks, `pipe_to_self`, adapters, asks,
+  watch registrations, stash operations, self scheduling, timers, and receive
+  timeouts are rejected or inert during the cleanup callback, and the
+  replacement actor becomes active afterward.
 - Watching an already stopped local actor now has focused integration coverage:
   plain `watch` immediately delivers `Signal::Terminated`, while `watch_with`
   immediately delivers the caller's typed custom message.
@@ -3290,6 +3295,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor pre_restart_rejects_late_helper_creation --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor supervision --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor message_adapter_ --all-targets --all-features
 cargo test -p kairo-actor adapters --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features

@@ -521,7 +521,7 @@ where
     context.cancel_asks();
     stop_adapter_refs(system_inner, context);
     let _ = context.drain_stash_to_mailbox();
-    let _ = invoke_signal(actor, context, Signal::PreRestart);
+    let _ = invoke_pre_restart(actor, context);
     if stop_children_on_restart {
         stop_children_for_restart(system_inner, actor_ref.path());
     }
@@ -567,7 +567,7 @@ where
     context.cancel_asks();
     stop_adapter_refs(system_inner, context);
     let _ = context.drain_stash_to_mailbox();
-    let _ = invoke_signal(actor, context, Signal::PreRestart);
+    let _ = invoke_pre_restart(actor, context);
     if stop_children_on_restart {
         stop_children_for_restart(system_inner, actor_ref.path());
     }
@@ -628,4 +628,15 @@ where
     context.stop_requested = false;
     *actor = restarted;
     Ok(())
+}
+
+fn invoke_pre_restart<A>(actor: &mut A, context: &mut Context<A::Msg>) -> ActorResult
+where
+    A: Actor,
+{
+    let previous_stop_requested = context.stop_requested;
+    context.stop_requested = true;
+    let result = invoke_signal(actor, context, Signal::PreRestart);
+    context.stop_requested = previous_stop_requested;
+    result
 }
