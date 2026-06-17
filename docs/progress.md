@@ -136,6 +136,9 @@ Implemented:
 - Actor-owned timers now also have resume-supervision coverage showing that an
   active single timer remains scheduled when the owner resumes after a failed
   receive turn, matching Pekko's state-preserving `Resume` behavior.
+- Actor-owned receive timeouts now also have resume-supervision coverage
+  showing that a failed receive turn under `Resume` keeps the timeout armed and
+  restarts the idle window from the resumed turn.
 - Stash operations now reject new public stash/unstash requests once an actor
   has requested or entered stop, while runtime stop cleanup still drains
   already-stashed messages to dead letters.
@@ -282,6 +285,9 @@ Implemented:
 - Receive-timeout state and envelopes live in a focused `receive_timeout`
   module, and active receive-timeout tasks are cancelled when the owning actor
   stops or restarts.
+- Receive-timeout manual-scheduler tests now wait for the actor turn to arm
+  the first deadline before advancing manual time, avoiding wall-clock races
+  around the post-receive reschedule step.
 - `CoordinatedShutdown::add_cancellable_task` now returns a
   `ShutdownTaskHandle` that can cancel pending task registrations before their
   phase starts, while duplicate task names remain distinct registrations and
@@ -3345,8 +3351,9 @@ Implemented:
 - `kairo-actor` timer single-shot, cancellation, replacement, fixed-delay,
   fixed-rate, actor-stop cleanup, and resume-supervision preservation tests
   now live in a focused sibling test module.
-- `kairo-actor` receive-timeout repeat and cancellation tests now live in a
-  focused sibling test module.
+- `kairo-actor` receive-timeout repeat, cancellation, and
+  resume-supervision reschedule tests now live in a focused sibling test
+  module.
 - `kairo-actor` pipe-to-self success/failure and spawn-task send-back tests
   now live in a focused sibling test module.
 - `kairo-actor` task integration tests now also pin stop/restart scoped
@@ -3628,6 +3635,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor receive_timeout_reschedules_after_owner_resume_supervision --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor receive_timeout --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor single_timer_survives_owner_resume_supervision --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-actor timers --all-targets --all-features

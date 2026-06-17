@@ -11,6 +11,17 @@ fn wait_for_manual_pending(scheduler: &ManualScheduler, expected: usize) {
     assert_eq!(scheduler.pending_count(), expected);
 }
 
+fn wait_for_manual_deadline(scheduler: &ManualScheduler, expected: Duration) {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
+        if scheduler.next_deadline() == Some(expected) {
+            return;
+        }
+        thread::yield_now();
+    }
+    assert_eq!(scheduler.next_deadline(), Some(expected));
+}
+
 #[derive(Clone)]
 enum ReceiveTimeoutProbeMsg {
     Arm {
@@ -26,6 +37,7 @@ enum ReceiveTimeoutProbeMsg {
     Timeout {
         observed: mpsc::Sender<&'static str>,
     },
+    Fail,
 }
 
 struct ReceiveTimeoutProbe;
@@ -57,6 +69,7 @@ impl Actor for ReceiveTimeoutProbe {
                     .send("timeout")
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
+            ReceiveTimeoutProbeMsg::Fail => return Err(ActorError::Message("boom".to_string())),
         }
         Ok(())
     }
@@ -139,6 +152,7 @@ fn receive_timeout_resets_after_influencing_messages_and_repeats() {
         arm_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         Some(Duration::from_secs(1))
     );
+    wait_for_manual_deadline(&scheduler, Duration::from_secs(1));
 
     scheduler.advance(Duration::from_millis(999));
     assert!(observed_rx.recv_timeout(Duration::from_millis(20)).is_err());
@@ -160,6 +174,57 @@ fn receive_timeout_resets_after_influencing_messages_and_repeats() {
     wait_for_manual_pending(&scheduler, 1);
 
     scheduler.advance(Duration::from_secs(1));
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "timeout"
+    );
+}
+
+#[test]
+fn receive_timeout_reschedules_after_owner_resume_supervision() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn(
+            "receive-timeout",
+            Props::new(|| ReceiveTimeoutProbe).with_supervisor(SupervisorStrategy::Resume),
+        )
+        .unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let (arm_tx, arm_rx) = mpsc::channel();
+
+    actor
+        .tell(ReceiveTimeoutProbeMsg::Arm {
+            observed: observed_tx,
+            ack: arm_tx,
+        })
+        .unwrap();
+    assert_eq!(
+        arm_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Some(Duration::from_secs(1))
+    );
+    wait_for_manual_deadline(&scheduler, Duration::from_secs(1));
+
+    scheduler.advance(Duration::from_millis(999));
+    assert!(observed_rx.recv_timeout(Duration::from_millis(20)).is_err());
+
+    actor.tell(ReceiveTimeoutProbeMsg::Fail).unwrap();
+    wait_for_manual_deadline(&scheduler, Duration::from_millis(1999));
+    assert!(!actor.is_stopped());
+
+    scheduler.advance(Duration::from_millis(999));
+    assert_eq!(scheduler.now(), Duration::from_millis(1998));
+    assert_eq!(scheduler.next_deadline(), Some(Duration::from_millis(1999)));
+    assert!(observed_rx.recv_timeout(Duration::from_millis(20)).is_err());
+    assert!(!actor.is_stopped());
+
+    scheduler.advance(Duration::from_millis(1));
+    assert_eq!(scheduler.now(), Duration::from_millis(1999));
+    assert_ne!(scheduler.next_deadline(), Some(Duration::from_millis(1999)));
+    assert!(!actor.is_stopped());
     assert_eq!(
         observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         "timeout"
