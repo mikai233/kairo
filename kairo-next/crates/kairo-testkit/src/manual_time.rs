@@ -65,8 +65,9 @@ impl ManualTime {
     /// Schedules one message to be sent to an actor ref after `delay`.
     ///
     /// The message is delivered when the manual clock reaches the due time and
-    /// due work is run by [`Self::advance`] or [`Self::run_due`]. The returned
-    /// handle can cancel the scheduled delivery before it runs.
+    /// due work is run by [`Self::advance`] or [`Self::run_due`]. A zero delay
+    /// runs immediately at the current manual time. The returned handle can
+    /// cancel the scheduled delivery before it runs.
     pub fn schedule_once<M>(
         &self,
         delay: Duration,

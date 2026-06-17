@@ -379,6 +379,38 @@ fn manual_time_can_drive_repeated_actor_timers_until_cancelled() {
 }
 
 #[test]
+fn manual_time_runs_repeated_actor_timer_with_zero_initial_delay_immediately() {
+    let (kit, time) = ActorSystemTestKit::with_manual_time("manual-time-repeated-zero-delay")
+        .expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let actor = kit
+        .system()
+        .spawn("timer", Props::new(|| ManualTimerProbe))
+        .expect("timer actor should spawn");
+    let (start_tx, start_rx) = mpsc::channel();
+
+    actor
+        .tell(ManualTimerMsg::StartRepeatedNow {
+            reply_to: probe.actor_ref(),
+            ack: start_tx,
+        })
+        .expect("start should enqueue");
+    start_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("timer should be scheduled");
+
+    assert_eq!(time.now(), Duration::ZERO);
+    assert_eq!(probe.expect_msg(Duration::from_secs(1)).unwrap(), "tick");
+    assert_eq!(time.next_deadline(), Some(Duration::from_secs(1)));
+    time.advance(Duration::from_secs(1));
+    assert_eq!(probe.expect_msg(Duration::from_millis(50)).unwrap(), "tick");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn manual_time_can_drive_fixed_rate_actor_timers() {
     let (kit, time) = ActorSystemTestKit::with_manual_time("manual-time-fixed-rate")
         .expect("system should build");
@@ -460,6 +492,10 @@ enum ManualTimerMsg {
         reply_to: ActorRef<&'static str>,
         ack: mpsc::Sender<()>,
     },
+    StartRepeatedNow {
+        reply_to: ActorRef<&'static str>,
+        ack: mpsc::Sender<()>,
+    },
     StartFixedRate {
         reply_to: ActorRef<&'static str>,
         ack: mpsc::Sender<()>,
@@ -490,6 +526,16 @@ impl Actor for ManualTimerProbe {
                 ctx.start_timer_with_fixed_delay(
                     "manual-repeated",
                     Duration::from_secs(1),
+                    Duration::from_secs(1),
+                    ManualTimerMsg::Fired(reply_to),
+                );
+                ack.send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ManualTimerMsg::StartRepeatedNow { reply_to, ack } => {
+                ctx.start_timer_with_fixed_delay(
+                    "manual-repeated",
+                    Duration::ZERO,
                     Duration::from_secs(1),
                     ManualTimerMsg::Fired(reply_to),
                 );
