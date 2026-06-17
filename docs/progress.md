@@ -2213,6 +2213,10 @@ Implemented:
   join/welcome/gossip and heartbeat request/response envelopes through live
   socket associations, and keeps cluster membership truth in gossip plus local
   failure-detector observations rather than remoting.
+- Cluster system inbound coverage now pins missing-handler failures for both
+  heartbeat receiver and heartbeat response paths after recipient validation,
+  and separately rejects unknown cluster system manifests before they can be
+  routed into membership or failure-detector state.
 - The cluster TCP association runtime now explicitly closes active dialed
   outbound lane pipelines during shutdown, with integration coverage retaining
   a live route registration across shutdown to prove reader joins complete.
@@ -4720,5 +4724,13 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster system_inbound_reports_missing_heartbeat_handlers_after_recipient_validation --all-targets --all-features
+cargo test -p kairo-cluster system_inbound_rejects_unknown_manifest --all-targets --all-features
+cargo test -p kairo-cluster system_inbound --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 git diff --check
 ```
