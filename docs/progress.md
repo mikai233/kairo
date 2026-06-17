@@ -124,8 +124,9 @@ Implemented:
   throughput settings, actor-system termination, actor name validation, context
   parent/child introspection, context child stop, and invalid context stop
   targets, local death-watch signals, custom watch messages, and unwatch.
-- Focused scheduler tests cover delayed delivery, cancellation, and scheduled
-  self messages re-entering the actor mailbox.
+- Focused scheduler tests cover delayed delivery, cancellation, scheduled self
+  messages re-entering the actor mailbox, and delayed scheduled-self delivery
+  to dead letters when the owner stops before the delay fires.
 - Actor-system scheduler entry points now return already-cancelled handles
   after termination has started, so post-termination scheduling does not retain
   delayed work or enqueue dead letters.
@@ -3355,8 +3356,8 @@ Implemented:
 - `kairo-actor` ask success, timeout, and late-reply rejection tests now live
   in a focused sibling test module.
 - `kairo-actor` scheduler one-shot delivery, cancellation, self-scheduling,
-  and scheduled-self supervision tests now live in a focused sibling test
-  module.
+  scheduled-self supervision, and stopped-owner dead-letter tests now live in a
+  focused sibling test module.
 - `kairo-actor` timer single-shot, cancellation, replacement, fixed-delay,
   fixed-rate, actor-stop cleanup, and resume-supervision preservation tests
   now live in a focused sibling test module.
@@ -3644,6 +3645,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor schedule_once_self_after_owner_stop_goes_to_dead_letters --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor scheduler --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor schedule_once_self_survives_owner --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-actor scheduler --all-targets --all-features

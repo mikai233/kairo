@@ -223,6 +223,50 @@ fn schedule_once_self_survives_owner_restart_supervision() {
 }
 
 #[test]
+fn schedule_once_self_after_owner_stop_goes_to_dead_letters() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let (observed_tx, _observed_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "scheduled",
+            Props::new(move || ScheduledProbe {
+                observed: observed_tx,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (ack_tx, ack_rx) = mpsc::channel();
+
+    actor
+        .tell(ScheduledMsg::ScheduleSelfWithAck {
+            delay: Duration::from_secs(1),
+            reply_to: reply_tx,
+            ack: ack_tx,
+        })
+        .unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&actor);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+
+    scheduler.advance(Duration::from_secs(1));
+    assert!(reply_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+
+    let records = system.dead_letters().records();
+    assert_eq!(records[0].recipient(), actor.path());
+    assert_eq!(records[0].reason(), "actor is stopped");
+}
+
+#[test]
 fn actor_system_schedule_once_after_termination_is_cancelled() {
     let scheduler = ManualScheduler::new();
     let system = ActorSystem::builder("test")
