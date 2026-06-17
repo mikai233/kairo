@@ -161,6 +161,9 @@ Implemented:
 - Actor-owned pending asks are lifecycle scoped: actor stop or restart
   completes the temp reply ref, unregisters it from `/temp`, and rejects stale
   replies instead of delivering them into the stopped or restarted owner.
+- `Context::ask` now rejects new temp reply refs after the actor has requested
+  its own stop, keeping the `/temp` registry from gaining fresh owner-scoped
+  helpers during termination.
 - Actor-system termination now has focused coverage that outstanding
   actor-owned ask temp refs under `/temp` are cancelled and unregistered when
   their owner stops, and stale replies are rejected.
@@ -346,6 +349,9 @@ Implemented:
 - Actor-owned task sends are lifecycle scoped: task-originated messages through
   `Context::spawn_task`/`pipe_to_self` are rejected once the owner stops or
   restarts, so stale task completions cannot re-enter the restarted actor.
+- `Context::spawn_task` and `Context::pipe_to_self` now reject new background
+  work after the actor has requested its own stop, matching the same stopping
+  boundary used for child creation.
 - Task bridge state and handles live in a focused `tasks` module.
 - `Context::message_adapter` creates typed local adapter refs that enqueue
   adapted protocol messages into the owning actor's mailbox.
@@ -353,6 +359,9 @@ Implemented:
   death-watch subscribers for the adapter path when the owner stops or
   restarts, and discard already queued stale adapter messages after lifecycle
   cancellation.
+- `Context::message_adapter` now rejects new adapter refs after self-stop has
+  been requested, so a stopping actor cannot create fresh function-ref style
+  helpers during teardown.
 - Adapted user-message envelopes live in the mailbox runtime, and adapter ref
   construction lives in a focused `adapters` module.
 - `Props::with_stash_capacity` enables opt-in typed stash support, and
@@ -4497,5 +4506,13 @@ cargo test -p kairo-serialization rolling_decode_rejects_unsupported_wire_versio
 cargo test -p kairo-serialization --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor tasks --all-targets --all-features
+cargo test -p kairo-actor adapters --all-targets --all-features
+cargo test -p kairo-actor asks --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```

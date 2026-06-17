@@ -7,6 +7,7 @@ struct ExternalProbeMsg {
 
 enum AdapterProbeMsg {
     CreateAdapter(mpsc::Sender<ActorRef<ExternalProbeMsg>>),
+    StopThenCreateAdapter(mpsc::Sender<Result<(), String>>),
     Adapted(ExternalProbeMsg),
     BlockAndFail {
         entered: mpsc::Sender<()>,
@@ -65,6 +66,16 @@ impl Actor for AdapterProbe {
                     .send(adapter)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
+            AdapterProbeMsg::StopThenCreateAdapter(reply_to) => {
+                ctx.stop(ctx.myself())?;
+                let result = ctx
+                    .message_adapter(AdapterProbeMsg::Adapted)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                reply_to
+                    .send(result)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
             AdapterProbeMsg::Adapted(message) => {
                 self.adapted_count += 1;
                 message
@@ -87,6 +98,25 @@ impl Actor for AdapterProbe {
         }
         Ok(())
     }
+}
+
+#[test]
+fn message_adapter_is_rejected_after_self_stop_is_requested() {
+    let system = ActorSystem::builder("test-adapter-stop-requested")
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn("adapter", Props::new(|| AdapterProbe { adapted_count: 0 }))
+        .unwrap();
+    let (result_tx, result_rx) = mpsc::channel();
+
+    actor
+        .tell(AdapterProbeMsg::StopThenCreateAdapter(result_tx))
+        .unwrap();
+
+    let result = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(result, Err(format!("actor `{}` is stopping", actor.path())));
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 
 #[test]

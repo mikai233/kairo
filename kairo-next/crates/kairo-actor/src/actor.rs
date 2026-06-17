@@ -196,6 +196,7 @@ impl<M: Send + 'static> Context<M> {
     where
         F: FnOnce(ActorRef<M>) + Send + 'static,
     {
+        self.ensure_actor_active()?;
         tasks::spawn_task(self.tasks.scoped_ref(self.myself.clone()), task)
     }
 
@@ -206,6 +207,7 @@ impl<M: Send + 'static> Context<M> {
         F: FnOnce() -> Result<T, E> + Send + 'static,
         Map: FnOnce(Result<T, E>) -> M + Send + 'static,
     {
+        self.ensure_actor_active()?;
         tasks::pipe_to_self(self.tasks.scoped_ref(self.myself.clone()), task, map)
     }
 
@@ -214,6 +216,7 @@ impl<M: Send + 'static> Context<M> {
         U: Send + 'static,
         F: FnMut(U) -> M + Send + 'static,
     {
+        self.ensure_actor_active()?;
         adapters::message_adapter(&self.system, &self.adapters, self.myself.clone(), map)
     }
 
@@ -230,6 +233,7 @@ impl<M: Send + 'static> Context<M> {
         Create: FnOnce(ActorRef<Res>) -> Req,
         Map: FnOnce(Result<Res, AskError>) -> M + Send + 'static,
     {
+        self.ensure_actor_active()?;
         asks::ask(
             &self.system,
             &self.asks,
@@ -410,6 +414,10 @@ impl<M: Send + 'static> Context<M> {
     }
 
     fn ensure_can_spawn_child(&self) -> Result<(), ActorError> {
+        self.ensure_actor_active()
+    }
+
+    fn ensure_actor_active(&self) -> Result<(), ActorError> {
         if self.stop_requested || self.myself.is_stopped() {
             return Err(ActorError::ActorStopping {
                 actor: self.myself.path().to_string(),

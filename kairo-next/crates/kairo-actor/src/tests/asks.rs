@@ -61,6 +61,10 @@ enum AskProbeMsg {
         captured: mpsc::Sender<ActorRef<AskReply>>,
         reply_to: mpsc::Sender<Result<i32, String>>,
     },
+    StopThenAsk {
+        target: ActorRef<AskTargetMsg>,
+        result_to: mpsc::Sender<Result<(), String>>,
+    },
     Asked {
         result: AskResult<AskReply>,
         reply_to: mpsc::Sender<Result<i32, String>>,
@@ -138,6 +142,26 @@ impl Actor for AskProbe {
                 )?;
                 return Err(ActorError::Message("boom".to_string()));
             }
+            AskProbeMsg::StopThenAsk { target, result_to } => {
+                ctx.stop(ctx.myself())?;
+                let result = ctx
+                    .ask(
+                        target,
+                        Duration::from_secs(1),
+                        |reply_to| AskTargetMsg::Reply {
+                            value: 41,
+                            reply_to,
+                        },
+                        move |result| AskProbeMsg::Asked {
+                            result,
+                            reply_to: mpsc::channel().0,
+                        },
+                    )
+                    .map_err(|error| error.to_string());
+                result_to
+                    .send(result)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
             AskProbeMsg::Asked { result, reply_to } => {
                 let observed = result
                     .map(|reply| reply.0)
@@ -163,6 +187,32 @@ impl Actor for AskProbe {
         }
         Ok(())
     }
+}
+
+#[test]
+fn ask_is_rejected_after_self_stop_is_requested() {
+    let system = ActorSystem::builder("test-ask-stop-requested")
+        .build()
+        .unwrap();
+    let target = system
+        .spawn("ask-target", Props::new(|| AskTarget))
+        .unwrap();
+    let probe = system
+        .spawn("ask-probe", Props::new(|| AskProbe { pre_restart: None }))
+        .unwrap();
+    let (result_tx, result_rx) = mpsc::channel();
+
+    probe
+        .tell(AskProbeMsg::StopThenAsk {
+            target,
+            result_to: result_tx,
+        })
+        .unwrap();
+
+    let result = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(result, Err(format!("actor `{}` is stopping", probe.path())));
+    assert!(probe.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.children_of(&system.temp_root_path()).is_empty());
 }
 
 #[test]

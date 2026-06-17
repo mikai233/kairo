@@ -21,6 +21,12 @@ enum TaskProbeMsg {
         release: mpsc::Receiver<()>,
         reply_to: mpsc::Sender<&'static str>,
     },
+    StopThenSpawnTask {
+        result_to: mpsc::Sender<Result<(), String>>,
+    },
+    StopThenPipeToSelf {
+        result_to: mpsc::Sender<Result<(), String>>,
+    },
     Fail,
     Ping {
         reply_to: mpsc::Sender<&'static str>,
@@ -102,6 +108,26 @@ impl Actor for TaskProbe {
                     },
                 )?;
             }
+            TaskProbeMsg::StopThenSpawnTask { result_to } => {
+                ctx.stop(ctx.myself())?;
+                let result = ctx
+                    .spawn_task(|_| {})
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                result_to
+                    .send(result)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            TaskProbeMsg::StopThenPipeToSelf { result_to } => {
+                ctx.stop(ctx.myself())?;
+                let result = ctx
+                    .pipe_to_self(|| Ok::<(), ()>(()), |_| TaskProbeMsg::Fail)
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                result_to
+                    .send(result)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
             TaskProbeMsg::Fail => return Err(ActorError::Message("task probe failed".to_string())),
             TaskProbeMsg::Ping { reply_to } => {
                 reply_to
@@ -126,6 +152,44 @@ impl Actor for TaskProbe {
         }
         Ok(())
     }
+}
+
+#[test]
+fn spawn_task_is_rejected_after_self_stop_is_requested() {
+    let system = ActorSystem::builder("test-task-stop-requested")
+        .build()
+        .unwrap();
+    let actor = system.spawn("task", Props::new(|| TaskProbe)).unwrap();
+    let (result_tx, result_rx) = mpsc::channel();
+
+    actor
+        .tell(TaskProbeMsg::StopThenSpawnTask {
+            result_to: result_tx,
+        })
+        .unwrap();
+
+    let result = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(result, Err(format!("actor `{}` is stopping", actor.path())));
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn pipe_to_self_is_rejected_after_self_stop_is_requested() {
+    let system = ActorSystem::builder("test-pipe-stop-requested")
+        .build()
+        .unwrap();
+    let actor = system.spawn("task", Props::new(|| TaskProbe)).unwrap();
+    let (result_tx, result_rx) = mpsc::channel();
+
+    actor
+        .tell(TaskProbeMsg::StopThenPipeToSelf {
+            result_to: result_tx,
+        })
+        .unwrap();
+
+    let result = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(result, Err(format!("actor `{}` is stopping", actor.path())));
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 
 #[test]
