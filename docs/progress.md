@@ -1903,6 +1903,11 @@ Implemented:
   waiting-for-restart state without removing them from remember storage, and a
   later entity message restarts the entity without issuing a redundant
   remember-store update.
+- `kairo-cluster-sharding` shard runtime and actor protocols now expose an
+  explicit remembered-entity restart command, matching Pekko's backoff restart
+  hook: waiting entities are marked active, already-active entities acknowledge
+  idempotently, and passivating or non-remembering states report ignored
+  results without touching remember storage.
 - `kairo-cluster-sharding` shard actor coverage now pins the
   remembering-stop snapshot boundary: an entity waiting for its remembered stop
   write remains internally tracked but is no longer reported as active, and the
@@ -3455,6 +3460,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding restart_remembered_entity --all-targets --all-features
+cargo test -p kairo-cluster-sharding shard_actor_remembered_entity_waits_for_restart_after_unexpected_termination --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding shard_runtime_remember_entities --all-targets --all-features
 cargo test -p kairo-cluster-sharding shard_runtime --all-targets --all-features
 cargo test -p kairo-cluster-sharding shard_actor_remembered_entity_waits_for_restart_after_unexpected_termination --all-targets --all-features

@@ -94,6 +94,26 @@ pub enum EntityTerminatedPlan<M> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RestartRememberedEntityPlan {
+    Started {
+        entity_id: EntityId,
+    },
+    AlreadyActive {
+        entity_id: EntityId,
+    },
+    Ignored {
+        entity_id: EntityId,
+        reason: RestartRememberedEntityIgnoreReason,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestartRememberedEntityIgnoreReason {
+    NotRememberingEntities,
+    NotWaitingForRestart,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShardHandOffPlan<M> {
     StartEntityStopper {
         shard: ShardId,
@@ -381,6 +401,36 @@ impl<M> ShardRuntime<M> {
                 EntityTerminatedPlan::RestartRemembered { entity_id }
             }
             None => EntityTerminatedPlan::IgnoredUnknown { entity_id },
+        }
+    }
+
+    pub fn restart_remembered_entity(
+        &mut self,
+        entity_id: impl Into<EntityId>,
+    ) -> RestartRememberedEntityPlan {
+        let entity_id = entity_id.into();
+        if !self.remember_entities() {
+            return RestartRememberedEntityPlan::Ignored {
+                entity_id,
+                reason: RestartRememberedEntityIgnoreReason::NotRememberingEntities,
+            };
+        }
+
+        match self.entities.get(&entity_id).copied() {
+            Some(ShardEntityState::WaitingForRestart) => {
+                self.entities
+                    .insert(entity_id.clone(), ShardEntityState::Active);
+                RestartRememberedEntityPlan::Started { entity_id }
+            }
+            Some(ShardEntityState::Active) => {
+                RestartRememberedEntityPlan::AlreadyActive { entity_id }
+            }
+            Some(ShardEntityState::Passivating | ShardEntityState::RememberingStop) | None => {
+                RestartRememberedEntityPlan::Ignored {
+                    entity_id,
+                    reason: RestartRememberedEntityIgnoreReason::NotWaitingForRestart,
+                }
+            }
         }
     }
 

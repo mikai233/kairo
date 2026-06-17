@@ -78,6 +78,13 @@ where
                 let plan = self.runtime.entity_terminated(entity_id);
                 self.apply_termination_plan(ctx, &plan)?;
             }
+            ShardMsg::RestartRememberedEntity {
+                entity_id,
+                reply_to,
+            } => {
+                let plan = self.runtime.restart_remembered_entity(entity_id);
+                let _ = reply_to.tell(plan);
+            }
             ShardMsg::HandOff {
                 stop_message,
                 reply_to,

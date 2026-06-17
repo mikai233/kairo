@@ -8,8 +8,8 @@ use crate::shard_store::{LocalShardRememberStoreProvider, ShardRememberStore};
 use crate::{
     EntityId, EntityTerminatedPlan, PassivatePlan, RememberShardStoreMsg, RememberShardStoreState,
     RememberShardUpdate, RememberShardUpdateDone, RememberUpdateDonePlan, RememberedEntities,
-    RememberedEntitiesPlan, ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardRuntime,
-    ShardingEnvelope, ShardingError,
+    RememberedEntitiesPlan, RestartRememberedEntityPlan, ShardDeliverPlan, ShardHandOffPlan,
+    ShardId, ShardRuntime, ShardingEnvelope, ShardingError,
 };
 
 pub struct ShardActor<M> {
@@ -164,6 +164,10 @@ pub enum ShardMsg<M> {
     ObservedEntityTerminated {
         entity_id: EntityId,
     },
+    RestartRememberedEntity {
+        entity_id: EntityId,
+        reply_to: ActorRef<RestartRememberedEntityPlan>,
+    },
     HandOff {
         stop_message: M,
         reply_to: ActorRef<ShardHandOffPlan<M>>,
@@ -305,6 +309,13 @@ where
             ShardMsg::ObservedEntityTerminated { entity_id } => {
                 let plan = self.runtime.entity_terminated(entity_id);
                 self.send_entity_terminated_store_effect(ctx, &plan)?;
+            }
+            ShardMsg::RestartRememberedEntity {
+                entity_id,
+                reply_to,
+            } => {
+                let plan = self.runtime.restart_remembered_entity(entity_id);
+                let _ = reply_to.tell(plan);
             }
             ShardMsg::HandOff {
                 stop_message,

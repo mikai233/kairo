@@ -229,8 +229,9 @@ pub use remember_shard_ddata::{
 pub use shard_actor::{ShardActor, ShardMsg, ShardSnapshot};
 pub use shard_runtime::{
     EntityDelivery, EntityTerminatedPlan, PassivateIgnoreReason, PassivatePlan,
-    RememberUpdateDonePlan, RememberedEntitiesPlan, ShardDeliverPlan, ShardDropReason,
-    ShardEntityState, ShardHandOffPlan, ShardRuntime,
+    RememberUpdateDonePlan, RememberedEntitiesPlan, RestartRememberedEntityIgnoreReason,
+    RestartRememberedEntityPlan, ShardDeliverPlan, ShardDropReason, ShardEntityState,
+    ShardHandOffPlan, ShardRuntime,
 };
 
 /// Stable logical identity for one sharded entity.

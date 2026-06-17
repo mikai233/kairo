@@ -1,4 +1,5 @@
 use super::*;
+use crate::{RestartRememberedEntityIgnoreReason, RestartRememberedEntityPlan};
 
 #[test]
 fn shard_runtime_recovers_remembered_entities_as_active() {
@@ -181,6 +182,55 @@ fn shard_runtime_remember_entities_restarts_waiting_entity_on_next_message() {
         Some(ShardEntityState::Active)
     );
     assert!(!runtime.remember_update_in_progress());
+}
+
+#[test]
+fn shard_runtime_restart_remembered_entity_starts_waiting_entity() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    runtime.recover_remembered_entities(["entity-1".to_string()]);
+    runtime.entity_terminated("entity-1");
+
+    assert_eq!(
+        runtime.restart_remembered_entity("entity-1"),
+        RestartRememberedEntityPlan::Started {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+    assert_eq!(
+        runtime.entity_state(&"entity-1".to_string()),
+        Some(ShardEntityState::Active)
+    );
+    assert_eq!(
+        runtime.restart_remembered_entity("entity-1"),
+        RestartRememberedEntityPlan::AlreadyActive {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+    assert!(!runtime.remember_update_in_progress());
+}
+
+#[test]
+fn shard_runtime_restart_remembered_entity_ignores_non_waiting_states() {
+    let mut non_remembering = ShardRuntime::<String>::new("shard-1", 10);
+    non_remembering.deliver(ShardingEnvelope::new("entity-1", "first".to_string()));
+    assert_eq!(
+        non_remembering.restart_remembered_entity("entity-1"),
+        RestartRememberedEntityPlan::Ignored {
+            entity_id: "entity-1".to_string(),
+            reason: RestartRememberedEntityIgnoreReason::NotRememberingEntities,
+        }
+    );
+
+    let mut remembering = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    remembering.recover_remembered_entities(["entity-1".to_string()]);
+    remembering.passivate("entity-1", "stop".to_string());
+    assert_eq!(
+        remembering.restart_remembered_entity("entity-1"),
+        RestartRememberedEntityPlan::Ignored {
+            entity_id: "entity-1".to_string(),
+            reason: RestartRememberedEntityIgnoreReason::NotWaitingForRestart,
+        }
+    );
 }
 
 #[test]

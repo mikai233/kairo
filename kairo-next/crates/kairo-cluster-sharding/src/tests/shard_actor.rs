@@ -1,4 +1,5 @@
 use super::*;
+use crate::RestartRememberedEntityPlan;
 
 #[test]
 fn shard_actor_starts_entity_then_delivers_directly() {
@@ -595,6 +596,9 @@ fn shard_actor_remembered_entity_waits_for_restart_after_unexpected_termination(
     let deliveries = kit
         .create_probe::<ShardDeliverPlan<String>>("deliveries")
         .unwrap();
+    let restart = kit
+        .create_probe::<RestartRememberedEntityPlan>("restart")
+        .unwrap();
 
     shard
         .tell(ShardMsg::RecoverRememberedEntities {
@@ -632,6 +636,34 @@ fn shard_actor_remembered_entity_waits_for_restart_after_unexpected_termination(
     );
 
     shard
+        .tell(ShardMsg::RestartRememberedEntity {
+            entity_id: "entity-1".to_string(),
+            reply_to: restart.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        restart.expect_msg(Duration::from_millis(500)).unwrap(),
+        RestartRememberedEntityPlan::Started {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: vec!["entity-1".to_string()],
+            entity_count: 1,
+            total_buffered: 0,
+            handoff_in_progress: false,
+        }
+    );
+
+    shard
         .tell(ShardMsg::Deliver {
             message: ShardingEnvelope::new("entity-1", "after-restart".to_string()),
             reply_to: deliveries.actor_ref(),
@@ -639,7 +671,7 @@ fn shard_actor_remembered_entity_waits_for_restart_after_unexpected_termination(
         .unwrap();
     assert_eq!(
         deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
-        ShardDeliverPlan::StartEntity {
+        ShardDeliverPlan::Deliver {
             delivery: crate::EntityDelivery::new("entity-1", "after-restart".to_string()),
         }
     );
