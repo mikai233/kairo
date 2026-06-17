@@ -722,6 +722,65 @@ fn cluster_tools_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks
 }
 
 #[test]
+fn cluster_tools_tcp_peer_bootstrap_delivers_pubsub_to_three_node_mesh() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b, node_c) = cluster_tools_tcp::bind_three_nodes()?;
+    let result = (|| -> TestResult {
+        node_a.publish_up_members(vec![
+            node_a.self_node().clone(),
+            node_b.self_node().clone(),
+            node_c.self_node().clone(),
+        ])?;
+
+        let routes = node_a.wait_for_route_count(2, Duration::from_secs(2))?;
+        assert!(
+            routes
+                .active_targets
+                .iter()
+                .any(|target| target.node() == node_b.self_node()),
+            "node A should install a cluster-tools route to node B: {routes:?}"
+        );
+        assert!(
+            routes
+                .active_targets
+                .iter()
+                .any(|target| target.node() == node_c.self_node()),
+            "node A should install a cluster-tools route to node C: {routes:?}"
+        );
+
+        let to_c = PubSubStatus {
+            from: node_a.self_node().clone(),
+            versions: BTreeMap::from([(cluster_tools_tcp::EXAMPLE_PUBSUB_TOPIC.to_string(), 303)]),
+            reply: false,
+        };
+        let to_b = PubSubStatus {
+            from: node_a.self_node().clone(),
+            versions: BTreeMap::from([(cluster_tools_tcp::EXAMPLE_PUBSUB_TOPIC.to_string(), 404)]),
+            reply: false,
+        };
+
+        node_a.send_status_to(&node_c, to_c.clone())?;
+        node_a.send_status_to(&node_b, to_b.clone())?;
+
+        let received_c = node_c.wait_for_status_count(1, Duration::from_secs(2));
+        assert_eq!(received_c, vec![to_c]);
+        let received_b = node_b.wait_for_status_count(1, Duration::from_secs(2));
+        assert_eq!(received_b, vec![to_b]);
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+    let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    shutdown_c?;
+    Ok(())
+}
+
+#[test]
 fn cluster_tools_tcp_peer_bootstrap_keeps_remaining_pubsub_route_after_peer_removed() -> TestResult
 {
     let _lock = lock_tcp_smoke();

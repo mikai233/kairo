@@ -3056,6 +3056,10 @@ Implemented:
   installs a route to a replacement peer, a stable-codec `PubSubStatus`
   publish reaches the replacement mediator subscriber and does not arrive at
   the removed peer.
+- The cluster-tools TCP bootstrap example smoke suite now also validates
+  sender-side three-node pubsub delivery: a sender publishes a three-member
+  membership snapshot, installs routes to both peers, and sends distinct
+  stable-codec `PubSubStatus` publishes to each peer mediator subscriber.
 - The cluster-tools TCP bootstrap example smoke suite now validates
   failed-dial lifecycle cleanup through the public example boundary: an
   unreachable peer produces a pending reconnect snapshot, and removing that
@@ -5159,6 +5163,12 @@ cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnin
 git diff --check
 cargo test -p kairo-examples ddata_tcp_peer_bootstrap_delivers_reads_to_three_node_mesh --all-targets --all-features
 cargo test -p kairo-examples ddata_tcp_peer_bootstrap --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_delivers_pubsub_to_three_node_mesh --all-targets --all-features
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
