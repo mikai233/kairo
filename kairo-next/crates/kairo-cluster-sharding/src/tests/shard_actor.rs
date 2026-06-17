@@ -576,6 +576,77 @@ fn shard_actor_completes_remember_stop_update_before_removal() {
 }
 
 #[test]
+fn shard_actor_remembered_entity_waits_for_restart_after_unexpected_termination() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-remember-restart").unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_entities("shard-1", 10),
+        )
+        .unwrap();
+    let recovery = kit
+        .create_probe::<RememberedEntitiesPlan>("recovery")
+        .unwrap();
+    let termination = kit
+        .create_probe::<crate::EntityTerminatedPlan<String>>("termination")
+        .unwrap();
+    let state = kit.create_probe::<ShardSnapshot>("state").unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    shard
+        .tell(ShardMsg::RecoverRememberedEntities {
+            entities: vec!["entity-1".to_string()],
+            reply_to: recovery.actor_ref(),
+        })
+        .unwrap();
+    recovery.expect_msg(Duration::from_millis(500)).unwrap();
+    shard
+        .tell(ShardMsg::EntityTerminated {
+            entity_id: "entity-1".to_string(),
+            reply_to: termination.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        termination.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::EntityTerminatedPlan::RestartRemembered {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: Vec::new(),
+            entity_count: 1,
+            total_buffered: 0,
+            handoff_in_progress: false,
+        }
+    );
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-restart".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity {
+            delivery: crate::EntityDelivery::new("entity-1", "after-restart".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_actor_buffers_passivating_entity_and_restarts_on_termination() {
     let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-passivation").unwrap();
     let shard = kit

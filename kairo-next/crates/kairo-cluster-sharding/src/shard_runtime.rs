@@ -35,6 +35,7 @@ pub enum ShardEntityState {
     Active,
     Passivating,
     RememberingStop,
+    WaitingForRestart,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +87,7 @@ pub enum PassivateIgnoreReason {
 pub enum EntityTerminatedPlan<M> {
     Removed { entity_id: EntityId },
     Restart { buffered: Vec<EntityDelivery<M>> },
+    RestartRemembered { entity_id: EntityId },
     RememberUpdate { update: RememberShardUpdate },
     RememberUpdateQueued { entity_id: EntityId },
     IgnoredUnknown { entity_id: EntityId },
@@ -173,7 +175,7 @@ impl<M> ShardRuntime<M> {
             .iter()
             .filter_map(|(entity_id, state)| match state {
                 ShardEntityState::Active | ShardEntityState::Passivating => Some(entity_id.clone()),
-                ShardEntityState::RememberingStop => None,
+                ShardEntityState::RememberingStop | ShardEntityState::WaitingForRestart => None,
             })
             .collect()
     }
@@ -250,6 +252,7 @@ impl<M> ShardRuntime<M> {
             Some(ShardEntityState::Active) => ShardDeliverPlan::Deliver {
                 delivery: EntityDelivery::new(entity_id, message),
             },
+            Some(ShardEntityState::WaitingForRestart) => self.start_entity(entity_id, message),
             Some(ShardEntityState::Passivating | ShardEntityState::RememberingStop) => {
                 match self.buffer_message(&entity_id, message) {
                     Ok(()) => ShardDeliverPlan::Buffered { entity_id },
@@ -322,6 +325,10 @@ impl<M> ShardRuntime<M> {
                     reason: PassivateIgnoreReason::AlreadyPassivating,
                 }
             }
+            Some(ShardEntityState::WaitingForRestart) => PassivatePlan::Ignored {
+                entity_id,
+                reason: PassivateIgnoreReason::UnknownEntity,
+            },
             None => PassivatePlan::Ignored {
                 entity_id,
                 reason: PassivateIgnoreReason::UnknownEntity,
@@ -332,6 +339,12 @@ impl<M> ShardRuntime<M> {
     pub fn entity_terminated(&mut self, entity_id: impl Into<EntityId>) -> EntityTerminatedPlan<M> {
         let entity_id = entity_id.into();
         match self.entities.get(&entity_id).copied() {
+            Some(ShardEntityState::Active) if self.remember_entities() => {
+                self.entities
+                    .insert(entity_id.clone(), ShardEntityState::WaitingForRestart);
+                self.message_buffers.remove(&entity_id);
+                EntityTerminatedPlan::RestartRemembered { entity_id }
+            }
             Some(ShardEntityState::Active) => {
                 self.entities.remove(&entity_id);
                 self.message_buffers.remove(&entity_id);
@@ -363,6 +376,9 @@ impl<M> ShardRuntime<M> {
             }
             Some(ShardEntityState::RememberingStop) => {
                 EntityTerminatedPlan::RememberUpdateQueued { entity_id }
+            }
+            Some(ShardEntityState::WaitingForRestart) => {
+                EntityTerminatedPlan::RestartRemembered { entity_id }
             }
             None => EntityTerminatedPlan::IgnoredUnknown { entity_id },
         }

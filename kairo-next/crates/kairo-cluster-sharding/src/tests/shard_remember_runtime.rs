@@ -146,6 +146,44 @@ fn shard_runtime_remember_entities_writes_stop_after_passivated_termination() {
 }
 
 #[test]
+fn shard_runtime_remember_entities_waits_for_restart_after_unexpected_termination() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    runtime.recover_remembered_entities(["entity-1".to_string()]);
+
+    assert_eq!(
+        runtime.entity_terminated("entity-1"),
+        crate::EntityTerminatedPlan::RestartRemembered {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+    assert_eq!(
+        runtime.entity_state(&"entity-1".to_string()),
+        Some(ShardEntityState::WaitingForRestart)
+    );
+    assert!(!runtime.remember_update_in_progress());
+    assert_eq!(runtime.active_entity_ids(), Vec::<String>::new());
+}
+
+#[test]
+fn shard_runtime_remember_entities_restarts_waiting_entity_on_next_message() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    runtime.recover_remembered_entities(["entity-1".to_string()]);
+    runtime.entity_terminated("entity-1");
+
+    assert_eq!(
+        runtime.deliver(ShardingEnvelope::new("entity-1", "restart".to_string())),
+        ShardDeliverPlan::StartEntity {
+            delivery: crate::EntityDelivery::new("entity-1", "restart".to_string()),
+        }
+    );
+    assert_eq!(
+        runtime.entity_state(&"entity-1".to_string()),
+        Some(ShardEntityState::Active)
+    );
+    assert!(!runtime.remember_update_in_progress());
+}
+
+#[test]
 fn shard_runtime_remember_entities_restarts_buffered_after_stop_update() {
     let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
     runtime.recover_remembered_entities(["entity-1".to_string()]);

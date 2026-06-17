@@ -161,6 +161,7 @@ where
                 Ok(())
             }
             EntityTerminatedPlan::Removed { .. }
+            | EntityTerminatedPlan::RestartRemembered { .. }
             | EntityTerminatedPlan::RememberUpdate { .. }
             | EntityTerminatedPlan::RememberUpdateQueued { .. }
             | EntityTerminatedPlan::IgnoredUnknown { .. } => Ok(()),

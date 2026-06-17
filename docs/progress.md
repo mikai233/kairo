@@ -1898,6 +1898,11 @@ Implemented:
   in an explicit remembering-stop state until confirmation, restart buffered
   messages through a follow-up remembered start, and batch stops behind an
   in-flight remember-store update.
+- `kairo-cluster-sharding` shard runtime and actor protocols now keep
+  unexpectedly terminated active remembered entities in an explicit
+  waiting-for-restart state without removing them from remember storage, and a
+  later entity message restarts the entity without issuing a redundant
+  remember-store update.
 - `kairo-cluster-sharding` shard actor coverage now pins the
   remembering-stop snapshot boundary: an entity waiting for its remembered stop
   write remains internally tracked but is no longer reported as active, and the
@@ -3450,6 +3455,14 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding shard_runtime_remember_entities --all-targets --all-features
+cargo test -p kairo-cluster-sharding shard_runtime --all-targets --all-features
+cargo test -p kairo-cluster-sharding shard_actor_remembered_entity_waits_for_restart_after_unexpected_termination --all-targets --all-features
+cargo test -p kairo-cluster-sharding shard_actor --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor watch_with_twice_delivers_one_custom_message_when_subject_already_stopped --all-targets --all-features
 cargo test -p kairo-actor watch --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
