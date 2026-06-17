@@ -3234,7 +3234,10 @@ Implemented:
   store, and a replacement region hosting the same shard treats the next
   delivery as a fresh remembered start instead of recovering the stopped
   entity. The rehosted delivery now enters through the region-local routing
-  boundary before the shard emits the fresh remembered-start store update.
+  boundary before the shard emits the fresh remembered-start store update, and
+  the test now waits for the shared store to be repopulated, the rehosted shard
+  to reactivate the entity, and a subsequent delivery to reach the active
+  entity normally.
 - `kairo-cluster-sharding` transport-neutral handoff delivery success and
   missing-target tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` local coordinator bootstrap, manual region
@@ -3563,10 +3566,8 @@ Not yet implemented:
   three-node bootstrap route/request-delivery validation, and focused
   peer-runtime sender-side route-reduction delivery coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
-  orchestration beyond the current focused actor-level coverage, registered
-  coordinator first-delivery remember-store validation, multi-node shared-store
-  rehost/passivation validation, and multi-node discovery/shared-store
-  first-delivery validation.
+  orchestration beyond the current focused actor-level coverage and broader
+  multi-node discovery/shared-store first-delivery validation.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
@@ -5143,5 +5144,13 @@ cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding multi_node_passivated_entity_is_not_recovered_after_rehost --all-targets --all-features
+cargo test -p kairo-cluster-sharding handoff_orchestration --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

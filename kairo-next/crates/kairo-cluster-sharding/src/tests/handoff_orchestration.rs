@@ -678,6 +678,15 @@ fn multi_node_passivated_entity_is_not_recovered_after_rehost() {
     let delivery_b = nodes
         .create_probe_on::<ShardDeliverPlan<String>>("sharding-passivate-region-b", "delivery-b")
         .unwrap();
+    let shard_b_ref = nodes
+        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
+            "sharding-passivate-region-b",
+            "shard-b-ref",
+        )
+        .unwrap();
+    let shard_b_state = nodes
+        .create_probe_on::<ShardSnapshot>("sharding-passivate-region-b", "shard-b-state")
+        .unwrap();
 
     region_a
         .tell(ShardRegionMsg::HostShard {
@@ -785,6 +794,72 @@ fn multi_node_passivated_entity_is_not_recovered_after_rehost() {
                 ["entity-1".to_string()],
                 std::iter::empty::<String>(),
             ),
+        }
+    );
+
+    let mut reactivated = false;
+    for _ in 0..20 {
+        remember_store
+            .tell(RememberShardStoreMsg::GetState {
+                reply_to: store_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
+        let remembered_entities = snapshot
+            .entities_by_key
+            .values()
+            .flat_map(|entities| entities.iter().cloned())
+            .collect::<BTreeSet<_>>();
+
+        region_b
+            .tell(ShardRegionMsg::GetLocalShard {
+                shard: "shard-1".to_string(),
+                reply_to: shard_b_ref.actor_ref(),
+            })
+            .unwrap();
+        let shard = shard_b_ref.expect_msg(Duration::from_millis(500)).unwrap();
+        if let Some(shard) = shard {
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: shard_b_state.actor_ref(),
+                })
+                .unwrap();
+            let snapshot = shard_b_state
+                .expect_msg(Duration::from_millis(500))
+                .unwrap();
+            reactivated = remembered_entities.contains("entity-1")
+                && snapshot.active_entities == vec!["entity-1".to_string()]
+                && snapshot.total_buffered == 0;
+        }
+
+        if reactivated {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        reactivated,
+        "rehosted first delivery should repopulate the shared remember store and activate entity-1"
+    );
+
+    region_b
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-reactivation".to_string()),
+            route_reply_to: route_b.actor_ref(),
+            delivery_reply_to: delivery_b.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        route_b.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        delivery_b.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-reactivation".to_string()),
         }
     );
     nodes.shutdown(Duration::from_secs(1)).unwrap();
