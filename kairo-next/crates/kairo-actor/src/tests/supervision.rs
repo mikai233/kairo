@@ -1601,6 +1601,11 @@ enum EscalationParentMsg {
         stopped: mpsc::Sender<()>,
         reply_to: mpsc::Sender<ActorRef<()>>,
     },
+    SpawnBlockingSibling {
+        entered_stop: mpsc::Sender<()>,
+        release_stop: mpsc::Receiver<()>,
+        reply_to: mpsc::Sender<ActorRef<()>>,
+    },
     SpawnRestartableSibling {
         restarted: mpsc::Sender<()>,
         reply_to: mpsc::Sender<ActorRef<SupervisionMsg>>,
@@ -1638,6 +1643,22 @@ impl Actor for EscalationParent {
             }
             EscalationParentMsg::SpawnSibling { stopped, reply_to } => {
                 let sibling = ctx.spawn("sibling", Props::new(move || StopProbe { stopped }))?;
+                reply_to
+                    .send(sibling)
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            EscalationParentMsg::SpawnBlockingSibling {
+                entered_stop,
+                release_stop,
+                reply_to,
+            } => {
+                let sibling = ctx.spawn(
+                    "blocking-sibling",
+                    Props::new(move || EscalationBlockingSibling {
+                        entered_stop,
+                        release_stop: Some(release_stop),
+                    }),
+                )?;
                 reply_to
                     .send(sibling)
                     .map_err(|error| ActorError::Message(error.to_string()))
@@ -1693,6 +1714,31 @@ impl Actor for EscalationParent {
     }
 }
 
+struct EscalationBlockingSibling {
+    entered_stop: mpsc::Sender<()>,
+    release_stop: Option<mpsc::Receiver<()>>,
+}
+
+impl Actor for EscalationBlockingSibling {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.entered_stop
+            .send(())
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        if let Some(release_stop) = self.release_stop.take() {
+            release_stop
+                .recv_timeout(Duration::from_secs(1))
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
 #[test]
 fn escalate_supervision_stops_parent_by_default() {
     let system = ActorSystem::builder("test").build().unwrap();
@@ -1715,6 +1761,78 @@ fn escalate_supervision_stops_parent_by_default() {
 
     assert!(parent.wait_for_stop(Duration::from_secs(1)));
     assert!(child.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn escalated_parent_stop_waits_for_already_stopping_sibling() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(|| EscalationParent { restarted: None }),
+        )
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (sibling_tx, sibling_rx) = mpsc::channel();
+    let (child_tx, child_rx) = mpsc::channel();
+
+    parent
+        .tell(EscalationParentMsg::SpawnBlockingSibling {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: sibling_tx,
+        })
+        .unwrap();
+    let sibling = sibling_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    parent
+        .tell(EscalationParentMsg::SpawnChild {
+            child_stopped: None,
+            reply_to: child_tx,
+        })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&sibling);
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    child.tell(EscalatingChildMsg::Fail).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+
+    let (ping_tx, ping_rx) = mpsc::channel();
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while Instant::now() < deadline {
+        if parent
+            .tell(EscalationParentMsg::Ping(ping_tx.clone()))
+            .is_err()
+        {
+            break;
+        }
+        assert!(
+            ping_rx.try_recv().is_err(),
+            "parent must not process user messages queued behind an escalated stop"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+    assert!(
+        parent
+            .tell(EscalationParentMsg::Ping(ping_tx.clone()))
+            .is_err(),
+        "parent should reject user messages after escalated stop has begun"
+    );
+    assert!(
+        ping_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+        "parent must not process user messages once escalated stop has begun"
+    );
+    assert!(
+        !parent.wait_for_stop(Duration::from_millis(50)),
+        "parent must not terminate while an already stopping sibling is still blocked"
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(sibling.wait_for_stop(Duration::from_secs(1)));
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
 }
 
 #[test]

@@ -228,6 +228,10 @@ Implemented:
   `started()` callback fails under `SupervisorStrategy::Escalate` can restart
   a restartable parent through the normal supervision lane, stop the failed
   child, and leave the parent ref usable afterward.
+- Escalated parent-stop coverage now pins the already-stopping sibling window:
+  when a child failure escalates to a parent stop, the parent rejects later user
+  messages and does not report termination until a sibling that was already in
+  `PostStop` has fully terminated.
 - Restart cleanup now treats `Signal::PreRestart` as an inactive owner scope
   for helper creation: named and anonymous child spawns, actor-owned tasks,
   `pipe_to_self`, adapters, asks, watch registrations, stash operations, self
@@ -5391,6 +5395,13 @@ cargo test -p kairo-actor ask_reply_after_owner_resume_is_delivered --all-target
 cargo fmt --all
 cargo test -p kairo-actor asks --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor escalated_parent_stop_waits_for_already_stopping_sibling --all-targets --all-features
+cargo test -p kairo-actor supervision --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
