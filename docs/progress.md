@@ -257,6 +257,10 @@ Implemented:
 - Death-watch registrations reject switching between plain `watch` and
   `watch_with` for the same watched actor without an intervening `unwatch`,
   preserving the Pekko rule that termination-message changes must be explicit.
+- Death-watch registrations now apply the same plain/custom switch rejection
+  to queued already-stopped notifications, so a pending immediate `watch` or
+  `watch_with` delivery still requires `unwatch` before changing notification
+  kind.
 - Local death-watch coverage now also pins the positive notification-change
   path: after `unwatch`, actors can switch from `watch` to `watch_with` or
   from `watch_with` back to `watch` without receiving stale notifications from
@@ -5416,5 +5420,12 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor queued_already_stopped_watch --all-targets --all-features
+cargo test -p kairo-actor watch --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```

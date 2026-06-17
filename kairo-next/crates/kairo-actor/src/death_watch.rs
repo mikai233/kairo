@@ -81,6 +81,22 @@ impl DeathWatchRegistry {
         {
             return Ok(());
         }
+        if registration.kind == DeathWatchKind::Signal
+            && self.is_custom_queued(&subject, registration.watcher())
+        {
+            return Err(ActorError::AlreadyWatching {
+                actor: subject.to_string(),
+                watcher: registration.watcher.to_string(),
+            });
+        }
+        if registration.kind == DeathWatchKind::Custom
+            && self.is_signal_queued(&subject, registration.watcher())
+        {
+            return Err(ActorError::AlreadyWatching {
+                actor: subject.to_string(),
+                watcher: registration.watcher.to_string(),
+            });
+        }
 
         let mut watchers = self.watchers.lock().expect("death watch registry poisoned");
         let subject_watchers = watchers.entry(subject.clone()).or_default();

@@ -714,6 +714,76 @@ fn watch_with_twice_delivers_one_custom_message_when_subject_already_stopped() {
 }
 
 #[test]
+fn queued_already_stopped_watch_then_watch_with_requires_unwatch_first() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchThenWatchWith {
+            subject: subject.clone(),
+            reply_to: reply_tx,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Err(ActorError::AlreadyWatching { actor, watcher: current_watcher })
+            if actor == subject.path().to_string()
+                && current_watcher == watcher.path().to_string()
+    ));
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
+fn queued_already_stopped_watch_with_then_watch_requires_unwatch_first() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWithThenWatch {
+            subject: subject.clone(),
+            reply_to: reply_tx,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Err(ActorError::AlreadyWatching { actor, watcher: current_watcher })
+            if actor == subject.path().to_string()
+                && current_watcher == watcher.path().to_string()
+    ));
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
 fn unwatch_discards_queued_terminated_signal_for_already_stopped_subject() {
     let system = ActorSystem::builder("test").build().unwrap();
     let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
