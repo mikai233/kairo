@@ -3391,6 +3391,9 @@ Implemented:
   repeated `watch` calls for an already-stopped subject remain idempotent until
   the queued `Terminated` signal is processed, matching Pekko's already-dead
   watch behavior.
+- `kairo-actor` death-watch delivery now also drops stale queued plain
+  termination signals after `unwatch`, preserving Pekko's rule that unwatching
+  between queueing and processing discards the pending `Terminated` signal.
 
 Not yet implemented:
 

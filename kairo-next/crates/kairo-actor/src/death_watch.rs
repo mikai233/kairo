@@ -166,14 +166,18 @@ impl DeathWatchRegistry {
         }
     }
 
-    pub(crate) fn clear_queued_signal(&self, subject: &ActorPath, watcher: &ActorPath) {
+    pub(crate) fn take_queued_signal(&self, subject: &ActorPath, watcher: &ActorPath) -> bool {
         self.queued_signals
             .lock()
             .expect("death watch queued signals poisoned")
             .remove(&QueuedSignal {
                 subject: subject.clone(),
                 watcher: watcher.clone(),
-            });
+            })
+    }
+
+    fn clear_queued_signal(&self, subject: &ActorPath, watcher: &ActorPath) {
+        self.take_queued_signal(subject, watcher);
     }
 
     fn is_signal_queued(&self, subject: &ActorPath, watcher: &ActorPath) -> bool {

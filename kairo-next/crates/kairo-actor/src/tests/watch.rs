@@ -42,6 +42,10 @@ enum WatchProbeMsg {
         reply_to: mpsc::Sender<Result<(), ActorError>>,
         observed: mpsc::Sender<ActorPath>,
     },
+    WatchStoppedThenUnwatch {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<()>,
+    },
     WatchWithThenUnwatchThenWatch {
         subject: ActorRef<()>,
         reply_to: mpsc::Sender<Result<(), ActorError>>,
@@ -136,6 +140,13 @@ impl Actor for WatchProbe {
                 })();
                 reply_to
                     .send(result)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::WatchStoppedThenUnwatch { subject, reply_to } => {
+                ctx.watch(&subject)?;
+                ctx.unwatch(&subject);
+                reply_to
+                    .send(())
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             WatchProbeMsg::WatchWithThenUnwatchThenWatch {
@@ -565,6 +576,42 @@ fn watch_twice_delivers_one_terminated_signal_when_subject_already_stopped() {
             .recv_timeout(Duration::from_millis(100))
             .is_err()
     );
+}
+
+#[test]
+fn unwatch_discards_queued_terminated_signal_for_already_stopped_subject() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchStoppedThenUnwatch {
+            subject,
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "unwatch must remove the queued already-dead Terminated signal before delivery"
+    );
+    assert!(!watcher.is_stopped());
 }
 
 #[test]
