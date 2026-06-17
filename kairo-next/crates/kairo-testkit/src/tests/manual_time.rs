@@ -82,6 +82,47 @@ fn manual_time_advance_to_next_skips_cancelled_work() {
 }
 
 #[test]
+fn manual_time_runs_zero_delay_work_when_scheduled() {
+    let kit = ActorSystemTestKit::new("manual-time-zero-delay").expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+    let time = ManualTime::default();
+
+    let handle = time.schedule_once(Duration::ZERO, probe.actor_ref(), "now");
+
+    assert_eq!(time.now(), Duration::ZERO);
+    assert!(handle.is_completed());
+    assert_eq!(time.pending_count(), 0);
+    assert_eq!(probe.expect_msg(Duration::from_millis(50)).unwrap(), "now");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn manual_time_drives_zero_delay_actor_system_schedule_immediately() {
+    let (kit, time) = ActorSystemTestKit::with_manual_time("manual-time-system-zero-delay")
+        .expect("system should build");
+    let probe = kit
+        .create_probe::<&'static str>("probe")
+        .expect("probe should spawn");
+
+    let handle = kit
+        .system()
+        .schedule_once(Duration::ZERO, probe.actor_ref(), "scheduled-now");
+
+    assert_eq!(time.now(), Duration::ZERO);
+    assert!(handle.is_completed());
+    assert_eq!(time.pending_count(), 0);
+    assert_eq!(
+        probe.expect_msg(Duration::from_millis(50)).unwrap(),
+        "scheduled-now"
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn manual_time_advance_until_idle_runs_all_active_one_shots() {
     let kit =
         ActorSystemTestKit::new("manual-time-advance-until-idle").expect("system should build");

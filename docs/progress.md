@@ -582,6 +582,10 @@ Implemented:
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
   one-shot deliveries to actor refs and supports cancellation through
   `ManualTimeHandle`.
+- Manual scheduler zero-delay work now runs immediately when scheduled,
+  matching Pekko's explicitly triggered scheduler and keeping manual-time
+  actor-system scheduling deterministic without requiring a separate
+  `advance(0)` or `run_due` call.
 - `ManualTime::next_deadline` and `advance_to_next` expose the next active
   scheduled deadline and jump the manual clock to it, skipping cancelled work
   so deterministic tests do not need to hard-code exact timer deltas.
@@ -4588,5 +4592,16 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit manual_time_runs_zero_delay_work_when_scheduled --all-targets --all-features -- --nocapture
+cargo test -p kairo-testkit manual_time_drives_zero_delay_actor_system_schedule_immediately --all-targets --all-features -- --nocapture
+cargo test -p kairo-testkit manual_time --all-targets --all-features
+cargo test -p kairo-actor scheduler --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```

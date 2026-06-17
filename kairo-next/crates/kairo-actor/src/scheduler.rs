@@ -371,15 +371,20 @@ impl ManualScheduler {
     }
 
     fn push_scheduled(&self, delay: Duration, cancellable: Cancellable, action: ScheduledAction) {
-        let mut state = self.inner.lock().expect("manual scheduler poisoned");
-        let scheduled = Scheduled {
-            deadline: state.now + delay,
-            order: state.next_order,
-            cancellable,
-            action,
-        };
-        state.next_order += 1;
-        state.scheduled.push(scheduled);
+        {
+            let mut state = self.inner.lock().expect("manual scheduler poisoned");
+            let scheduled = Scheduled {
+                deadline: state.now + delay,
+                order: state.next_order,
+                cancellable,
+                action,
+            };
+            state.next_order += 1;
+            state.scheduled.push(scheduled);
+        }
+        if delay.is_zero() {
+            self.run_due();
+        }
     }
 
     fn pop_due(&self) -> Option<Scheduled> {
