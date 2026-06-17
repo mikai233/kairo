@@ -133,6 +133,9 @@ Implemented:
   cancellation after enqueue, and actor-stop timer cleanup.
 - Focused fixed-delay timer tests cover repeated delivery, cancellation, and
   replacement generation filtering.
+- Actor-owned timers now also have resume-supervision coverage showing that an
+  active single timer remains scheduled when the owner resumes after a failed
+  receive turn, matching Pekko's state-preserving `Resume` behavior.
 - Stash operations now reject new public stash/unstash requests once an actor
   has requested or entered stop, while runtime stop cleanup still drains
   already-stashed messages to dead letters.
@@ -3340,8 +3343,8 @@ Implemented:
 - `kairo-actor` scheduler one-shot delivery, cancellation, and self-scheduling
   tests now live in a focused sibling test module.
 - `kairo-actor` timer single-shot, cancellation, replacement, fixed-delay,
-  fixed-rate, and actor-stop cleanup tests now live in a focused sibling test
-  module.
+  fixed-rate, actor-stop cleanup, and resume-supervision preservation tests
+  now live in a focused sibling test module.
 - `kairo-actor` receive-timeout repeat and cancellation tests now live in a
   focused sibling test module.
 - `kairo-actor` pipe-to-self success/failure and spawn-task send-back tests
@@ -3625,6 +3628,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor single_timer_survives_owner_resume_supervision --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor timers --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-testkit actor_harness_expect_subject_terminated --all-targets --all-features
 cargo test -p kairo-testkit actor_harness --all-targets --all-features
 cargo test -p kairo-testkit --all-targets --all-features

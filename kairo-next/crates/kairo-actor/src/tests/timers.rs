@@ -5,6 +5,10 @@ enum TimerProbeMsg {
     StartSingle {
         reply_to: mpsc::Sender<(&'static str, bool)>,
     },
+    StartSingleWithAck {
+        fired: mpsc::Sender<&'static str>,
+        ack: mpsc::Sender<bool>,
+    },
     StartThenCancel {
         fired: mpsc::Sender<&'static str>,
         ack: mpsc::Sender<()>,
@@ -45,6 +49,8 @@ enum TimerProbeMsg {
         key: &'static str,
         ack: mpsc::Sender<()>,
     },
+    Fail,
+    Ping(mpsc::Sender<()>),
     Fired {
         key: &'static str,
         label: &'static str,
@@ -73,6 +79,18 @@ impl Actor for TimerProbe {
                         reply_to,
                     },
                 );
+            }
+            TimerProbeMsg::StartSingleWithAck { fired, ack } => {
+                ctx.start_single_timer(
+                    "resume-single",
+                    Duration::from_secs(1),
+                    TimerProbeMsg::FireLabel {
+                        label: "resume-single",
+                        reply_to: fired,
+                    },
+                );
+                ack.send(ctx.is_timer_active("resume-single"))
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             TimerProbeMsg::StartThenCancel { fired, ack } => {
                 ctx.start_single_timer(
@@ -223,6 +241,12 @@ impl Actor for TimerProbe {
                 ack.send(())
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
+            TimerProbeMsg::Fail => return Err(ActorError::Message("boom".to_string())),
+            TimerProbeMsg::Ping(reply_to) => {
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
             TimerProbeMsg::Fired {
                 key,
                 label,
@@ -257,6 +281,43 @@ fn start_single_timer_delivers_once_and_clears_active_key() {
         ("single", false)
     );
     assert!(reply_rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn single_timer_survives_owner_resume_supervision() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn(
+            "timer",
+            Props::new(|| TimerProbe).with_supervisor(SupervisorStrategy::Resume),
+        )
+        .unwrap();
+    let (fired_tx, fired_rx) = mpsc::channel();
+    let (ack_tx, ack_rx) = mpsc::channel();
+
+    actor
+        .tell(TimerProbeMsg::StartSingleWithAck {
+            fired: fired_tx,
+            ack: ack_tx,
+        })
+        .unwrap();
+    assert!(ack_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+
+    actor.tell(TimerProbeMsg::Fail).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    actor.tell(TimerProbeMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    scheduler.advance(Duration::from_secs(1));
+    assert_eq!(
+        fired_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "resume-single"
+    );
+    assert!(fired_rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 
 #[test]
