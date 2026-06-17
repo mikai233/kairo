@@ -259,8 +259,12 @@ where
                 self.apply_oldest_change(ctx, changed)?;
             }
             SingletonProxyMsg::ApplyOldestChange { change } => {
-                let changed = self.routes.apply_oldest_change(change);
-                self.apply_oldest_change(ctx, changed)?;
+                if matches!(change, SingletonOldestChange::SelfRemoved) {
+                    ctx.stop(ctx.myself())?;
+                } else {
+                    let changed = self.routes.apply_oldest_change(change);
+                    self.apply_oldest_change(ctx, changed)?;
+                }
             }
             SingletonProxyMsg::IdentifySingleton { singleton } => {
                 self.set_singleton(ctx, SingletonProxyTarget::local(singleton))?;

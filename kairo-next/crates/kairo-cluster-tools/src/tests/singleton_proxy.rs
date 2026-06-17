@@ -379,6 +379,38 @@ fn singleton_proxy_reidentifies_when_oldest_route_changes() {
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn singleton_proxy_stops_when_self_is_removed() {
+    let kit = ActorSystemTestKit::new("singleton-proxy-self-removed").unwrap();
+    let watcher = kit.create_probe::<&'static str>("watcher").unwrap();
+    let proxy = kit
+        .system()
+        .spawn(
+            "singleton-proxy",
+            SingletonProxyActor::<String>::props(SingletonProxySettings::new(4).unwrap()),
+        )
+        .unwrap();
+    watcher.watch_with(&proxy, "terminated").unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::ApplyOldestChange {
+            change: SingletonOldestChange::SelfDowned,
+        })
+        .unwrap();
+    watcher.expect_no_msg(Duration::from_millis(100)).unwrap();
+
+    proxy
+        .tell(SingletonProxyMsg::ApplyOldestChange {
+            change: SingletonOldestChange::SelfRemoved,
+        })
+        .unwrap();
+    watcher
+        .expect_msg_eq("terminated", Duration::from_millis(500))
+        .unwrap();
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 #[derive(Clone)]
 enum SingletonProxyTargetMsg {
     Payload(&'static str),

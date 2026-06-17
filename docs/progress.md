@@ -3478,6 +3478,10 @@ Implemented:
   are normal user protocol messages that can be explicitly stashed and later
   unstashed before user delivery, preserving Pekko's watch-with stash
   behavior in Rust-first form.
+- `kairo-cluster-tools` singleton proxy actor now stops itself when oldest
+  tracking reports that the local member was removed, matching Pekko's proxy
+  handling of local `MemberRemoved`, while self-downed remains a lifecycle
+  change that does not terminate the proxy before removal.
 
 Not yet implemented:
 
@@ -4993,6 +4997,12 @@ cargo test -p kairo-cluster-tools singleton_manager_actor_stops_from_self_downed
 cargo test -p kairo-cluster-tools local_singleton_manager_stops_manager_and_child_from_self_downed_change --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools singleton_proxy_stops_when_self_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools singleton_proxy --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
