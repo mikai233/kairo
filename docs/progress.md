@@ -4640,4 +4640,13 @@ cargo test -p kairo-testkit --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
+cargo test -p kairo-examples cluster_sharding_local_example --test examples_smoke --all-features
+cargo fmt --all -- --check
+git diff --check
+cargo test -p kairo-actor actor_system_terminate_is_idempotent_after_completion --all-targets --all-features
+cargo test -p kairo-actor local_core --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 ```
