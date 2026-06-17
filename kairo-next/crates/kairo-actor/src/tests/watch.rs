@@ -309,6 +309,59 @@ impl Actor for RestartingWatchProbe {
     }
 }
 
+enum StashingWatchWithMsg {
+    WatchWith {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<()>,
+    },
+    StartStashing {
+        reply_to: mpsc::Sender<()>,
+    },
+    Open,
+    SubjectTerminated(ActorPath),
+}
+
+struct StashingWatchWithProbe {
+    stashing: bool,
+    observed: mpsc::Sender<ActorPath>,
+}
+
+impl Actor for StashingWatchWithProbe {
+    type Msg = StashingWatchWithMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            StashingWatchWithMsg::WatchWith { subject, reply_to } => {
+                let subject_path = subject.path().clone();
+                ctx.watch_with(
+                    &subject,
+                    StashingWatchWithMsg::SubjectTerminated(subject_path),
+                )?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            StashingWatchWithMsg::StartStashing { reply_to } => {
+                self.stashing = true;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            StashingWatchWithMsg::Open => {
+                self.stashing = false;
+                ctx.unstash_all()
+            }
+            StashingWatchWithMsg::SubjectTerminated(path) if self.stashing => {
+                ctx.stash(StashingWatchWithMsg::SubjectTerminated(path))
+            }
+            StashingWatchWithMsg::SubjectTerminated(path) => self
+                .observed
+                .send(path)
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
 enum SignalFailureWatcherMsg {
     Watch {
         subject: ActorRef<()>,
@@ -1019,6 +1072,55 @@ fn watch_with_delivers_custom_message_after_termination() {
     registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 
     system.stop(&subject);
+
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject.path().clone()
+    );
+}
+
+#[test]
+fn watch_with_custom_termination_message_can_be_stashed_and_unstashed() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || StashingWatchWithProbe {
+                stashing: false,
+                observed: observed_tx,
+            })
+            .with_stash_capacity(1),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let (stashing_tx, stashing_rx) = mpsc::channel();
+
+    watcher
+        .tell(StashingWatchWithMsg::WatchWith {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    watcher
+        .tell(StashingWatchWithMsg::StartStashing {
+            reply_to: stashing_tx,
+        })
+        .unwrap();
+    stashing_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "custom watch_with termination message should stay stashed while the actor is closed"
+    );
+
+    watcher.tell(StashingWatchWithMsg::Open).unwrap();
 
     assert_eq!(
         observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),

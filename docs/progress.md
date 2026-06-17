@@ -3394,6 +3394,10 @@ Implemented:
 - `kairo-actor` death-watch delivery now also drops stale queued plain
   termination signals after `unwatch`, preserving Pekko's rule that unwatching
   between queueing and processing discards the pending `Terminated` signal.
+- `kairo-actor` watch-with coverage now pins that custom termination messages
+  are normal user protocol messages that can be explicitly stashed and later
+  unstashed before user delivery, preserving Pekko's watch-with stash
+  behavior in Rust-first form.
 
 Not yet implemented:
 
