@@ -1544,7 +1544,9 @@ Implemented:
 - Distributed-data TCP peer runtime coverage now also proves the surviving
   sender-side route still delivers a stable-manifest `ReplicatorRead` after the
   same three-node membership reduction, with preserved source replica, sender
-  ref, recipient ref, and decoded payload.
+  ref, recipient ref, and decoded payload, while sends addressed to the removed
+  peer reject through the association cache without another request reaching
+  the removed receiver.
 - Distributed-data TCP peer runtime shutdown now has focused lifecycle coverage
   proving that a failed dial's pending reconnect is cleared and reported even
   when the peer never becomes reachable.
@@ -5201,5 +5203,12 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data peer_runtime_keeps_remaining_route_delivering_after_one_peer_is_removed --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```

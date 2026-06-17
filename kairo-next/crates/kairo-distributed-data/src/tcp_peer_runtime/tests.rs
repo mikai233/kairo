@@ -9,7 +9,7 @@ mod route_tests {
     use kairo_cluster::{
         CurrentClusterState, Member, MemberStatus, ReachabilityEvent, UniqueAddress,
     };
-    use kairo_remote::RemoteSettings;
+    use kairo_remote::{RemoteError, RemoteSettings};
     use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
 
     use super::*;
@@ -332,6 +332,7 @@ mod route_tests {
         let second_node = node("deliver-second", second_port, 2);
         let third_node = node("deliver-third", third_port, 3);
         let second_requests = Arc::new(RecordingRequests::default());
+        let third_requests = Arc::new(RecordingRequests::default());
         let mut sender = bind_peer_runtime(
             "deliver-sender",
             1,
@@ -349,12 +350,13 @@ mod route_tests {
             second_port,
             second_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
         );
-        let third = bind_association_runtime_on_port(
+        let third = bind_association_runtime_on_port_with_requests(
             "deliver-third",
             ReplicaId::from(&third_node),
             ReplicaId::from(&sender_node),
             33,
             third_port,
+            third_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
         );
 
         let report = sender
@@ -407,7 +409,7 @@ mod route_tests {
         assert_eq!(received.len(), 1);
         assert_eq!(received[0].0, ReplicaId::from(&sender_node));
         assert_eq!(received[0].1.recipient, recipient);
-        assert_eq!(received[0].1.sender, Some(sender_ref));
+        assert_eq!(received[0].1.sender, Some(sender_ref.clone()));
         assert_eq!(
             received[0].1.message.manifest.as_str(),
             ReplicatorRead::MANIFEST
@@ -416,6 +418,29 @@ mod route_tests {
             .deserialize::<ReplicatorRead>(received[0].1.message.clone())
             .unwrap();
         assert_eq!(decoded, read);
+
+        let removed_recipient = replicator_ref("deliver-third", third_port);
+        let removed_read = ReplicatorRead {
+            key: "counter-after-removed-route".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        };
+        let removed_envelope = RemoteEnvelope::new(
+            removed_recipient,
+            Some(sender_ref),
+            registry.serialize(&removed_read).unwrap(),
+        );
+
+        let error = sender
+            .association_cache()
+            .send_to_recipient(removed_envelope)
+            .expect_err("removed peer route should reject later delivery");
+        assert!(matches!(error, RemoteError::AssociationUnavailable { .. }));
+        assert!(
+            third_requests
+                .wait_for_len(1, Duration::from_millis(50))
+                .is_empty(),
+            "removed peer must not receive a request after membership route reduction"
+        );
 
         let sender_report = sender.shutdown().unwrap();
         assert_eq!(sender_report.peer_routes.removed.len(), 1);
