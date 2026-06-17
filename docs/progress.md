@@ -1669,7 +1669,8 @@ Implemented:
   shard-home, handoff/control, graceful-shutdown, and routed entity envelopes.
 - Serialization tests cover rolling-version decode behavior by proving codecs
   receive the wire `version` and can decode older payload shapes under the same
-  stable manifest.
+  stable manifest, while rejecting unsupported future wire versions at both the
+  typed and dynamic deserialization boundaries.
 - `kairo-cluster-sharding` is split into focused API modules for entity refs,
   type keys, envelopes, hashing, errors, and protocol metadata.
 - `ShardingEnvelope<M>` carries entity ids outside business messages, and
@@ -4491,5 +4492,10 @@ cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-serialization rolling_decode_rejects_unsupported_wire_version --all-targets --all-features
+cargo test -p kairo-serialization --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
 git diff --check
 ```

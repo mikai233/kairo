@@ -454,6 +454,40 @@ fn dynamic_deserialize_receives_wire_version_for_rolling_compatibility() {
 }
 
 #[test]
+fn rolling_decode_rejects_unsupported_wire_version() {
+    let mut registry = Registry::new();
+    registry
+        .register::<RollingCommand, _>(SingleByteCodec { serializer_id: 51 })
+        .unwrap();
+
+    let typed_error = registry
+        .deserialize::<RollingCommand>(SerializedMessage::new(
+            51,
+            Manifest::new("kairo.test.RollingCommand"),
+            9,
+            Bytes::from_static(&[8, 2]),
+        ))
+        .expect_err("typed decode should reject unsupported rolling versions");
+    assert_eq!(
+        typed_error,
+        SerializationError::Message("unsupported RollingCommand version 9".to_string())
+    );
+
+    let dynamic_error = registry
+        .deserialize_dyn(SerializedMessage::new(
+            51,
+            Manifest::new("kairo.test.RollingCommand"),
+            9,
+            Bytes::from_static(&[8, 2]),
+        ))
+        .expect_err("dynamic decode should reject unsupported rolling versions");
+    assert_eq!(
+        dynamic_error,
+        SerializationError::Message("unsupported RollingCommand version 9".to_string())
+    );
+}
+
+#[test]
 fn enum_discriminants_are_not_wire_contracts() {
     let mut registry = Registry::new();
     registry
