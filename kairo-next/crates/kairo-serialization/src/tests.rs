@@ -552,6 +552,50 @@ fn actor_ref_wire_data_rejects_invalid_paths() {
 }
 
 #[test]
+fn actor_ref_wire_data_rejects_malformed_authority_parts() {
+    for path in [
+        "kai ro://system/user/counter#1",
+        "kairo:// system/user/counter#1",
+        "kairo://system @127.0.0.1:25520/user/counter#1",
+        "kairo://system@ 127.0.0.1:25520/user/counter#1",
+        "kairo://system@127.0.0.1 :25520/user/counter#1",
+    ] {
+        assert_eq!(
+            ActorRefWireData::new(path).expect_err("malformed authority should be invalid"),
+            SerializationError::InvalidActorRefPath(path.to_string())
+        );
+    }
+}
+
+#[test]
+fn actor_ref_wire_data_rejects_malformed_path_segments() {
+    for path in [
+        "kairo://system/user//counter#1",
+        "kairo://system/user/bad name#1",
+        "kairo://system/user/bad/name#abc",
+        "kairo://system/user/counter#",
+        "kairo://system/user/bad#name#1",
+        "kairo://system/user/bad%zz#1",
+    ] {
+        assert_eq!(
+            ActorRefWireData::new(path).expect_err("malformed path segment should be invalid"),
+            SerializationError::InvalidActorRefPath(path.to_string())
+        );
+    }
+}
+
+#[test]
+fn actor_ref_wire_data_accepts_internal_and_percent_encoded_segments() {
+    let wire = ActorRefWireData::new("kairo://system/user/$anon-1/worker%20name#42")
+        .expect("valid internal and percent-encoded segments should parse");
+
+    assert_eq!(wire.path(), "kairo://system/user/$anon-1/worker%20name#42");
+    assert_eq!(wire.system(), "system");
+    assert_eq!(wire.host(), None);
+    assert_eq!(wire.port(), None);
+}
+
+#[test]
 fn actor_ref_wire_data_rejects_addressed_paths_without_ports() {
     let error = ActorRefWireData::new("kairo://system@127.0.0.1/user/counter#9")
         .expect_err("addressed remote path without port should be invalid");

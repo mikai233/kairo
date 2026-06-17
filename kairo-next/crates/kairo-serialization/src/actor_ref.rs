@@ -108,9 +108,13 @@ fn parse_actor_ref_path(path: &str) -> Result<(String, String, Option<String>, O
     let Some((authority, actor_path)) = rest.split_once('/') else {
         return Err(SerializationError::InvalidActorRefPath(path.to_string()));
     };
-    if protocol.is_empty() || authority.is_empty() || actor_path.is_empty() {
+    if !is_valid_protocol_or_system(protocol)
+        || authority.trim().is_empty()
+        || actor_path.is_empty()
+    {
         return Err(SerializationError::InvalidActorRefPath(path.to_string()));
     }
+    validate_path_segments(path, actor_path)?;
 
     let (system, host, port) = parse_authority(authority)
         .ok_or_else(|| SerializationError::InvalidActorRefPath(path.to_string()))?;
@@ -119,13 +123,16 @@ fn parse_actor_ref_path(path: &str) -> Result<(String, String, Option<String>, O
 
 fn parse_authority(authority: &str) -> Option<(String, Option<String>, Option<u16>)> {
     let Some((system, host_port)) = authority.split_once('@') else {
+        if !is_valid_protocol_or_system(authority) {
+            return None;
+        }
         return Some((authority.to_string(), None, None));
     };
-    if system.is_empty() || host_port.is_empty() {
+    if !is_valid_protocol_or_system(system) || host_port.is_empty() {
         return None;
     }
     let (host, port) = if let Some((host, port)) = host_port.rsplit_once(':') {
-        if host.is_empty() {
+        if !is_valid_host(host) || port.is_empty() {
             return None;
         }
         (host.to_string(), Some(port.parse().ok()?))
@@ -133,4 +140,65 @@ fn parse_authority(authority: &str) -> Option<(String, Option<String>, Option<u1
         return None;
     };
     Some((system.to_string(), Some(host), port))
+}
+
+fn validate_path_segments(full_path: &str, actor_path: &str) -> Result<()> {
+    for segment in actor_path.split('/') {
+        let (name, uid) = segment.rsplit_once('#').unwrap_or((segment, ""));
+        if !is_valid_path_element(name) {
+            return Err(SerializationError::InvalidActorRefPath(
+                full_path.to_string(),
+            ));
+        }
+        if segment.contains('#') && uid.parse::<u64>().is_err() {
+            return Err(SerializationError::InvalidActorRefPath(
+                full_path.to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn is_valid_protocol_or_system(value: &str) -> bool {
+    !value.is_empty()
+        && value.trim() == value
+        && !value
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || matches!(byte, b':' | b'/' | b'@' | b'#'))
+}
+
+fn is_valid_host(value: &str) -> bool {
+    !value.is_empty()
+        && value.trim() == value
+        && !value
+            .bytes()
+            .any(|byte| byte.is_ascii_whitespace() || matches!(byte, b'/' | b'@' | b'#'))
+}
+
+fn is_valid_path_element(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+
+    let bytes = name.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if is_valid_path_byte(byte) {
+            index += 1;
+        } else if byte == b'%'
+            && index + 2 < bytes.len()
+            && bytes[index + 1].is_ascii_hexdigit()
+            && bytes[index + 2].is_ascii_hexdigit()
+        {
+            index += 3;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+fn is_valid_path_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"-_.*$+:@&=,!~';".contains(&byte)
 }

@@ -689,6 +689,11 @@ Implemented:
   dependency-free byte round-trips for the stable serializer-id, manifest,
   version, payload, recipient, and optional sender metadata used by remote and
   system protocols.
+- `ActorRefWireData` now validates canonical actor-ref wire paths more
+  strictly before remote envelope construction or decode: malformed authority
+  parts, empty path segments, invalid path bytes, malformed percent escapes,
+  and invalid `#uid` suffixes are rejected at the serialization boundary while
+  internal `$` names and valid percent-encoded segments remain accepted.
 - `RemoteMessage`, `SerializerId`, `MessageCodec`, `DynCodec`, `Registry`,
   `SerializationRegistry`, `SerializedMessage`, `RemoteEnvelope`,
   `ActorRefWireData`, `ActorRefResolver`, and `Manifest` now document their
@@ -3295,6 +3300,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-serialization actor_ref_wire_data --all-targets --all-features
+cargo test -p kairo-serialization --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-serialization --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor pre_restart_rejects_late_helper_creation --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-actor supervision --all-targets --all-features
