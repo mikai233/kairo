@@ -3181,6 +3181,10 @@ Implemented:
 - `kairo-cluster-sharding` actor-backed shard delivery, remembered-entity
   loading, remember-store, passivation, and handoff tests now live in a
   focused sibling test module.
+- Actor-backed remembered entity restart now recreates and watches the entity
+  child when `RestartRememberedEntity` moves a waiting remembered entity back
+  to active state, so timer-driven restart plans do not leave runtime state
+  active without a live child.
 - `kairo-cluster-sharding` region actor handoff completion coverage now pins
   missing-local-shard, stopper-not-in-progress, and stopper-timeout failure
   plans, keeping coordinator handoff worker failure handling explicit.
@@ -4908,5 +4912,12 @@ cargo test -p kairo-testkit --all-targets --all-features
 cargo test -p kairo-testkit --doc --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding entity_shard_actor_restart_remembered_entity_spawns_child --all-targets --all-features
+cargo test -p kairo-cluster-sharding entity_shard_actor --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

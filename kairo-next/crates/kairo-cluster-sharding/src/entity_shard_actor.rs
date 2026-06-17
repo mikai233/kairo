@@ -32,6 +32,18 @@ where
         }
     }
 
+    pub fn new_with_remember_entities(
+        shard_id: impl Into<ShardId>,
+        buffer_capacity: usize,
+        entity_factory: EntityActorFactory<M>,
+    ) -> Self {
+        Self {
+            runtime: ShardRuntime::new_with_remember_entities(shard_id, buffer_capacity),
+            entity_factory,
+            entity_refs: BTreeMap::new(),
+        }
+    }
+
     pub fn props(
         shard_id: impl Into<ShardId>,
         buffer_capacity: usize,
@@ -39,6 +51,17 @@ where
     ) -> Props<Self> {
         let shard_id = shard_id.into();
         Props::new(move || Self::new(shard_id, buffer_capacity, entity_factory))
+    }
+
+    pub fn props_with_remember_entities(
+        shard_id: impl Into<ShardId>,
+        buffer_capacity: usize,
+        entity_factory: EntityActorFactory<M>,
+    ) -> Props<Self> {
+        let shard_id = shard_id.into();
+        Props::new(move || {
+            Self::new_with_remember_entities(shard_id, buffer_capacity, entity_factory)
+        })
     }
 }
 
@@ -83,6 +106,7 @@ where
                 reply_to,
             } => {
                 let plan = self.runtime.restart_remembered_entity(entity_id);
+                self.apply_restart_remembered_entity_plan(ctx, &plan)?;
                 let _ = reply_to.tell(plan);
             }
             ShardMsg::HandOff {
@@ -201,27 +225,51 @@ where
         }
     }
 
+    fn apply_restart_remembered_entity_plan(
+        &mut self,
+        ctx: &mut Context<ShardMsg<M>>,
+        plan: &crate::RestartRememberedEntityPlan,
+    ) -> Result<(), ActorError> {
+        match plan {
+            crate::RestartRememberedEntityPlan::Started { entity_id } => {
+                self.ensure_entity_child(ctx, entity_id)?;
+                Ok(())
+            }
+            crate::RestartRememberedEntityPlan::AlreadyActive { .. }
+            | crate::RestartRememberedEntityPlan::Ignored { .. } => Ok(()),
+        }
+    }
+
     fn deliver_to_entity(
         &mut self,
         ctx: &mut Context<ShardMsg<M>>,
         delivery: &EntityDelivery<M>,
     ) -> Result<(), ActorError> {
         let entity_id = delivery.entity_id().to_string();
-        let entity = if let Some(entity) = self.entity_refs.get(&entity_id) {
-            entity.clone()
-        } else {
-            let entity = self.entity_factory.spawn(ctx, &entity_id)?;
-            ctx.watch_with(
-                &entity,
-                ShardMsg::ObservedEntityTerminated {
-                    entity_id: entity_id.clone(),
-                },
-            )?;
-            self.entity_refs.insert(entity_id, entity.clone());
-            entity
-        };
+        let entity = self.ensure_entity_child(ctx, &entity_id)?;
         entity
             .tell(delivery.message().clone())
             .map_err(|error| ActorError::Message(error.reason().to_string()))
+    }
+
+    fn ensure_entity_child(
+        &mut self,
+        ctx: &mut Context<ShardMsg<M>>,
+        entity_id: &EntityId,
+    ) -> Result<ActorRef<M>, ActorError> {
+        if let Some(entity) = self.entity_refs.get(entity_id) {
+            return Ok(entity.clone());
+        }
+
+        let entity = self.entity_factory.spawn(ctx, entity_id)?;
+        ctx.watch_with(
+            &entity,
+            ShardMsg::ObservedEntityTerminated {
+                entity_id: entity_id.to_string(),
+            },
+        )?;
+        self.entity_refs
+            .insert(entity_id.to_string(), entity.clone());
+        Ok(entity)
     }
 }
