@@ -2428,6 +2428,11 @@ Implemented:
   handoff starts, the old oldest records the removal, stops the singleton
   without sending `HandOverDone`, cancels stale take-over retry ticks, and
   returns to younger state after child termination.
+- `kairo-cluster-tools` singleton manager runtime now follows Pekko's
+  self-removed behavior: marking the local member removed records it and emits
+  `StopManager`; the singleton manager actor applies that effect by stopping
+  itself, and the local singleton manager test pins manager and child
+  termination.
 - `kairo-cluster-tools` singleton manager runtime and actor boundary tests now
   live in a focused sibling test module instead of the broad crate-level test
   file.
@@ -4962,6 +4967,14 @@ cargo test -p kairo-cluster-tools singleton_manager_hands_over_to_none_when_new_
 cargo test -p kairo-cluster-tools singleton_manager_actor_stops_when_new_oldest_is_removed --all-targets --all-features
 cargo test -p kairo-cluster-tools local_singleton_manager_stops_child_when_new_oldest_is_removed --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools singleton_manager_stops_when_self_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools singleton_manager_actor_stops_when_self_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools local_singleton_manager_stops_manager_and_child_when_self_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check

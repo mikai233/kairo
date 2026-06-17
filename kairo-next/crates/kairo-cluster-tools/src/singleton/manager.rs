@@ -180,6 +180,9 @@ impl SingletonManagerRuntime {
 
     pub fn mark_removed(&mut self, node: UniqueAddress) -> Vec<SingletonManagerEffect> {
         self.removed.insert(node.clone());
+        if node == self.self_node {
+            return self.stop_manager();
+        }
         match self.state.clone() {
             SingletonManagerState::Younger {
                 mut previous_oldest,
