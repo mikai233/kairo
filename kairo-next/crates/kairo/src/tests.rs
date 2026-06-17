@@ -360,15 +360,51 @@ impl crate::prelude::RemoteMessage for PreludeRemoteMsg {
 fn prelude_exposes_remote_entry_points() {
     use crate::prelude::*;
 
+    struct PreludeSink {
+        received: std::sync::mpsc::Sender<()>,
+    }
+
+    impl Actor for PreludeSink {
+        type Msg = PreludeRemoteMsg;
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+            self.received
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))
+        }
+    }
+
     fn assert_remote_outbound<T: RemoteOutbound + ?Sized>() {}
 
     let settings = RemoteSettings::new("127.0.0.1", 25520);
     assert_eq!(settings.canonical_hostname, "127.0.0.1");
     assert_eq!(settings.canonical_port, 25520);
     assert_remote_outbound::<dyn RemoteOutbound>();
+    let system = ActorSystem::builder("facade-remote-prelude")
+        .build()
+        .unwrap();
+    let (received_tx, received_rx) = std::sync::mpsc::channel();
+    let local = system
+        .spawn(
+            "sink",
+            Props::new(move || PreludeSink {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
+    let resolved = ResolvedActorRef::Local(local.clone());
+
     let _ = std::mem::size_of::<Option<RemoteActorRef<PreludeRemoteMsg>>>();
+    let _ = std::mem::size_of::<Option<RemoteActorRefResolver<PreludeRemoteMsg>>>();
     let _ = std::mem::size_of::<Option<RemoteActorRefProvider>>();
+    let _ = std::mem::size_of::<Option<ResolvedActorRef<PreludeRemoteMsg>>>();
     let _ = std::mem::size_of::<Option<TcpRemoteActorSystem<PreludeRemoteMsg>>>();
+    assert!(resolved.is_local());
+    assert_eq!(resolved.path(), local.path());
+    resolved.tell(PreludeRemoteMsg).unwrap();
+    received_rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .unwrap();
     let error = RemoteError::Outbound("send failed".to_string());
     assert!(error.to_string().contains("send failed"));
 }

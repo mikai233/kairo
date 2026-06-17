@@ -3380,6 +3380,9 @@ Implemented:
 - `kairo-remote` provider coverage now includes canonical local `/temp` ask
   reply refs: resolving an owned canonical temp path maps back to the
   registered local ask ref and delivers the reply without requiring a codec.
+- The `kairo` facade prelude now re-exports `ResolvedActorRef` and
+  `RemoteActorRefResolver`, with coverage that a facade user can wrap and send
+  through a local resolved actor ref without a remote codec.
 
 Not yet implemented:
 
