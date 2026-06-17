@@ -2084,6 +2084,13 @@ Implemented:
   `RegionRouteTransport` targets, so known remote shard homes use the same
   structured route table as local region refs while producing stable remote
   envelopes for the transport layer.
+- `kairo-remote` now exposes `RemoteOutboundRecipient`, adapting any
+  `RemoteOutbound` into a typed `Recipient<RemoteEnvelope>`. This lets
+  transport-neutral subsystems such as sharding feed already-addressed remote
+  envelopes through the shared association cache without adding production
+  sharding-to-remoting coupling; dev coverage proves
+  `RegionRouteTransport` can route through `RemoteAssociationCache` via that
+  recipient adapter.
 - `kairo-cluster-sharding` now has focused coordinator discovery state that
   consumes cluster snapshots/events, filters coordinator candidates by
   role/status, preserves Pekko's members-by-age movement detection, and
@@ -5075,4 +5082,13 @@ git diff --check
 cargo fmt --all -- --check
 cargo test -p kairo-examples --doc --all-features
 git diff --check
+cargo test -p kairo-remote remote_outbound_recipient --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_route_transport_can_use_remote_outbound_recipient --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo test -p kairo-cluster-sharding entity_routing --all-targets --all-features
+cargo test -p kairo distributed_crates_keep_architecture_dependency_boundaries --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 ```

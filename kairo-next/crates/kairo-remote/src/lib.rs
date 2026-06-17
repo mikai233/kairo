@@ -238,7 +238,7 @@ pub use kairo_serialization::{RemoteEnvelope, SerializedMessage};
 pub use lanes::{LaneRemoteOutbound, RemoteLaneClassifier, RemoteLaneSink, lane_send_failure};
 pub use local_address::CanonicalLocalAddress;
 pub use local_delivery::LocalActorInboundDelivery;
-pub use outbound::RemoteOutbound;
+pub use outbound::{RemoteOutbound, RemoteOutboundRecipient};
 pub use protocol::{
     AddressTerminated, RemoteHeartbeat, RemoteHeartbeatAck, RemoteTerminated, UnwatchRemote,
     WatchRemote,

@@ -499,3 +499,94 @@ fn region_route_transport_can_target_remote_region_envelopes() {
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn region_route_transport_can_use_remote_outbound_recipient() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("sharding-remote-outbound-recipient").unwrap();
+    let mut registry = Registry::new();
+    register_sharding_protocol_codecs(&mut registry).unwrap();
+    registry
+        .register::<RemoteRouteMessage, _>(RemoteRouteMessageCodec)
+        .unwrap();
+    let registry = std::sync::Arc::new(registry);
+    let route_replies = kit
+        .create_probe::<RegionLocalRoutePlan<RemoteRouteMessage>>("route-replies")
+        .unwrap();
+    let delivery_replies = kit
+        .create_probe::<ShardDeliverPlan<RemoteRouteMessage>>("delivery-replies")
+        .unwrap();
+    let collecting = Arc::new(CollectingRemoteOutbound::default());
+    let cache = kairo_remote::RemoteAssociationCache::new();
+    cache.insert_route(
+        kairo_remote::RemoteAssociationAddress::new("kairo", "sharding", "127.0.0.1", Some(25521))
+            .unwrap(),
+        collecting.clone() as Arc<dyn kairo_remote::RemoteOutbound>,
+    );
+    let remote_target = ShardRegionRemoteOutbound::<RemoteRouteMessage>::new(
+        remote_node("sharding", "127.0.0.1", 25521),
+        registry.clone(),
+        kairo_remote::RemoteOutboundRecipient::from_arc(
+            Arc::new(cache) as Arc<dyn kairo_remote::RemoteOutbound>
+        ),
+    )
+    .into_region_route_target("region-b");
+    let mut transport = RegionRouteTransport::new();
+    transport.insert_target(remote_target);
+
+    assert_eq!(
+        transport.send_route_to(
+            &"region-b".to_string(),
+            "shard-1".to_string(),
+            ShardingEnvelope::new("entity-1", RemoteRouteMessage("first".to_string())),
+            route_replies.actor_ref(),
+            delivery_replies.actor_ref(),
+        ),
+        RegionRouteDelivery::Sent {
+            shard: "shard-1".to_string(),
+            region: "region-b".to_string(),
+        }
+    );
+    let envelopes = collecting.envelopes();
+    assert_eq!(envelopes.len(), 1);
+    let envelope = envelopes.into_iter().next().unwrap();
+    assert_eq!(
+        envelope.recipient.path(),
+        "kairo://sharding@127.0.0.1:25521/system/sharding/region"
+    );
+    let routed = registry
+        .deserialize::<crate::RoutedShardEnvelope>(envelope.message)
+        .unwrap();
+    assert_eq!(routed.shard_id, "shard-1");
+    assert_eq!(routed.entity_id, "entity-1");
+    assert_eq!(
+        registry
+            .deserialize::<RemoteRouteMessage>(routed.message)
+            .unwrap(),
+        RemoteRouteMessage("first".to_string())
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[derive(Default)]
+struct CollectingRemoteOutbound {
+    envelopes: Mutex<Vec<RemoteEnvelope>>,
+}
+
+impl CollectingRemoteOutbound {
+    fn envelopes(&self) -> Vec<RemoteEnvelope> {
+        self.envelopes
+            .lock()
+            .expect("collecting remote outbound lock poisoned")
+            .clone()
+    }
+}
+
+impl kairo_remote::RemoteOutbound for CollectingRemoteOutbound {
+    fn send(&self, envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+        self.envelopes
+            .lock()
+            .expect("collecting remote outbound lock poisoned")
+            .push(envelope);
+        Ok(())
+    }
+}

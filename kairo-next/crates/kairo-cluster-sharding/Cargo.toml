@@ -13,4 +13,5 @@ kairo-distributed-data = { workspace = true }
 kairo-serialization = { workspace = true }
 
 [dev-dependencies]
+kairo-remote = { workspace = true }
 kairo-testkit = { workspace = true }
