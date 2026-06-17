@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 
 use kairo_actor::{Actor, ActorRef, ActorResult, Context, Signal};
 
-use crate::{LocalPubSub, PubSubTopicReport, TopicName, TopicPublishMode};
+use crate::{
+    LocalPubSub, PubSubPathRegistration, PubSubPathReport, PubSubTopicReport, TopicName,
+    TopicPublishMode,
+};
 
 pub struct LocalPubSubActor<M> {
     state: LocalPubSub<M>,
@@ -58,6 +61,14 @@ where
         subscriber: ActorRef<M>,
         reply_to: Option<ActorRef<PubSubSubscribeAck>>,
     },
+    Put {
+        actor: ActorRef<M>,
+        reply_to: Option<ActorRef<PubSubPathRegistration>>,
+    },
+    RemovePath {
+        path: String,
+        reply_to: Option<ActorRef<PubSubPathRegistration>>,
+    },
     Publish {
         topic: TopicName,
         message: M,
@@ -69,6 +80,16 @@ where
         group: String,
         message: M,
         reply_to: Option<ActorRef<PubSubTopicReport>>,
+    },
+    Send {
+        path: String,
+        message: M,
+        reply_to: Option<ActorRef<PubSubPathReport>>,
+    },
+    SendToAll {
+        path: String,
+        message: M,
+        reply_to: Option<ActorRef<PubSubPathReport>>,
     },
     GetTopics {
         reply_to: ActorRef<CurrentTopics>,
@@ -139,6 +160,19 @@ where
                 self.unwatch_if_unsubscribed(ctx, &subscriber);
                 send_subscribe_ack(reply_to, topic, Some(group), removed);
             }
+            LocalPubSubMsg::Put { actor, reply_to } => {
+                ctx.watch(&actor)?;
+                let registration = self.state.register_path(actor);
+                send_path_registration(reply_to, registration);
+            }
+            LocalPubSubMsg::RemovePath { path, reply_to } => {
+                let actor = self.state.path_actor(&path).cloned();
+                let registration = self.state.remove_path(&path);
+                if let Some(actor) = actor {
+                    self.unwatch_if_unsubscribed(ctx, &actor);
+                }
+                send_path_registration(reply_to, registration);
+            }
             LocalPubSubMsg::Publish {
                 topic,
                 message,
@@ -157,6 +191,26 @@ where
                 reply_to,
             } => {
                 let report = self.state.publish_group(&topic, &group, message);
+                if let Some(reply_to) = reply_to {
+                    let _ = reply_to.tell(report);
+                }
+            }
+            LocalPubSubMsg::Send {
+                path,
+                message,
+                reply_to,
+            } => {
+                let report = self.state.send_path(&path, message);
+                if let Some(reply_to) = reply_to {
+                    let _ = reply_to.tell(report);
+                }
+            }
+            LocalPubSubMsg::SendToAll {
+                path,
+                message,
+                reply_to,
+            } => {
+                let report = self.state.send_path_to_all(&path, message);
                 if let Some(reply_to) = reply_to {
                     let _ = reply_to.tell(report);
                 }
@@ -215,5 +269,14 @@ fn send_subscribe_ack(
             group,
             changed,
         });
+    }
+}
+
+fn send_path_registration(
+    reply_to: Option<ActorRef<PubSubPathRegistration>>,
+    registration: PubSubPathRegistration,
+) {
+    if let Some(reply_to) = reply_to {
+        let _ = reply_to.tell(registration);
     }
 }

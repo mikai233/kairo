@@ -17,10 +17,29 @@ pub enum PubSubDeliveryTarget {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PubSubPathDeliveryTarget {
+    LocalPath,
+    RemotePath { node: UniqueAddress },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubSubDeliveryPlan {
     pub topic: TopicName,
     pub mode: TopicPublishMode,
     pub targets: Vec<PubSubDeliveryTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PubSubPathDeliveryMode {
+    One { local_affinity: bool },
+    All { all_but_self: bool },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PubSubPathDeliveryPlan {
+    pub path: String,
+    pub mode: PubSubPathDeliveryMode,
+    pub targets: Vec<PubSubPathDeliveryTarget>,
 }
 
 impl PubSubDeliveryPlan {
@@ -92,6 +111,67 @@ impl PubSubDeliveryPlan {
     }
 }
 
+impl PubSubPathDeliveryPlan {
+    pub fn send(
+        registry: &PubSubRegistryState,
+        path: impl Into<String>,
+        local_affinity: bool,
+    ) -> Self {
+        let path = path.into();
+        let all_targets = registry.path_targets(&path, true);
+        let targets =
+            if local_affinity && all_targets.iter().any(|node| node == registry.self_node()) {
+                vec![PubSubPathDeliveryTarget::LocalPath]
+            } else {
+                all_targets
+                    .into_iter()
+                    .next()
+                    .map(|node| {
+                        if &node == registry.self_node() {
+                            PubSubPathDeliveryTarget::LocalPath
+                        } else {
+                            PubSubPathDeliveryTarget::RemotePath { node }
+                        }
+                    })
+                    .into_iter()
+                    .collect()
+            };
+        Self {
+            path,
+            mode: PubSubPathDeliveryMode::One { local_affinity },
+            targets,
+        }
+    }
+
+    pub fn send_to_all(
+        registry: &PubSubRegistryState,
+        path: impl Into<String>,
+        all_but_self: bool,
+    ) -> Self {
+        let path = path.into();
+        let targets = registry
+            .path_targets(&path, !all_but_self)
+            .into_iter()
+            .map(|node| {
+                if &node == registry.self_node() {
+                    PubSubPathDeliveryTarget::LocalPath
+                } else {
+                    PubSubPathDeliveryTarget::RemotePath { node }
+                }
+            })
+            .collect();
+        Self {
+            path,
+            mode: PubSubPathDeliveryMode::All { all_but_self },
+            targets,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.targets.is_empty()
+    }
+}
+
 #[derive(Clone)]
 pub struct PubSubRemoteTarget<M>
 where
@@ -151,6 +231,37 @@ pub enum PubSubDeliveryFailure {
     },
     SendFailed {
         target: PubSubDeliveryTarget,
+        reason: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PubSubPathDeliveryReport {
+    sent_to: Vec<PubSubPathDeliveryTarget>,
+    failures: Vec<PubSubPathDeliveryFailure>,
+}
+
+impl PubSubPathDeliveryReport {
+    pub fn sent_to(&self) -> &[PubSubPathDeliveryTarget] {
+        &self.sent_to
+    }
+
+    pub fn failures(&self) -> &[PubSubPathDeliveryFailure] {
+        &self.failures
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.failures.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PubSubPathDeliveryFailure {
+    MissingTarget {
+        target: PubSubPathDeliveryTarget,
+    },
+    SendFailed {
+        target: PubSubPathDeliveryTarget,
         reason: String,
     },
 }
@@ -257,6 +368,31 @@ where
         PubSubDeliveryReport { sent_to, failures }
     }
 
+    pub fn send_path(&self, plan: &PubSubPathDeliveryPlan, message: M) -> PubSubPathDeliveryReport {
+        let mut sent_to = Vec::new();
+        let mut failures = Vec::new();
+
+        for target in &plan.targets {
+            let Some(recipient) = self.path_recipient_for(target) else {
+                failures.push(PubSubPathDeliveryFailure::MissingTarget {
+                    target: target.clone(),
+                });
+                continue;
+            };
+            let delivery = path_delivery_message(plan, target, message.clone());
+            if let Err(error) = recipient.tell(delivery) {
+                failures.push(PubSubPathDeliveryFailure::SendFailed {
+                    target: target.clone(),
+                    reason: error.reason().to_string(),
+                });
+            } else {
+                sent_to.push(target.clone());
+            }
+        }
+
+        PubSubPathDeliveryReport { sent_to, failures }
+    }
+
     fn recipient_for(&self, target: &PubSubDeliveryTarget) -> Option<&PubSubRecipient<M>> {
         match target {
             PubSubDeliveryTarget::LocalTopic | PubSubDeliveryTarget::LocalGroup { .. } => {
@@ -264,6 +400,13 @@ where
             }
             PubSubDeliveryTarget::RemoteTopic { node }
             | PubSubDeliveryTarget::RemoteGroup { node, .. } => self.remotes.get(&node_key(node)),
+        }
+    }
+
+    fn path_recipient_for(&self, target: &PubSubPathDeliveryTarget) -> Option<&PubSubRecipient<M>> {
+        match target {
+            PubSubPathDeliveryTarget::LocalPath => self.local.as_ref(),
+            PubSubPathDeliveryTarget::RemotePath { node } => self.remotes.get(&node_key(node)),
         }
     }
 }
@@ -289,6 +432,29 @@ fn delivery_message<M: Clone + Send + 'static>(
             message,
             reply_to: None,
         },
+    }
+}
+
+fn path_delivery_message<M: Clone + Send + 'static>(
+    plan: &PubSubPathDeliveryPlan,
+    target: &PubSubPathDeliveryTarget,
+    message: M,
+) -> LocalPubSubMsg<M> {
+    match target {
+        PubSubPathDeliveryTarget::LocalPath | PubSubPathDeliveryTarget::RemotePath { .. } => {
+            match plan.mode {
+                PubSubPathDeliveryMode::One { .. } => LocalPubSubMsg::Send {
+                    path: plan.path.clone(),
+                    message,
+                    reply_to: None,
+                },
+                PubSubPathDeliveryMode::All { .. } => LocalPubSubMsg::SendToAll {
+                    path: plan.path.clone(),
+                    message,
+                    reply_to: None,
+                },
+            }
+        }
     }
 }
 

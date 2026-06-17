@@ -76,6 +76,7 @@ fn cluster_tools_codecs_round_trip_pubsub_delta() {
     let mut state = PubSubRegistryState::new(node.clone());
     state.register_local_topic(TopicName::new("orders"));
     state.register_local_group(TopicName::new("jobs"), "workers");
+    state.register_local_path("/user/worker");
     let delta = PubSubDelta {
         from: node,
         delta: state.collect_delta(&BTreeMap::new(), 10),

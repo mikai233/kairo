@@ -4,8 +4,10 @@ use kairo_actor::ActorRef;
 use kairo_cluster::{ClusterEvent, UniqueAddress};
 
 use crate::{
-    CurrentTopics, LocalPubSubMsg, PubSubDeliveryPlan, PubSubDeliveryReport, PubSubRegistryDelta,
-    PubSubRegistryState, PubSubRemoteTarget, PubSubSubscribeAck, TopicName, TopicPublishMode,
+    CurrentTopics, LocalPubSubMsg, PubSubDeliveryPlan, PubSubDeliveryReport,
+    PubSubPathDeliveryMode, PubSubPathDeliveryPlan, PubSubPathDeliveryReport,
+    PubSubPathRegistration, PubSubRegistryDelta, PubSubRegistryState, PubSubRemoteTarget,
+    PubSubSubscribeAck, TopicName, TopicPublishMode,
 };
 
 pub enum DistributedPubSubMediatorMsg<M>
@@ -47,11 +49,31 @@ where
         subscriber: ActorRef<M>,
         reply_to: Option<ActorRef<PubSubSubscribeAck>>,
     },
+    Put {
+        actor: ActorRef<M>,
+        reply_to: Option<ActorRef<PubSubPathRegistration>>,
+    },
+    RemovePath {
+        path: String,
+        reply_to: Option<ActorRef<PubSubPathRegistration>>,
+    },
     Publish {
         topic: TopicName,
         message: M,
         mode: TopicPublishMode,
         reply_to: Option<ActorRef<DistributedPubSubPublishReport>>,
+    },
+    Send {
+        path: String,
+        message: M,
+        local_affinity: bool,
+        reply_to: Option<ActorRef<DistributedPubSubSendReport>>,
+    },
+    SendToAll {
+        path: String,
+        message: M,
+        all_but_self: bool,
+        reply_to: Option<ActorRef<DistributedPubSubSendReport>>,
     },
     LocalDelivery(LocalPubSubMsg<M>),
     MergeDelta {
@@ -77,6 +99,14 @@ pub struct DistributedPubSubPublishReport {
     pub mode: TopicPublishMode,
     pub plan: PubSubDeliveryPlan,
     pub delivery: PubSubDeliveryReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistributedPubSubSendReport {
+    pub path: String,
+    pub mode: PubSubPathDeliveryMode,
+    pub plan: PubSubPathDeliveryPlan,
+    pub delivery: PubSubPathDeliveryReport,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -118,6 +118,10 @@ fn write_key(writer: &mut WireWriter, key: &PubSubRegistryKey) -> kairo_serializ
             writer.write_string(topic.as_str())?;
             writer.write_string(group)?;
         }
+        PubSubRegistryKey::Path { path } => {
+            writer.write_u8(2);
+            writer.write_string(path)?;
+        }
     }
     Ok(())
 }
@@ -131,6 +135,7 @@ fn read_key(reader: &mut WireReader<'_>) -> kairo_serialization::Result<PubSubRe
             TopicName::new(reader.read_string()?),
             reader.read_string()?,
         )),
+        2 => Ok(PubSubRegistryKey::path(reader.read_string()?)),
         other => Err(SerializationError::Message(format!(
             "unknown pubsub registry key tag {other}"
         ))),

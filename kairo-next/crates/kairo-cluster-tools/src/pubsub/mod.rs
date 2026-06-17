@@ -11,13 +11,14 @@ mod wire;
 pub use actor::{CurrentTopics, LocalPubSubActor, LocalPubSubMsg, PubSubSubscribeAck};
 pub use delivery::{
     PubSubDeliveryFailure, PubSubDeliveryPlan, PubSubDeliveryReport, PubSubDeliveryTarget,
-    PubSubDeliveryTransport, PubSubRemoteTarget,
+    PubSubDeliveryTransport, PubSubPathDeliveryFailure, PubSubPathDeliveryMode,
+    PubSubPathDeliveryPlan, PubSubPathDeliveryReport, PubSubPathDeliveryTarget, PubSubRemoteTarget,
 };
 pub use gossip::{PubSubGossipActor, PubSubGossipMsg, PubSubGossipPeer};
-pub use local::{LocalPubSub, PubSubTopicReport};
+pub use local::{LocalPubSub, PubSubPathRegistration, PubSubPathReport, PubSubTopicReport};
 pub use mediator::{
     DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg, DistributedPubSubPublishReport,
-    DistributedPubSubSnapshot,
+    DistributedPubSubSendReport, DistributedPubSubSnapshot,
 };
 pub use registry::{
     PubSubBucket, PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey, PubSubRegistryState,

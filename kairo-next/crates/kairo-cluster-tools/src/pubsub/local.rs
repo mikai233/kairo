@@ -10,9 +10,22 @@ pub struct PubSubTopicReport {
     pub report: TopicPublishReport,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PubSubPathReport {
+    pub path: String,
+    pub report: TopicPublishReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PubSubPathRegistration {
+    pub path: String,
+    pub changed: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct LocalPubSub<M> {
     topics: BTreeMap<TopicName, LocalTopic<M>>,
+    paths: BTreeMap<String, ActorRef<M>>,
 }
 
 impl<M: Send + 'static> Default for LocalPubSub<M> {
@@ -25,6 +38,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
     pub fn new() -> Self {
         Self {
             topics: BTreeMap::new(),
+            paths: BTreeMap::new(),
         }
     }
 
@@ -36,6 +50,10 @@ impl<M: Send + 'static> LocalPubSub<M> {
         self.topics.keys().cloned().collect()
     }
 
+    pub fn current_paths(&self) -> BTreeSet<String> {
+        self.paths.keys().cloned().collect()
+    }
+
     pub fn topic_groups(&self) -> BTreeMap<TopicName, BTreeSet<String>> {
         self.topics
             .iter()
@@ -45,6 +63,28 @@ impl<M: Send + 'static> LocalPubSub<M> {
 
     pub fn topic(&self, topic: &TopicName) -> Option<&LocalTopic<M>> {
         self.topics.get(topic)
+    }
+
+    pub fn path_actor(&self, path: &str) -> Option<&ActorRef<M>> {
+        self.paths.get(path)
+    }
+
+    pub fn register_path(&mut self, actor: ActorRef<M>) -> PubSubPathRegistration {
+        let path = path_key(actor.path());
+        let changed = self
+            .paths
+            .get(&path)
+            .is_none_or(|existing| existing.path() != actor.path());
+        self.paths.insert(path.clone(), actor);
+        PubSubPathRegistration { path, changed }
+    }
+
+    pub fn remove_path(&mut self, path: &str) -> PubSubPathRegistration {
+        let changed = self.paths.remove(path).is_some();
+        PubSubPathRegistration {
+            path: path.to_string(),
+            changed,
+        }
     }
 
     pub fn subscribe(
@@ -98,6 +138,8 @@ impl<M: Send + 'static> LocalPubSub<M> {
                 changed_topics.push(topic.clone());
             }
         }
+        self.paths
+            .retain(|_, registered| registered.path() != subscriber);
         let empty_topics: Vec<_> = self
             .topics
             .iter()
@@ -114,6 +156,10 @@ impl<M: Send + 'static> LocalPubSub<M> {
         self.topics
             .values()
             .any(|topic_state| topic_state.contains_subscriber_path(subscriber))
+            || self
+                .paths
+                .values()
+                .any(|registered| registered.path() == subscriber)
     }
 
     pub fn publish(
@@ -133,6 +179,28 @@ impl<M: Send + 'static> LocalPubSub<M> {
         self.remove_topic_if_empty(topic);
         PubSubTopicReport {
             topic: topic.clone(),
+            report,
+        }
+    }
+
+    pub fn send_path(&mut self, path: &str, message: M) -> PubSubPathReport
+    where
+        M: Clone,
+    {
+        let report = self.deliver_path(path, message);
+        PubSubPathReport {
+            path: path.to_string(),
+            report,
+        }
+    }
+
+    pub fn send_path_to_all(&mut self, path: &str, message: M) -> PubSubPathReport
+    where
+        M: Clone,
+    {
+        let report = self.deliver_path(path, message);
+        PubSubPathReport {
+            path: path.to_string(),
             report,
         }
     }
@@ -164,4 +232,52 @@ impl<M: Send + 'static> LocalPubSub<M> {
             self.topics.remove(topic);
         }
     }
+
+    fn deliver_path(&mut self, path: &str, message: M) -> TopicPublishReport
+    where
+        M: Clone,
+    {
+        let mut report = TopicPublishReport::empty_for_no_subscribers();
+        let Some(actor) = self.paths.get(path).cloned() else {
+            return report;
+        };
+        let delivered = record_path_delivery(&mut report, &actor, message);
+        if !delivered && actor.is_stopped() {
+            self.paths.remove(path);
+        }
+        report
+    }
+}
+
+fn record_path_delivery<M: Send + 'static>(
+    report: &mut TopicPublishReport,
+    actor: &ActorRef<M>,
+    message: M,
+) -> bool {
+    match actor.tell(message) {
+        Ok(()) => {
+            report.delivered += 1;
+            report.no_subscribers = false;
+            true
+        }
+        Err(_) if actor.is_stopped() => false,
+        Err(_) => {
+            report.failed += 1;
+            report.no_subscribers = false;
+            true
+        }
+    }
+}
+
+fn path_key(path: &ActorPath) -> String {
+    let logical = path
+        .as_str()
+        .split_once("://")
+        .and_then(|(_, rest)| rest.split_once('/').map(|(_, path)| format!("/{path}")))
+        .unwrap_or_else(|| path.as_str().to_string());
+    logical
+        .split('/')
+        .map(|segment| segment.split_once('#').map_or(segment, |(name, _)| name))
+        .collect::<Vec<_>>()
+        .join("/")
 }

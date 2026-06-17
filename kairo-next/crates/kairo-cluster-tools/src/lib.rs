@@ -81,14 +81,17 @@ pub use protocol::{
 };
 pub use pubsub::{
     CurrentTopics, DEFAULT_PUBSUB_REMOTE_PATH, DistributedPubSubMediatorActor,
-    DistributedPubSubMediatorMsg, DistributedPubSubPublishReport, DistributedPubSubSnapshot,
-    LocalPubSub, LocalPubSubActor, LocalPubSubMsg, PubSubBucket, PubSubDeliveryFailure,
-    PubSubDeliveryPlan, PubSubDeliveryReport, PubSubDeliveryTarget, PubSubDeliveryTransport,
-    PubSubGossipActor, PubSubGossipMsg, PubSubGossipPeer, PubSubGossipWireError,
-    PubSubGossipWireInbound, PubSubGossipWireOutbound, PubSubRegistryDelta, PubSubRegistryEntry,
-    PubSubRegistryKey, PubSubRegistryState, PubSubRemoteDeliveryError, PubSubRemoteDeliveryInbound,
-    PubSubRemoteDeliveryOutbound, PubSubRemoteEnvelopeError, PubSubRemoteEnvelopeOutbound,
-    PubSubRemoteTarget, PubSubSerializedGossip, PubSubSubscribeAck, PubSubTopicReport,
+    DistributedPubSubMediatorMsg, DistributedPubSubPublishReport, DistributedPubSubSendReport,
+    DistributedPubSubSnapshot, LocalPubSub, LocalPubSubActor, LocalPubSubMsg, PubSubBucket,
+    PubSubDeliveryFailure, PubSubDeliveryPlan, PubSubDeliveryReport, PubSubDeliveryTarget,
+    PubSubDeliveryTransport, PubSubGossipActor, PubSubGossipMsg, PubSubGossipPeer,
+    PubSubGossipWireError, PubSubGossipWireInbound, PubSubGossipWireOutbound,
+    PubSubPathDeliveryFailure, PubSubPathDeliveryMode, PubSubPathDeliveryPlan,
+    PubSubPathDeliveryReport, PubSubPathDeliveryTarget, PubSubPathRegistration, PubSubPathReport,
+    PubSubRegistryDelta, PubSubRegistryEntry, PubSubRegistryKey, PubSubRegistryState,
+    PubSubRemoteDeliveryError, PubSubRemoteDeliveryInbound, PubSubRemoteDeliveryOutbound,
+    PubSubRemoteEnvelopeError, PubSubRemoteEnvelopeOutbound, PubSubRemoteTarget,
+    PubSubSerializedGossip, PubSubSubscribeAck, PubSubTopicReport,
 };
 pub use remote_tcp::{
     ClusterToolsTcpAssociationRuntime, cluster_tools_association_identity_for,

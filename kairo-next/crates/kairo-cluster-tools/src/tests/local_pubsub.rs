@@ -116,6 +116,46 @@ fn local_pubsub_publish_prunes_stopped_subscriber_and_removes_empty_topic() {
 }
 
 #[test]
+fn local_pubsub_registers_path_sends_and_prunes_stopped_actor() {
+    let kit = ActorSystemTestKit::new("pubsub-path-send").unwrap();
+    let routee = kit.create_probe::<String>("routee").unwrap();
+    let mut pubsub = LocalPubSub::new();
+    let path = "/user/routee".to_string();
+
+    assert_eq!(
+        pubsub.register_path(routee.actor_ref()),
+        PubSubPathRegistration {
+            path: path.clone(),
+            changed: true,
+        }
+    );
+    assert_eq!(pubsub.current_paths(), BTreeSet::from([path.clone()]));
+
+    let report = pubsub.send_path(&path, "first".to_string());
+    assert_eq!(
+        report,
+        PubSubPathReport {
+            path: path.clone(),
+            report: crate::TopicPublishReport {
+                delivered: 1,
+                failed: 0,
+                no_subscribers: false,
+            },
+        }
+    );
+    routee
+        .expect_msg_eq("first".to_string(), Duration::from_millis(200))
+        .unwrap();
+
+    kit.system().stop(&routee.actor_ref());
+    assert!(routee.actor_ref().wait_for_stop(Duration::from_millis(500)));
+    let stopped = pubsub.send_path(&path, "dropped".to_string());
+    assert!(stopped.report.no_subscribers);
+    assert!(pubsub.current_paths().is_empty());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn local_pubsub_publishes_only_to_selected_group() {
     let kit = ActorSystemTestKit::new("pubsub-group-target").unwrap();
     let red_a = kit.create_probe::<String>("red-a").unwrap();

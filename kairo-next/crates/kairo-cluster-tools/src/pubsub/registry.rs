@@ -8,6 +8,7 @@ use crate::TopicName;
 pub enum PubSubRegistryKey {
     Topic { topic: TopicName },
     Group { topic: TopicName, group: String },
+    Path { path: String },
 }
 
 impl PubSubRegistryKey {
@@ -22,9 +23,14 @@ impl PubSubRegistryKey {
         }
     }
 
-    pub fn topic_name(&self) -> &TopicName {
+    pub fn path(path: impl Into<String>) -> Self {
+        Self::Path { path: path.into() }
+    }
+
+    pub fn topic_name(&self) -> Option<&TopicName> {
         match self {
-            Self::Topic { topic } | Self::Group { topic, .. } => topic,
+            Self::Topic { topic } | Self::Group { topic, .. } => Some(topic),
+            Self::Path { .. } => None,
         }
     }
 
@@ -32,6 +38,14 @@ impl PubSubRegistryKey {
         match self {
             Self::Topic { .. } => None,
             Self::Group { group, .. } => Some(group),
+            Self::Path { .. } => None,
+        }
+    }
+
+    pub fn path_name(&self) -> Option<&str> {
+        match self {
+            Self::Path { path } => Some(path),
+            Self::Topic { .. } | Self::Group { .. } => None,
         }
     }
 }
@@ -185,6 +199,14 @@ impl PubSubRegistryState {
         self.put_local(PubSubRegistryKey::group(topic, group), false);
     }
 
+    pub fn register_local_path(&mut self, path: impl Into<String>) {
+        self.put_local(PubSubRegistryKey::path(path), true);
+    }
+
+    pub fn unregister_local_path(&mut self, path: impl Into<String>) {
+        self.put_local(PubSubRegistryKey::path(path), false);
+    }
+
     pub fn merge_delta(&mut self, delta: PubSubRegistryDelta) {
         for incoming in delta.buckets {
             self.buckets
@@ -234,7 +256,7 @@ impl PubSubRegistryState {
         let mut groups: BTreeMap<String, Vec<UniqueAddress>> = BTreeMap::new();
         for bucket in self.buckets.values() {
             for entry in bucket.entries.values() {
-                if !entry.present || entry.key.topic_name() != topic {
+                if !entry.present || entry.key.topic_name() != Some(topic) {
                     continue;
                 }
                 if let Some(group) = entry.key.group_name() {
@@ -254,12 +276,22 @@ impl PubSubRegistryState {
             .collect()
     }
 
+    pub fn path_targets(&self, path: &str, include_self: bool) -> Vec<UniqueAddress> {
+        let key = PubSubRegistryKey::path(path);
+        self.buckets
+            .values()
+            .filter(|bucket| include_self || bucket.owner != self.self_node)
+            .filter(|bucket| bucket.is_present(&key))
+            .map(|bucket| bucket.owner.clone())
+            .collect()
+    }
+
     pub fn current_topics(&self) -> BTreeSet<TopicName> {
         self.buckets
             .values()
             .flat_map(|bucket| bucket.entries.values())
             .filter(|entry| entry.present)
-            .map(|entry| entry.key.topic_name().clone())
+            .filter_map(|entry| entry.key.topic_name().cloned())
             .collect()
     }
 

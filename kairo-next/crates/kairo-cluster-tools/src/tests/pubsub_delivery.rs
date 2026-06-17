@@ -80,6 +80,46 @@ fn pubsub_delivery_plan_reports_empty_when_registry_has_no_topic() {
 }
 
 #[test]
+fn pubsub_path_delivery_plan_prefers_local_affinity_and_sends_to_all() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let node_c = node("c", 3);
+    let path = "/user/worker".to_string();
+    let mut local = PubSubRegistryState::new(node_b.clone());
+    let mut remote_a = PubSubRegistryState::new(node_a.clone());
+    let mut remote_c = PubSubRegistryState::new(node_c.clone());
+
+    local.register_local_path(path.clone());
+    remote_a.register_local_path(path.clone());
+    remote_c.register_local_path(path.clone());
+    local.merge_delta(remote_a.collect_delta(&BTreeMap::new(), 10));
+    local.merge_delta(remote_c.collect_delta(&BTreeMap::new(), 10));
+
+    let local_affinity = PubSubPathDeliveryPlan::send(&local, path.clone(), true);
+    assert_eq!(
+        local_affinity.targets,
+        vec![PubSubPathDeliveryTarget::LocalPath]
+    );
+
+    let deterministic_remote = PubSubPathDeliveryPlan::send(&local, path.clone(), false);
+    assert_eq!(
+        deterministic_remote.targets,
+        vec![PubSubPathDeliveryTarget::RemotePath {
+            node: node_a.clone()
+        }]
+    );
+
+    let all_but_self = PubSubPathDeliveryPlan::send_to_all(&local, path, true);
+    assert_eq!(
+        all_but_self.targets,
+        vec![
+            PubSubPathDeliveryTarget::RemotePath { node: node_a },
+            PubSubPathDeliveryTarget::RemotePath { node: node_c },
+        ]
+    );
+}
+
+#[test]
 fn pubsub_delivery_transport_sends_broadcast_to_local_and_remote_mediators() {
     let kit = ActorSystemTestKit::new("pubsub-delivery-broadcast").unwrap();
     let local_pubsub = kit
@@ -137,6 +177,65 @@ fn pubsub_delivery_transport_sends_broadcast_to_local_and_remote_mediators() {
         .expect_msg_eq("created".to_string(), Duration::from_millis(500))
         .unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn pubsub_delivery_transport_sends_path_messages_to_selected_mediators() {
+    let local_kit = ActorSystemTestKit::new("pubsub-delivery-path-local").unwrap();
+    let remote_kit = ActorSystemTestKit::new("pubsub-delivery-path-remote").unwrap();
+    let local_pubsub = local_kit
+        .system()
+        .spawn("pubsub-local", Props::new(LocalPubSubActor::<String>::new))
+        .unwrap();
+    let remote_pubsub = remote_kit
+        .system()
+        .spawn("pubsub-remote", Props::new(LocalPubSubActor::<String>::new))
+        .unwrap();
+    let local_routee = local_kit.create_probe::<String>("worker").unwrap();
+    let remote_routee = remote_kit.create_probe::<String>("worker").unwrap();
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let path = "/user/worker".to_string();
+    let mut local_registry = PubSubRegistryState::new(node_a.clone());
+    let mut remote_registry = PubSubRegistryState::new(node_b.clone());
+
+    local_registry.register_local_path(path.clone());
+    remote_registry.register_local_path(path.clone());
+    local_registry.merge_delta(remote_registry.collect_delta(&BTreeMap::new(), 10));
+    local_pubsub
+        .tell(LocalPubSubMsg::Put {
+            actor: local_routee.actor_ref(),
+            reply_to: None,
+        })
+        .unwrap();
+    remote_pubsub
+        .tell(LocalPubSubMsg::Put {
+            actor: remote_routee.actor_ref(),
+            reply_to: None,
+        })
+        .unwrap();
+
+    let plan = PubSubPathDeliveryPlan::send_to_all(&local_registry, path, false);
+    let mut transport = PubSubDeliveryTransport::new().with_local(local_pubsub);
+    transport.insert_remote_target(PubSubRemoteTarget::new(node_b.clone(), remote_pubsub));
+    let report = transport.send_path(&plan, "ping".to_string());
+
+    assert_eq!(
+        report.sent_to(),
+        &[
+            PubSubPathDeliveryTarget::LocalPath,
+            PubSubPathDeliveryTarget::RemotePath { node: node_b },
+        ]
+    );
+    assert!(report.is_success());
+    local_routee
+        .expect_msg_eq("ping".to_string(), Duration::from_millis(500))
+        .unwrap();
+    remote_routee
+        .expect_msg_eq("ping".to_string(), Duration::from_millis(500))
+        .unwrap();
+    local_kit.shutdown(Duration::from_secs(1)).unwrap();
+    remote_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

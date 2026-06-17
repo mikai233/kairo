@@ -7,12 +7,14 @@ mod protocol;
 mod recipient;
 
 pub use protocol::{
-    DistributedPubSubMediatorMsg, DistributedPubSubPublishReport, DistributedPubSubSnapshot,
+    DistributedPubSubMediatorMsg, DistributedPubSubPublishReport, DistributedPubSubSendReport,
+    DistributedPubSubSnapshot,
 };
 
 use crate::{
     CurrentTopics, LocalPubSub, LocalPubSubMsg, PubSubDeliveryPlan, PubSubDeliveryTransport,
-    PubSubRegistryState, PubSubRemoteTarget, PubSubSubscribeAck, TopicName, TopicPublishMode,
+    PubSubPathDeliveryMode, PubSubPathDeliveryPlan, PubSubPathRegistration, PubSubRegistryState,
+    PubSubRemoteTarget, PubSubSubscribeAck, TopicName, TopicPublishMode,
 };
 use recipient::MediatorLocalRecipient;
 
@@ -97,12 +99,30 @@ where
                 subscriber,
                 reply_to,
             } => self.unsubscribe_group(ctx, topic, group, subscriber, reply_to),
+            DistributedPubSubMediatorMsg::Put { actor, reply_to } => {
+                self.put(ctx, actor, reply_to)?
+            }
+            DistributedPubSubMediatorMsg::RemovePath { path, reply_to } => {
+                self.remove_path(ctx, path, reply_to)
+            }
             DistributedPubSubMediatorMsg::Publish {
                 topic,
                 message,
                 mode,
                 reply_to,
             } => self.publish(topic, message, mode, reply_to),
+            DistributedPubSubMediatorMsg::Send {
+                path,
+                message,
+                local_affinity,
+                reply_to,
+            } => self.send_path(path, message, local_affinity, reply_to),
+            DistributedPubSubMediatorMsg::SendToAll {
+                path,
+                message,
+                all_but_self,
+                reply_to,
+            } => self.send_path_to_all(path, message, all_but_self, reply_to),
             DistributedPubSubMediatorMsg::LocalDelivery(delivery) => {
                 self.local_delivery(ctx, delivery)?;
             }
@@ -135,9 +155,10 @@ where
 
     fn signal(&mut self, _ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
         if let Signal::Terminated(actor) = signal {
-            let before = self.local.topic_groups();
+            let before_topics = self.local.topic_groups();
+            let before_paths = self.local.current_paths();
             self.local.remove_subscriber_path(actor.path());
-            self.sync_registry(before);
+            self.sync_registry(before_topics, before_paths);
         }
         Ok(())
     }
@@ -154,10 +175,11 @@ where
         subscriber: ActorRef<M>,
         reply_to: Option<ActorRef<PubSubSubscribeAck>>,
     ) -> ActorResult {
-        let before = self.local.topic_groups();
+        let before_topics = self.local.topic_groups();
+        let before_paths = self.local.current_paths();
         ctx.watch(&subscriber)?;
         let change = self.local.subscribe(topic.clone(), subscriber);
-        self.sync_registry(before);
+        self.sync_registry(before_topics, before_paths);
         send_subscribe_ack(reply_to, topic, None, change.inserted);
         Ok(())
     }
@@ -170,12 +192,13 @@ where
         subscriber: ActorRef<M>,
         reply_to: Option<ActorRef<PubSubSubscribeAck>>,
     ) -> ActorResult {
-        let before = self.local.topic_groups();
+        let before_topics = self.local.topic_groups();
+        let before_paths = self.local.current_paths();
         ctx.watch(&subscriber)?;
         let change = self
             .local
             .subscribe_group(topic.clone(), group.clone(), subscriber);
-        self.sync_registry(before);
+        self.sync_registry(before_topics, before_paths);
         send_subscribe_ack(reply_to, topic, Some(group), change.inserted);
         Ok(())
     }
@@ -187,10 +210,11 @@ where
         subscriber: ActorRef<M>,
         reply_to: Option<ActorRef<PubSubSubscribeAck>>,
     ) {
-        let before = self.local.topic_groups();
+        let before_topics = self.local.topic_groups();
+        let before_paths = self.local.current_paths();
         let removed = self.local.unsubscribe(&topic, &subscriber);
         self.unwatch_if_unsubscribed(ctx, &subscriber);
-        self.sync_registry(before);
+        self.sync_registry(before_topics, before_paths);
         send_subscribe_ack(reply_to, topic, None, removed);
     }
 
@@ -202,11 +226,44 @@ where
         subscriber: ActorRef<M>,
         reply_to: Option<ActorRef<PubSubSubscribeAck>>,
     ) {
-        let before = self.local.topic_groups();
+        let before_topics = self.local.topic_groups();
+        let before_paths = self.local.current_paths();
         let removed = self.local.unsubscribe_group(&topic, &group, &subscriber);
         self.unwatch_if_unsubscribed(ctx, &subscriber);
-        self.sync_registry(before);
+        self.sync_registry(before_topics, before_paths);
         send_subscribe_ack(reply_to, topic, Some(group), removed);
+    }
+
+    fn put(
+        &mut self,
+        ctx: &mut Context<DistributedPubSubMediatorMsg<M>>,
+        actor: ActorRef<M>,
+        reply_to: Option<ActorRef<PubSubPathRegistration>>,
+    ) -> ActorResult {
+        let before_topics = self.local.topic_groups();
+        let before_paths = self.local.current_paths();
+        ctx.watch(&actor)?;
+        let registration = self.local.register_path(actor);
+        self.sync_registry(before_topics, before_paths);
+        send_path_registration(reply_to, registration);
+        Ok(())
+    }
+
+    fn remove_path(
+        &mut self,
+        ctx: &mut Context<DistributedPubSubMediatorMsg<M>>,
+        path: String,
+        reply_to: Option<ActorRef<PubSubPathRegistration>>,
+    ) {
+        let before_topics = self.local.topic_groups();
+        let before_paths = self.local.current_paths();
+        let actor = self.local.path_actor(&path).cloned();
+        let registration = self.local.remove_path(&path);
+        if let Some(actor) = actor {
+            self.unwatch_if_unsubscribed(ctx, &actor);
+        }
+        self.sync_registry(before_topics, before_paths);
+        send_path_registration(reply_to, registration);
     }
 
     fn publish(
@@ -222,6 +279,44 @@ where
             let _ = reply_to.tell(DistributedPubSubPublishReport {
                 topic,
                 mode,
+                plan,
+                delivery,
+            });
+        }
+    }
+
+    fn send_path(
+        &mut self,
+        path: String,
+        message: M,
+        local_affinity: bool,
+        reply_to: Option<ActorRef<DistributedPubSubSendReport>>,
+    ) {
+        let plan = PubSubPathDeliveryPlan::send(&self.registry, path.clone(), local_affinity);
+        let delivery = self.delivery.send_path(&plan, message);
+        if let Some(reply_to) = reply_to {
+            let _ = reply_to.tell(DistributedPubSubSendReport {
+                path,
+                mode: PubSubPathDeliveryMode::One { local_affinity },
+                plan,
+                delivery,
+            });
+        }
+    }
+
+    fn send_path_to_all(
+        &mut self,
+        path: String,
+        message: M,
+        all_but_self: bool,
+        reply_to: Option<ActorRef<DistributedPubSubSendReport>>,
+    ) {
+        let plan = PubSubPathDeliveryPlan::send_to_all(&self.registry, path.clone(), all_but_self);
+        let delivery = self.delivery.send_path(&plan, message);
+        if let Some(reply_to) = reply_to {
+            let _ = reply_to.tell(DistributedPubSubSendReport {
+                path,
+                mode: PubSubPathDeliveryMode::All { all_but_self },
                 plan,
                 delivery,
             });
@@ -278,19 +373,42 @@ where
                 subscriber,
                 reply_to,
             } => self.unsubscribe_group(ctx, topic, group, subscriber, reply_to),
+            LocalPubSubMsg::Put { actor, reply_to } => self.put(ctx, actor, reply_to)?,
+            LocalPubSubMsg::RemovePath { path, reply_to } => self.remove_path(ctx, path, reply_to),
             LocalPubSubMsg::GetTopics { reply_to } => {
                 let _ = reply_to.tell(CurrentTopics {
                     topics: self.local.current_topics(),
                 });
             }
+            LocalPubSubMsg::Send {
+                path,
+                message,
+                reply_to,
+            } => {
+                let report = self.local.send_path(&path, message);
+                if let Some(reply_to) = reply_to {
+                    let _ = reply_to.tell(report);
+                }
+            }
+            LocalPubSubMsg::SendToAll {
+                path,
+                message,
+                reply_to,
+            } => {
+                let report = self.local.send_path_to_all(&path, message);
+                if let Some(reply_to) = reply_to {
+                    let _ = reply_to.tell(report);
+                }
+            }
             LocalPubSubMsg::RemoveSubscriber {
                 subscriber,
                 reply_to,
             } => {
-                let before = self.local.topic_groups();
+                let before_topics = self.local.topic_groups();
+                let before_paths = self.local.current_paths();
                 let changed = self.local.remove_subscriber(&subscriber);
                 self.unwatch_if_unsubscribed(ctx, &subscriber);
-                self.sync_registry(before);
+                self.sync_registry(before_topics, before_paths);
                 if let Some(reply_to) = reply_to {
                     let _ = reply_to.tell(changed);
                 }
@@ -347,8 +465,13 @@ where
         self.registry.remove_node(node);
     }
 
-    fn sync_registry(&mut self, before: BTreeMap<TopicName, BTreeSet<String>>) {
+    fn sync_registry(
+        &mut self,
+        before: BTreeMap<TopicName, BTreeSet<String>>,
+        before_paths: BTreeSet<String>,
+    ) {
         let after = self.local.topic_groups();
+        let after_paths = self.local.current_paths();
 
         for (topic, groups) in &before {
             for group in groups {
@@ -385,6 +508,13 @@ where
                 self.registry.register_local_topic(topic.clone());
             }
         }
+
+        for path in before_paths.difference(&after_paths) {
+            self.registry.unregister_local_path(path.clone());
+        }
+        for path in after_paths.difference(&before_paths) {
+            self.registry.register_local_path(path.clone());
+        }
     }
 }
 
@@ -400,5 +530,14 @@ fn send_subscribe_ack(
             group,
             changed,
         });
+    }
+}
+
+fn send_path_registration(
+    reply_to: Option<ActorRef<PubSubPathRegistration>>,
+    registration: PubSubPathRegistration,
+) {
+    if let Some(reply_to) = reply_to {
+        let _ = reply_to.tell(registration);
     }
 }

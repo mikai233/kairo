@@ -223,6 +223,38 @@ where
                 },
                 PubSubRemoteDeliveryError::UnsupportedLocalMessage("unsubscribe-group").to_string(),
             )),
+            LocalPubSubMsg::Put { actor, reply_to } => Err(SendError::new(
+                LocalPubSubMsg::Put { actor, reply_to },
+                PubSubRemoteDeliveryError::UnsupportedLocalMessage("put-path").to_string(),
+            )),
+            LocalPubSubMsg::RemovePath { path, reply_to } => Err(SendError::new(
+                LocalPubSubMsg::RemovePath { path, reply_to },
+                PubSubRemoteDeliveryError::UnsupportedLocalMessage("remove-path").to_string(),
+            )),
+            LocalPubSubMsg::Send {
+                path,
+                message,
+                reply_to,
+            } => Err(SendError::new(
+                LocalPubSubMsg::Send {
+                    path,
+                    message,
+                    reply_to,
+                },
+                PubSubRemoteDeliveryError::UnsupportedLocalMessage("send-path").to_string(),
+            )),
+            LocalPubSubMsg::SendToAll {
+                path,
+                message,
+                reply_to,
+            } => Err(SendError::new(
+                LocalPubSubMsg::SendToAll {
+                    path,
+                    message,
+                    reply_to,
+                },
+                PubSubRemoteDeliveryError::UnsupportedLocalMessage("send-path-to-all").to_string(),
+            )),
             LocalPubSubMsg::GetTopics { reply_to } => Err(SendError::new(
                 LocalPubSubMsg::GetTopics { reply_to },
                 PubSubRemoteDeliveryError::UnsupportedLocalMessage("get-topics").to_string(),

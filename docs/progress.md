@@ -2512,6 +2512,12 @@ Implemented:
   that sends planned publish effects to local or remote mediator recipients,
   reports missing/send failures explicitly, and uses group-specific mediator
   commands so one-message-per-group delivery reaches only selected groups.
+- `kairo-cluster-tools` pubsub now supports Pekko-style path registrations for
+  `Send` and `SendToAll`: local pubsub stores address-stripped logical actor
+  paths, distributed registry deltas carry path entries, delivery planning can
+  prefer local affinity or fan out to all registered nodes, and the
+  actor-backed mediator exposes typed `Put`, `RemovePath`, `Send`, and
+  `SendToAll` commands with explicit delivery reports.
 - `kairo-cluster-tools` pubsub delivery planner and transport tests now live
   in a focused sibling test module.
 - `kairo-cluster-tools` now has an actor-backed distributed pubsub registry
@@ -5003,6 +5009,17 @@ git diff --check
 cargo test -p kairo-cluster-tools singleton_proxy_stops_when_self_is_removed --all-targets --all-features
 cargo test -p kairo-cluster-tools singleton_proxy --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools local_pubsub_registers_path_sends_and_prunes_stopped_actor --all-targets --all-features
+cargo test -p kairo-cluster-tools pubsub_path_delivery_plan_prefers_local_affinity_and_sends_to_all --all-targets --all-features
+cargo test -p kairo-cluster-tools pubsub_delivery_transport_sends_path_messages_to_selected_mediators --all-targets --all-features
+cargo test -p kairo-cluster-tools distributed_pubsub_mediator_sends_to_registered_path_with_local_affinity --all-targets --all-features
+cargo test -p kairo-cluster-tools distributed_pubsub_mediator_sends_path_to_all_except_self --all-targets --all-features
+cargo test -p kairo-cluster-tools pubsub --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
