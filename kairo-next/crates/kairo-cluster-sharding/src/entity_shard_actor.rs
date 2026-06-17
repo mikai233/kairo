@@ -4,7 +4,8 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 
 use crate::{
     EntityActorFactory, EntityDelivery, EntityId, EntityTerminatedPlan, PassivatePlan,
-    ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardMsg, ShardRuntime, ShardSnapshot,
+    RememberedEntitiesPlan, ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardMsg, ShardRuntime,
+    ShardSnapshot,
 };
 
 pub struct EntityShardActor<M>
@@ -133,6 +134,7 @@ where
             ShardMsg::RecoverRememberedEntities { entities, reply_to }
             | ShardMsg::RememberedEntitiesLoaded { entities, reply_to } => {
                 let plan = self.runtime.recover_remembered_entities(entities);
+                self.apply_remembered_entities_plan(ctx, &plan)?;
                 let _ = reply_to.tell(plan);
             }
             ShardMsg::RememberStoreLoadResult { result: _ }
@@ -238,6 +240,17 @@ where
             crate::RestartRememberedEntityPlan::AlreadyActive { .. }
             | crate::RestartRememberedEntityPlan::Ignored { .. } => Ok(()),
         }
+    }
+
+    fn apply_remembered_entities_plan(
+        &mut self,
+        ctx: &mut Context<ShardMsg<M>>,
+        plan: &RememberedEntitiesPlan,
+    ) -> Result<(), ActorError> {
+        for entity_id in &plan.started {
+            self.ensure_entity_child(ctx, entity_id)?;
+        }
+        Ok(())
     }
 
     fn deliver_to_entity(

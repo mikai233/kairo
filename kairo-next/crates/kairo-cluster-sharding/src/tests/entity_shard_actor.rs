@@ -1,5 +1,5 @@
 use super::*;
-use crate::{EntityTerminatedPlan, RestartRememberedEntityPlan};
+use crate::RestartRememberedEntityPlan;
 
 #[test]
 fn entity_shard_actor_spawns_child_and_delivers_business_messages() {
@@ -200,6 +200,83 @@ fn entity_shard_actor_buffers_passivating_delivery_and_restarts_child_after_term
 }
 
 #[test]
+fn entity_shard_actor_recovery_starts_remembered_entities() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-recover-starts").unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let (refs_tx, refs_rx) = mpsc::channel();
+    let factory = EntityActorFactory::new(move |entity_id| ControlledEntity {
+        entity_id,
+        observed: observed_tx.clone(),
+        refs: refs_tx.clone(),
+    });
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            EntityShardActor::props_with_remember_entities("shard-1", 10, factory),
+        )
+        .unwrap();
+    let recovery = kit
+        .create_probe::<RememberedEntitiesPlan>("recovery")
+        .unwrap();
+    let delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("delivery")
+        .unwrap();
+
+    shard
+        .tell(ShardMsg::RecoverRememberedEntities {
+            entities: vec![
+                "entity-b".to_string(),
+                "entity-a".to_string(),
+                String::new(),
+            ],
+            reply_to: recovery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        recovery.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberedEntitiesPlan {
+            started: vec!["entity-a".to_string(), "entity-b".to_string()],
+            already_active: Vec::new(),
+            ignored_empty: 1,
+        }
+    );
+
+    let first_ref = refs_rx
+        .recv_timeout(Duration::from_millis(500))
+        .expect("first remembered entity should start during recovery");
+    let second_ref = refs_rx
+        .recv_timeout(Duration::from_millis(500))
+        .expect("second remembered entity should start during recovery");
+    assert_ne!(first_ref.path(), second_ref.path());
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-a", "after-recovery".to_string()),
+            reply_to: delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        delivery.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-a", "after-recovery".to_string()),
+        }
+    );
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-a".to_string(), "after-recovery".to_string())
+    );
+    assert!(
+        refs_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "delivery to a recovered entity should reuse the recovery-started child"
+    );
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn entity_shard_actor_restart_remembered_entity_spawns_child() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-remember-restart").unwrap();
@@ -220,9 +297,6 @@ fn entity_shard_actor_restart_remembered_entity_spawns_child() {
     let recovery = kit
         .create_probe::<RememberedEntitiesPlan>("recovery")
         .unwrap();
-    let termination = kit
-        .create_probe::<EntityTerminatedPlan<String>>("termination")
-        .unwrap();
     let restart = kit
         .create_probe::<RestartRememberedEntityPlan>("restart")
         .unwrap();
@@ -238,27 +312,42 @@ fn entity_shard_actor_restart_remembered_entity_spawns_child() {
         .unwrap();
     recovery.expect_msg(Duration::from_millis(500)).unwrap();
 
-    shard
-        .tell(ShardMsg::EntityTerminated {
-            entity_id: "entity-1".to_string(),
-            reply_to: termination.actor_ref(),
-        })
-        .unwrap();
+    let initial_ref = refs_rx
+        .recv_timeout(Duration::from_millis(500))
+        .expect("recovery should start the remembered child");
+    initial_ref.tell("stop".to_string()).unwrap();
     assert_eq!(
-        termination.expect_msg(Duration::from_millis(500)).unwrap(),
-        EntityTerminatedPlan::RestartRemembered {
-            entity_id: "entity-1".to_string(),
-        }
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "stop".to_string())
     );
+    assert!(initial_ref.wait_for_stop(Duration::from_secs(1)));
 
-    shard
-        .tell(ShardMsg::RestartRememberedEntity {
-            entity_id: "entity-1".to_string(),
-            reply_to: restart.actor_ref(),
-        })
-        .unwrap();
+    let mut restart_plan = None;
+    for _ in 0..20 {
+        shard
+            .tell(ShardMsg::RestartRememberedEntity {
+                entity_id: "entity-1".to_string(),
+                reply_to: restart.actor_ref(),
+            })
+            .unwrap();
+        let plan = restart.expect_msg(Duration::from_millis(500)).unwrap();
+        match plan {
+            RestartRememberedEntityPlan::Started { .. } => {
+                restart_plan = Some(plan);
+                break;
+            }
+            RestartRememberedEntityPlan::AlreadyActive { .. } => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            RestartRememberedEntityPlan::Ignored { .. } => {
+                panic!("remembered entity restart should not be ignored");
+            }
+        }
+    }
     assert_eq!(
-        restart.expect_msg(Duration::from_millis(500)).unwrap(),
+        restart_plan.expect("remembered restart should eventually start after termination"),
         RestartRememberedEntityPlan::Started {
             entity_id: "entity-1".to_string(),
         }
@@ -266,6 +355,7 @@ fn entity_shard_actor_restart_remembered_entity_spawns_child() {
     let restarted_ref = refs_rx
         .recv_timeout(Duration::from_millis(500))
         .expect("remembered restart should spawn a child entity");
+    assert_ne!(initial_ref.path(), restarted_ref.path());
 
     shard
         .tell(ShardMsg::Deliver {
