@@ -571,6 +571,10 @@ Implemented:
 - `TestProbe<Signal>` now forwards actor lifecycle signals into the typed
   probe queue and exposes plain `watch`/`expect_terminated` helpers, so tests
   can assert `Signal::Terminated` through the same signal path actors observe.
+- `MultiNodeTestKit` now exposes node-local termination watch helpers that
+  create named-node erased probes, observe local actor death-watch
+  notifications, and preserve structured probe assertion errors for
+  multi-node lifecycle tests.
 - `TestProbe<M>` can now stop its backing probe actor and assert its
   termination with timeout diagnostics, matching Pekko's probe-stop testing
   shape while preserving Kairo's typed actor refs.

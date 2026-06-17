@@ -268,6 +268,81 @@ fn multi_node_testkit_creates_dead_letter_probes_on_named_nodes() {
 }
 
 #[test]
+fn multi_node_testkit_watches_node_local_actor_termination() {
+    let kit = MultiNodeTestKit::new(["watch-node-a", "watch-node-b"]).expect("nodes should build");
+    let subject_a = kit
+        .spawn_on(
+            "watch-node-a",
+            "subject-a",
+            Props::new(|| MultiNodeUnitActor),
+        )
+        .expect("subject a should spawn");
+    let subject_b = kit
+        .spawn_on(
+            "watch-node-b",
+            "subject-b",
+            Props::new(|| MultiNodeUnitActor),
+        )
+        .expect("subject b should spawn");
+    let watcher_a = kit
+        .watch_terminated_on("watch-node-a", "watcher-a", &subject_a)
+        .expect("watcher on node a should spawn and watch");
+    let watcher_b = kit
+        .watch_terminated_on("watch-node-b", "watcher-b", &subject_b)
+        .expect("watcher on node b should spawn and watch");
+
+    kit.system("watch-node-a").unwrap().stop(&subject_a);
+    assert_eq!(
+        watcher_a
+            .expect_msg(Duration::from_secs(1))
+            .expect("node-a watcher should observe subject-a")
+            .path(),
+        subject_a.path()
+    );
+    assert_eq!(watcher_b.expect_no_msg(Duration::ZERO), Ok(()));
+
+    kit.system("watch-node-b").unwrap().stop(&subject_b);
+    assert_eq!(
+        watcher_b
+            .expect_msg(Duration::from_secs(1))
+            .expect("node-b watcher should observe subject-b")
+            .path(),
+        subject_b.path()
+    );
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_expects_already_stopped_node_local_actor() {
+    let kit = MultiNodeTestKit::new(["stopped-watch-node"]).expect("node should build");
+    let subject = kit
+        .spawn_on(
+            "stopped-watch-node",
+            "subject",
+            Props::new(|| MultiNodeUnitActor),
+        )
+        .expect("subject should spawn");
+
+    kit.system("stopped-watch-node").unwrap().stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    let observed = kit
+        .expect_terminated_on(
+            "stopped-watch-node",
+            "watcher",
+            &subject,
+            Duration::from_secs(1),
+        )
+        .expect("already-stopped subject should be observed");
+    assert_eq!(observed.path(), subject.path());
+
+    kit.shutdown(Duration::from_secs(1))
+        .expect("node should terminate");
+}
+
+#[test]
 fn multi_node_testkit_rejects_empty_duplicate_and_unknown_nodes() {
     let empty =
         MultiNodeTestKit::new(Vec::<String>::new()).expect_err("empty node set should be rejected");

@@ -3,9 +3,9 @@ use std::fmt::{self, Display, Formatter};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorSystem, DeadLetter, Props};
+use kairo_actor::{Actor, ActorError, ActorRef, ActorSystem, AnyActorRef, DeadLetter, Props};
 
-use crate::{ActorSystemTestKit, ManualTime, TestProbe};
+use crate::{ActorSystemTestKit, ManualTime, ProbeError, TestProbe};
 
 /// Result type returned by multi-node testkit helpers.
 pub type MultiNodeResult<T> = std::result::Result<T, MultiNodeError>;
@@ -51,6 +51,8 @@ pub enum MultiNodeError {
     PoisonedBarrier,
     /// An underlying actor-system operation failed.
     Actor(ActorError),
+    /// A node-local probe assertion failed.
+    Probe(ProbeError),
 }
 
 impl Display for MultiNodeError {
@@ -110,6 +112,7 @@ impl Display for MultiNodeError {
             }
             Self::PoisonedBarrier => write!(f, "multi-node testkit barrier state is poisoned"),
             Self::Actor(error) => Display::fmt(error, f),
+            Self::Probe(error) => Display::fmt(error, f),
         }
     }
 }
@@ -119,6 +122,12 @@ impl std::error::Error for MultiNodeError {}
 impl From<ActorError> for MultiNodeError {
     fn from(error: ActorError) -> Self {
         Self::Actor(error)
+    }
+}
+
+impl From<ProbeError> for MultiNodeError {
+    fn from(error: ProbeError) -> Self {
+        Self::Probe(error)
     }
 }
 
@@ -485,6 +494,38 @@ impl MultiNodeTestKit {
         probe_name: impl AsRef<str>,
     ) -> MultiNodeResult<TestProbe<DeadLetter>> {
         self.create_event_probe_on(node_name, probe_name)
+    }
+
+    /// Creates an erased-ref probe on a named node and starts watching a
+    /// node-local actor through the regular local death-watch path.
+    pub fn watch_terminated_on<M>(
+        &self,
+        node_name: impl AsRef<str>,
+        probe_name: impl AsRef<str>,
+        subject: &ActorRef<M>,
+    ) -> MultiNodeResult<TestProbe<AnyActorRef>>
+    where
+        M: Send + 'static,
+    {
+        let probe = self.create_probe_on::<AnyActorRef>(node_name, probe_name)?;
+        probe.watch_terminated(subject)?;
+        Ok(probe)
+    }
+
+    /// Creates an erased-ref probe on a named node, watches a node-local actor,
+    /// and waits for the matching termination notification.
+    pub fn expect_terminated_on<M>(
+        &self,
+        node_name: impl AsRef<str>,
+        probe_name: impl AsRef<str>,
+        subject: &ActorRef<M>,
+        timeout: Duration,
+    ) -> MultiNodeResult<AnyActorRef>
+    where
+        M: Send + 'static,
+    {
+        let probe = self.create_probe_on::<AnyActorRef>(node_name, probe_name)?;
+        Ok(probe.expect_terminated(subject, timeout)?)
     }
 
     /// Terminates every node-owned actor system.
