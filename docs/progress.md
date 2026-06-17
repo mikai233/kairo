@@ -261,6 +261,9 @@ Implemented:
 - `ActorSystem::schedule_once`, `Context::schedule_once`, and
   `Context::schedule_once_self` can deliver typed messages after a delay through
   a cancellable local scheduler handle.
+- Scheduled self messages now have focused supervision coverage showing that
+  they remain normal actor-ref sends across owner resume and restart, unlike
+  actor-owned timers that are cancelled by restart cleanup.
 - Scheduler state lives in a focused `scheduler` module, and `Cancellable`
   reports cancellation and completion state.
 - `Context::start_single_timer`, `cancel_timer`, `cancel_all_timers`, and
@@ -3351,8 +3354,9 @@ Implemented:
   and stop dead-letter tests now live in a focused sibling test module.
 - `kairo-actor` ask success, timeout, and late-reply rejection tests now live
   in a focused sibling test module.
-- `kairo-actor` scheduler one-shot delivery, cancellation, and self-scheduling
-  tests now live in a focused sibling test module.
+- `kairo-actor` scheduler one-shot delivery, cancellation, self-scheduling,
+  and scheduled-self supervision tests now live in a focused sibling test
+  module.
 - `kairo-actor` timer single-shot, cancellation, replacement, fixed-delay,
   fixed-rate, actor-stop cleanup, and resume-supervision preservation tests
   now live in a focused sibling test module.
@@ -3640,6 +3644,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor schedule_once_self_survives_owner --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor scheduler --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor resume_supervision_preserves_stashed_messages --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-actor stash --all-targets --all-features

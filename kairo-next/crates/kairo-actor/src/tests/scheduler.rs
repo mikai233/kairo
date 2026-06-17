@@ -6,7 +6,14 @@ enum ScheduledMsg {
         delay: Duration,
         reply_to: mpsc::Sender<&'static str>,
     },
+    ScheduleSelfWithAck {
+        delay: Duration,
+        reply_to: mpsc::Sender<&'static str>,
+        ack: mpsc::Sender<()>,
+    },
     SelfFired(mpsc::Sender<&'static str>),
+    Fail,
+    Ping(mpsc::Sender<()>),
 }
 
 struct ScheduledProbe {
@@ -26,9 +33,24 @@ impl Actor for ScheduledProbe {
             ScheduledMsg::ScheduleSelf { delay, reply_to } => {
                 ctx.schedule_once_self(delay, ScheduledMsg::SelfFired(reply_to));
             }
+            ScheduledMsg::ScheduleSelfWithAck {
+                delay,
+                reply_to,
+                ack,
+            } => {
+                ctx.schedule_once_self(delay, ScheduledMsg::SelfFired(reply_to));
+                ack.send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
             ScheduledMsg::SelfFired(reply_to) => {
                 reply_to
                     .send("self")
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ScheduledMsg::Fail => return Err(ActorError::Message("boom".to_string())),
+            ScheduledMsg::Ping(reply_to) => {
+                reply_to
+                    .send(())
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
         }
@@ -112,6 +134,88 @@ fn context_schedule_once_self_reenters_actor_mailbox() {
         })
         .unwrap();
 
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "self"
+    );
+}
+
+#[test]
+fn schedule_once_self_survives_owner_resume_supervision() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let (observed_tx, _observed_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "scheduled",
+            Props::new(move || ScheduledProbe {
+                observed: observed_tx,
+            })
+            .with_supervisor(SupervisorStrategy::Resume),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (ack_tx, ack_rx) = mpsc::channel();
+
+    actor
+        .tell(ScheduledMsg::ScheduleSelfWithAck {
+            delay: Duration::from_secs(1),
+            reply_to: reply_tx,
+            ack: ack_tx,
+        })
+        .unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    actor.tell(ScheduledMsg::Fail).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    actor.tell(ScheduledMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    scheduler.advance(Duration::from_secs(1));
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "self"
+    );
+}
+
+#[test]
+fn schedule_once_self_survives_owner_restart_supervision() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let (observed_tx, _observed_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "scheduled",
+            Props::restartable(move || ScheduledProbe {
+                observed: observed_tx.clone(),
+            })
+            .with_supervisor(SupervisorStrategy::Restart),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (ack_tx, ack_rx) = mpsc::channel();
+
+    actor
+        .tell(ScheduledMsg::ScheduleSelfWithAck {
+            delay: Duration::from_secs(1),
+            reply_to: reply_tx,
+            ack: ack_tx,
+        })
+        .unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    actor.tell(ScheduledMsg::Fail).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    actor.tell(ScheduledMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    scheduler.advance(Duration::from_secs(1));
     assert_eq!(
         reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         "self"
