@@ -119,6 +119,8 @@ impl Actor for StartupPanicProbe {
 
 #[derive(Debug)]
 struct PreRestartHelperResults {
+    named_child_spawn: Result<(), String>,
+    anonymous_child_spawn: Result<(), String>,
     spawn_task: Result<(), String>,
     pipe_to_self: Result<(), String>,
     adapter: Result<(), String>,
@@ -176,6 +178,14 @@ impl Actor for PreRestartHelperProbe {
     fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
         match signal {
             Signal::PreRestart => {
+                let named_child_spawn = ctx
+                    .spawn("late-child", Props::new(|| Noop))
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
+                let anonymous_child_spawn = ctx
+                    .spawn_anonymous(Props::new(|| Noop))
+                    .map(|_| ())
+                    .map_err(|error| error.to_string());
                 let spawn_task = ctx
                     .spawn_task(|_| {})
                     .map(|_| ())
@@ -235,6 +245,8 @@ impl Actor for PreRestartHelperProbe {
                 let receive_timeout = ctx.receive_timeout();
                 self.results
                     .send(PreRestartHelperResults {
+                        named_child_spawn,
+                        anonymous_child_spawn,
                         spawn_task,
                         pipe_to_self,
                         adapter,
@@ -736,6 +748,18 @@ fn pre_restart_rejects_late_helper_creation() {
 
     let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     let expected = format!("actor `{}` is stopping", actor.path());
+    assert_eq!(
+        results
+            .named_child_spawn
+            .expect_err("named child spawn should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results
+            .anonymous_child_spawn
+            .expect_err("anonymous child spawn should be rejected"),
+        expected
+    );
     assert_eq!(
         results
             .spawn_task

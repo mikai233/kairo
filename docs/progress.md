@@ -215,9 +215,10 @@ Implemented:
   matching Pekko's observable recreate ordering while keeping Kairo's explicit
   Rust `Props::restartable` factory boundary.
 - Restart cleanup now treats `Signal::PreRestart` as an inactive owner scope
-  for helper creation: actor-owned tasks, `pipe_to_self`, adapters, asks,
-  watch registrations, stash operations, self scheduling, timers, and receive
-  timeouts are rejected or inert during the cleanup callback, and the
+  for helper creation: named and anonymous child spawns, actor-owned tasks,
+  `pipe_to_self`, adapters, asks, watch registrations, stash operations, self
+  scheduling, timers, and receive timeouts are rejected or inert during the
+  cleanup callback, and the
   replacement actor becomes active afterward.
 - Watching an already stopped local actor now has focused integration coverage:
   plain `watch` immediately delivers `Signal::Terminated`, while `watch_with`
