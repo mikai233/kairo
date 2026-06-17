@@ -376,6 +376,33 @@ fn actor_system_terminate_stops_top_level_actors() {
 }
 
 #[test]
+fn actor_system_terminate_is_idempotent_after_completion() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (stopped_tx, stopped_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "probe",
+            Props::new(move || StopProbe {
+                stopped: stopped_tx,
+            }),
+        )
+        .unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+    stopped_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+
+    system.terminate(Duration::ZERO).unwrap();
+
+    assert!(system.is_terminating());
+    assert!(system.is_terminated());
+    assert!(
+        stopped_rx.recv_timeout(Duration::from_millis(20)).is_err(),
+        "second termination should not deliver another PostStop"
+    );
+}
+
+#[test]
 fn actor_system_terminate_stops_system_actors() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (user_stopped_tx, user_stopped_rx) = mpsc::channel();

@@ -18,6 +18,9 @@ Implemented:
 - `ActorSystem::stop` can stop an idle local actor through the system lane.
 - `ActorSystem::terminate` stops top-level `/user` and `/system` actors,
   waits for termination, and rejects later spawns.
+- Actor-system termination coverage now also pins idempotent post-completion
+  behavior: a second `terminate` call succeeds as a no-op and does not deliver
+  another `PostStop`.
 - `Context::system`, `Context::spawn`, and `Context::spawn_anonymous` are
   available for local actors.
 - `ActorSystem::spawn_system` can spawn framework-owned actors under `/system`
