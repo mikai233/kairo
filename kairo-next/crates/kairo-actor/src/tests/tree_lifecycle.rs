@@ -1348,6 +1348,8 @@ struct PostStopHelperResults {
     pipe_to_self: Result<(), String>,
     adapter: Result<(), String>,
     ask: Result<(), String>,
+    stash: Result<(), String>,
+    unstash_all: Result<(), String>,
     schedule_once_self_cancelled: bool,
     single_timer_active: bool,
     fixed_delay_timer_active: bool,
@@ -1430,6 +1432,8 @@ impl Actor for PostStopHelperActor {
                 |_| (),
             )
             .map_err(|error| error.to_string());
+        let stash = ctx.stash(()).map_err(|error| error.to_string());
+        let unstash_all = ctx.unstash_all().map_err(|error| error.to_string());
         let schedule_once_self_cancelled = ctx
             .schedule_once_self(Duration::from_secs(1), ())
             .is_cancelled();
@@ -1457,6 +1461,8 @@ impl Actor for PostStopHelperActor {
                 pipe_to_self,
                 adapter,
                 ask,
+                stash,
+                unstash_all,
                 schedule_once_self_cancelled,
                 single_timer_active,
                 fixed_delay_timer_active,
@@ -1534,6 +1540,16 @@ fn post_stop_rejects_late_helper_creation() {
         expected
     );
     assert_eq!(results.ask.expect_err("ask should be rejected"), expected);
+    assert_eq!(
+        results.stash.expect_err("stash should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results
+            .unstash_all
+            .expect_err("unstash_all should be rejected"),
+        expected
+    );
     assert!(
         results.schedule_once_self_cancelled,
         "late self scheduling should return an already-cancelled handle"

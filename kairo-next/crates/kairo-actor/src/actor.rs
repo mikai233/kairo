@@ -149,23 +149,27 @@ impl<M: Send + 'static> Context<M> {
     }
 
     pub fn stash(&mut self, message: M) -> ActorResult {
+        self.ensure_actor_active()?;
         self.stash.stash(message)
     }
 
     pub fn unstash(&mut self, limit: usize) -> ActorResult {
+        self.ensure_actor_active()?;
         let messages = self.stash.take(limit);
-        if messages.is_empty() {
-            return Ok(());
-        }
-        self.myself
-            .prepend_user_messages(messages)
-            .map_err(|messages| {
-                ActorError::Message(format!("failed to unstash {} messages", messages.len()))
-            })
+        self.prepend_stashed_messages(messages)
     }
 
     pub fn unstash_all(&mut self) -> ActorResult {
+        self.ensure_actor_active()?;
+        self.drain_stash_to_mailbox()
+    }
+
+    pub(crate) fn drain_stash_to_mailbox(&mut self) -> ActorResult {
         let messages = self.stash.take_all();
+        self.prepend_stashed_messages(messages)
+    }
+
+    fn prepend_stashed_messages(&self, messages: Vec<M>) -> ActorResult {
         if messages.is_empty() {
             return Ok(());
         }

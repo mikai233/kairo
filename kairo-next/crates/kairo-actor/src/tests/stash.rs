@@ -5,6 +5,9 @@ enum StashProbeMsg {
     Open,
     UnstashOne,
     Fail,
+    StopThenTryStash {
+        reply_to: mpsc::Sender<(Result<(), ActorError>, usize)>,
+    },
     TryStash {
         value: usize,
         reply_to: mpsc::Sender<Result<(), ActorError>>,
@@ -38,6 +41,13 @@ impl Actor for StashProbe {
                 ctx.unstash(1)
             }
             StashProbeMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            StashProbeMsg::StopThenTryStash { reply_to } => {
+                ctx.stop(ctx.myself())?;
+                let result = ctx.stash(StashProbeMsg::Work(99));
+                reply_to
+                    .send((result, ctx.stash_len()))
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
             StashProbeMsg::TryStash { value, reply_to } => reply_to
                 .send(ctx.stash(StashProbeMsg::Work(value)))
                 .map_err(|error| ActorError::Message(error.to_string())),
@@ -55,6 +65,31 @@ impl Actor for StashProbe {
                 .map_err(|error| ActorError::Message(error.to_string())),
         }
     }
+}
+
+#[test]
+fn stash_rejects_messages_after_self_stop_is_requested() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "stash",
+            Props::new(|| StashProbe {
+                open: false,
+                values: Vec::new(),
+            })
+            .with_stash_capacity(8),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor
+        .tell(StashProbeMsg::StopThenTryStash { reply_to: reply_tx })
+        .unwrap();
+
+    let (result, stash_len) = reply_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(stash_len, 0);
+    assert!(matches!(result, Err(ActorError::ActorStopping { .. })));
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 
 #[test]

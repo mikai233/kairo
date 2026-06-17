@@ -115,6 +115,9 @@ Implemented:
   cancellation after enqueue, and actor-stop timer cleanup.
 - Focused fixed-delay timer tests cover repeated delivery, cancellation, and
   replacement generation filtering.
+- Stash operations now reject new public stash/unstash requests once an actor
+  has requested or entered stop, while runtime stop cleanup still drains
+  already-stashed messages to dead letters.
 - Focused event-stream tests cover typed subscription, duplicate subscription
   suppression, exact event-type matching, publishing, and unsubscribe.
 - `kairo-actor` runtime code is split by responsibility across modules instead
