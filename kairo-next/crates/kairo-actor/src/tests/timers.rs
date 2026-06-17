@@ -21,6 +21,14 @@ enum TimerProbeMsg {
         fired: mpsc::Sender<&'static str>,
         ack: mpsc::Sender<()>,
     },
+    StartZeroFixedDelay {
+        fired: mpsc::Sender<&'static str>,
+        active: mpsc::Sender<bool>,
+    },
+    StartZeroFixedRate {
+        fired: mpsc::Sender<&'static str>,
+        active: mpsc::Sender<bool>,
+    },
     ReplaceRepeating {
         fired: mpsc::Sender<&'static str>,
         ack: mpsc::Sender<()>,
@@ -123,6 +131,34 @@ impl Actor for TimerProbe {
                     },
                 );
                 ack.send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            TimerProbeMsg::StartZeroFixedDelay { fired, active } => {
+                ctx.start_timer_with_fixed_delay(
+                    "zero-repeat",
+                    Duration::ZERO,
+                    Duration::ZERO,
+                    TimerProbeMsg::FireLabel {
+                        label: "zero-repeat",
+                        reply_to: fired,
+                    },
+                );
+                active
+                    .send(ctx.is_timer_active("zero-repeat"))
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            TimerProbeMsg::StartZeroFixedRate { fired, active } => {
+                ctx.start_timer_at_fixed_rate(
+                    "zero-rate",
+                    Duration::ZERO,
+                    Duration::ZERO,
+                    TimerProbeMsg::FireLabel {
+                        label: "zero-rate",
+                        reply_to: fired,
+                    },
+                );
+                active
+                    .send(ctx.is_timer_active("zero-rate"))
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             TimerProbeMsg::ReplaceRepeating { fired, ack } => {
@@ -299,6 +335,24 @@ fn fixed_delay_timer_repeats_until_cancelled() {
 }
 
 #[test]
+fn zero_fixed_delay_timer_does_not_start_or_leave_active_key() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system.spawn("timer", Props::new(|| TimerProbe)).unwrap();
+    let (fired_tx, fired_rx) = mpsc::channel();
+    let (active_tx, active_rx) = mpsc::channel();
+
+    actor
+        .tell(TimerProbeMsg::StartZeroFixedDelay {
+            fired: fired_tx,
+            active: active_tx,
+        })
+        .unwrap();
+
+    assert!(!active_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+    assert!(fired_rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
 fn replacing_fixed_delay_timer_suppresses_previous_generation() {
     let system = ActorSystem::builder("test").build().unwrap();
     let actor = system.spawn("timer", Props::new(|| TimerProbe)).unwrap();
@@ -360,6 +414,24 @@ fn fixed_rate_timer_repeats_until_cancelled() {
         })
         .unwrap();
     cancel_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(fired_rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn zero_fixed_rate_timer_does_not_start_or_leave_active_key() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system.spawn("timer", Props::new(|| TimerProbe)).unwrap();
+    let (fired_tx, fired_rx) = mpsc::channel();
+    let (active_tx, active_rx) = mpsc::channel();
+
+    actor
+        .tell(TimerProbeMsg::StartZeroFixedRate {
+            fired: fired_tx,
+            active: active_tx,
+        })
+        .unwrap();
+
+    assert!(!active_rx.recv_timeout(Duration::from_secs(1)).unwrap());
     assert!(fired_rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 

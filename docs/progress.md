@@ -243,6 +243,9 @@ Implemented:
 - `Context::start_timer_at_fixed_rate` provides keyed repeated self timers that
   schedule against the planned cadence and preserve the same generation
   filtering as single and fixed-delay timers.
+- Repeated timer starts with a zero repeat period now cancel the key without
+  scheduling work, preventing immediate real-scheduler spin while keeping the
+  current infallible timer API inactive for invalid repeat periods.
 - Timer state and envelopes live in a focused `timers` module and active timers
   are cancelled when the owning actor stops.
 - Actor-owned self scheduling, timer starts, and receive-timeout arming are

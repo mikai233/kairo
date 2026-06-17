@@ -315,6 +315,10 @@ impl<M: Send + 'static> Context<M> {
             return;
         }
         let key = key.into();
+        if delay.is_zero() {
+            self.timers.cancel(key.as_str());
+            return;
+        }
         let generation = self.timers.next_generation();
         let cancellable = self.system.schedule_timer_with_fixed_delay(
             initial_delay,
@@ -341,6 +345,10 @@ impl<M: Send + 'static> Context<M> {
             return;
         }
         let key = key.into();
+        if interval.is_zero() {
+            self.timers.cancel(key.as_str());
+            return;
+        }
         let generation = self.timers.next_generation();
         let cancellable = self.system.schedule_timer_at_fixed_rate(
             initial_delay,
