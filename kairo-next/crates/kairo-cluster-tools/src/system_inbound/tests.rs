@@ -14,9 +14,9 @@ use super::*;
 use crate::{
     DEFAULT_PUBSUB_REMOTE_PATH, DEFAULT_SINGLETON_MANAGER_REMOTE_PATH,
     DistributedPubSubMediatorMsg, LocalPubSubMsg, PubSubGossipMsg, PubSubGossipWireInbound,
-    PubSubPublishEnvelope, PubSubRemoteDeliveryInbound, PubSubStatus, SingletonHandOverToMe,
-    SingletonManagerMsg, SingletonManagerRemoteInbound, TopicName, TopicPublishMode,
-    register_cluster_tools_protocol_codecs,
+    PubSubPathEnvelope, PubSubPublishEnvelope, PubSubRemoteDeliveryInbound, PubSubStatus,
+    SingletonHandOverToMe, SingletonManagerMsg, SingletonManagerRemoteInbound, TopicName,
+    TopicPublishMode, register_cluster_tools_protocol_codecs,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,6 +150,32 @@ fn system_inbound_routes_pubsub_publish_envelopes() {
             assert!(reply_to.is_none());
         }
         _ => panic!("expected pubsub publish to route to mediator local delivery"),
+    }
+
+    let path = PubSubPathEnvelope {
+        path: "/user/worker".to_string(),
+        all: true,
+        message: registry.serialize(&TestMessage { value: 4 }).unwrap(),
+    };
+    inbound
+        .receive(RemoteEnvelope::new(
+            recipient_for(&self_node, DEFAULT_PUBSUB_REMOTE_PATH),
+            None,
+            registry.serialize(&path).unwrap(),
+        ))
+        .unwrap();
+
+    match mediator.expect_msg(Duration::from_secs(1)).unwrap() {
+        DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::SendToAll {
+            path,
+            message,
+            reply_to,
+        }) => {
+            assert_eq!(path, "/user/worker");
+            assert_eq!(message, TestMessage { value: 4 });
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected pubsub path envelope to route to mediator local delivery"),
     }
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -318,6 +344,9 @@ fn cluster_tools_manifest_helper_matches_system_protocols() {
     assert!(is_cluster_tools_system_manifest(PubSubStatus::MANIFEST));
     assert!(is_cluster_tools_system_manifest(
         PubSubPublishEnvelope::MANIFEST
+    ));
+    assert!(is_cluster_tools_system_manifest(
+        PubSubPathEnvelope::MANIFEST
     ));
     assert!(is_cluster_tools_system_manifest(
         SingletonHandOverToMe::MANIFEST

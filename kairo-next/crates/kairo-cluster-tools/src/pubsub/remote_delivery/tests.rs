@@ -14,8 +14,9 @@ use kairo_testkit::ActorSystemTestKit;
 use super::*;
 use crate::{
     DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg, LocalPubSubMsg,
-    PUBSUB_PUBLISH_SERIALIZER_ID, PubSubPublishEnvelope, PubSubRegistryState, PubSubRemoteTarget,
-    TopicName, TopicPublishMode, register_cluster_tools_protocol_codecs,
+    PUBSUB_PATH_SERIALIZER_ID, PUBSUB_PUBLISH_SERIALIZER_ID, PubSubPathEnvelope,
+    PubSubPublishEnvelope, PubSubRegistryState, PubSubRemoteTarget, TopicName, TopicPublishMode,
+    register_cluster_tools_protocol_codecs,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +164,59 @@ fn remote_delivery_outbound_wraps_group_publish_for_target_mediator() {
 }
 
 #[test]
+fn remote_delivery_outbound_wraps_path_messages_for_target_mediator() {
+    let registry = registry();
+    let target = node("target", 2);
+    let collecting = Arc::new(CollectingRemoteOutbound::default());
+    let outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        target.clone(),
+        registry.clone(),
+        collecting.clone() as Arc<dyn RemoteOutbound>,
+    );
+
+    outbound
+        .tell(LocalPubSubMsg::Send {
+            path: "/user/worker".to_string(),
+            message: TestMessage { value: 8 },
+            reply_to: None,
+        })
+        .unwrap();
+    outbound
+        .tell(LocalPubSubMsg::SendToAll {
+            path: "/user/worker".to_string(),
+            message: TestMessage { value: 9 },
+            reply_to: None,
+        })
+        .unwrap();
+
+    let sent = collecting.sent();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0].recipient, recipient_for(&target));
+    assert_eq!(sent[0].message.serializer_id, PUBSUB_PATH_SERIALIZER_ID);
+    let send = registry
+        .deserialize::<PubSubPathEnvelope>(sent[0].message.clone())
+        .unwrap();
+    assert_eq!(send.path, "/user/worker");
+    assert!(!send.all);
+    assert_eq!(
+        registry.deserialize::<TestMessage>(send.message).unwrap(),
+        TestMessage { value: 8 }
+    );
+
+    let send_to_all = registry
+        .deserialize::<PubSubPathEnvelope>(sent[1].message.clone())
+        .unwrap();
+    assert_eq!(send_to_all.path, "/user/worker");
+    assert!(send_to_all.all);
+    assert_eq!(
+        registry
+            .deserialize::<TestMessage>(send_to_all.message)
+            .unwrap(),
+        TestMessage { value: 9 }
+    );
+}
+
+#[test]
 fn remote_delivery_outbound_can_use_association_cache() {
     let registry = registry();
     let target = node("target", 2);
@@ -257,6 +311,70 @@ fn mediator_can_publish_through_remote_delivery_target() {
 }
 
 #[test]
+fn mediator_can_send_path_through_remote_delivery_target() {
+    let kit = ActorSystemTestKit::new("pubsub-remote-path-delivery-mediator").unwrap();
+    let registry = registry();
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let collecting = Arc::new(CollectingRemoteOutbound::default());
+    let remote_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        node_b.clone(),
+        registry.clone(),
+        collecting.clone() as Arc<dyn RemoteOutbound>,
+    );
+    let mut remote_registry = PubSubRegistryState::new(node_b.clone());
+    remote_registry.register_local_path("/user/worker");
+    let delta = remote_registry.collect_delta(&Default::default(), 10);
+    let reports = kit
+        .create_probe::<crate::DistributedPubSubSendReport>("reports")
+        .unwrap();
+    let mediator = kit
+        .system()
+        .spawn(
+            "mediator",
+            Props::new({
+                let node_a = node_a.clone();
+                move || DistributedPubSubMediatorActor::<TestMessage>::new(node_a.clone())
+            }),
+        )
+        .unwrap();
+
+    mediator
+        .tell(DistributedPubSubMediatorMsg::AddRemoteTarget {
+            target: PubSubRemoteTarget::new(node_b.clone(), remote_outbound),
+        })
+        .unwrap();
+    mediator
+        .tell(DistributedPubSubMediatorMsg::MergeDelta { delta })
+        .unwrap();
+    mediator
+        .tell(DistributedPubSubMediatorMsg::SendToAll {
+            path: "/user/worker".to_string(),
+            message: TestMessage { value: 12 },
+            all_but_self: false,
+            reply_to: Some(reports.actor_ref()),
+        })
+        .unwrap();
+
+    let report = reports.expect_msg(Duration::from_secs(1)).unwrap();
+    assert!(report.delivery.is_success());
+    let sent = collecting.sent();
+    assert_eq!(sent.len(), 1);
+    let envelope = registry
+        .deserialize::<PubSubPathEnvelope>(sent[0].message.clone())
+        .unwrap();
+    assert_eq!(envelope.path, "/user/worker");
+    assert!(envelope.all);
+    assert_eq!(
+        registry
+            .deserialize::<TestMessage>(envelope.message)
+            .unwrap(),
+        TestMessage { value: 12 }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn remote_delivery_inbound_delivers_publish_to_mediator_actor_ref() {
     let kit = ActorSystemTestKit::new("pubsub-remote-delivery-in").unwrap();
     let registry = registry();
@@ -296,6 +414,68 @@ fn remote_delivery_inbound_delivers_publish_to_mediator_actor_ref() {
             assert!(reply_to.is_none());
         }
         _ => panic!("expected remote publish to be delivered to mediator local delivery"),
+    }
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn remote_delivery_inbound_delivers_path_messages_to_mediator_actor_ref() {
+    let kit = ActorSystemTestKit::new("pubsub-remote-path-delivery-in").unwrap();
+    let registry = registry();
+    let self_node = node("self", 1);
+    let mediator = kit
+        .create_probe::<DistributedPubSubMediatorMsg<TestMessage>>("mediator")
+        .unwrap();
+    let inbound =
+        PubSubRemoteDeliveryInbound::new(self_node.clone(), registry.clone(), mediator.actor_ref());
+
+    for all in [false, true] {
+        let envelope = PubSubPathEnvelope {
+            path: "/user/worker".to_string(),
+            all,
+            message: registry
+                .serialize(&TestMessage {
+                    value: if all { 2 } else { 1 },
+                })
+                .expect("test message serializes"),
+        };
+
+        inbound
+            .receive(RemoteEnvelope::new(
+                recipient_for(&self_node),
+                None,
+                registry.serialize(&envelope).unwrap(),
+            ))
+            .unwrap();
+
+        let msg = mediator.expect_msg(Duration::from_secs(1)).unwrap();
+        match (all, msg) {
+            (
+                false,
+                DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::Send {
+                    path,
+                    message,
+                    reply_to,
+                }),
+            ) => {
+                assert_eq!(path, "/user/worker");
+                assert_eq!(message, TestMessage { value: 1 });
+                assert!(reply_to.is_none());
+            }
+            (
+                true,
+                DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::SendToAll {
+                    path,
+                    message,
+                    reply_to,
+                }),
+            ) => {
+                assert_eq!(path, "/user/worker");
+                assert_eq!(message, TestMessage { value: 2 });
+                assert!(reply_to.is_none());
+            }
+            _ => panic!("expected remote path envelope to be delivered to mediator local delivery"),
+        }
     }
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }

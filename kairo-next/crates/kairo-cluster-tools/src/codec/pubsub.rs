@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use kairo_serialization::{MessageCodec, WireReader, WireWriter};
 
-use crate::{PubSubDelta, PubSubPublishEnvelope, PubSubStatus};
+use crate::{PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope, PubSubStatus};
 
 use super::wire::{
     ensure_version, read_delta, read_serialized_message, read_topic, read_unique_address,
@@ -12,6 +12,7 @@ use super::wire::{
 pub const PUBSUB_STATUS_SERIALIZER_ID: u32 = 5_000;
 pub const PUBSUB_DELTA_SERIALIZER_ID: u32 = 5_001;
 pub const PUBSUB_PUBLISH_SERIALIZER_ID: u32 = 5_002;
+pub const PUBSUB_PATH_SERIALIZER_ID: u32 = 5_003;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PubSubStatusCodec;
@@ -95,6 +96,39 @@ impl MessageCodec<PubSubPublishEnvelope> for PubSubPublishEnvelopeCodec {
         let envelope = PubSubPublishEnvelope {
             topic: read_topic(&mut reader)?,
             group: reader.read_optional_string()?,
+            message: read_serialized_message(&mut reader)?,
+        };
+        reader.ensure_finished()?;
+        Ok(envelope)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PubSubPathEnvelopeCodec;
+
+impl MessageCodec<PubSubPathEnvelope> for PubSubPathEnvelopeCodec {
+    fn serializer_id(&self) -> u32 {
+        PUBSUB_PATH_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &PubSubPathEnvelope) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        writer.write_string(&message.path)?;
+        writer.write_bool(message.all);
+        write_serialized_message(&mut writer, &message.message)?;
+        Ok(writer.finish())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<PubSubPathEnvelope> {
+        ensure_version::<PubSubPathEnvelope>(version)?;
+        let mut reader = WireReader::new(&payload);
+        let envelope = PubSubPathEnvelope {
+            path: reader.read_string()?,
+            all: reader.read_bool()?,
             message: read_serialized_message(&mut reader)?,
         };
         reader.ensure_finished()?;

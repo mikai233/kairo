@@ -41,6 +41,18 @@ impl RemoteMessage for PubSubPublishEnvelope {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PubSubPathEnvelope {
+    pub path: String,
+    pub all: bool,
+    pub message: SerializedMessage,
+}
+
+impl RemoteMessage for PubSubPathEnvelope {
+    const MANIFEST: &'static str = "kairo.cluster-tools.pubsub.path";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SingletonHandOverToMe {
     pub from: UniqueAddress,
 }
@@ -95,6 +107,10 @@ mod tests {
             "kairo.cluster-tools.pubsub.publish"
         );
         assert_eq!(
+            PubSubPathEnvelope::MANIFEST,
+            "kairo.cluster-tools.pubsub.path"
+        );
+        assert_eq!(
             SingletonHandOverToMe::MANIFEST,
             "kairo.cluster-tools.singleton.hand-over-to-me"
         );
@@ -112,12 +128,16 @@ mod tests {
         );
         assert_eq!(PubSubStatus::VERSION, 1);
         assert_eq!(PubSubPublishEnvelope::VERSION, 1);
+        assert_eq!(PubSubPathEnvelope::VERSION, 1);
         assert_eq!(SingletonHandOverToMe::VERSION, 1);
         assert!(!PubSubStatus::MANIFEST.contains(std::any::type_name::<PubSubStatus>()));
         assert!(!PubSubDelta::MANIFEST.contains(std::any::type_name::<PubSubDelta>()));
         assert!(
             !PubSubPublishEnvelope::MANIFEST
                 .contains(std::any::type_name::<PubSubPublishEnvelope>())
+        );
+        assert!(
+            !PubSubPathEnvelope::MANIFEST.contains(std::any::type_name::<PubSubPathEnvelope>())
         );
         assert!(
             !SingletonHandOverToMe::MANIFEST

@@ -6,7 +6,7 @@ use kairo_cluster::UniqueAddress;
 use kairo_remote::RemoteOutbound;
 use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
 
-use crate::{LocalPubSubMsg, PubSubPublishEnvelope, TopicPublishMode};
+use crate::{LocalPubSubMsg, PubSubPathEnvelope, PubSubPublishEnvelope, TopicPublishMode};
 
 use super::{DEFAULT_PUBSUB_REMOTE_PATH, PubSubRemoteDeliveryError, recipient_for_node};
 
@@ -62,9 +62,9 @@ impl<M> PubSubRemoteDeliveryOutbound<M> {
         recipient_for_node(&self.target, &self.recipient_path)
     }
 
-    fn send_envelope(
+    fn send_envelope<E: RemoteMessage>(
         &self,
-        envelope: PubSubPublishEnvelope,
+        envelope: E,
     ) -> Result<(), PubSubRemoteDeliveryError> {
         let recipient = self.recipient_for_target()?;
         let serialized = self.registry.serialize(&envelope)?;
@@ -91,6 +91,19 @@ where
         Ok(PubSubPublishEnvelope {
             topic,
             group,
+            message: self.registry.serialize(message)?,
+        })
+    }
+
+    fn path_envelope(
+        &self,
+        path: String,
+        all: bool,
+        message: &M,
+    ) -> Result<PubSubPathEnvelope, PubSubRemoteDeliveryError> {
+        Ok(PubSubPathEnvelope {
+            path,
+            all,
             message: self.registry.serialize(message)?,
         })
     }
@@ -235,26 +248,50 @@ where
                 path,
                 message,
                 reply_to,
-            } => Err(SendError::new(
-                LocalPubSubMsg::Send {
-                    path,
-                    message,
-                    reply_to,
-                },
-                PubSubRemoteDeliveryError::UnsupportedLocalMessage("send-path").to_string(),
-            )),
+            } => match self.path_envelope(path.clone(), false, &message) {
+                Ok(envelope) => self.send_envelope(envelope).map_err(|error| {
+                    SendError::new(
+                        LocalPubSubMsg::Send {
+                            path,
+                            message,
+                            reply_to,
+                        },
+                        error.to_string(),
+                    )
+                }),
+                Err(error) => Err(SendError::new(
+                    LocalPubSubMsg::Send {
+                        path,
+                        message,
+                        reply_to,
+                    },
+                    error.to_string(),
+                )),
+            },
             LocalPubSubMsg::SendToAll {
                 path,
                 message,
                 reply_to,
-            } => Err(SendError::new(
-                LocalPubSubMsg::SendToAll {
-                    path,
-                    message,
-                    reply_to,
-                },
-                PubSubRemoteDeliveryError::UnsupportedLocalMessage("send-path-to-all").to_string(),
-            )),
+            } => match self.path_envelope(path.clone(), true, &message) {
+                Ok(envelope) => self.send_envelope(envelope).map_err(|error| {
+                    SendError::new(
+                        LocalPubSubMsg::SendToAll {
+                            path,
+                            message,
+                            reply_to,
+                        },
+                        error.to_string(),
+                    )
+                }),
+                Err(error) => Err(SendError::new(
+                    LocalPubSubMsg::SendToAll {
+                        path,
+                        message,
+                        reply_to,
+                    },
+                    error.to_string(),
+                )),
+            },
             LocalPubSubMsg::GetTopics { reply_to } => Err(SendError::new(
                 LocalPubSubMsg::GetTopics { reply_to },
                 PubSubRemoteDeliveryError::UnsupportedLocalMessage("get-topics").to_string(),

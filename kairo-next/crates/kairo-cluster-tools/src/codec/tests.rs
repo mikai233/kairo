@@ -6,14 +6,15 @@ use kairo_cluster::UniqueAddress;
 use kairo_serialization::{Manifest, Registry, RemoteMessage, SerializedMessage};
 
 use super::{
-    PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_PUBLISH_SERIALIZER_ID, PUBSUB_STATUS_SERIALIZER_ID,
-    SINGLETON_HAND_OVER_DONE_SERIALIZER_ID, SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID,
-    SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID, SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID,
-    register_cluster_tools_protocol_codecs,
+    PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_PATH_SERIALIZER_ID, PUBSUB_PUBLISH_SERIALIZER_ID,
+    PUBSUB_STATUS_SERIALIZER_ID, SINGLETON_HAND_OVER_DONE_SERIALIZER_ID,
+    SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID, SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID,
+    SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID, register_cluster_tools_protocol_codecs,
 };
 use crate::{
-    PubSubDelta, PubSubPublishEnvelope, PubSubRegistryState, PubSubStatus, SingletonHandOverDone,
-    SingletonHandOverInProgress, SingletonHandOverToMe, SingletonTakeOverFromMe, TopicName,
+    PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope, PubSubRegistryState, PubSubStatus,
+    SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
+    SingletonTakeOverFromMe, TopicName,
 };
 
 fn registry() -> Registry {
@@ -117,6 +118,33 @@ fn cluster_tools_codecs_round_trip_pubsub_publish_envelope() {
     assert_eq!(
         registry
             .deserialize::<PubSubPublishEnvelope>(serialized)
+            .unwrap(),
+        envelope
+    );
+}
+
+#[test]
+fn cluster_tools_codecs_round_trip_pubsub_path_envelope() {
+    let registry = registry();
+    let inner = SerializedMessage::new(
+        77,
+        Manifest::new("example.business.message"),
+        3,
+        Bytes::from_static(&[1, 2, 3]),
+    );
+    let envelope = PubSubPathEnvelope {
+        path: "/user/worker".to_string(),
+        all: true,
+        message: inner,
+    };
+
+    let serialized = registry.serialize(&envelope).unwrap();
+
+    assert_eq!(serialized.serializer_id, PUBSUB_PATH_SERIALIZER_ID);
+    assert_eq!(serialized.manifest.as_str(), PubSubPathEnvelope::MANIFEST);
+    assert_eq!(
+        registry
+            .deserialize::<PubSubPathEnvelope>(serialized)
             .unwrap(),
         envelope
     );
@@ -234,6 +262,19 @@ fn cluster_tools_codecs_reject_trailing_payload_bytes() {
         &PubSubPublishEnvelope {
             topic: TopicName::new("orders"),
             group: Some("workers".to_string()),
+            message: SerializedMessage::new(
+                77,
+                Manifest::new("example.business.message"),
+                3,
+                Bytes::from_static(&[1, 2, 3]),
+            ),
+        },
+    );
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &PubSubPathEnvelope {
+            path: "/user/worker".to_string(),
+            all: false,
             message: SerializedMessage::new(
                 77,
                 Manifest::new("example.business.message"),

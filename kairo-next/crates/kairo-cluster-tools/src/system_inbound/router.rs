@@ -6,9 +6,10 @@ use kairo_remote::{RemoteError, RemoteFrameHandler, RemoteStreamId, decode_remot
 use kairo_serialization::{ActorRefWireData, RemoteEnvelope, RemoteMessage};
 
 use crate::{
-    DEFAULT_PUBSUB_REMOTE_PATH, PubSubDelta, PubSubGossipWireInbound, PubSubPublishEnvelope,
-    PubSubRemoteDeliveryInbound, PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress,
-    SingletonHandOverToMe, SingletonManagerRemoteInbound, SingletonTakeOverFromMe,
+    DEFAULT_PUBSUB_REMOTE_PATH, PubSubDelta, PubSubGossipWireInbound, PubSubPathEnvelope,
+    PubSubPublishEnvelope, PubSubRemoteDeliveryInbound, PubSubStatus, SingletonHandOverDone,
+    SingletonHandOverInProgress, SingletonHandOverToMe, SingletonManagerRemoteInbound,
+    SingletonTakeOverFromMe,
 };
 
 use super::ClusterToolsSystemInboundError;
@@ -73,7 +74,7 @@ where
                     .receive_message(envelope.message)?;
                 Ok(())
             }
-            PubSubPublishEnvelope::MANIFEST => {
+            PubSubPublishEnvelope::MANIFEST | PubSubPathEnvelope::MANIFEST => {
                 self.pubsub_delivery
                     .as_ref()
                     .ok_or(ClusterToolsSystemInboundError::MissingHandler(
@@ -117,6 +118,7 @@ pub fn is_cluster_tools_system_manifest(manifest: &str) -> bool {
         PubSubStatus::MANIFEST
             | PubSubDelta::MANIFEST
             | PubSubPublishEnvelope::MANIFEST
+            | PubSubPathEnvelope::MANIFEST
             | SingletonHandOverToMe::MANIFEST
             | SingletonHandOverInProgress::MANIFEST
             | SingletonHandOverDone::MANIFEST

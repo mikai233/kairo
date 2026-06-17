@@ -2572,6 +2572,13 @@ Implemented:
   `PubSubRemoteDeliveryInbound` validates `/system/pubsub` envelopes before
   dispatching decoded publishes into the actor-backed mediator's local
   delivery path.
+- `kairo-cluster-tools` distributed pubsub path delivery now has the same
+  stable remote boundary: `PubSubPathEnvelope` carries the logical actor path,
+  `Send` versus `SendToAll` mode, and serialized business payload, is
+  registered with an explicit serializer id, routes through
+  `PubSubRemoteDeliveryOutbound`/`Inbound`, and is classified by the
+  cluster-tools system inbound router without relying on Rust type names or
+  enum discriminants.
 - `kairo-cluster-tools` now has a focused system inbound router that dispatches
   decoded cluster-tools remote envelopes by stable manifest: pubsub
   status/delta traffic routes to the gossip wire inbound, pubsub publish
@@ -5018,6 +5025,19 @@ cargo test -p kairo-cluster-tools pubsub_delivery_transport_sends_path_messages_
 cargo test -p kairo-cluster-tools distributed_pubsub_mediator_sends_to_registered_path_with_local_affinity --all-targets --all-features
 cargo test -p kairo-cluster-tools distributed_pubsub_mediator_sends_path_to_all_except_self --all-targets --all-features
 cargo test -p kairo-cluster-tools pubsub --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools cluster_tools_codecs_round_trip_pubsub_path_envelope --all-targets --all-features
+cargo test -p kairo-cluster-tools remote_delivery_outbound_wraps_path_messages_for_target_mediator --all-targets --all-features
+cargo test -p kairo-cluster-tools remote_delivery_inbound_delivers_path_messages_to_mediator_actor_ref --all-targets --all-features
+cargo test -p kairo-cluster-tools mediator_can_send_path_through_remote_delivery_target --all-targets --all-features
+cargo test -p kairo-cluster-tools pubsub --all-targets --all-features
+cargo test -p kairo-cluster-tools system_inbound_routes_pubsub_publish_envelopes --all-targets --all-features
+cargo test -p kairo-cluster-tools cluster_tools_system_manifests_are_stable --all-targets --all-features
+cargo test -p kairo-cluster-tools cluster_tools_manifest_helper_matches_system_protocols --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check

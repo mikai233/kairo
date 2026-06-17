@@ -6,7 +6,8 @@ use kairo_cluster::UniqueAddress;
 use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage, SerializedMessage};
 
 use crate::{
-    DistributedPubSubMediatorMsg, LocalPubSubMsg, PubSubPublishEnvelope, TopicPublishMode,
+    DistributedPubSubMediatorMsg, LocalPubSubMsg, PubSubPathEnvelope, PubSubPublishEnvelope,
+    TopicPublishMode,
 };
 
 use super::{DEFAULT_PUBSUB_REMOTE_PATH, PubSubRemoteDeliveryError, validate_recipient};
@@ -80,6 +81,24 @@ where
                         mode: TopicPublishMode::Broadcast,
                         reply_to: None,
                     },
+                };
+                self.tell_mediator(delivery)
+            }
+            PubSubPathEnvelope::MANIFEST => {
+                let envelope = self.registry.deserialize::<PubSubPathEnvelope>(message)?;
+                let business = self.registry.deserialize::<M>(envelope.message)?;
+                let delivery = if envelope.all {
+                    LocalPubSubMsg::SendToAll {
+                        path: envelope.path,
+                        message: business,
+                        reply_to: None,
+                    }
+                } else {
+                    LocalPubSubMsg::Send {
+                        path: envelope.path,
+                        message: business,
+                        reply_to: None,
+                    }
                 };
                 self.tell_mediator(delivery)
             }

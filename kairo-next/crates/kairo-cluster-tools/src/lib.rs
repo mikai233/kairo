@@ -70,13 +70,13 @@ mod test_support;
 mod topic;
 
 pub use codec::{
-    PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_PUBLISH_SERIALIZER_ID, PUBSUB_STATUS_SERIALIZER_ID,
-    SINGLETON_HAND_OVER_DONE_SERIALIZER_ID, SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID,
-    SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID, SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID,
-    register_cluster_tools_protocol_codecs,
+    PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_PATH_SERIALIZER_ID, PUBSUB_PUBLISH_SERIALIZER_ID,
+    PUBSUB_STATUS_SERIALIZER_ID, SINGLETON_HAND_OVER_DONE_SERIALIZER_ID,
+    SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID, SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID,
+    SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID, register_cluster_tools_protocol_codecs,
 };
 pub use protocol::{
-    PubSubDelta, PubSubPublishEnvelope, PubSubStatus, SingletonHandOverDone,
+    PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope, PubSubStatus, SingletonHandOverDone,
     SingletonHandOverInProgress, SingletonHandOverToMe, SingletonTakeOverFromMe,
 };
 pub use pubsub::{
