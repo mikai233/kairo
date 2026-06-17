@@ -12,8 +12,8 @@ use kairo_serialization::Registry;
 
 use super::*;
 use crate::{
-    DeltaPropagationLog, DeltaPropagationTransport, GCounter, GCounterCodec, ReplicatorActor,
-    ReplicatorClusterConnectorClock, ReplicatorKey, ReplicatorRemoteEnvelope,
+    DeltaPropagationLog, DeltaPropagationTransport, DeltaTransportFailure, GCounter, GCounterCodec,
+    ReplicatorActor, ReplicatorClusterConnectorClock, ReplicatorKey, ReplicatorRemoteEnvelope,
     register_ddata_protocol_codecs,
 };
 
@@ -348,7 +348,7 @@ fn connector_registers_remote_route_targets_from_cluster_routes() {
     let transport = DeltaPropagationTransport::with_target_registry(
         ReplicaId::from(&self_node),
         GCounterCodec,
-        delta_targets,
+        delta_targets.clone(),
     );
     let key = ReplicatorKey::new("counter");
     let mut log = DeltaPropagationLog::new([ReplicaId::from(&peer)]);
@@ -362,6 +362,51 @@ fn connector_registers_remote_route_targets_from_cluster_routes() {
         remote.envelope.recipient.path(),
         "kairo://ddata@peer.example.test:2552/system/ddata"
     );
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::Member(MemberEvent::Removed {
+                member: member(weak.clone(), MemberStatus::Removed, ["ddata"]),
+                previous_status: MemberStatus::WeaklyUp,
+            }),
+        ))
+        .unwrap();
+
+    let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot
+            .last_target_registration
+            .as_ref()
+            .is_some_and(|report| report.delta_registered() == [ReplicaId::from(&peer)])
+    });
+    let registration = snapshot.last_target_registration.unwrap();
+    assert_eq!(registration.delta_registered(), &[ReplicaId::from(&peer)]);
+    assert_eq!(
+        registration.aggregation_registered(),
+        registration.delta_registered()
+    );
+    assert_eq!(
+        registration.gossip_registered(),
+        registration.delta_registered()
+    );
+    assert_eq!(delta_targets.target_count(), 1);
+    assert_eq!(aggregation_targets.target_count(), 1);
+    assert_eq!(gossip_targets.target_count(), 1);
+
+    let mut log = DeltaPropagationLog::new([ReplicaId::from(&peer), ReplicaId::from(&weak)]);
+    log.record_delta(
+        ReplicatorKey::new("after-removal"),
+        Some(delta_counter("self", 7)),
+    );
+    let report = transport.publish(log.collect_propagations());
+    assert_eq!(report.sent_to(), &[ReplicaId::from(&peer)]);
+    assert_eq!(
+        report.failures(),
+        &[DeltaTransportFailure::MissingTarget {
+            replica: ReplicaId::from(&weak)
+        }]
+    );
+    let remote = outbound_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(remote.target, ReplicaId::from(&peer));
 
     system.terminate(Duration::from_secs(1)).unwrap();
 }

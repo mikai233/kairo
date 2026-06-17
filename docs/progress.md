@@ -1462,6 +1462,11 @@ Implemented:
   messages on actor startup, uses monotonic time for all-reachable elapsed
   accounting, and uses wall-clock millis for pruning marker TTL checks while
   remaining deterministic under manual scheduler tests.
+- Distributed-data cluster connector coverage now pins actor-backed remote
+  route-target replacement after membership removal: delta, aggregation, and
+  gossip target registries shrink to the surviving replicas, delta publish
+  reports a missing target for the removed replica, and delivery to the
+  remaining replica still succeeds through the shared registry.
 - Distributed-data delta and direct read/write transports now use shared
   target registries so cloned loop/session transports observe later route
   registrations, and `ReplicatorRemoteRouteTargets` maps cluster
@@ -3553,10 +3558,10 @@ Not yet implemented:
   association primitives, and broader cross-crate compatibility fixtures.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
-  runtime, actor-backed connector, and bootstrap beyond the current localhost
-  two-node example smoke test, three-node bootstrap route/request-delivery
-  validation, and focused peer-runtime sender-side route-reduction delivery
-  coverage.
+  runtime, actor-backed connector beyond current route-target shrinkage, and
+  bootstrap beyond the current localhost two-node example smoke test,
+  three-node bootstrap route/request-delivery validation, and focused
+  peer-runtime sender-side route-reduction delivery coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level coverage, registered
   coordinator first-delivery remember-store validation, multi-node shared-store
@@ -5132,5 +5137,11 @@ cargo test -p kairo distributed_crates_keep_architecture_dependency_boundaries -
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data connector_registers_remote_route_targets_from_cluster_routes --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```
