@@ -1,18 +1,20 @@
 use std::net::TcpListener;
 use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use kairo_actor::Address;
 use kairo_remote::{RemoteOutbound, RemoteSettings};
 use kairo_serialization::{ActorRefWireData, Registry};
-use kairo_testkit::ActorSystemTestKit;
+use kairo_testkit::{ActorSystemTestKit, TestProbe};
 
 use super::*;
 use crate::{
-    ClusterMembershipMsg, ClusterMembershipWireInbound, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
+    ClusterMembershipMsg, ClusterMembershipRemoteEnvelopeOutbound, ClusterMembershipWireInbound,
+    ClusterMembershipWireOutbound, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
     DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, HeartbeatRemoteReceiverInbound,
-    HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Member, MemberStatus, ReachabilityEvent,
-    register_cluster_protocol_codecs, test_support::cluster_socket_test_lock,
+    HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Join, Member, MemberStatus,
+    ReachabilityEvent, register_cluster_protocol_codecs, test_support::cluster_socket_test_lock,
 };
 
 fn registry() -> Arc<Registry> {
@@ -40,12 +42,98 @@ fn wire_for(node: &UniqueAddress, path: &str) -> ActorRefWireData {
     ActorRefWireData::new(format!("{}{}", node.address, path)).unwrap()
 }
 
+struct ClusterInboundProbes {
+    membership: TestProbe<ClusterMembershipMsg>,
+}
+
+fn send_join_until_received(
+    outbound: &ClusterMembershipWireOutbound,
+    probes: &ClusterInboundProbes,
+    join: Join,
+    timeout: Duration,
+) {
+    let deadline = Instant::now() + timeout;
+    let mut last_error = None;
+    while Instant::now() < deadline {
+        if let Err(error) = outbound.send_membership(ClusterMembershipMsg::Join {
+            join: join.clone(),
+            reply_to: None,
+        }) {
+            last_error = Some(error.to_string());
+        }
+
+        match probes.membership.expect_msg(Duration::from_millis(50)) {
+            Ok(ClusterMembershipMsg::Join {
+                join: received,
+                reply_to,
+            }) => {
+                assert_eq!(received, join);
+                assert!(reply_to.is_none());
+                return;
+            }
+            Ok(other) => panic!("expected cluster join, got {other:?}"),
+            Err(_) => thread::sleep(Duration::from_millis(10)),
+        }
+    }
+
+    panic!("cluster join was not delivered before timeout; last send error: {last_error:?}");
+}
+
 fn wait_for_reverse_route(runtime: &ClusterTcpAssociationRuntime) {
     let deadline = Instant::now() + Duration::from_secs(1);
     while runtime.association_cache().route_count() == 0 && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(1));
     }
     assert_eq!(runtime.association_cache().route_count(), 1);
+}
+
+fn bind_association_runtime_with_probes(
+    name: &str,
+    uid: u64,
+    system_uid: u64,
+    kit: &ActorSystemTestKit,
+    registry: Arc<Registry>,
+) -> (ClusterTcpAssociationRuntime, ClusterInboundProbes) {
+    let membership = kit
+        .create_probe::<ClusterMembershipMsg>(format!("{name}-membership"))
+        .unwrap();
+    let heartbeat_sender = kit
+        .create_probe::<HeartbeatSenderMsg>(format!("{name}-heartbeat-sender"))
+        .unwrap();
+    let membership_ref = membership.actor_ref();
+    let heartbeat_sender_ref = heartbeat_sender.actor_ref();
+    let runtime = ClusterTcpAssociationRuntime::bind(
+        name,
+        uid,
+        system_uid,
+        RemoteSettings::new("127.0.0.1", 0),
+        move |self_node, cache| {
+            ClusterSystemInbound::new(self_node.clone())
+                .with_membership(ClusterMembershipWireInbound::new(
+                    self_node.clone(),
+                    registry.clone(),
+                    membership_ref,
+                ))
+                .with_heartbeat_receiver(
+                    HeartbeatRemoteReceiverInbound::from_arc(
+                        self_node.clone(),
+                        registry.clone(),
+                        Arc::new(cache.clone()) as Arc<dyn RemoteOutbound>,
+                    )
+                    .with_sender(Some(wire_for(
+                        &self_node,
+                        DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
+                    ))),
+                )
+                .with_heartbeat_response(HeartbeatRemoteResponseInbound::new(
+                    wire_for(&self_node, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH),
+                    registry,
+                    heartbeat_sender_ref,
+                ))
+        },
+    )
+    .unwrap();
+    (runtime, ClusterInboundProbes { membership })
 }
 
 fn bind_peer_runtime(
@@ -218,11 +306,24 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
     let third_kit = ActorSystemTestKit::new("cluster-peer-runtime-reduce-third").unwrap();
     let registry = registry();
     let mut sender = bind_peer_runtime("reduce-sender", 1, 11, &sender_kit, registry.clone());
-    let second = bind_association_runtime("reduce-second", 2, 22, &second_kit, registry.clone());
-    let third = bind_association_runtime("reduce-third", 3, 33, &third_kit, registry);
+    let (second, second_probes) =
+        bind_association_runtime_with_probes("reduce-second", 2, 22, &second_kit, registry.clone());
+    let (third, third_probes) =
+        bind_association_runtime_with_probes("reduce-third", 3, 33, &third_kit, registry.clone());
     let sender_node = sender.self_node().clone();
     let second_node = second.self_node().clone();
     let third_node = third.self_node().clone();
+    let outbound = Arc::new(sender.association_cache().clone()) as Arc<dyn RemoteOutbound>;
+    let second_membership_outbound = ClusterMembershipWireOutbound::new(
+        second_node.clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(outbound.clone()),
+    );
+    let third_membership_outbound = ClusterMembershipWireOutbound::new(
+        third_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(outbound),
+    );
 
     let report = sender
         .apply_snapshot(state(
@@ -239,10 +340,28 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
     assert_eq!(sender.association_cache().route_count(), 2);
     wait_for_reverse_route(&second);
     wait_for_reverse_route(&third);
+    send_join_until_received(
+        &second_membership_outbound,
+        &second_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["before-removal-second".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+    send_join_until_received(
+        &third_membership_outbound,
+        &third_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["before-removal-third".to_string()],
+        },
+        Duration::from_secs(1),
+    );
 
     let report = sender
         .apply_snapshot(state(
-            vec![member(sender_node), member(second_node.clone())],
+            vec![member(sender_node.clone()), member(second_node.clone())],
             vec![],
         ))
         .unwrap();
@@ -255,6 +374,34 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
             .active_peer_targets()
             .iter()
             .any(|target| target.node() == &second_node)
+    );
+    let removed_peer_error = third_membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: sender_node.clone(),
+                roles: vec!["after-removal-third".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("removed peer route should reject sends");
+    assert!(
+        removed_peer_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected removed-peer send error: {removed_peer_error:?}"
+    );
+    third_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+    send_join_until_received(
+        &second_membership_outbound,
+        &second_probes,
+        Join {
+            node: sender_node,
+            roles: vec!["after-removal".to_string()],
+        },
+        Duration::from_secs(1),
     );
 
     let sender_report = sender.shutdown().unwrap();
