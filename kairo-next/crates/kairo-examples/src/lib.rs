@@ -35,7 +35,8 @@
 //! - `ddata_tcp_peer_bootstrap`: two local distributed-data TCP peer runtimes
 //!   using cluster-derived route plans.
 //! - `cluster_tools_tcp_peer_bootstrap`: two local cluster-tools TCP peer
-//!   runtimes for pubsub/singleton system traffic.
+//!   runtimes for pubsub/singleton system traffic, including pubsub publish
+//!   and registered-path send delivery.
 //!
 //! Run examples from the workspace root with
 //! `cargo run -p kairo-examples --example <name>`.

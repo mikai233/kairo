@@ -1885,17 +1885,20 @@ Remote gossip wiring:
 - pubsub still consumes cluster membership/events for peer selection; the
   association cache is only an outbound transport route table.
 
-Remote publish delivery:
+Remote publish and path delivery:
 
 - remote pubsub user-message delivery uses a stable `PubSubPublishEnvelope`
   that carries topic, optional selected group, and the already-serialized
   business message,
+- remote pubsub path delivery uses a stable `PubSubPathEnvelope` that carries
+  the logical actor path, whether the command is `Send` or `SendToAll`, and
+  the already-serialized business message,
 - local pubsub messages remain serialization-free; `M: RemoteMessage` is only
   required when a remote delivery target is registered,
-- `PubSubRemoteDeliveryOutbound` wraps publish/group delivery for the peer
-  mediator at `/system/pubsub`, and `PubSubRemoteDeliveryInbound` validates the
-  recipient path before dispatching into the actor-backed mediator's local
-  delivery protocol,
+- `PubSubRemoteDeliveryOutbound` wraps publish/group and path delivery for the
+  peer mediator at `/system/pubsub`, and `PubSubRemoteDeliveryInbound`
+  validates the recipient path before dispatching into the actor-backed
+  mediator's local delivery protocol,
 - one-message-per-group routing is planned before serialization; remote
   envelopes carry the selected group rather than rerunning group selection on
   the receiving node.
@@ -1905,10 +1908,10 @@ Cluster-tools inbound routing:
 - `ClusterToolsSystemInbound<M>` is the transport-neutral inbound dispatch
   boundary for cluster-tools remote envelopes,
 - it routes pubsub status/delta manifests to the pubsub gossip wire inbound,
-  pubsub publish manifests to the pubsub delivery inbound, and singleton
+  pubsub publish/path manifests to the pubsub delivery inbound, and singleton
   handover manifests to the singleton manager inbound,
 - it validates `/system/pubsub` gossip recipients before delivery and delegates
-  publish/singleton recipient validation to the focused inbound adapters,
+  publish/path/singleton recipient validation to the focused inbound adapters,
 - it implements the remote frame-handler boundary so future socket association
   readers can dispatch decoded cluster-tools frames without each subsystem
   owning its own stream reader.
@@ -1921,8 +1924,8 @@ Cluster-tools TCP runtime:
   `RemoteAssociationCache`, association registry, route installer, dialer, and
   dialing-side lane readers,
 - it uses a cluster-tools lane classifier so pubsub gossip, pubsub publish
-  envelopes, and singleton handover messages are treated as control/system
-  traffic,
+  envelopes, pubsub path envelopes, and singleton handover messages are treated
+  as control/system traffic,
 - it routes live socket frames into the existing `ClusterToolsSystemInbound<M>`
   boundary and can send return traffic over the same bidirectional
   association,

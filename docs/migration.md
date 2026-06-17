@@ -348,7 +348,9 @@ cargo run -p kairo-examples --example cluster_membership
 
 The TCP peer bootstrap examples exercise the current cluster-derived route
 owners for cluster membership, distributed-data, and cluster-tools system
-traffic over loopback remoting:
+traffic over loopback remoting. The cluster-tools TCP example includes
+distributed pubsub publish delivery and registered-path `Send`/`SendToAll`
+delivery through stable remote envelopes:
 
 ```bash
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap

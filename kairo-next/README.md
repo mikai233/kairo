@@ -104,7 +104,9 @@ graceful local shard movement that rehosts a remembered entity.
 
 The TCP peer bootstrap examples demonstrate the current cluster,
 distributed-data, and cluster-tools route setup around the shared remote
-association primitives.
+association primitives. The cluster-tools TCP example covers distributed
+pubsub publish delivery plus registered-path `Send` and `SendToAll` delivery
+over stable remote envelopes.
 
 ## Validation
 

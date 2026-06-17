@@ -97,6 +97,10 @@ The `cluster_tools_distributed` example demonstrates two distributed pubsub
 mediators exchanging registry deltas, remote topic publish delivery, and
 one-message-per-group routing across local and remote groups.
 
+The `cluster_tools_tcp_peer_bootstrap` example demonstrates loopback TCP routes
+for cluster-tools system traffic, including distributed pubsub publish and
+registered-path `Send`/`SendToAll` delivery through stable remote envelopes.
+
 The `cluster_sharding_local` example demonstrates:
 
 ```text

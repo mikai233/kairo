@@ -3457,6 +3457,11 @@ Implemented:
   pubsub path with the remote mediator and has smoke coverage that remote
   `Send` and `SendToAll` path messages traverse the loopback TCP route to the
   registered path actor without being delivered to the topic subscriber.
+- The architecture contract, README files, migration notes, and example crate
+  docs now describe `PubSubPathEnvelope` and cluster-tools TCP path
+  `Send`/`SendToAll` delivery alongside publish delivery, keeping user-facing
+  and technical documentation aligned with the implemented stable remote
+  boundary.
 - The root and `kairo-next` README validation sections now call out the
   example crate and `kairo-testkit` local multi-node harness commands, making
   the current M12 validation surface discoverable without reading the progress
@@ -5066,5 +5071,8 @@ cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap --all-targets --al
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo fmt --all -- --check
+cargo test -p kairo-examples --doc --all-features
 git diff --check
 ```
