@@ -226,6 +226,235 @@ fn region_discovery_subscriber_reregisters_when_coordinator_moves() {
 }
 
 #[test]
+fn region_discovery_reissues_buffered_remembered_home_after_coordinator_moves() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("region-discovery-moves-buffered-home").unwrap();
+    let self_node = remote_unique_node(
+        "region-discovery-moves-buffered-home",
+        "127.0.0.1",
+        2673,
+        24,
+    );
+    let coordinator_node_a = remote_unique_node(
+        "region-discovery-moves-buffered-home",
+        "127.0.0.1",
+        2674,
+        25,
+    );
+    let coordinator_node_b = remote_unique_node(
+        "region-discovery-moves-buffered-home",
+        "127.0.0.1",
+        2675,
+        26,
+    );
+    let publisher = kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(self_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let shard_store = kit
+        .system()
+        .spawn(
+            "remember-store",
+            RememberShardStoreActor::props(RememberShardStoreState::new("orders", "shard-1")),
+        )
+        .unwrap();
+    let (registration_tx_a, registration_rx_a) = mpsc::channel();
+    let (request_tx_a, request_rx_a) = mpsc::channel();
+    let coordinator_a = kit
+        .system()
+        .spawn(
+            "coordinator-a",
+            Props::new(move || CoordinatorMoveProbeCoordinator {
+                registration_tx: registration_tx_a,
+                request_tx: request_tx_a,
+                ack_registration: false,
+            }),
+        )
+        .unwrap();
+    let (registration_tx_b, registration_rx_b) = mpsc::channel();
+    let (request_tx_b, request_rx_b) = mpsc::channel();
+    let coordinator_b = kit
+        .system()
+        .spawn(
+            "coordinator-b",
+            Props::new(move || CoordinatorMoveProbeCoordinator {
+                registration_tx: registration_tx_b,
+                request_tx: request_tx_b,
+                ack_registration: true,
+            }),
+        )
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([cluster_member(
+                coordinator_node_a.clone(),
+                MemberStatus::Up,
+                ["backend"],
+                1,
+            )]),
+        ))
+        .unwrap();
+
+    let discovery = RegionCoordinatorDiscoveryConfig::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    )
+    .with_local_coordinator(coordinator_node_a.clone(), coordinator_a)
+    .with_local_coordinator(coordinator_node_b.clone(), coordinator_b);
+    let region_store = shard_store.clone();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            Props::new(move || {
+                ShardRegionActor::<String>::new_with_remember_store_shards(
+                    "region-a",
+                    10,
+                    10,
+                    BTreeMap::from([("shard-1".to_string(), region_store.clone())]),
+                    Duration::from_millis(500),
+                )
+                .with_coordinator_discovery(discovery.clone())
+            }),
+        )
+        .unwrap();
+    let _subscriber = kit
+        .system()
+        .spawn(
+            "region-discovery",
+            ShardRegionDiscoverySubscriber::<String>::props(cluster, region.clone()),
+        )
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("delivery")
+        .unwrap();
+    let local_shard = kit
+        .create_probe::<Option<ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+    let store_state = kit
+        .create_probe::<RememberShardStoreSnapshot>("store-state")
+        .unwrap();
+
+    assert_eq!(
+        registration_rx_a
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        "region-a"
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    assert_eq!(delivery.expect_no_msg(Duration::from_millis(50)), Ok(()));
+    assert!(
+        request_rx_a
+            .recv_timeout(Duration::from_millis(50))
+            .is_err(),
+        "unacknowledged old coordinator must not receive shard-home requests"
+    );
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([cluster_member(
+                coordinator_node_b,
+                MemberStatus::Up,
+                ["backend"],
+                2,
+            )]),
+        ))
+        .unwrap();
+
+    assert_eq!(
+        registration_rx_b
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        "region-a"
+    );
+    assert_eq!(
+        request_rx_b
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        "shard-1"
+    );
+    assert_eq!(
+        delivery.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: RememberShardUpdate::new(
+                ["entity-1".to_string()],
+                std::iter::empty::<String>(),
+            ),
+        }
+    );
+
+    let mut activated = false;
+    for _ in 0..20 {
+        shard_store
+            .tell(RememberShardStoreMsg::GetState {
+                reply_to: store_state.actor_ref(),
+            })
+            .unwrap();
+        let remembered_entities = store_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .entities_by_key
+            .values()
+            .flat_map(|entities| entities.iter().cloned())
+            .collect::<BTreeSet<_>>();
+
+        region
+            .tell(ShardRegionMsg::GetLocalShard {
+                shard: "shard-1".to_string(),
+                reply_to: local_shard.actor_ref(),
+            })
+            .unwrap();
+        if let Some(shard) = local_shard.expect_msg(Duration::from_millis(500)).unwrap() {
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: shard_state.actor_ref(),
+                })
+                .unwrap();
+            let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
+            activated = remembered_entities == BTreeSet::from(["entity-1".to_string()])
+                && snapshot.active_entities == vec!["entity-1".to_string()]
+                && snapshot.total_buffered == 0;
+        }
+
+        if activated {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        activated,
+        "buffered remembered delivery should be persisted and activated after coordinator move"
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn multi_node_region_discovery_registers_and_routes_via_coordinator_node() {
     let nodes = kairo_testkit::MultiNodeTestKit::new([
         "sharding-discovery-coordinator",
@@ -869,4 +1098,53 @@ fn wait_for_coordinator_registration(
         std::thread::sleep(Duration::from_millis(10));
     }
     panic!("timed out waiting for coordinator to register region `{region}`");
+}
+
+struct CoordinatorMoveProbeCoordinator {
+    registration_tx: mpsc::Sender<String>,
+    request_tx: mpsc::Sender<String>,
+    ack_registration: bool,
+}
+
+impl Actor for CoordinatorMoveProbeCoordinator {
+    type Msg = ShardCoordinatorMsg<String>;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            ShardCoordinatorMsg::RegisterLocalRegion { target, reply_to } => {
+                let region = target.region().clone();
+                self.registration_tx
+                    .send(region.clone())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                if self.ack_registration {
+                    let _ = reply_to.tell(Ok(CoordinatorStateSnapshot {
+                        allocations: BTreeMap::from([(region, Vec::new())]),
+                        proxies: BTreeSet::new(),
+                        unallocated_shards: BTreeSet::new(),
+                        rebalance_in_progress: BTreeMap::new(),
+                        remember_entities: true,
+                    }));
+                }
+            }
+            ShardCoordinatorMsg::RequestShardHome {
+                requester,
+                shard,
+                reply_to,
+            } => {
+                self.request_tx
+                    .send(shard.clone())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                let _ = reply_to.tell(Ok(GetShardHomePlan::Allocated {
+                    event: CoordinatorEvent::ShardHomeAllocated {
+                        shard: shard.clone(),
+                        region: requester.clone(),
+                    },
+                    host_region: requester,
+                    host_shard: HostShard { shard_id: shard },
+                }));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }

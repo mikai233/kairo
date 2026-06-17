@@ -2069,6 +2069,11 @@ Implemented:
   movement: a region registers with the first discovered local coordinator and
   re-registers with a newly selected local coordinator after cluster membership
   removes the previous coordinator.
+- Shard-region discovery subscriber coverage now also validates buffered
+  remember-entity delivery across coordinator movement: a first delivery
+  buffered while the old coordinator has not acknowledged registration is
+  re-requested from the newly selected coordinator, persisted through the
+  shard remember store, and activated after the moved registration completes.
 - Shard-region discovery subscriber coverage now also validates automatic
   remembered-shard orchestration with a shared remember store: a discovered
   coordinator allocates the remembered shard after region registration, the
@@ -4801,5 +4806,12 @@ cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_discovery_reissues_buffered_remembered_home_after_coordinator_moves --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-cluster-sharding region_discovery_subscriber --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
