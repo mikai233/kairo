@@ -1099,6 +1099,10 @@ Implemented:
   consumes received `RemoteTerminated` messages by removing the watched remote
   ref and stopping heartbeat tracking when that was the final watched ref for
   the remote address.
+- Remote death-watch state coverage now also pins the same-address
+  `RemoteTerminated` reduction edge: when one watched remote ref terminates,
+  the remaining watched refs on that address keep their heartbeat tracking,
+  known remote UID, and ordered watch pairs.
 - `kairo-remote` now has an actor-backed remote death-watch command handler
   that wraps the focused state machine in synchronous actor turns, emits
   transport-neutral effects through an explicit sink boundary, handles
