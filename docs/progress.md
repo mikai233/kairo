@@ -3009,6 +3009,10 @@ Implemented:
   peer delivery: after a sender removes an old peer route and installs a route
   to a replacement peer, a stable-manifest `Join` reaches the replacement
   membership inbound actor and does not arrive at the removed peer.
+- The cluster TCP bootstrap example smoke suite now also validates
+  sender-side three-node join delivery: a sender publishes a three-member
+  membership snapshot, installs routes to both peers, and sends distinct
+  stable-manifest `Join` commands to each peer membership inbound actor.
 - The cluster TCP bootstrap example smoke suite now validates failed-dial
   lifecycle cleanup through the public example boundary: when an unreachable
   peer enters membership, the connector reports a pending reconnect, and when
@@ -5169,6 +5173,12 @@ cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_delivers_pubsub_to_three_node_mesh --all-targets --all-features
 cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples cluster_tcp_peer_bootstrap_delivers_joins_to_three_node_mesh --all-targets --all-features
+cargo test -p kairo-examples cluster_tcp_peer_bootstrap --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
