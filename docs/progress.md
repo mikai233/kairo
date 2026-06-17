@@ -2027,6 +2027,11 @@ Implemented:
   host path for externally supplied remember-store refs: the spawned shard
   recovers an existing remembered entity before first delivery and persists a
   newly delivered entity back through the shared store before later delivery.
+- `kairo-cluster-sharding` region actor coverage now also pins shared
+  remember-store shard restart orchestration: after an unexpected local shard
+  stop, the region schedules a remembered-shard restart, respawns the shard
+  with the same shared store ref, reloads remembered entities, and delivers to
+  the recovered entity after the backoff.
 - `kairo-cluster-sharding` shard region actors can now explicitly route local
   sharding envelopes into spawned child shard actors while preserving the
   route outcome separately from the child `ShardDeliverPlan`, so remembered
@@ -5404,5 +5409,12 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_actor_restarts_shared_store_remembered_local_shard_after_unexpected_stop --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
