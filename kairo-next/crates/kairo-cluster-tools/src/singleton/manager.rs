@@ -135,6 +135,16 @@ impl SingletonManagerRuntime {
         }
     }
 
+    pub fn take_over_retry_target(&self) -> Option<&UniqueAddress> {
+        match &self.state {
+            SingletonManagerState::WasOldest {
+                new_oldest: Some(new_oldest),
+                ..
+            } => Some(new_oldest),
+            _ => None,
+        }
+    }
+
     pub fn removed_members(&self) -> &HashSet<UniqueAddress> {
         &self.removed
     }
@@ -258,6 +268,18 @@ impl SingletonManagerRuntime {
                 .cloned()
                 .map(|to| vec![SingletonManagerEffect::SendHandOverToMe { to }])
                 .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub fn take_over_retry(&mut self) -> Vec<SingletonManagerEffect> {
+        match &self.state {
+            SingletonManagerState::WasOldest {
+                new_oldest: Some(new_oldest),
+                ..
+            } => vec![SingletonManagerEffect::SendTakeOverFromMe {
+                to: new_oldest.clone(),
+            }],
             _ => Vec::new(),
         }
     }

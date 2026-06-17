@@ -208,7 +208,7 @@ fn local_singleton_manager_stops_child_before_handover_done() {
     effects
         .expect_msg_eq(
             vec![
-                SingletonManagerEffect::SendHandOverInProgress { to: node_b },
+                SingletonManagerEffect::SendHandOverInProgress { to: node_b.clone() },
                 SingletonManagerEffect::StopSingleton,
             ],
             Duration::from_millis(500),
@@ -315,6 +315,117 @@ fn local_singleton_manager_automatic_timer_retries_handover_until_progress() {
     time.advance(retry_interval);
     effects.expect_no_msg(Duration::from_millis(50)).unwrap();
     started.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn local_singleton_manager_automatic_timer_retries_takeover_until_handover_starts() {
+    let node_a = node("local-singleton-auto-takeover-a", 1);
+    let node_b = node("local-singleton-auto-takeover-b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let retry_interval = Duration::from_millis(25);
+    let settings = SingletonManagerSettings::new(retry_interval).unwrap();
+    let (kit, time) =
+        ActorSystemTestKit::with_manual_time("local-singleton-auto-takeover").unwrap();
+    let started = kit.create_probe::<&'static str>("started").unwrap();
+    let stopped = kit.create_probe::<&'static str>("stopped").unwrap();
+    let effects = kit
+        .create_probe::<Vec<SingletonManagerEffect>>("effects")
+        .unwrap();
+    let manager = kit
+        .system()
+        .spawn(
+            "local-singleton-manager",
+            LocalSingletonManagerActor::<LocalSingletonProbe>::props_with_effect_sink(
+                node_a,
+                "singleton",
+                {
+                    let started = started.actor_ref();
+                    let stopped = stopped.actor_ref();
+                    move || {
+                        let started = started.clone();
+                        let stopped = stopped.clone();
+                        Props::new(move || LocalSingletonProbe { started, stopped })
+                    }
+                },
+                LocalSingletonProbeMsg::Stop,
+                settings,
+                effects.actor_ref(),
+            ),
+        )
+        .unwrap();
+
+    manager
+        .tell(LocalSingletonManagerMsg::ApplyInitialObservation {
+            observation,
+            reply_to: None,
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::StartSingleton],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    started
+        .expect_msg_eq("started", Duration::from_millis(500))
+        .unwrap();
+
+    manager
+        .tell(LocalSingletonManagerMsg::ApplyOldestChange {
+            change: SingletonOldestChange::OldestChanged(Some(node_b.clone())),
+            reply_to: None,
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendTakeOverFromMe { to: node_b.clone() }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    time.advance(retry_interval);
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendTakeOverFromMe { to: node_b.clone() }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    manager
+        .tell(LocalSingletonManagerMsg::HandOverToMe {
+            from: node_b.clone(),
+            reply_to: None,
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![
+                SingletonManagerEffect::SendHandOverInProgress { to: node_b.clone() },
+                SingletonManagerEffect::StopSingleton,
+            ],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    stopped
+        .expect_msg_eq("stopped", Duration::from_millis(500))
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendHandOverDone { to: node_b }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    time.advance(retry_interval);
+    effects.expect_no_msg(Duration::from_millis(50)).unwrap();
 
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }

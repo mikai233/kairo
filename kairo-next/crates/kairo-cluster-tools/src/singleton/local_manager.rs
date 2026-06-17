@@ -9,6 +9,7 @@ use crate::{
 };
 
 const HAND_OVER_RETRY_TIMER_KEY: &str = "local-singleton-manager-handover-retry";
+const TAKE_OVER_RETRY_TIMER_KEY: &str = "local-singleton-manager-takeover-retry";
 
 pub struct LocalSingletonManagerActor<A>
 where
@@ -125,6 +126,25 @@ where
         }
     }
 
+    fn reconcile_take_over_retry_timer(&self, ctx: &mut Context<LocalSingletonManagerMsg<A::Msg>>) {
+        let should_retry = self.settings.automatic_hand_over_retries()
+            && self.runtime.take_over_retry_target().is_some();
+        if should_retry && !ctx.is_timer_active(TAKE_OVER_RETRY_TIMER_KEY) {
+            ctx.start_single_timer(
+                TAKE_OVER_RETRY_TIMER_KEY,
+                self.settings.hand_over_retry_interval(),
+                LocalSingletonManagerMsg::TakeOverRetry { reply_to: None },
+            );
+        } else if !should_retry {
+            ctx.cancel_timer(TAKE_OVER_RETRY_TIMER_KEY);
+        }
+    }
+
+    fn reconcile_retry_timers(&self, ctx: &mut Context<LocalSingletonManagerMsg<A::Msg>>) {
+        self.reconcile_hand_over_retry_timer(ctx);
+        self.reconcile_take_over_retry_timer(ctx);
+    }
+
     fn apply_effects(
         &mut self,
         ctx: &mut Context<LocalSingletonManagerMsg<A::Msg>>,
@@ -200,6 +220,9 @@ pub enum LocalSingletonManagerMsg<M: Send + 'static> {
     HandOverRetry {
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    TakeOverRetry {
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
     TakeOverFromMe {
         from: UniqueAddress,
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
@@ -239,62 +262,68 @@ where
             } => {
                 let effects = self.runtime.apply_initial_observation(observation);
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::ApplyOldestChange { change, reply_to } => {
                 let effects = self.runtime.apply_oldest_change(change);
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::MarkRemoved { node, reply_to } => {
                 let effects = self.runtime.mark_removed(node);
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::HandOverToMe { from, reply_to } => {
                 let effects = self.runtime.hand_over_to_me(from);
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::HandOverInProgress { from, reply_to } => {
                 let effects = self.runtime.hand_over_in_progress(&from);
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::HandOverDone { from, reply_to } => {
                 let effects = self.runtime.hand_over_done(&from);
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::HandOverRetry { reply_to } => {
                 let effects = self.runtime.hand_over_retry();
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
+                self.emit_effects(reply_to, effects);
+            }
+            LocalSingletonManagerMsg::TakeOverRetry { reply_to } => {
+                let effects = self.runtime.take_over_retry();
+                self.apply_effects(ctx, &effects)?;
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::TakeOverFromMe { from, reply_to } => {
                 let effects = self.runtime.take_over_from_me(from);
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::SingletonTerminated => {
                 self.singleton = None;
                 let effects = self.runtime.singleton_terminated();
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(None, effects);
             }
             LocalSingletonManagerMsg::StopManager { reply_to } => {
                 let effects = self.runtime.stop_manager();
                 self.apply_effects(ctx, &effects)?;
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             LocalSingletonManagerMsg::GetState { reply_to } => {

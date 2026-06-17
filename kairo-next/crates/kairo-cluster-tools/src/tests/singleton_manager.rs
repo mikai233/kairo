@@ -136,6 +136,40 @@ fn singleton_manager_hands_over_when_oldest_changes_away() {
 }
 
 #[test]
+fn singleton_manager_retries_takeover_while_was_oldest() {
+    let node_a = node("takeover-retry-old", 1);
+    let node_b = node("takeover-retry-new", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let mut manager = SingletonManagerRuntime::new(node_a);
+    manager.apply_initial_observation(observation);
+
+    assert_eq!(
+        manager.apply_oldest_change(SingletonOldestChange::OldestChanged(Some(node_b.clone()))),
+        vec![SingletonManagerEffect::SendTakeOverFromMe { to: node_b.clone() }]
+    );
+    assert_eq!(
+        manager.take_over_retry(),
+        vec![SingletonManagerEffect::SendTakeOverFromMe { to: node_b.clone() }]
+    );
+
+    assert_eq!(
+        manager.hand_over_to_me(node_b.clone()),
+        vec![
+            SingletonManagerEffect::SendHandOverInProgress { to: node_b },
+            SingletonManagerEffect::StopSingleton,
+        ]
+    );
+    assert!(manager.take_over_retry().is_empty());
+}
+
+#[test]
 fn singleton_manager_responds_to_takeover_only_when_becoming_or_oldest() {
     let node_a = node("takeover-a", 1);
     let node_b = node("takeover-b", 2);
@@ -410,6 +444,80 @@ fn singleton_manager_actor_automatic_timer_retries_handover_until_progress() {
             reply_to: None,
         })
         .unwrap();
+    time.advance(retry_interval);
+    effects.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn singleton_manager_actor_automatic_timer_retries_takeover_until_handover_starts() {
+    let node_a = node("singleton-actor-auto-takeover-a", 1);
+    let node_b = node("singleton-actor-auto-takeover-b", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let retry_interval = Duration::from_millis(25);
+    let settings = SingletonManagerSettings::new(retry_interval).unwrap();
+    let (kit, time) =
+        ActorSystemTestKit::with_manual_time("singleton-manager-auto-takeover").unwrap();
+    let effects = kit
+        .create_probe::<Vec<SingletonManagerEffect>>("effects")
+        .unwrap();
+    let manager = kit
+        .system()
+        .spawn(
+            "singleton-manager",
+            SingletonManagerActor::props_with_effect_sink(node_a, settings, effects.actor_ref()),
+        )
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::ApplyInitialObservation {
+            observation,
+            reply_to: None,
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::StartSingleton],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::ApplyOldestChange {
+            change: SingletonOldestChange::OldestChanged(Some(node_b.clone())),
+            reply_to: None,
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendTakeOverFromMe { to: node_b.clone() }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    time.advance(retry_interval);
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendTakeOverFromMe { to: node_b.clone() }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::HandOverToMe {
+            from: node_b,
+            reply_to: None,
+        })
+        .unwrap();
+    effects.expect_msg(Duration::from_millis(500)).unwrap();
     time.advance(retry_interval);
     effects.expect_no_msg(Duration::from_millis(50)).unwrap();
 

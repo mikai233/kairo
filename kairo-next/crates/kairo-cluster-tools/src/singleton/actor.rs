@@ -7,6 +7,7 @@ use crate::{
 };
 
 const HAND_OVER_RETRY_TIMER_KEY: &str = "singleton-manager-handover-retry";
+const TAKE_OVER_RETRY_TIMER_KEY: &str = "singleton-manager-takeover-retry";
 
 pub struct SingletonManagerActor {
     runtime: SingletonManagerRuntime,
@@ -92,6 +93,25 @@ impl SingletonManagerActor {
             ctx.cancel_timer(HAND_OVER_RETRY_TIMER_KEY);
         }
     }
+
+    fn reconcile_take_over_retry_timer(&self, ctx: &mut Context<SingletonManagerMsg>) {
+        let should_retry = self.settings.automatic_hand_over_retries()
+            && self.runtime.take_over_retry_target().is_some();
+        if should_retry && !ctx.is_timer_active(TAKE_OVER_RETRY_TIMER_KEY) {
+            ctx.start_single_timer(
+                TAKE_OVER_RETRY_TIMER_KEY,
+                self.settings.hand_over_retry_interval(),
+                SingletonManagerMsg::TakeOverRetry { reply_to: None },
+            );
+        } else if !should_retry {
+            ctx.cancel_timer(TAKE_OVER_RETRY_TIMER_KEY);
+        }
+    }
+
+    fn reconcile_retry_timers(&self, ctx: &mut Context<SingletonManagerMsg>) {
+        self.reconcile_hand_over_retry_timer(ctx);
+        self.reconcile_take_over_retry_timer(ctx);
+    }
 }
 
 pub enum SingletonManagerMsg {
@@ -120,6 +140,9 @@ pub enum SingletonManagerMsg {
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
     HandOverRetry {
+        reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    },
+    TakeOverRetry {
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
     TakeOverFromMe {
@@ -154,52 +177,57 @@ impl Actor for SingletonManagerActor {
                 reply_to,
             } => {
                 let effects = self.runtime.apply_initial_observation(observation);
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::ApplyOldestChange { change, reply_to } => {
                 let effects = self.runtime.apply_oldest_change(change);
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::MarkRemoved { node, reply_to } => {
                 let effects = self.runtime.mark_removed(node);
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::HandOverToMe { from, reply_to } => {
                 let effects = self.runtime.hand_over_to_me(from);
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::HandOverInProgress { from, reply_to } => {
                 let effects = self.runtime.hand_over_in_progress(&from);
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::HandOverDone { from, reply_to } => {
                 let effects = self.runtime.hand_over_done(&from);
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::HandOverRetry { reply_to } => {
                 let effects = self.runtime.hand_over_retry();
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
+                self.emit_effects(reply_to, effects);
+            }
+            SingletonManagerMsg::TakeOverRetry { reply_to } => {
+                let effects = self.runtime.take_over_retry();
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::TakeOverFromMe { from, reply_to } => {
                 let effects = self.runtime.take_over_from_me(from);
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::SingletonTerminated { reply_to } => {
                 let effects = self.runtime.singleton_terminated();
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::StopManager { reply_to } => {
                 let effects = self.runtime.stop_manager();
-                self.reconcile_hand_over_retry_timer(ctx);
+                self.reconcile_retry_timers(ctx);
                 self.emit_effects(reply_to, effects);
             }
             SingletonManagerMsg::GetState { reply_to } => {
