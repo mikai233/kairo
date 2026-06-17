@@ -450,6 +450,11 @@ Implemented:
   when one subscriber actor is subscribed to several service keys, subscriber
   termination removes it from each bucket so later service updates do not send
   stale listings to dead letters.
+- Local receptionist coverage now also pins duplicate-subscribe and typed-key
+  isolation semantics: subscribing the same actor twice receives another
+  current listing without duplicating later updates, and service keys with the
+  same id but different message protocols keep independent service and
+  subscriber buckets.
 - Local receptionist state lives in a focused `receptionist` module.
 - `ActorSystem::coordinated_shutdown` exposes local coordinated shutdown with
   standard phase names, one-shot run semantics, task registration, later-phase

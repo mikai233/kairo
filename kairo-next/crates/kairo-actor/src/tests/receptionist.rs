@@ -19,6 +19,35 @@ impl Actor for ListingProbe {
     }
 }
 
+struct U8ListingProbe {
+    observed: mpsc::Sender<Vec<ActorPath>>,
+}
+
+impl Actor for U8ListingProbe {
+    type Msg = Listing<u8>;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        let paths = msg
+            .service_instances()
+            .iter()
+            .map(|service| service.path().clone())
+            .collect();
+        self.observed
+            .send(paths)
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+struct U8Service;
+
+impl Actor for U8Service {
+    type Msg = u8;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
 struct RegisteredProbe {
     observed: mpsc::Sender<(String, ActorPath)>,
 }
@@ -96,6 +125,53 @@ fn receptionist_subscribe_gets_initial_listing_and_updates() {
 }
 
 #[test]
+fn receptionist_duplicate_subscribe_replies_but_does_not_duplicate_updates() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let key = ServiceKey::<()>::new("svc");
+    let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
+    let (listing_tx, listing_rx) = mpsc::channel();
+    let subscriber = system
+        .spawn(
+            "listing-probe",
+            Props::new(move || ListingProbe {
+                observed: listing_tx,
+            }),
+        )
+        .unwrap();
+
+    assert!(system.receptionist().register(key.clone(), service.clone()));
+    assert!(
+        system
+            .receptionist()
+            .subscribe(key.clone(), subscriber.clone())
+    );
+    assert_eq!(
+        listing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        vec![service.path().clone()]
+    );
+
+    assert!(
+        !system
+            .receptionist()
+            .subscribe(key.clone(), subscriber.clone())
+    );
+    assert_eq!(
+        listing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        vec![service.path().clone()]
+    );
+
+    assert!(system.receptionist().deregister(&key, &service));
+    assert_eq!(
+        listing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Vec::<ActorPath>::new()
+    );
+    assert!(
+        listing_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "duplicate subscription must not receive duplicate update listings"
+    );
+}
+
+#[test]
 fn local_receptionist_listing_reports_all_services_as_reachable() {
     let system = ActorSystem::builder("test").build().unwrap();
     let key = ServiceKey::<()>::new("svc");
@@ -120,6 +196,90 @@ fn local_receptionist_listing_reports_all_services_as_reachable() {
             .map(ActorRef::path)
             .collect::<Vec<_>>(),
         vec![service.path()]
+    );
+}
+
+#[test]
+fn receptionist_service_keys_with_same_id_are_protocol_separated() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let unit_key = ServiceKey::<()>::new("svc");
+    let u8_key = ServiceKey::<u8>::new("svc");
+    let unit_service = system.spawn("unit-svc", Props::new(|| Noop)).unwrap();
+    let u8_service = system.spawn("u8-svc", Props::new(|| U8Service)).unwrap();
+    let (unit_listing_tx, unit_listing_rx) = mpsc::channel();
+    let unit_subscriber = system
+        .spawn(
+            "unit-listing-probe",
+            Props::new(move || ListingProbe {
+                observed: unit_listing_tx,
+            }),
+        )
+        .unwrap();
+    let (u8_listing_tx, u8_listing_rx) = mpsc::channel();
+    let u8_subscriber = system
+        .spawn(
+            "u8-listing-probe",
+            Props::new(move || U8ListingProbe {
+                observed: u8_listing_tx,
+            }),
+        )
+        .unwrap();
+
+    assert!(
+        system
+            .receptionist()
+            .subscribe(unit_key.clone(), unit_subscriber)
+    );
+    assert!(
+        system
+            .receptionist()
+            .subscribe(u8_key.clone(), u8_subscriber)
+    );
+    assert_eq!(
+        unit_listing_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        Vec::<ActorPath>::new()
+    );
+    assert_eq!(
+        u8_listing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Vec::<ActorPath>::new()
+    );
+
+    assert!(
+        system
+            .receptionist()
+            .register(unit_key.clone(), unit_service.clone())
+    );
+    assert_eq!(
+        unit_listing_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        vec![unit_service.path().clone()]
+    );
+    assert!(
+        u8_listing_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "same string id with a different protocol must not receive unit updates"
+    );
+
+    assert!(
+        system
+            .receptionist()
+            .register(u8_key.clone(), u8_service.clone())
+    );
+    assert_eq!(
+        u8_listing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        vec![u8_service.path().clone()]
+    );
+    assert_eq!(
+        system.receptionist().find(&unit_key).service_instances()[0].path(),
+        unit_service.path()
+    );
+    assert_eq!(
+        system.receptionist().find(&u8_key).service_instances()[0].path(),
+        u8_service.path()
     );
 }
 
