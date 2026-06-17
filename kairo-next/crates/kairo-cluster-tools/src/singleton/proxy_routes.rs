@@ -53,6 +53,7 @@ where
     pub fn apply_oldest_change(&mut self, change: SingletonOldestChange) -> bool {
         match change {
             SingletonOldestChange::OldestChanged(oldest) => self.set_current_oldest(oldest),
+            SingletonOldestChange::SelfRemoved | SingletonOldestChange::SelfDowned => false,
         }
     }
 

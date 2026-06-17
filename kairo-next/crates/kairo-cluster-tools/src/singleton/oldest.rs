@@ -48,6 +48,8 @@ impl SingletonOldestObservation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SingletonOldestChange {
     OldestChanged(Option<UniqueAddress>),
+    SelfRemoved,
+    SelfDowned,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,8 +145,15 @@ impl SingletonOldestTracker {
         let before = self.current_oldest().cloned();
         match event {
             MemberEvent::Up(member) => self.add_or_update_active_member(member.clone()),
+            MemberEvent::Downed(member) if member.unique_address == self.self_node => {
+                return Some(SingletonOldestChange::SelfDowned);
+            }
             MemberEvent::Exited(member) if member.unique_address != self.self_node => {
                 self.remove_member(&member.unique_address)
+            }
+            MemberEvent::Removed { member, .. } if member.unique_address == self.self_node => {
+                self.remove_member(&member.unique_address);
+                return Some(SingletonOldestChange::SelfRemoved);
             }
             MemberEvent::Removed { member, .. } => self.remove_member(&member.unique_address),
             MemberEvent::Joined(_)

@@ -720,3 +720,78 @@ fn local_singleton_manager_stops_manager_and_child_when_self_is_removed() {
 
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn local_singleton_manager_stops_manager_and_child_from_self_downed_change() {
+    let node_a = node("local-singleton-self-downed", 1);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [member(node_a.clone(), MemberStatus::Up, 1)],
+    );
+    let kit = ActorSystemTestKit::new("local-singleton-self-downed").unwrap();
+    let started = kit.create_probe::<&'static str>("started").unwrap();
+    let stopped = kit.create_probe::<&'static str>("stopped").unwrap();
+    let effects = kit
+        .create_probe::<Vec<SingletonManagerEffect>>("effects")
+        .unwrap();
+    let watcher = kit.create_probe::<&'static str>("manager-watcher").unwrap();
+    let manager = kit
+        .system()
+        .spawn(
+            "local-singleton-manager",
+            LocalSingletonManagerActor::<LocalSingletonProbe>::props(
+                node_a.clone(),
+                "singleton",
+                {
+                    let started = started.actor_ref();
+                    let stopped = stopped.actor_ref();
+                    move || {
+                        let started = started.clone();
+                        let stopped = stopped.clone();
+                        Props::new(move || LocalSingletonProbe { started, stopped })
+                    }
+                },
+                LocalSingletonProbeMsg::Stop,
+            ),
+        )
+        .unwrap();
+    watcher.watch_with(&manager, "terminated").unwrap();
+
+    manager
+        .tell(LocalSingletonManagerMsg::ApplyInitialObservation {
+            observation,
+            reply_to: Some(effects.actor_ref()),
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::StartSingleton],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    started
+        .expect_msg_eq("started", Duration::from_millis(500))
+        .unwrap();
+
+    manager
+        .tell(LocalSingletonManagerMsg::ApplyOldestChange {
+            change: SingletonOldestChange::SelfDowned,
+            reply_to: Some(effects.actor_ref()),
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::StopManager],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    stopped
+        .expect_msg_eq("stopped", Duration::from_millis(500))
+        .unwrap();
+    watcher
+        .expect_msg_eq("terminated", Duration::from_millis(500))
+        .unwrap();
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}

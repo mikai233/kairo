@@ -175,6 +175,8 @@ impl SingletonManagerRuntime {
     ) -> Vec<SingletonManagerEffect> {
         match change {
             SingletonOldestChange::OldestChanged(oldest) => self.oldest_changed(oldest),
+            SingletonOldestChange::SelfRemoved => self.mark_removed(self.self_node.clone()),
+            SingletonOldestChange::SelfDowned => self.stop_manager(),
         }
     }
 

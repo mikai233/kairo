@@ -196,6 +196,33 @@ fn singleton_manager_stops_when_self_is_removed() {
 }
 
 #[test]
+fn singleton_manager_stops_from_self_oldest_changes() {
+    let node_a = node("self-change", 1);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [member(node_a.clone(), MemberStatus::Up, 1)],
+    );
+    let mut downed_manager = SingletonManagerRuntime::new(node_a.clone());
+    downed_manager.apply_initial_observation(observation.clone());
+
+    assert_eq!(
+        downed_manager.apply_oldest_change(SingletonOldestChange::SelfDowned),
+        vec![SingletonManagerEffect::StopManager]
+    );
+    assert_eq!(downed_manager.state(), &SingletonManagerState::Stopped);
+
+    let mut removed_manager = SingletonManagerRuntime::new(node_a.clone());
+    removed_manager.apply_initial_observation(observation);
+    assert_eq!(
+        removed_manager.apply_oldest_change(SingletonOldestChange::SelfRemoved),
+        vec![SingletonManagerEffect::StopManager]
+    );
+    assert_eq!(removed_manager.state(), &SingletonManagerState::Stopped);
+    assert!(removed_manager.removed_members().contains(&node_a));
+}
+
+#[test]
 fn singleton_manager_retries_takeover_while_was_oldest() {
     let node_a = node("takeover-retry-old", 1);
     let node_b = node("takeover-retry-new", 2);
@@ -804,6 +831,59 @@ fn singleton_manager_actor_stops_when_self_is_removed() {
     manager
         .tell(SingletonManagerMsg::MarkRemoved {
             node: node_a,
+            reply_to: Some(effects.actor_ref()),
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::StopManager],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    watcher
+        .expect_msg_eq("terminated", Duration::from_millis(500))
+        .unwrap();
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn singleton_manager_actor_stops_from_self_downed_change() {
+    let node_a = node("singleton-actor-self-downed", 1);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [member(node_a.clone(), MemberStatus::Up, 1)],
+    );
+    let kit = ActorSystemTestKit::new("singleton-manager-actor-self-downed").unwrap();
+    let effects = kit
+        .create_probe::<Vec<SingletonManagerEffect>>("effects")
+        .unwrap();
+    let watcher = kit.create_probe::<&'static str>("watcher").unwrap();
+    let manager = kit
+        .system()
+        .spawn(
+            "singleton-manager",
+            SingletonManagerActor::props(node_a.clone()),
+        )
+        .unwrap();
+    watcher.watch_with(&manager, "terminated").unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::ApplyInitialObservation {
+            observation,
+            reply_to: Some(effects.actor_ref()),
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::StartSingleton],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    manager
+        .tell(SingletonManagerMsg::ApplyOldestChange {
+            change: SingletonOldestChange::SelfDowned,
             reply_to: Some(effects.actor_ref()),
         })
         .unwrap();

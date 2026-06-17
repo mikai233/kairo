@@ -2392,6 +2392,10 @@ Implemented:
   sorts eligible UP members by cluster age, reports oldest changes from member
   events, and marks takeover unsafe while older leaving/exiting/down members
   are still present.
+- `kairo-cluster-tools` singleton oldest-member tracking now reports explicit
+  self-down/self-removed changes from cluster member events; singleton manager
+  runtimes and actors turn those changes into `StopManager`, while proxy route
+  selection ignores the lifecycle-only changes.
 - `kairo-cluster-tools` crate docs now describe the structured singleton,
   proxy, topic, pubsub registry/gossip, remote-envelope, TCP peer, and system
   inbound boundaries, plus a compile-checked oldest-member tracking example.
@@ -4973,6 +4977,15 @@ git diff --check
 cargo test -p kairo-cluster-tools singleton_manager_stops_when_self_is_removed --all-targets --all-features
 cargo test -p kairo-cluster-tools singleton_manager_actor_stops_when_self_is_removed --all-targets --all-features
 cargo test -p kairo-cluster-tools local_singleton_manager_stops_manager_and_child_when_self_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools singleton_oldest_tracker_reports_self_removed_and_downed --all-targets --all-features
+cargo test -p kairo-cluster-tools singleton_manager_stops_from_self_oldest_changes --all-targets --all-features
+cargo test -p kairo-cluster-tools singleton_manager_actor_stops_from_self_downed_change --all-targets --all-features
+cargo test -p kairo-cluster-tools local_singleton_manager_stops_manager_and_child_from_self_downed_change --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check

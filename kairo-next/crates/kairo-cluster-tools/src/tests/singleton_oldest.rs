@@ -136,3 +136,35 @@ fn singleton_oldest_tracker_ignores_self_exited_and_non_matching_role() {
         vec![node_b, node_c]
     );
 }
+
+#[test]
+fn singleton_oldest_tracker_reports_self_removed_and_downed() {
+    let node_a = node("self-event-a", 1);
+    let node_b = node("self-event-b", 2);
+
+    let (mut tracker, _observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b, MemberStatus::Up, 2),
+        ],
+    );
+
+    assert_eq!(
+        tracker.apply_member_event(&MemberEvent::Downed(member(
+            node_a.clone(),
+            MemberStatus::Down,
+            1,
+        ))),
+        Some(SingletonOldestChange::SelfDowned)
+    );
+    assert_eq!(
+        tracker.apply_member_event(&MemberEvent::Removed {
+            member: member(node_a.clone(), MemberStatus::Removed, 1),
+            previous_status: MemberStatus::Down,
+        }),
+        Some(SingletonOldestChange::SelfRemoved)
+    );
+    assert_ne!(tracker.current_oldest(), Some(&node_a));
+}
