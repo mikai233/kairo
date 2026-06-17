@@ -214,6 +214,10 @@ Implemented:
   has run `PreRestart` cleanup and restart-time child teardown has completed,
   matching Pekko's observable recreate ordering while keeping Kairo's explicit
   Rust `Props::restartable` factory boundary.
+- Startup-failure escalation coverage now also pins that a child whose
+  `started()` callback fails under `SupervisorStrategy::Escalate` can restart
+  a restartable parent through the normal supervision lane, stop the failed
+  child, and leave the parent ref usable afterward.
 - Restart cleanup now treats `Signal::PreRestart` as an inactive owner scope
   for helper creation: named and anonymous child spawns, actor-owned tasks,
   `pipe_to_self`, adapters, asks, watch registrations, stash operations, self
@@ -5190,5 +5194,12 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor startup_failure_escalation_restarts_restartable_parent --all-targets --all-features
+cargo test -p kairo-actor supervision --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```

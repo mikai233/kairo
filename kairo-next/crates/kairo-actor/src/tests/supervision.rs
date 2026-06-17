@@ -1872,3 +1872,36 @@ fn startup_failure_escalates_to_parent_supervision() {
     assert!(parent.wait_for_stop(Duration::from_secs(1)));
     assert_eq!(starts.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn startup_failure_escalation_restarts_restartable_parent() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (restarted_tx, restarted_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(move || EscalationParent {
+                restarted: Some(restarted_tx.clone()),
+            }),
+        )
+        .unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let (child_tx, child_rx) = mpsc::channel();
+
+    parent
+        .tell(EscalationParentMsg::SpawnStartupFailingChild {
+            starts: Arc::clone(&starts),
+            reply_to: child_tx,
+        })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent.tell(EscalationParentMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(!parent.is_stopped());
+}
