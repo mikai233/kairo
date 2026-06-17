@@ -46,6 +46,9 @@ Implemented:
 - `ActorSystemBuilder` construction and scheduler/dispatcher wiring now live in
   a focused `system::builder` submodule instead of the actor-system runtime
   operations file.
+- `ActorRefProvider` is now object-safe and has focused local and remote
+  provider coverage through `&dyn ActorRefProvider`, keeping the local/remote
+  resolution boundary usable without depending on concrete provider types.
 - Mailbox tests now pin the actor runtime contract that system messages are
   dequeued before already queued user messages while preserving FIFO order
   within the system lane.
@@ -4648,5 +4651,15 @@ cargo test -p kairo-actor local_core --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor local_actor_ref_provider_is_usable_as_provider_trait_object --all-targets --all-features
+cargo test -p kairo-remote remote_actor_ref_provider_is_usable_as_provider_trait_object --all-targets --all-features
+cargo test -p kairo-actor local_core --all-targets --all-features
+cargo test -p kairo-remote provider --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```

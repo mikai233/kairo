@@ -625,6 +625,25 @@ fn actor_system_spawn_system_places_framework_actors_under_system_guardian() {
 }
 
 #[test]
+fn local_actor_ref_provider_is_usable_as_provider_trait_object() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system.spawn("probe", Props::new(|| Noop)).unwrap();
+    let provider = system.provider();
+    let provider: &dyn ActorRefProvider = &provider;
+
+    let resolved = provider.resolve(actor.path());
+    let temp = provider.temp_path("trait-object");
+
+    assert!(matches!(resolved, ActorRefResolveResult::Local(_)));
+    assert_eq!(resolved.path(), actor.path());
+    assert_eq!(
+        provider.user_guardian().path().as_str(),
+        "kairo://test/user"
+    );
+    assert!(temp.as_str().starts_with("kairo://test/temp/trait-object$"));
+}
+
+#[test]
 fn local_actor_ref_provider_allocates_unique_temp_paths_under_temp_root() {
     let system = ActorSystem::builder("test").build().unwrap();
     let provider = system.provider();

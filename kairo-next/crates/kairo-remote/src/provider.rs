@@ -239,7 +239,7 @@ impl ActorRefProvider for RemoteActorRefProvider {
         self.require_local_provider().dead_letters()
     }
 
-    fn temp_path(&self, prefix: impl AsRef<str>) -> ActorPath {
+    fn temp_path(&self, prefix: &str) -> ActorPath {
         self.require_local_provider().temp_path(prefix)
     }
 }
@@ -616,6 +616,41 @@ mod tests {
 
         assert!(matches!(resolved, ActorRefResolveResult::Local(_)));
         assert_eq!(resolved.path().as_str(), target.path().as_str());
+    }
+
+    #[test]
+    fn remote_actor_ref_provider_is_usable_as_provider_trait_object() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_system(system.clone());
+        let (received_tx, _received_rx) = mpsc::channel();
+        let target = system
+            .spawn(
+                "target",
+                Props::new(move || Probe {
+                    received: received_tx,
+                }),
+            )
+            .unwrap();
+        let canonical_path =
+            target
+                .path()
+                .as_str()
+                .replacen("kairo://local", "kairo://local@127.0.0.1:25520", 1);
+        let provider: &dyn ActorRefProvider = &provider;
+
+        let resolved = provider.resolve(&ActorPath::new(canonical_path));
+        let temp = provider.temp_path("remote-trait-object");
+
+        assert!(matches!(resolved, ActorRefResolveResult::Local(_)));
+        assert_eq!(resolved.path().as_str(), target.path().as_str());
+        assert_eq!(
+            provider.system_guardian().path().as_str(),
+            "kairo://local/system"
+        );
+        assert!(
+            temp.as_str()
+                .starts_with("kairo://local/temp/remote-trait-object$")
+        );
     }
 
     #[test]
