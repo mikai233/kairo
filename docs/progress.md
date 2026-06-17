@@ -3031,6 +3031,10 @@ Implemented:
   installs a route to a replacement peer, a stable-manifest `ReplicatorRead`
   reaches the replacement receiver and decodes with the sender's replica
   metadata.
+- The distributed-data TCP bootstrap example smoke suite now also validates
+  sender-side three-node request delivery: a sender publishes a three-member
+  membership snapshot, installs routes to both peers, and sends stable-manifest
+  `ReplicatorRead` envelopes to each receiver with payload sender metadata.
 - The distributed-data TCP bootstrap example smoke suite now validates
   failed-dial lifecycle cleanup through the public example boundary: an
   unreachable peer produces a pending reconnect snapshot, and removing that
@@ -3562,8 +3566,8 @@ Not yet implemented:
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector beyond current route-target shrinkage, and
-  bootstrap beyond the current localhost two-node example smoke test,
-  three-node bootstrap route/request-delivery validation, and focused
+  bootstrap beyond the current localhost two-node and sender-side three-node
+  example smoke tests, three-node bootstrap route validation, and focused
   peer-runtime sender-side route-reduction delivery coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level coverage and broader
@@ -5152,5 +5156,11 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples ddata_tcp_peer_bootstrap_delivers_reads_to_three_node_mesh --all-targets --all-features
+cargo test -p kairo-examples ddata_tcp_peer_bootstrap --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 ```

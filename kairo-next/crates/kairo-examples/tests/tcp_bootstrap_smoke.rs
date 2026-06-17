@@ -380,6 +380,62 @@ fn ddata_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks() -> Te
 }
 
 #[test]
+fn ddata_tcp_peer_bootstrap_delivers_reads_to_three_node_mesh() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b, node_c) = ddata_tcp::bind_three_nodes()?;
+    let result = (|| -> TestResult {
+        let members = vec![
+            node_a.self_node().clone(),
+            node_b.self_node().clone(),
+            node_c.self_node().clone(),
+        ];
+        node_a.publish_up_members(members)?;
+
+        let routes = node_a.wait_for_route_count(2, Duration::from_secs(2))?;
+        assert!(
+            routes
+                .active_targets
+                .iter()
+                .any(|target| target.node() == node_b.self_node()),
+            "node A should install a distributed-data route to node B: {routes:?}"
+        );
+        assert!(
+            routes
+                .active_targets
+                .iter()
+                .any(|target| target.node() == node_c.self_node()),
+            "node A should install a distributed-data route to node C: {routes:?}"
+        );
+
+        node_a.send_read_to(&node_c, "counter-three-node-c")?;
+        node_a.send_read_to(&node_b, "counter-three-node-b")?;
+
+        let received_c = node_c.wait_for_request_count(1, Duration::from_secs(2));
+        assert_eq!(received_c.len(), 1);
+        let read_c = node_c.decode_read(received_c[0].1.clone())?;
+        assert_eq!(read_c.key, "counter-three-node-c");
+        assert_eq!(read_c.from, Some(ReplicaId::from(node_a.self_node())));
+
+        let received_b = node_b.wait_for_request_count(1, Duration::from_secs(2));
+        assert_eq!(received_b.len(), 1);
+        let read_b = node_b.decode_read(received_b[0].1.clone())?;
+        assert_eq!(read_b.key, "counter-three-node-b");
+        assert_eq!(read_b.from, Some(ReplicaId::from(node_a.self_node())));
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+    let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    shutdown_c?;
+    Ok(())
+}
+
+#[test]
 fn ddata_tcp_peer_bootstrap_keeps_remaining_read_route_after_peer_removed() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b, node_c) = ddata_tcp::bind_three_nodes()?;
