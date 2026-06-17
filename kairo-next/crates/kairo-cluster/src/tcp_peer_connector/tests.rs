@@ -1,5 +1,5 @@
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use kairo_actor::{Address, Props};
@@ -14,7 +14,7 @@ use crate::{
     ClusterTcpPeerReconnectSettings, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
     DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, Gossip, HeartbeatRemoteReceiverInbound,
     HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Member, MemberStatus, Reachability,
-    register_cluster_protocol_codecs,
+    register_cluster_protocol_codecs, test_support::cluster_socket_test_lock,
 };
 
 fn registry() -> Arc<Registry> {
@@ -542,7 +542,6 @@ fn connector_automatic_retry_timer_drives_due_peer_routes() {
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
-fn connector_socket_test_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap()
+fn connector_socket_test_lock() -> crate::test_support::SocketTestGuard {
+    cluster_socket_test_lock()
 }

@@ -3231,6 +3231,10 @@ Implemented:
   second-to-third sends reject through the removed association route, and
   proves first-to-second plus second-to-first membership delivery still works
   across the surviving routes.
+- `kairo-cluster` live TCP tests now share a crate-level socket-test guard
+  across peer-runtime, connector, bootstrap, and direct association runtime
+  modules, keeping default parallel cargo test runs from racing over
+  temporarily unused ports or cross-addressed association handshakes.
 - `kairo-distributed-data` TCP peer bootstrap coverage now pins sender-side
   route reduction with live delivery: after one of two remote peers leaves the
   sender's cluster membership view, the remaining replicator route continues
@@ -3272,6 +3276,10 @@ Implemented:
   verifies second-to-third publishes reject through the removed association
   route, and proves first-to-second plus second-to-first pubsub delivery still
   works across the surviving routes.
+- `kairo-cluster-tools` live TCP tests now share a crate-level socket-test
+  guard across peer-runtime, connector, bootstrap, and direct association
+  runtime modules, matching the cluster and distributed-data socket fixtures
+  so default parallel cargo test runs stay deterministic under load.
 - `kairo-distributed-data` TCP peer bootstrap two-node route coverage now
   pins coordinated shutdown cleanup of installed association routes on both
   peers after cluster membership installs them.

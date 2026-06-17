@@ -243,7 +243,7 @@ mod tests {
         PubSubRemoteDeliveryInbound, PubSubRemoteDeliveryOutbound, PubSubRemoteEnvelopeOutbound,
         PubSubSerializedGossip, SingletonManagerEffect, SingletonManagerMsg,
         SingletonManagerRemoteInbound, SingletonManagerRemoteOutbound, TopicName, TopicPublishMode,
-        register_cluster_tools_protocol_codecs,
+        register_cluster_tools_protocol_codecs, test_support::cluster_tools_socket_test_lock,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -349,6 +349,7 @@ mod tests {
 
     #[test]
     fn tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally() {
+        let _guard = cluster_tools_socket_test_lock();
         let sender_kit = ActorSystemTestKit::new("cluster-tools-tcp-sender").unwrap();
         let receiver_kit = ActorSystemTestKit::new("cluster-tools-tcp-receiver").unwrap();
         let registry = registry();

@@ -14,6 +14,7 @@ use crate::{
     ClusterToolsSystemInbound, DistributedPubSubMediatorMsg, PubSubGossipMsg,
     PubSubGossipWireInbound, PubSubRemoteDeliveryInbound, SingletonManagerMsg,
     SingletonManagerRemoteInbound, register_cluster_tools_protocol_codecs,
+    test_support::cluster_tools_socket_test_lock,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,6 +195,7 @@ fn bind_association_runtime_on_port(
 
 #[test]
 fn peer_runtime_applies_snapshot_and_reachability_event_to_live_routes() {
+    let _guard = cluster_tools_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-sender").unwrap();
     let receiver_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-receiver").unwrap();
     let registry = registry();
@@ -234,6 +236,7 @@ fn peer_runtime_applies_snapshot_and_reachability_event_to_live_routes() {
 
 #[test]
 fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
+    let _guard = cluster_tools_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-reduce-sender").unwrap();
     let second_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-reduce-second").unwrap();
     let third_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-reduce-third").unwrap();
@@ -293,6 +296,7 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
 
 #[test]
 fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
+    let _guard = cluster_tools_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-shutdown-sender").unwrap();
     let receiver_kit =
         ActorSystemTestKit::new("cluster-tools-peer-runtime-shutdown-receiver").unwrap();
@@ -326,6 +330,7 @@ fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
 
 #[test]
 fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
+    let _guard = cluster_tools_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-retry-sender").unwrap();
     let receiver_kit =
         ActorSystemTestKit::new("cluster-tools-peer-runtime-retry-receiver").unwrap();
@@ -390,6 +395,7 @@ fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
 
 #[test]
 fn peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial() {
+    let _guard = cluster_tools_socket_test_lock();
     let kit =
         ActorSystemTestKit::new("cluster-tools-peer-runtime-shutdown-pending-reconnect").unwrap();
     let registry = registry();
@@ -434,6 +440,7 @@ fn peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial() {
 
 #[test]
 fn peer_runtime_clears_pending_reconnect_when_peer_is_removed() {
+    let _guard = cluster_tools_socket_test_lock();
     let kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-retry-removed").unwrap();
     let registry = registry();
     let receiver_port = unused_port();

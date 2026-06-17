@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::time::Duration;
 
 use kairo_actor::{ActorRef, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
@@ -288,7 +288,6 @@ pub(super) fn run_bootstrap_shutdown(
     assert!(connector.wait_for_stop(Duration::from_secs(1)));
 }
 
-pub(super) fn bootstrap_socket_test_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap()
+pub(super) fn bootstrap_socket_test_lock() -> crate::test_support::SocketTestGuard {
+    crate::test_support::cluster_socket_test_lock()
 }

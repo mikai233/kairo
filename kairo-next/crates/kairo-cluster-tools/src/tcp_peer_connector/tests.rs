@@ -1,5 +1,5 @@
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -18,6 +18,7 @@ use crate::{
     ClusterToolsTcpPeerReconnectSettings, DistributedPubSubMediatorMsg, PubSubGossipMsg,
     PubSubGossipWireInbound, PubSubRemoteDeliveryInbound, SingletonManagerMsg,
     SingletonManagerRemoteInbound, register_cluster_tools_protocol_codecs,
+    test_support::cluster_tools_socket_test_lock,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -569,7 +570,6 @@ fn connector_automatic_retry_timer_drives_due_peer_routes() {
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
-fn connector_socket_test_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap()
+fn connector_socket_test_lock() -> crate::test_support::SocketTestGuard {
+    cluster_tools_socket_test_lock()
 }

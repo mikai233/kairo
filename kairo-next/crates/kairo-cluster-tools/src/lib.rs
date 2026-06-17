@@ -65,6 +65,8 @@ mod tcp_peer_connector;
 mod tcp_peer_reconnect;
 mod tcp_peer_routes;
 mod tcp_peer_runtime;
+#[cfg(test)]
+mod test_support;
 mod topic;
 
 pub use codec::{

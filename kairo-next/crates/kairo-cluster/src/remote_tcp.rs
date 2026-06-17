@@ -228,7 +228,7 @@ mod tests {
         DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, Gossip,
         HeartbeatRemoteReceiverInbound, HeartbeatRemoteReceiverOutbound,
         HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Member,
-        register_cluster_protocol_codecs,
+        register_cluster_protocol_codecs, test_support::cluster_socket_test_lock,
     };
 
     fn registry() -> Arc<Registry> {
@@ -304,6 +304,7 @@ mod tests {
 
     #[test]
     fn tcp_runtime_routes_membership_and_heartbeat_over_bidirectional_association() {
+        let _guard = cluster_socket_test_lock();
         let sender_kit = ActorSystemTestKit::new("cluster-tcp-sender").unwrap();
         let receiver_kit = ActorSystemTestKit::new("cluster-tcp-receiver").unwrap();
         let registry = registry();
