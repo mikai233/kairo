@@ -1576,6 +1576,11 @@ Implemented:
   ref, recipient ref, and decoded payload, while sends addressed to the removed
   peer reject through the association cache without another request reaching
   the removed receiver.
+- Distributed-data TCP peer runtime coverage now directly pins local
+  `MemberRemoved` handling for the runtime's own node: self removal clears all
+  outbound peer routes and cached ddata routes, rejects later remote
+  `ReplicatorRead` sends with association-unavailable, and leaves the receiver
+  without a post-removal request.
 - Distributed-data TCP peer runtime shutdown now has focused lifecycle coverage
   proving that a failed dial's pending reconnect is cleared and reported even
   when the peer never becomes reachable.
@@ -2705,6 +2710,11 @@ Implemented:
   closes only that peer route, keeps the surviving route delivering
   stable-manifest pubsub publishes, rejects sends to the removed peer through
   the association cache, and leaves the removed peer's mediator inbox empty.
+- Cluster-tools TCP peer runtime coverage now directly pins local
+  `MemberRemoved` handling for the runtime's own node: self removal clears all
+  outbound pubsub/singleton peer routes and cached routes, rejects later pubsub
+  publishes through the association cache, and leaves the receiver mediator
+  without a post-removal publish.
 - `kairo-cluster-tools` now has a focused TCP peer runtime lifecycle owner
   that composes the cluster-tools TCP socket runtime, membership-derived peer
   planner, peer-route table, and dedicated reconnect state module. It applies
@@ -3651,6 +3661,16 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data peer_runtime_clears_routes_when_self_member_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools peer_runtime_clears_routes_when_self_member_is_removed --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster self_member_removal_removes_all_active_peers --all-targets --all-features
 cargo test -p kairo-cluster peer_runtime_clears_routes_when_self_member_is_removed --all-targets --all-features
 cargo fmt --all

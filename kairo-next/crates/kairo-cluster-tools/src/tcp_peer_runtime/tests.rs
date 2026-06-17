@@ -4,7 +4,9 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use kairo_actor::{Address, Recipient};
-use kairo_cluster::{CurrentClusterState, Member, MemberStatus, ReachabilityEvent, UniqueAddress};
+use kairo_cluster::{
+    CurrentClusterState, Member, MemberEvent, MemberStatus, ReachabilityEvent, UniqueAddress,
+};
 use kairo_remote::{RemoteOutbound, RemoteSettings};
 use kairo_serialization::{MessageCodec, Registry, SerializationRegistry};
 use kairo_testkit::{ActorSystemTestKit, TestProbe};
@@ -437,6 +439,95 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     second_kit.shutdown(Duration::from_secs(1)).unwrap();
     third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn peer_runtime_clears_routes_when_self_member_is_removed() {
+    let _guard = cluster_tools_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("cluster-tools-peer-runtime-self-remove-sender").unwrap();
+    let receiver_kit =
+        ActorSystemTestKit::new("cluster-tools-peer-runtime-self-remove-receiver").unwrap();
+    let registry = registry();
+    let mut sender = bind_peer_runtime("self-remove-sender", 1, 11, &sender_kit, registry.clone());
+    let (receiver, receiver_probes) = bind_association_runtime_with_probes(
+        "self-remove-receiver",
+        2,
+        22,
+        &receiver_kit,
+        registry.clone(),
+    );
+    let sender_node = sender.self_node().clone();
+    let receiver_node = receiver.self_node().clone();
+    let outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        receiver_node.clone(),
+        registry,
+        Arc::new(sender.association_cache().clone()) as Arc<dyn RemoteOutbound>,
+    );
+
+    sender
+        .apply_snapshot(state(
+            vec![member(sender_node.clone()), member(receiver_node.clone())],
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(sender.peer_route_count(), 1);
+    assert_eq!(sender.association_cache().route_count(), 1);
+    wait_for_route(&receiver);
+
+    outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 21 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &receiver_probes,
+        TopicName::new("orders"),
+        TestMessage { value: 21 },
+    );
+
+    let report = sender
+        .apply_event(ClusterEvent::Member(MemberEvent::Removed {
+            member: member(sender_node).with_status(MemberStatus::Removed),
+            previous_status: MemberStatus::Up,
+        }))
+        .unwrap();
+
+    assert_eq!(report.removed.len(), 1);
+    assert_eq!(report.removed[0].node(), &receiver_node);
+    assert_eq!(sender.peer_route_count(), 0);
+    assert_eq!(sender.association_cache().route_count(), 0);
+
+    let removed_route_error = outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 22 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("self-removed peer runtime should clear outbound routes");
+    assert!(
+        removed_route_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected self-removal send error: {removed_route_error:?}"
+    );
+    receiver_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    let sender_report = sender.shutdown().unwrap();
+    assert_eq!(sender_report.peer_routes.removed.len(), 0);
+    assert!(sender_report.pending_reconnects.is_empty());
+    assert_eq!(sender_report.listener.accepted_associations, 0);
+    let receiver_report = receiver.shutdown().unwrap();
+    assert_eq!(receiver_report.accepted_associations, 1);
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

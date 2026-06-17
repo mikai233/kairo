@@ -7,7 +7,7 @@ mod route_tests {
 
     use kairo_actor::Address;
     use kairo_cluster::{
-        CurrentClusterState, Member, MemberStatus, ReachabilityEvent, UniqueAddress,
+        CurrentClusterState, Member, MemberEvent, MemberStatus, ReachabilityEvent, UniqueAddress,
     };
     use kairo_remote::{RemoteError, RemoteSettings};
     use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
@@ -450,6 +450,106 @@ mod route_tests {
         assert_eq!(second_report.accepted_associations, 1);
         let third_report = third.shutdown().unwrap();
         assert_eq!(third_report.accepted_associations, 1);
+    }
+
+    #[test]
+    fn peer_runtime_clears_routes_when_self_member_is_removed() {
+        let _guard = ddata_socket_test_lock();
+        let retry_interval = Duration::from_millis(25);
+        let registry = registry();
+        let receiver_port = unused_port();
+        let receiver_node = node("self-remove-receiver", receiver_port, 2);
+        let receiver_requests = Arc::new(RecordingRequests::default());
+        let mut sender = bind_peer_runtime(
+            "self-remove-sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&receiver_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+        let receiver = bind_association_runtime_on_port_with_requests(
+            "self-remove-receiver",
+            ReplicaId::from(&receiver_node),
+            ReplicaId::from(&sender_node),
+            22,
+            receiver_port,
+            receiver_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        );
+
+        sender
+            .apply_snapshot(state(
+                vec![member(sender_node.clone()), member(receiver_node.clone())],
+                vec![],
+            ))
+            .unwrap();
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        wait_for_reverse_route(&receiver);
+
+        let recipient = replicator_ref("self-remove-receiver", receiver_port);
+        let sender_ref = replicator_ref(
+            sender_node.address.system(),
+            sender_node.address.port().unwrap(),
+        );
+        let before_removal = ReplicatorRead {
+            key: "counter-before-self-removal".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        };
+        sender
+            .association_cache()
+            .send_to_recipient(RemoteEnvelope::new(
+                recipient.clone(),
+                Some(sender_ref.clone()),
+                registry.serialize(&before_removal).unwrap(),
+            ))
+            .unwrap();
+        assert_eq!(
+            receiver_requests
+                .wait_for_len(1, Duration::from_secs(1))
+                .len(),
+            1
+        );
+
+        let report = sender
+            .apply_event(ClusterEvent::Member(MemberEvent::Removed {
+                member: member(sender_node.clone()).with_status(MemberStatus::Removed),
+                previous_status: MemberStatus::Up,
+            }))
+            .unwrap();
+
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(report.removed[0].node(), &receiver_node);
+        assert_eq!(sender.peer_route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        let after_removal = ReplicatorRead {
+            key: "counter-after-self-removal".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        };
+        let error = sender
+            .association_cache()
+            .send_to_recipient(RemoteEnvelope::new(
+                recipient,
+                Some(sender_ref),
+                registry.serialize(&after_removal).unwrap(),
+            ))
+            .expect_err("self-removed peer runtime should clear outbound routes");
+        assert!(matches!(error, RemoteError::AssociationUnavailable { .. }));
+        assert_eq!(
+            receiver_requests
+                .wait_for_len(2, Duration::from_millis(50))
+                .len(),
+            1,
+            "self-removed runtime must not deliver after local removal"
+        );
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.peer_routes.removed.len(), 0);
+        assert!(sender_report.pending_reconnects.is_empty());
+        let receiver_report = receiver.shutdown().unwrap();
+        assert_eq!(receiver_report.accepted_associations, 1);
     }
 
     #[test]
