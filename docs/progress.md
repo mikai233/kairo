@@ -3377,6 +3377,9 @@ Implemented:
   now match the runnable binary and migration guide: local sharding docs call
   out basic `EntityRef` routing, passivation/restart, and graceful remembered
   shard movement.
+- `kairo-remote` provider coverage now includes canonical local `/temp` ask
+  reply refs: resolving an owned canonical temp path maps back to the
+  registered local ask ref and delivers the reply without requiring a codec.
 
 Not yet implemented:
 

@@ -303,7 +303,7 @@ mod tests {
     use std::time::Duration;
 
     use bytes::Bytes;
-    use kairo_actor::{Actor, ActorResult, Context, Props};
+    use kairo_actor::{Actor, ActorResult, AskResult, Context, Props};
     use kairo_serialization::{
         ActorRefResolver, MessageCodec, RemoteEnvelope, SerializationRegistry,
     };
@@ -365,6 +365,72 @@ mod tests {
                 .send(msg.value)
                 .map_err(|error| kairo_actor::ActorError::Message(error.to_string()))
         }
+    }
+
+    struct AskCapture {
+        captured: mpsc::Sender<ActorRef<AskReply>>,
+    }
+
+    impl Actor for AskCapture {
+        type Msg = AskCaptureMsg;
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+            match msg {
+                AskCaptureMsg::Capture { reply_to } => self
+                    .captured
+                    .send(reply_to)
+                    .map_err(|error| kairo_actor::ActorError::Message(error.to_string())),
+            }
+        }
+    }
+
+    enum AskCaptureMsg {
+        Capture { reply_to: ActorRef<AskReply> },
+    }
+
+    struct AskOwner;
+
+    impl Actor for AskOwner {
+        type Msg = AskOwnerMsg;
+
+        fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+            match msg {
+                AskOwnerMsg::Start { target, result_to } => ctx.ask(
+                    target,
+                    Duration::from_secs(5),
+                    |reply_to| AskCaptureMsg::Capture { reply_to },
+                    move |result| AskOwnerMsg::Asked { result, result_to },
+                ),
+                AskOwnerMsg::Asked { result, result_to } => result_to
+                    .send(
+                        result
+                            .map(|reply| reply.value)
+                            .map_err(|error| error.to_string()),
+                    )
+                    .map_err(|error| kairo_actor::ActorError::Message(error.to_string())),
+            }
+        }
+    }
+
+    enum AskOwnerMsg {
+        Start {
+            target: ActorRef<AskCaptureMsg>,
+            result_to: mpsc::Sender<std::result::Result<u8, String>>,
+        },
+        Asked {
+            result: AskResult<AskReply>,
+            result_to: mpsc::Sender<std::result::Result<u8, String>>,
+        },
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct AskReply {
+        value: u8,
+    }
+
+    impl RemoteMessage for AskReply {
+        const MANIFEST: &'static str = "kairo.remote.test.AskReply";
+        const VERSION: u16 = 1;
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -770,6 +836,58 @@ mod tests {
         assert_eq!(
             system.dead_letters().records()[0].recipient().as_str(),
             "kairo://local/user/missing#42"
+        );
+    }
+
+    #[test]
+    fn provider_maps_owned_canonical_temp_ask_ref_to_registered_local_ref_without_codec() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_empty_registry(system.clone());
+        let (captured_tx, captured_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let target = system
+            .spawn(
+                "ask-capture",
+                Props::new(move || AskCapture {
+                    captured: captured_tx,
+                }),
+            )
+            .unwrap();
+        let owner = system.spawn("ask-owner", Props::new(|| AskOwner)).unwrap();
+
+        owner
+            .tell(AskOwnerMsg::Start {
+                target,
+                result_to: result_tx,
+            })
+            .unwrap();
+        let reply_ref = captured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(
+            system
+                .resolve_local::<AskReply>(reply_ref.path().as_str())
+                .is_some()
+        );
+        let canonical_path =
+            reply_ref
+                .path()
+                .as_str()
+                .replacen("kairo://local", "kairo://local@127.0.0.1:25520", 1);
+
+        let resolved = provider
+            .resolve_actor_ref::<AskReply>(canonical_path)
+            .unwrap();
+
+        assert!(resolved.is_local());
+        assert_eq!(resolved.path().as_str(), reply_ref.path().as_str());
+        resolved.tell(AskReply { value: 47 }).unwrap();
+        assert_eq!(
+            result_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Ok(47)
+        );
+        assert!(
+            system
+                .resolve_local::<AskReply>(reply_ref.path().as_str())
+                .is_none()
         );
     }
 
