@@ -39,6 +39,14 @@ pub enum MultiNodeError {
         arrived: BTreeSet<String>,
         remaining: BTreeSet<String>,
     },
+    /// A previous wrong-order barrier entry failed the active barrier sequence.
+    BarrierFailed {
+        name: String,
+        node: String,
+        reason: String,
+        arrived: BTreeSet<String>,
+        remaining: BTreeSet<String>,
+    },
     /// The shared barrier state lock was poisoned by a panic in another thread.
     PoisonedBarrier,
     /// An underlying actor-system operation failed.
@@ -86,6 +94,18 @@ impl Display for MultiNodeError {
                 write!(
                     f,
                     "multi-node testkit node `{node}` timed out after {timeout:?} waiting for barrier `{name}`; arrived: {arrived:?}, remaining: {remaining:?}"
+                )
+            }
+            Self::BarrierFailed {
+                name,
+                node,
+                reason,
+                arrived,
+                remaining,
+            } => {
+                write!(
+                    f,
+                    "multi-node testkit node `{node}` failed barrier `{name}` after {reason}; arrived: {arrived:?}, remaining: {remaining:?}"
                 )
             }
             Self::PoisonedBarrier => write!(f, "multi-node testkit barrier state is poisoned"),
@@ -265,7 +285,15 @@ impl MultiNodeTestKit {
             .barriers
             .lock()
             .map_err(|_| MultiNodeError::PoisonedBarrier)?;
-        let entered = barriers.enter(name, node_name, self.expected_barrier_nodes())?;
+        let entered = match barriers.enter(name, node_name, self.expected_barrier_nodes()) {
+            Ok(entered) => entered,
+            Err(error) => {
+                if matches!(error, MultiNodeError::WrongBarrier { .. }) {
+                    self.barrier_changed.notify_all();
+                }
+                return Err(error);
+            }
+        };
         if entered.status.passed() {
             self.barrier_changed.notify_all();
         }
@@ -292,7 +320,16 @@ impl MultiNodeTestKit {
             .barriers
             .lock()
             .map_err(|_| MultiNodeError::PoisonedBarrier)?;
-        let entered = barriers.enter(name.clone(), &node_name, self.expected_barrier_nodes())?;
+        let entered = match barriers.enter(name.clone(), &node_name, self.expected_barrier_nodes())
+        {
+            Ok(entered) => entered,
+            Err(error) => {
+                if matches!(error, MultiNodeError::WrongBarrier { .. }) {
+                    self.barrier_changed.notify_all();
+                }
+                return Err(error);
+            }
+        };
         let barrier_id = entered.id;
         if entered.status.passed() {
             self.barrier_changed.notify_all();
@@ -302,6 +339,15 @@ impl MultiNodeTestKit {
         loop {
             if let Some(status) = barriers.completed_status(barrier_id) {
                 return Ok(status);
+            }
+            if let Some((reason, arrived, remaining)) = barriers.failed_snapshot(barrier_id) {
+                return Err(MultiNodeError::BarrierFailed {
+                    name,
+                    node: node_name,
+                    reason,
+                    arrived,
+                    remaining,
+                });
             }
 
             let remaining_timeout = deadline.saturating_duration_since(Instant::now());
@@ -325,6 +371,15 @@ impl MultiNodeTestKit {
             if wait_result.timed_out() {
                 if let Some(status) = barriers.completed_status(barrier_id) {
                     return Ok(status);
+                }
+                if let Some((reason, arrived, remaining)) = barriers.failed_snapshot(barrier_id) {
+                    return Err(MultiNodeError::BarrierFailed {
+                        name,
+                        node: node_name,
+                        reason,
+                        arrived,
+                        remaining,
+                    });
                 }
                 let (arrived, remaining) = barriers.waiting_snapshot(barrier_id);
                 return Err(MultiNodeError::BarrierTimeout {
@@ -576,6 +631,8 @@ impl MultiNodeBarrierStatus {
 struct BarrierState {
     active: Option<ActiveBarrier>,
     completed: Vec<CompletedBarrier>,
+    failed: Vec<FailedBarrier>,
+    sequence_failure: Option<String>,
     next_id: u64,
 }
 
@@ -586,28 +643,63 @@ impl BarrierState {
         node: &str,
         participants: BTreeSet<String>,
     ) -> MultiNodeResult<EnteredBarrier> {
-        let active = match &mut self.active {
-            Some(active) => {
-                if active.name != name {
-                    return Err(MultiNodeError::WrongBarrier {
-                        expected: active.name.clone(),
-                        actual: name,
-                        node: node.to_string(),
-                    });
-                }
-                active
-            }
-            None => {
-                let id = self.next_id;
-                self.next_id += 1;
-                self.active.insert(ActiveBarrier {
-                    id,
-                    name: name.clone(),
-                    participants,
-                    arrived: BTreeSet::new(),
-                })
-            }
-        };
+        if let Some(reason) = &self.sequence_failure {
+            return Err(MultiNodeError::BarrierFailed {
+                name,
+                node: node.to_string(),
+                reason: reason.clone(),
+                arrived: BTreeSet::new(),
+                remaining: participants,
+            });
+        }
+
+        if self.active.is_none() {
+            let id = self.next_id;
+            self.next_id += 1;
+            self.active = Some(ActiveBarrier {
+                id,
+                name: name.clone(),
+                participants,
+                arrived: BTreeSet::new(),
+            });
+        }
+
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.name != name)
+        {
+            let failed = self
+                .active
+                .take()
+                .expect("active barrier must exist when failing wrong barrier");
+            let reason = format!(
+                "node `{node}` entered barrier `{name}` while `{}` is active",
+                failed.name
+            );
+            let remaining = failed
+                .participants
+                .difference(&failed.arrived)
+                .cloned()
+                .collect();
+            self.failed.push(FailedBarrier {
+                id: failed.id,
+                arrived: failed.arrived,
+                remaining,
+                reason: reason.clone(),
+            });
+            self.sequence_failure = Some(reason);
+            return Err(MultiNodeError::WrongBarrier {
+                expected: failed.name,
+                actual: name,
+                node: node.to_string(),
+            });
+        }
+
+        let active = self
+            .active
+            .as_mut()
+            .expect("active barrier must exist after setup");
         let id = active.id;
 
         if !active.arrived.insert(node.to_string()) {
@@ -675,6 +767,19 @@ impl BarrierState {
             .collect();
         (active.arrived.clone(), remaining)
     }
+
+    fn failed_snapshot(&self, id: u64) -> Option<(String, BTreeSet<String>, BTreeSet<String>)> {
+        self.failed
+            .iter()
+            .find(|failed| failed.id == id)
+            .map(|failed| {
+                (
+                    failed.reason.clone(),
+                    failed.arrived.clone(),
+                    failed.remaining.clone(),
+                )
+            })
+    }
 }
 
 #[derive(Debug)]
@@ -690,6 +795,14 @@ struct CompletedBarrier {
     id: u64,
     name: String,
     participants: BTreeSet<String>,
+}
+
+#[derive(Debug)]
+struct FailedBarrier {
+    id: u64,
+    arrived: BTreeSet<String>,
+    remaining: BTreeSet<String>,
+    reason: String,
 }
 
 #[derive(Debug)]

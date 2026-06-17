@@ -650,6 +650,10 @@ Implemented:
 - Multi-node ordered-barrier coverage now also pins the timeout edge where a
   later phase inherits the remaining shared budget and reports the arrived and
   missing nodes when the peer does not enter that later phase.
+- `MultiNodeTestKit` wrong-barrier ordering now fails the active barrier
+  sequence and wakes waiters with explicit failure diagnostics instead of
+  leaving them to time out; later barrier attempts fail fast, matching Pekko's
+  barrier-coordinator failure behavior.
 - `kairo-testkit` crate docs now describe typed probes, batch/fishing
   assertions, await assertions, manual time, multi-node local harnesses, and
   compile-checked examples.

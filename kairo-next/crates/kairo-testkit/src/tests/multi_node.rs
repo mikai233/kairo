@@ -714,6 +714,52 @@ fn multi_node_testkit_await_barrier_rejects_wrong_barrier_order() {
 }
 
 #[test]
+fn multi_node_testkit_await_barrier_fails_waiter_after_wrong_barrier_order() {
+    let kit = Arc::new(
+        MultiNodeTestKit::new(["await-fail-a", "await-fail-b"]).expect("nodes should build"),
+    );
+    let waiting_kit = Arc::clone(&kit);
+    let waiter = thread::spawn(move || {
+        waiting_kit.await_barrier("phase-one", "await-fail-a", Duration::from_secs(1))
+    });
+
+    thread::sleep(Duration::from_millis(20));
+    let wrong = kit
+        .enter_barrier("phase-two", "await-fail-b")
+        .expect_err("wrong barrier should fail the active sequence");
+    assert!(matches!(
+        wrong,
+        MultiNodeError::WrongBarrier {
+            expected,
+            actual,
+            node,
+        } if expected == "phase-one" && actual == "phase-two" && node == "await-fail-b"
+    ));
+
+    let failed = waiter
+        .join()
+        .expect("waiting thread should not panic")
+        .expect_err("waiting node should fail instead of timing out");
+    assert!(matches!(
+        failed,
+        MultiNodeError::BarrierFailed {
+            name,
+            node,
+            arrived,
+            remaining,
+            ..
+        } if name == "phase-one"
+            && node == "await-fail-a"
+            && arrived == BTreeSet::from(["await-fail-a".to_string()])
+            && remaining == BTreeSet::from(["await-fail-b".to_string()])
+    ));
+
+    let kit = Arc::try_unwrap(kit).expect("test should release shared kit refs");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
 fn multi_node_testkit_await_barriers_runs_ordered_phases_under_one_timeout() {
     let kit =
         Arc::new(MultiNodeTestKit::new(["sequence-a", "sequence-b"]).expect("nodes should build"));
@@ -804,6 +850,15 @@ fn multi_node_testkit_rejects_wrong_barrier_order_and_duplicate_arrivals() {
     kit.enter_barrier("phase-one", "order-a")
         .expect("first node should enter phase one");
 
+    let duplicate = kit
+        .enter_barrier("phase-one", "order-a")
+        .expect_err("same node should not enter one barrier twice");
+    assert!(matches!(
+        duplicate,
+        MultiNodeError::DuplicateBarrierArrival { name, node }
+            if name == "phase-one" && node == "order-a"
+    ));
+
     let wrong = kit
         .enter_barrier("phase-two", "order-b")
         .expect_err("different barrier should be rejected while phase one is active");
@@ -816,13 +871,21 @@ fn multi_node_testkit_rejects_wrong_barrier_order_and_duplicate_arrivals() {
         } if expected == "phase-one" && actual == "phase-two" && node == "order-b"
     ));
 
-    let duplicate = kit
-        .enter_barrier("phase-one", "order-a")
-        .expect_err("same node should not enter one barrier twice");
+    let later = kit
+        .enter_barrier("phase-three", "order-a")
+        .expect_err("later barriers should fail after wrong barrier order");
     assert!(matches!(
-        duplicate,
-        MultiNodeError::DuplicateBarrierArrival { name, node }
-            if name == "phase-one" && node == "order-a"
+        later,
+        MultiNodeError::BarrierFailed {
+            name,
+            node,
+            arrived,
+            remaining,
+            ..
+        } if name == "phase-three"
+            && node == "order-a"
+            && arrived == BTreeSet::new()
+            && remaining == BTreeSet::from(["order-a".to_string(), "order-b".to_string()])
     ));
 
     let unknown = kit
