@@ -2969,6 +2969,11 @@ Implemented:
   `MultiNodeTestKit::enter_barrier` to mark initial shard hosting,
   coordinator readiness, and graceful-shutdown completion across the
   coordinator and region node systems.
+- `kairo-cluster-sharding` now also has focused multi-node shared-store
+  rehost validation: a remembered entity is delivered on the original region,
+  the coordinator gracefully shuts that region down and reallocates the shard,
+  the original region drops its local shard, and the replacement region reloads
+  the remembered entity from the same store before delivering the next message.
 - `kairo-cluster-sharding` now also has multi-node remember-store
   passivation validation: a store-backed shard hosted on one region passivates
   and terminates a remembered entity, removes it from the shared remember
@@ -3226,11 +3231,10 @@ Not yet implemented:
   coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level coverage, registered
-  coordinator first-delivery remember-store validation, multi-node
-  graceful-shutdown validation that proves remembered entity recovery after
-  handoff plus passivated-entity removal before rehost through a shared
-  remember store, and the multi-node discovery/shared-store validation that
-  proves first-delivery remember writes after automatic shard allocation.
+  coordinator first-delivery remember-store validation, multi-node shared-store
+  rehost/passivation validation, and the multi-node discovery/shared-store
+  validation that proves first-delivery remember writes after automatic shard
+  allocation.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
@@ -3245,6 +3249,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding multi_node_remembered_entity_is_recovered_after_rehost --all-targets --all-features
+cargo test -p kairo-cluster-sharding handoff_orchestration --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo fmt --all -- --check
 cargo test -p kairo config --all-targets --all-features
 cargo clippy -p kairo --all-targets --all-features -- -D warnings

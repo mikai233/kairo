@@ -791,6 +791,220 @@ fn multi_node_passivated_entity_is_not_recovered_after_rehost() {
 }
 
 #[test]
+fn multi_node_remembered_entity_is_recovered_after_rehost() {
+    let nodes = kairo_testkit::MultiNodeTestKit::new([
+        "sharding-recover-coordinator",
+        "sharding-recover-region-a",
+        "sharding-recover-region-b",
+    ])
+    .unwrap();
+    let coordinator_kit = nodes.kit("sharding-recover-coordinator").unwrap();
+    let region_a_kit = nodes.kit("sharding-recover-region-a").unwrap();
+    let region_b_kit = nodes.kit("sharding-recover-region-b").unwrap();
+    let remember_store = coordinator_kit
+        .system()
+        .spawn(
+            "remember-store-shard-1",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let store_refs = BTreeMap::from([("shard-1".to_string(), remember_store.clone())]);
+    let region_a = region_a_kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_remember_store_shards(
+                "region-a",
+                10,
+                10,
+                store_refs.clone(),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let region_b = region_b_kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_remember_store_shards(
+                "region-b",
+                10,
+                10,
+                store_refs,
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let host_a = nodes
+        .create_probe_on::<HostShardPlan<String>>("sharding-recover-region-a", "host-a")
+        .unwrap();
+    let shard_a_ref = nodes
+        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
+            "sharding-recover-region-a",
+            "shard-a-ref",
+        )
+        .unwrap();
+    let delivery_a = nodes
+        .create_probe_on::<ShardDeliverPlan<String>>("sharding-recover-region-a", "delivery-a")
+        .unwrap();
+    let bootstrap = ShardCoordinatorBootstrap::local_regions([
+        HandoffRegionTarget::new("region-a", region_a.clone()),
+        HandoffRegionTarget::new("region-b", region_b.clone()),
+    ])
+    .unwrap();
+    let (mut state, transport) = bootstrap.into_parts();
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "shard-1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    let coordinator = coordinator_kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                RebalanceThenAllocateStrategy::new(["shard-1"], "region-b"),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                transport,
+            ),
+        )
+        .unwrap();
+    let shutdown = nodes
+        .create_probe_on::<RegionShutdownPlan>("sharding-recover-coordinator", "shutdown")
+        .unwrap();
+    let coordinator_state = nodes
+        .create_probe_on::<CoordinatorStateSnapshot>(
+            "sharding-recover-coordinator",
+            "coordinator-state",
+        )
+        .unwrap();
+    let region_a_state = nodes
+        .create_probe_on::<ShardRegionSnapshot>("sharding-recover-region-a", "region-a-state")
+        .unwrap();
+    let shard_b_ref = nodes
+        .create_probe_on::<Option<ActorRef<ShardMsg<String>>>>(
+            "sharding-recover-region-b",
+            "shard-b-ref",
+        )
+        .unwrap();
+    let delivery_b = nodes
+        .create_probe_on::<ShardDeliverPlan<String>>("sharding-recover-region-b", "delivery-b")
+        .unwrap();
+
+    region_a
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host_a.actor_ref(),
+        })
+        .unwrap();
+    host_a.expect_msg(Duration::from_millis(500)).unwrap();
+    region_a
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: shard_a_ref.actor_ref(),
+        })
+        .unwrap();
+    let shard_a = shard_a_ref
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("region-a should host shard-1");
+    shard_a
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "before-rehost".to_string()),
+            reply_to: delivery_a.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        delivery_a.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "before-rehost".to_string()),
+        }
+    );
+
+    coordinator
+        .tell(ShardCoordinatorMsg::GracefulShutdownReq {
+            region: "region-a".to_string(),
+            reply_to: Some(shutdown.actor_ref()),
+        })
+        .unwrap();
+    assert!(matches!(
+        shutdown.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionShutdownPlan::Started { region, ref shards }
+            if region == "region-a" && shards.len() == 1 && shards[0].shard == "shard-1"
+    ));
+
+    let mut completed = false;
+    for _ in 0..20 {
+        coordinator
+            .tell(ShardCoordinatorMsg::GetState {
+                reply_to: coordinator_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = coordinator_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap();
+        completed = !snapshot.rebalance_in_progress.contains_key("shard-1")
+            && !snapshot
+                .allocations
+                .get("region-a")
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
+            && snapshot
+                .allocations
+                .get("region-b")
+                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
+        if completed {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        completed,
+        "remembered shard should be rehosted from region-a to region-b"
+    );
+    region_a
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_a_state.actor_ref(),
+        })
+        .unwrap();
+    let region_a_snapshot = region_a_state
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert!(!region_a_snapshot.local_shards.contains("shard-1"));
+    assert!(!region_a_snapshot.handing_off_shards.contains("shard-1"));
+
+    region_b
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: shard_b_ref.actor_ref(),
+        })
+        .unwrap();
+    let shard_b = shard_b_ref
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("region-b should host shard-1 after rehost");
+    shard_b
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-rehost".to_string()),
+            reply_to: delivery_b.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        delivery_b.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-rehost".to_string()),
+        }
+    );
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_system_inbound_remote_graceful_shutdown_rebalances_to_local_region() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("coordinator-remote-graceful-shutdown").unwrap();
