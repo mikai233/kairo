@@ -2417,6 +2417,11 @@ Implemented:
   now also own Pekko-style take-over retry timers while they were the oldest:
   after a new oldest is observed they keep emitting `TakeOverFromMe` to that
   target until the new oldest begins handoff with `HandOverToMe`.
+- `kairo-cluster-tools` singleton manager and local singleton manager actor
+  coverage now pins the previous-oldest removal path: after becoming oldest
+  starts handover to the previous oldest, marking that member removed starts
+  the singleton, records the removed member, and cancels stale handover retry
+  ticks.
 - `kairo-cluster-tools` singleton manager runtime and actor boundary tests now
   live in a focused sibling test module instead of the broad crate-level test
   file.
@@ -4938,6 +4943,12 @@ cargo test -p kairo-cluster-tools takeover --all-targets --all-features
 cargo test -p kairo-cluster-tools local_singleton_manager --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools singleton_manager_actor_starts_when_previous_oldest_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools local_singleton_manager_starts_child_when_previous_oldest_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
