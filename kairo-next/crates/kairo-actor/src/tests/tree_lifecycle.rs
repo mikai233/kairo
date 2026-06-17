@@ -1342,8 +1342,35 @@ struct PostStopSpawnResults {
     anonymous: Result<(), String>,
 }
 
+#[derive(Debug)]
+struct PostStopHelperResults {
+    spawn_task: Result<(), String>,
+    pipe_to_self: Result<(), String>,
+    adapter: Result<(), String>,
+    ask: Result<(), String>,
+}
+
+enum PostStopAskTargetMsg {
+    Request { _reply_to: ActorRef<()> },
+}
+
+struct PostStopAskTarget;
+
+impl Actor for PostStopAskTarget {
+    type Msg = PostStopAskTargetMsg;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
 struct PostStopSpawningActor {
     results: mpsc::Sender<PostStopSpawnResults>,
+}
+
+struct PostStopHelperActor {
+    results: mpsc::Sender<PostStopHelperResults>,
+    ask_target: ActorRef<PostStopAskTargetMsg>,
 }
 
 impl Actor for PostStopSpawningActor {
@@ -1364,6 +1391,47 @@ impl Actor for PostStopSpawningActor {
             .map_err(|error| error.to_string());
         self.results
             .send(PostStopSpawnResults { named, anonymous })
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+impl Actor for PostStopHelperActor {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let spawn_task = ctx
+            .spawn_task(|_| {})
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        let pipe_to_self = ctx
+            .pipe_to_self(|| Ok::<(), ()>(()), |_| ())
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        let adapter = ctx
+            .message_adapter(|_: u8| ())
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        let ask = ctx
+            .ask(
+                self.ask_target.clone(),
+                Duration::from_secs(1),
+                |reply_to| PostStopAskTargetMsg::Request {
+                    _reply_to: reply_to,
+                },
+                |_| (),
+            )
+            .map_err(|error| error.to_string());
+        self.results
+            .send(PostStopHelperResults {
+                spawn_task,
+                pipe_to_self,
+                adapter,
+                ask,
+            })
             .map_err(|error| ActorError::Message(error.to_string()))
     }
 }
@@ -1394,6 +1462,47 @@ fn post_stop_rejects_late_child_spawns() {
             .expect_err("anonymous spawn should be rejected"),
         format!("actor `{}` is stopping", actor.path())
     );
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn post_stop_rejects_late_helper_creation() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let ask_target = system
+        .spawn("post-stop-ask-target", Props::new(|| PostStopAskTarget))
+        .unwrap();
+    let (results_tx, results_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "post-stop-helper",
+            Props::new(move || PostStopHelperActor {
+                results: results_tx,
+                ask_target: ask_target.clone(),
+            }),
+        )
+        .unwrap();
+
+    system.stop(&actor);
+
+    let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let expected = format!("actor `{}` is stopping", actor.path());
+    assert_eq!(
+        results
+            .spawn_task
+            .expect_err("spawn_task should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results
+            .pipe_to_self
+            .expect_err("pipe_to_self should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results.adapter.expect_err("adapter should be rejected"),
+        expected
+    );
+    assert_eq!(results.ask.expect_err("ask should be rejected"), expected);
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 

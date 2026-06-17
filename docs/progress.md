@@ -362,6 +362,9 @@ Implemented:
 - `Context::message_adapter` now rejects new adapter refs after self-stop has
   been requested, so a stopping actor cannot create fresh function-ref style
   helpers during teardown.
+- PostStop coverage now pins the same stopping boundary for helper APIs:
+  `Context::spawn_task`, `pipe_to_self`, `message_adapter`, and `ask` all
+  reject fresh owner-scoped work during externally requested termination.
 - Adapted user-message envelopes live in the mailbox runtime, and adapter ref
   construction lives in a focused `adapters` module.
 - `Props::with_stash_capacity` enables opt-in typed stash support, and
@@ -4512,6 +4515,12 @@ cargo test -p kairo-actor adapters --all-targets --all-features
 cargo test -p kairo-actor asks --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor post_stop_rejects_late_helper_creation --all-targets --all-features
+cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
