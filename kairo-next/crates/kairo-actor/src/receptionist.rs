@@ -248,19 +248,24 @@ impl Receptionist {
         M: Send + 'static,
     {
         let mut buckets = self.inner.buckets.lock().expect("receptionist poisoned");
-        let Some(bucket) = existing_bucket_mut(&mut buckets, key) else {
-            return Ok(false);
-        };
-        let deregistered = bucket.deregister(service.path());
-        if !deregistered {
+        let deregistered = existing_bucket_mut(&mut buckets, key)
+            .is_some_and(|bucket| bucket.deregister(service.path()));
+        let actor_is_registered_elsewhere = buckets
+            .values()
+            .any(|bucket| bucket.contains_service_path(service.path()));
+        if !deregistered && !actor_is_registered_elsewhere {
             return Ok(false);
         }
         let ack = reply_to.tell(Deregistered {
             key: key.clone(),
             service_instance: service.clone(),
         });
-        bucket.publish_listing();
-        ack.map(|()| true)
+        if deregistered {
+            let bucket = existing_bucket_mut(&mut buckets, key)
+                .expect("deregistered service bucket must still exist");
+            bucket.publish_listing();
+        }
+        ack.map(|()| deregistered)
             .map_err(|error| ActorError::Message(error.to_string()))
     }
 
@@ -340,6 +345,7 @@ impl BucketKey {
 
 trait BucketOps: Any + Send {
     fn as_any_mut(&mut self) -> &mut dyn Any;
+    fn contains_service_path(&self, path: &ActorPath) -> bool;
     fn remove_path(&mut self, path: &ActorPath) -> bool;
     fn publish_any_listing(&self);
 }
@@ -421,6 +427,10 @@ where
 {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+
+    fn contains_service_path(&self, path: &ActorPath) -> bool {
+        self.services.iter().any(|service| service.path() == path)
     }
 
     fn remove_path(&mut self, path: &ActorPath) -> bool {

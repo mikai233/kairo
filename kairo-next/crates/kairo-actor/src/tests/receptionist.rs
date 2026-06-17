@@ -205,6 +205,48 @@ fn receptionist_deregister_with_ack_confirms_removed_registration() {
 }
 
 #[test]
+fn receptionist_deregister_with_ack_confirms_known_actor_for_absent_key() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let key_a = ServiceKey::<()>::new("svc-a");
+    let key_b = ServiceKey::<()>::new("svc-b");
+    let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
+    let (ack_tx, ack_rx) = mpsc::channel();
+    let reply_to = system
+        .spawn(
+            "deregistered-probe",
+            Props::new(move || DeregisteredProbe { observed: ack_tx }),
+        )
+        .unwrap();
+
+    assert!(
+        system
+            .receptionist()
+            .register(key_a.clone(), service.clone())
+    );
+    assert!(
+        !system
+            .receptionist()
+            .deregister_with_ack(&key_b, &service, reply_to)
+            .unwrap()
+    );
+    assert_eq!(
+        ack_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ("svc-b".to_string(), service.path().clone())
+    );
+    assert_eq!(
+        system.receptionist().find(&key_a).service_instances()[0].path(),
+        service.path()
+    );
+    assert!(
+        system
+            .receptionist()
+            .find(&key_b)
+            .service_instances()
+            .is_empty()
+    );
+}
+
+#[test]
 fn receptionist_removes_registered_service_on_actor_stop() {
     let system = ActorSystem::builder("test").build().unwrap();
     let key = ServiceKey::<()>::new("svc");
