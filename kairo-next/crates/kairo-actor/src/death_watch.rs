@@ -76,6 +76,11 @@ impl DeathWatchRegistry {
         {
             return Ok(());
         }
+        if registration.kind == DeathWatchKind::Custom
+            && self.is_custom_queued(&subject, registration.watcher())
+        {
+            return Ok(());
+        }
 
         let mut watchers = self.watchers.lock().expect("death watch registry poisoned");
         let subject_watchers = watchers.entry(subject.clone()).or_default();
@@ -208,6 +213,16 @@ impl DeathWatchRegistry {
         self.queued_signals
             .lock()
             .expect("death watch queued signals poisoned")
+            .contains(&QueuedSignal {
+                subject: subject.clone(),
+                watcher: watcher.clone(),
+            })
+    }
+
+    fn is_custom_queued(&self, subject: &ActorPath, watcher: &ActorPath) -> bool {
+        self.queued_customs
+            .lock()
+            .expect("death watch queued customs poisoned")
             .contains(&QueuedSignal {
                 subject: subject.clone(),
                 watcher: watcher.clone(),

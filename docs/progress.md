@@ -3409,6 +3409,9 @@ Implemented:
 - `kairo-actor` `watch_with` custom termination delivery now uses the same
   queued-notification gate as plain `Terminated` signals, so `unwatch` between
   queueing and mailbox processing drops the pending custom message.
+- Duplicate `watch_with` calls for an already stopped subject are now
+  idempotent while a custom termination message is already queued, matching the
+  same already-dead notification suppression used for plain `watch`.
 - `kairo-actor` watch-with coverage now pins that custom termination messages
   are normal user protocol messages that can be explicitly stashed and later
   unstashed before user delivery, preserving Pekko's watch-with stash
@@ -3447,6 +3450,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor watch_with_twice_delivers_one_custom_message_when_subject_already_stopped --all-targets --all-features
+cargo test -p kairo-actor watch --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor unwatch_discards_queued_watch_with_message_for_already_stopped_subject --all-targets --all-features
 cargo test -p kairo-actor watch --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features

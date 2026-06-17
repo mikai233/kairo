@@ -29,6 +29,11 @@ enum WatchProbeMsg {
         registered: mpsc::Sender<()>,
         observed: mpsc::Sender<ActorPath>,
     },
+    WatchWithTwice {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<Result<(), ActorError>>,
+        observed: mpsc::Sender<ActorPath>,
+    },
     WatchThenWatchWith {
         subject: ActorRef<()>,
         reply_to: mpsc::Sender<Result<(), ActorError>>,
@@ -117,6 +122,21 @@ impl Actor for WatchProbe {
                 ctx.watch_with(&subject, WatchProbeMsg::Observed(path))?;
                 registered
                     .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::WatchWithTwice {
+                subject,
+                reply_to,
+                observed,
+            } => {
+                let result = (|| {
+                    let path = subject.path().clone();
+                    self.custom = Some(observed);
+                    ctx.watch_with(&subject, WatchProbeMsg::Observed(path.clone()))?;
+                    ctx.watch_with(&subject, WatchProbeMsg::Observed(path))
+                })();
+                reply_to
+                    .send(result)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             WatchProbeMsg::WatchThenWatchWith { subject, reply_to } => {
@@ -646,6 +666,51 @@ fn watch_twice_delivers_one_terminated_signal_when_subject_already_stopped() {
             .recv_timeout(Duration::from_millis(100))
             .is_err()
     );
+}
+
+#[test]
+fn watch_with_twice_delivers_one_custom_message_when_subject_already_stopped() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let subject_path = subject.path().clone();
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let (observed_tx, observed_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWithTwice {
+            subject,
+            reply_to: registered_tx,
+            observed: observed_tx,
+        })
+        .unwrap();
+    registered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        observed_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject_path
+    );
+    assert!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+    assert!(!watcher.is_stopped());
 }
 
 #[test]
