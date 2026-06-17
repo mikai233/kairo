@@ -344,6 +344,52 @@ mod tests {
     }
 
     #[test]
+    fn peer_routes_adopt_existing_cluster_tcp_runtime_route_and_clear_it() {
+        let sender_kit = ActorSystemTestKit::new("cluster-peer-routes-existing-sender").unwrap();
+        let receiver_kit =
+            ActorSystemTestKit::new("cluster-peer-routes-existing-receiver").unwrap();
+        let registry = registry();
+        let sender = bind_runtime("existing-sender", 1, 11, &sender_kit, registry.clone());
+        let receiver = bind_runtime("existing-receiver", 2, 22, &receiver_kit, registry);
+        let mut planner = ClusterAssociationPeerState::new(sender.self_node().clone());
+        let mut routes = ClusterTcpPeerRoutes::new();
+        sender.dial(receiver.local_address().clone()).unwrap();
+        wait_for_reverse_route(&receiver);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![
+                    member(sender.self_node().clone()),
+                    member(receiver.self_node().clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+
+        assert!(report.dialed.is_empty());
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(report.skipped[0].node(), receiver.self_node());
+        assert_eq!(routes.route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let clear_report = routes.clear(&sender);
+
+        assert_eq!(clear_report.removed.len(), 1);
+        assert_eq!(clear_report.removed[0].node(), receiver.self_node());
+        assert_eq!(routes.route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.accepted_associations, 0);
+        let receiver_report = receiver.shutdown().unwrap();
+        assert_eq!(receiver_report.accepted_associations, 1);
+        sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+        receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
     fn peer_routes_keep_remaining_cluster_route_when_one_peer_is_removed() {
         let sender_kit = ActorSystemTestKit::new("cluster-peer-routes-reduce-sender").unwrap();
         let second_kit = ActorSystemTestKit::new("cluster-peer-routes-reduce-second").unwrap();

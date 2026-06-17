@@ -1607,6 +1607,10 @@ Implemented:
   joins and pubsub publishes from both non-first peers back to the first node
   through those adopted routes while preserving the membership-derived route
   owner boundary.
+- Cluster and cluster-tools TCP peer-route owner coverage now also pins direct
+  adoption of already-installed outbound runtime association routes: each owner
+  reports the route as skipped rather than redialed, tracks it, and removes it
+  when cleared.
 - `kairo-distributed-data` built-in CRDT codec round-trip and rejection tests
   now live in a focused sibling test module.
 - `kairo-distributed-data` delta propagation log versioning, node selection,
@@ -4673,5 +4677,15 @@ cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster peer_routes_adopt_existing_cluster_tcp_runtime_route_and_clear_it --all-targets --all-features
+cargo test -p kairo-cluster-tools peer_routes_adopt_existing_cluster_tools_tcp_runtime_route_and_clear_it --all-targets --all-features
+cargo test -p kairo-cluster tcp_peer_routes --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_routes --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```
