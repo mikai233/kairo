@@ -349,6 +349,16 @@ impl TestProbe<AnyActorRef> {
             })
         }
     }
+
+    /// Watches `subject` and waits for its termination notification under a
+    /// shared [`Within`] deadline.
+    pub fn expect_terminated_within<N: Send + 'static>(
+        &self,
+        subject: &ActorRef<N>,
+        scope: &Within,
+    ) -> Result<AnyActorRef, ProbeError> {
+        self.expect_terminated(subject, scope.remaining())
+    }
 }
 
 struct ProbeActor<M> {

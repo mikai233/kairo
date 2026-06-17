@@ -496,6 +496,9 @@ Implemented:
   `watch_with`, remove those registrations through `unwatch`, and
   `TestProbe<AnyActorRef>` provides `watch_terminated` and
   `expect_terminated` helpers for deterministic local lifecycle assertions.
+- `TestProbe<AnyActorRef>::expect_terminated_within` now composes lifecycle
+  assertions with an existing `Within` deadline, so watch assertions can share
+  one timeout budget with surrounding probe work.
 - `TestProbe<AnyActorRef>` now has focused lifecycle coverage for split
   `watch_terminated` registration and `expect_terminated` against an already
   stopped actor, pinning the testkit helper to the same immediate death-watch
@@ -531,9 +534,10 @@ Implemented:
   report without granting a fresh timeout budget.
 - `TestProbe` now has `expect_msg_within`, `expect_msg_eq_within`,
   `expect_msg_matching_within`, `expect_no_msg_for_within`,
-  `receive_messages_within`, and `fish_for_message_within` helpers, so
-  deterministic actor tests can compose typed receive and quiet-period
-  assertions directly against a shared `Within` deadline.
+  `receive_messages_within`, `fish_for_message_within`, and
+  `expect_terminated_within` helpers, so deterministic actor tests can compose
+  typed receive, quiet-period, and lifecycle assertions directly against a
+  shared `Within` deadline.
 - `kairo-testkit` crate docs now include a compile-checked shared-deadline
   probe assertion example for the `TestProbe::within` helper family.
 - `kairo-testkit::ManualTime` can deterministically advance scheduled
@@ -4480,5 +4484,12 @@ cargo test -p kairo-actor stash --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit probe --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```
