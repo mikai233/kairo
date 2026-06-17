@@ -754,6 +754,50 @@ fn multi_node_testkit_await_barriers_runs_ordered_phases_under_one_timeout() {
 }
 
 #[test]
+fn multi_node_testkit_await_barriers_times_out_later_phase_under_shared_budget() {
+    let kit = Arc::new(
+        MultiNodeTestKit::new(["sequence-timeout-a", "sequence-timeout-b"])
+            .expect("nodes should build"),
+    );
+    let waiting_kit = Arc::clone(&kit);
+    let waiter = thread::spawn(move || {
+        waiting_kit.await_barriers(
+            ["phase-one", "phase-two"],
+            "sequence-timeout-a",
+            Duration::from_millis(100),
+        )
+    });
+
+    let main_statuses = kit
+        .await_barriers(["phase-one"], "sequence-timeout-b", Duration::from_secs(1))
+        .expect("second node should complete only the first barrier");
+    assert_eq!(passed_barrier_names(&main_statuses), vec!["phase-one"]);
+
+    let error = waiter
+        .join()
+        .expect("waiting thread should not panic")
+        .expect_err("second phase should inherit the remaining shared timeout");
+    assert!(matches!(
+        error,
+        MultiNodeError::BarrierTimeout {
+            name,
+            node,
+            timeout,
+            arrived,
+            remaining,
+        } if name == "phase-two"
+            && node == "sequence-timeout-a"
+            && timeout <= Duration::from_millis(100)
+            && arrived == BTreeSet::from(["sequence-timeout-a".to_string()])
+            && remaining == BTreeSet::from(["sequence-timeout-b".to_string()])
+    ));
+
+    let kit = Arc::try_unwrap(kit).expect("test should release shared kit refs");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
 fn multi_node_testkit_rejects_wrong_barrier_order_and_duplicate_arrivals() {
     let kit = MultiNodeTestKit::new(["order-a", "order-b"]).expect("nodes should build");
 

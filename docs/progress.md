@@ -647,6 +647,9 @@ Implemented:
 - `MultiNodeTestKit::await_barriers` now runs ordered local multi-node barrier
   phases under one shared timeout budget, matching Pekko's sequential barrier
   synchronization shape while preserving Kairo's explicit result status API.
+- Multi-node ordered-barrier coverage now also pins the timeout edge where a
+  later phase inherits the remaining shared budget and reports the arrived and
+  missing nodes when the peer does not enter that later phase.
 - `kairo-testkit` crate docs now describe typed probes, batch/fishing
   assertions, await assertions, manual time, multi-node local harnesses, and
   compile-checked examples.
