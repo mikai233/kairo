@@ -109,6 +109,29 @@ fn coordinated_shutdown_runs_only_once() {
 }
 
 #[test]
+fn coordinated_shutdown_accepts_late_task_without_rerunning() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+    let ran = Arc::new(AtomicU64::new(0));
+
+    shutdown.run("first").unwrap();
+    shutdown
+        .add_task(PHASE_SERVICE_STOP, "too-late", {
+            let ran = Arc::clone(&ran);
+            move || {
+                ran.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+        })
+        .unwrap();
+
+    shutdown.run("second").unwrap();
+
+    assert_eq!(ran.load(Ordering::Relaxed), 0);
+    assert_eq!(shutdown.reason().as_deref(), Some("first"));
+}
+
+#[test]
 fn coordinated_shutdown_task_can_add_later_phase_task() {
     let system = ActorSystem::builder("test").build().unwrap();
     let shutdown = system.coordinated_shutdown();

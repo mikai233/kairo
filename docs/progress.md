@@ -274,6 +274,10 @@ Implemented:
   wait-only semantics when no stop message is supplied; cluster,
   distributed-data, and cluster-tools TCP bootstrap facades register explicit
   connector stop tasks for coordinated shutdown.
+- Coordinated shutdown coverage now also pins Pekko's late-registration
+  semantics: a task added after shutdown has already completed is accepted but
+  a later `run` call does not execute it or replace the original shutdown
+  reason.
 - Cluster, distributed-data, and cluster-tools TCP bootstrap facades now spawn
   their framework-owned connector actors under `/system` with
   `ActorSystem::spawn_system`, keeping internal socket services out of `/user`
