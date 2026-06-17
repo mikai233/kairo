@@ -18,6 +18,7 @@ use crate::{
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+const TCP_REMOTE_SHUTDOWN_REASON: &str = "tcp remote actor system shutdown";
 
 pub struct TcpRemoteActorSystem<M> {
     system: ActorSystem,
@@ -345,7 +346,9 @@ fn shutdown_runtime(
 ) -> Result<TcpAssociationListenerReport> {
     system.stop(death_watch);
     let death_watch_stopped = death_watch.wait_for_stop(timeout);
-    association_cache.clear_routes();
+    for result in association_cache.clear_routes_and_close(TCP_REMOTE_SHUTDOWN_REASON) {
+        result?;
+    }
     let listener = listener
         .lock()
         .expect("tcp remote actor system listener lock poisoned")
@@ -361,14 +364,10 @@ fn shutdown_runtime(
     };
 
     listener.stop();
-    let outbound_pipelines = outbound_pipelines
+    outbound_pipelines
         .lock()
         .expect("tcp remote actor system outbound pipelines lock poisoned")
-        .drain(..)
-        .collect::<Vec<_>>();
-    for pipeline in outbound_pipelines {
-        pipeline.close("tcp remote actor system shutdown")?;
-    }
+        .clear();
     let outbound_readers = outbound_readers
         .lock()
         .expect("tcp remote actor system outbound readers lock poisoned")

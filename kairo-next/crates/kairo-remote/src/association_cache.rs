@@ -179,6 +179,19 @@ impl RemoteAssociationCache {
         len
     }
 
+    pub fn clear_routes_and_close(&self, reason: &str) -> Vec<Result<()>> {
+        let routes = std::mem::take(
+            &mut *self
+                .routes
+                .write()
+                .expect("remote association cache lock poisoned"),
+        );
+        routes
+            .into_values()
+            .map(|route| route.close(reason))
+            .collect()
+    }
+
     pub fn route_count(&self) -> usize {
         self.routes
             .read()
@@ -257,6 +270,34 @@ mod tests {
                 .lock()
                 .expect("collecting outbound mutex poisoned")
                 .push(envelope);
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct CloseTrackingOutbound {
+        closed: Mutex<Vec<String>>,
+    }
+
+    impl CloseTrackingOutbound {
+        fn closed(&self) -> Vec<String> {
+            self.closed
+                .lock()
+                .expect("close tracking outbound mutex poisoned")
+                .clone()
+        }
+    }
+
+    impl RemoteOutbound for CloseTrackingOutbound {
+        fn send(&self, _envelope: RemoteEnvelope) -> Result<()> {
+            Ok(())
+        }
+
+        fn close(&self, reason: &str) -> Result<()> {
+            self.closed
+                .lock()
+                .expect("close tracking outbound mutex poisoned")
+                .push(reason.to_string());
             Ok(())
         }
     }
@@ -410,35 +451,36 @@ mod tests {
     }
 
     #[test]
+    fn clear_routes_and_close_closes_all_cached_associations() {
+        let cache = RemoteAssociationCache::new();
+        let first = Arc::new(CloseTrackingOutbound::default());
+        let second = Arc::new(CloseTrackingOutbound::default());
+        cache.insert_route(
+            RemoteAssociationAddress::new("kairo", "one", "127.0.0.1", Some(25521)).unwrap(),
+            first.clone() as Arc<dyn RemoteOutbound>,
+        );
+        cache.insert_route(
+            RemoteAssociationAddress::new("kairo", "two", "127.0.0.1", Some(25522)).unwrap(),
+            second.clone() as Arc<dyn RemoteOutbound>,
+        );
+
+        let results = cache.clear_routes_and_close("tcp remote actor system shutdown");
+
+        assert_eq!(results.len(), 2);
+        assert!(results.into_iter().all(|result| result.is_ok()));
+        assert_eq!(
+            first.closed(),
+            vec!["tcp remote actor system shutdown".to_string()]
+        );
+        assert_eq!(
+            second.closed(),
+            vec!["tcp remote actor system shutdown".to_string()]
+        );
+        assert_eq!(cache.route_count(), 0);
+    }
+
+    #[test]
     fn remove_route_and_close_closes_removed_route() {
-        #[derive(Default)]
-        struct CloseTrackingOutbound {
-            closed: Mutex<Vec<String>>,
-        }
-
-        impl CloseTrackingOutbound {
-            fn closed(&self) -> Vec<String> {
-                self.closed
-                    .lock()
-                    .expect("close tracking outbound mutex poisoned")
-                    .clone()
-            }
-        }
-
-        impl RemoteOutbound for CloseTrackingOutbound {
-            fn send(&self, _envelope: RemoteEnvelope) -> Result<()> {
-                Ok(())
-            }
-
-            fn close(&self, reason: &str) -> Result<()> {
-                self.closed
-                    .lock()
-                    .expect("close tracking outbound mutex poisoned")
-                    .push(reason.to_string());
-                Ok(())
-            }
-        }
-
         let cache = RemoteAssociationCache::new();
         let outbound = Arc::new(CloseTrackingOutbound::default());
         let address =

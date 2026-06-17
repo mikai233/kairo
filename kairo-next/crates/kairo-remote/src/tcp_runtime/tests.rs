@@ -1657,6 +1657,16 @@ fn tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once() {
             .wait_for_stop(Duration::from_secs(1))
     );
     assert_eq!(sender_remote.association_cache().route_count(), 0);
+    assert!(matches!(
+        registration
+            .pipeline()
+            .association()
+            .lock()
+            .expect("association mutex poisoned")
+            .state(),
+        AssociationState::Closed { reason }
+            if reason == "tcp remote actor system shutdown"
+    ));
     let second_report = sender_remote.shutdown().unwrap();
     assert_eq!(second_report.accepted_associations, 0);
 
