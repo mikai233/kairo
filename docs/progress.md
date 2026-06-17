@@ -2671,6 +2671,10 @@ Implemented:
 - `KairoSettings::validate` now validates all format-neutral configuration
   sections, including programmatically constructed actor, remote, cluster
   heartbeat, downing, sharding, and cluster-tools settings.
+- Direct format-neutral validation coverage now pins remote connect-timeout,
+  cluster heartbeat timing/count, downing stability and lease release timing,
+  and sharding shard-count rejection so programmatic settings keep parity with
+  TOML-loaded settings.
 - Sharding TOML and direct `ClusterShardingConfig` validation now reject a
   zero `rebalance_interval`, keeping periodic rebalance configuration from
   starting an immediate timer loop in the coordinator runtime.

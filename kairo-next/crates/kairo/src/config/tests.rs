@@ -2042,6 +2042,121 @@ fn config_validate_checks_all_format_neutral_sections() {
     );
 
     let settings = KairoSettings {
+        remote: super::RemoteConfig {
+            transport: super::RemoteTransportConfig {
+                connect_timeout: Some(Duration::ZERO),
+                ..Default::default()
+            },
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "remote.transport.connect_timeout".to_string(),
+            reason: "must be greater than zero".to_string(),
+        }
+    );
+
+    for (heartbeat, path) in [
+        (
+            super::ClusterHeartbeatConfig {
+                monitored_by_nr_of_members: 0,
+                ..Default::default()
+            },
+            "cluster.heartbeat.monitored_by_nr_of_members",
+        ),
+        (
+            super::ClusterHeartbeatConfig {
+                interval: Duration::ZERO,
+                ..Default::default()
+            },
+            "cluster.heartbeat.interval",
+        ),
+        (
+            super::ClusterHeartbeatConfig {
+                expected_response_after: Duration::ZERO,
+                ..Default::default()
+            },
+            "cluster.heartbeat.expected_response_after",
+        ),
+    ] {
+        let settings = KairoSettings {
+            cluster: super::ClusterConfig {
+                heartbeat,
+                ..Default::default()
+            },
+            ..KairoSettings::default()
+        };
+        assert_eq!(
+            settings.validate().unwrap_err(),
+            ConfigError::InvalidValue {
+                path: path.to_string(),
+                reason: "must be greater than zero".to_string(),
+            }
+        );
+    }
+
+    let settings = KairoSettings {
+        cluster: super::ClusterConfig {
+            downing: super::ClusterDowningConfig {
+                stable_after: Duration::ZERO,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "cluster.downing.stable_after".to_string(),
+            reason: "must be greater than zero".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        cluster: super::ClusterConfig {
+            downing: super::ClusterDowningConfig {
+                strategy: ClusterDowningStrategyConfig::LeaseMajority {
+                    lease_name: "cluster-sbr".to_string(),
+                    role: None,
+                    acquire_lease_delay_for_minority: Duration::ZERO,
+                    release_after: Duration::ZERO,
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "cluster.downing.release_after".to_string(),
+            reason: "must be greater than zero".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
+        cluster: super::ClusterConfig {
+            sharding: super::ClusterShardingConfig {
+                number_of_shards: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..KairoSettings::default()
+    };
+    assert_eq!(
+        settings.validate().unwrap_err(),
+        ConfigError::InvalidValue {
+            path: "cluster.sharding.number_of_shards".to_string(),
+            reason: "must be greater than zero".to_string(),
+        }
+    );
+
+    let settings = KairoSettings {
         cluster: super::ClusterConfig {
             tools: super::ClusterToolsConfig {
                 singleton_role: Some(String::new()),
