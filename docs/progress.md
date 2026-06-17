@@ -1980,6 +1980,10 @@ Implemented:
   explicit remember-store actor refs, allowing multiple regions to share the
   same remembered entity store during handoff and rebalance orchestration
   tests instead of creating isolated per-region local stores.
+- `kairo-cluster-sharding` region actor coverage now pins the direct local
+  host path for externally supplied remember-store refs: the spawned shard
+  recovers an existing remembered entity before first delivery and persists a
+  newly delivered entity back through the shared store before later delivery.
 - `kairo-cluster-sharding` shard region actors can now explicitly route local
   sharding envelopes into spawned child shard actors while preserving the
   route outcome separately from the child `ShardDeliverPlan`, so remembered
@@ -3215,8 +3219,9 @@ Implemented:
 - `kairo-cluster-sharding` region runtime buffering, shard-home, host-shard,
   handoff, and drop-plan tests now live in a focused sibling test module.
 - `kairo-cluster-sharding` region actor local buffering, shard startup,
-  remembered-entity recovery, direct local routing, and buffered replay tests
-  now live in a focused sibling test module.
+  remembered-entity recovery, shared remember-store ref orchestration, direct
+  local routing, and buffered replay tests now live in a focused sibling test
+  module.
 - `kairo-cluster-sharding` region actor local handoff, store-backed shard
   handoff forwarding, and handoff completion tests now live in a focused
   sibling test module.
@@ -5227,5 +5232,12 @@ cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_actor_with_shared_remember_store_ref_recovers_and_persists_entities --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

@@ -394,6 +394,177 @@ fn region_actor_routes_to_spawned_local_shard_child() {
 }
 
 #[test]
+fn region_actor_with_shared_remember_store_ref_recovers_and_persists_entities() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-actor-shared-store-ref").unwrap();
+    let remember_store = kit
+        .system()
+        .spawn(
+            "remember-store",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_remember_store_shards(
+                "region-a",
+                10,
+                10,
+                BTreeMap::from([("shard-1".to_string(), remember_store.clone())]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let store_state = kit
+        .create_probe::<RememberShardStoreSnapshot>("store-state")
+        .unwrap();
+    let local_shard = kit
+        .create_probe::<Option<ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "recovered-first".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "recovered-first".to_string()),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("hosted shard should remain local after shared store recovery");
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-2", "first".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: RememberShardUpdate::new(
+                ["entity-2".to_string()],
+                std::iter::empty::<String>(),
+            ),
+        }
+    );
+
+    let mut remembered = BTreeSet::new();
+    let mut active_entities = Vec::new();
+    for _ in 0..20 {
+        remember_store
+            .tell(RememberShardStoreMsg::GetState {
+                reply_to: store_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
+        remembered = snapshot
+            .entities_by_key
+            .values()
+            .flat_map(|entities| entities.iter().cloned())
+            .collect();
+
+        shard
+            .tell(ShardMsg::GetState {
+                reply_to: shard_state.actor_ref(),
+            })
+            .unwrap();
+        active_entities = shard_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .active_entities;
+
+        if remembered.contains("entity-1")
+            && remembered.contains("entity-2")
+            && active_entities.contains(&"entity-2".to_string())
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        remembered,
+        BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
+    );
+    assert!(
+        active_entities.contains(&"entity-2".to_string()),
+        "shared remember-store write should activate the first-delivered entity"
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-2", "after-remember-start".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-2", "after-remember-start".to_string(),),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_replays_buffered_routes_to_spawned_local_shard_child() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-actor-buffered-replay-child").unwrap();
     let region = kit
