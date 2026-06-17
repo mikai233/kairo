@@ -1001,6 +1001,138 @@ fn child_startup_failure_cleans_parent_registry_and_releases_name() {
     );
 }
 
+enum StartupSelfStopMsg {
+    Ping(mpsc::Sender<&'static str>),
+}
+
+struct StartupSelfStop {
+    started: mpsc::Sender<()>,
+    post_stop: mpsc::Sender<()>,
+}
+
+impl Actor for StartupSelfStop {
+    type Msg = StartupSelfStopMsg;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.started
+            .send(())
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        ctx.stop(ctx.myself())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            StartupSelfStopMsg::Ping(reply_to) => reply_to
+                .send("delivered")
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.post_stop
+            .send(())
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+struct BlockingStartupSelfStop {
+    started: mpsc::Sender<()>,
+    release: mpsc::Receiver<()>,
+    post_stop: mpsc::Sender<()>,
+}
+
+impl Actor for BlockingStartupSelfStop {
+    type Msg = StartupSelfStopMsg;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.started
+            .send(())
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        self.release
+            .recv()
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        ctx.stop(ctx.myself())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            StartupSelfStopMsg::Ping(reply_to) => reply_to
+                .send("delivered")
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.post_stop
+            .send(())
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
+#[test]
+fn startup_self_stop_runs_post_stop_and_releases_name() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (post_stop_tx, post_stop_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "subject",
+            Props::new(move || StartupSelfStop {
+                started: started_tx,
+                post_stop: post_stop_tx,
+            }),
+        )
+        .unwrap();
+    let first_path = actor.path().clone();
+
+    started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    post_stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+
+    let replacement = system.spawn("subject", Props::new(|| Noop)).unwrap();
+
+    assert_ne!(&first_path, replacement.path());
+    assert!(replacement.path().as_str().contains("/user/subject#"));
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn startup_self_stop_drains_queued_user_messages_to_dead_letters() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (post_stop_tx, post_stop_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "subject",
+            Props::new(move || BlockingStartupSelfStop {
+                started: started_tx,
+                release: release_rx,
+                post_stop: post_stop_tx,
+            }),
+        )
+        .unwrap();
+
+    started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    actor.tell(StartupSelfStopMsg::Ping(reply_tx)).unwrap();
+    release_tx.send(()).unwrap();
+
+    post_stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(reply_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+
+    let records = system.dead_letters().records();
+    assert_eq!(records[0].recipient(), actor.path());
+    assert_eq!(records[0].reason(), "actor is stopped");
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum StopEvent {
     Child,

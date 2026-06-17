@@ -77,6 +77,10 @@ Implemented:
   children created by a failed `started()` attempt are stopped before the
   bounded restart retry, even when the receive-time restart strategy would
   otherwise preserve children.
+- Startup self-stop lifecycle coverage now pins that an actor requesting
+  `ctx.stop(ctx.myself())` from `started()` still runs `PostStop`, drains
+  already queued user messages to dead letters, and releases its logical name
+  for a replacement incarnation.
 - Actor-system termination now has focused coverage that top-level actor stop
   waits recursively for descendant child termination before the system reports
   `terminated`.
@@ -4885,6 +4889,12 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor stopping_child_remains_in_children_until_termination_completes --all-targets --all-features
+cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor startup_self_stop --all-targets --all-features
 cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
