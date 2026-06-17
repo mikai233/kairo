@@ -49,6 +49,35 @@ fn assert_pubsub_publish(
     }
 }
 
+fn assert_pubsub_path(
+    probes: &ClusterToolsInboundProbes,
+    expected_path: &str,
+    expected_all: bool,
+    expected_message: TestMessage,
+) {
+    match probes.mediator.expect_msg(Duration::from_secs(1)).unwrap() {
+        DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::Send {
+            path,
+            message,
+            reply_to,
+        }) if !expected_all => {
+            assert_eq!(path, expected_path);
+            assert_eq!(message, expected_message);
+            assert!(reply_to.is_none());
+        }
+        DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::SendToAll {
+            path,
+            message,
+            reply_to,
+        }) if expected_all => {
+            assert_eq!(path, expected_path);
+            assert_eq!(message, expected_message);
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected pubsub path delivery"),
+    }
+}
+
 #[test]
 fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
     let _guard = bootstrap_socket_test_lock();
@@ -446,7 +475,7 @@ fn bootstrap_shutdown_clears_adopted_existing_peer_route() {
 }
 
 #[test]
-fn bootstrap_installed_peer_route_delivers_pubsub_publish_to_receiver() {
+fn bootstrap_installed_peer_route_delivers_pubsub_messages_to_receiver() {
     let _guard = bootstrap_socket_test_lock();
     let nodes = MultiNodeTestKit::new([
         "cluster-tools-bootstrap-deliver-sender",
@@ -561,6 +590,32 @@ fn bootstrap_installed_peer_route_delivers_pubsub_publish_to_receiver() {
         }
         _ => panic!("expected pubsub publish delivery"),
     }
+    outbound
+        .tell(LocalPubSubMsg::Send {
+            path: "/user/worker".to_string(),
+            message: TestMessage { value: 78 },
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_path(
+        &receiver_probes,
+        "/user/worker",
+        false,
+        TestMessage { value: 78 },
+    );
+    outbound
+        .tell(LocalPubSubMsg::SendToAll {
+            path: "/user/workers".to_string(),
+            message: TestMessage { value: 79 },
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_path(
+        &receiver_probes,
+        "/user/workers",
+        true,
+        TestMessage { value: 79 },
+    );
 
     run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
     run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());

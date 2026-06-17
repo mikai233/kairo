@@ -2579,6 +2579,11 @@ Implemented:
   `PubSubRemoteDeliveryOutbound`/`Inbound`, and is classified by the
   cluster-tools system inbound router without relying on Rust type names or
   enum discriminants.
+- Cluster-tools TCP association routing now treats `PubSubPathEnvelope` as
+  cluster-tools system traffic too: the lane classifier sends path envelopes
+  over the control lane, the TCP runtime socket test delivers a path `Send`
+  into the remote mediator, and the peer bootstrap route test now proves
+  installed peer routes carry both `Send` and `SendToAll` path deliveries.
 - `kairo-cluster-tools` now has a focused system inbound router that dispatches
   decoded cluster-tools remote envelopes by stable manifest: pubsub
   status/delta traffic routes to the gossip wire inbound, pubsub publish
@@ -5038,6 +5043,15 @@ cargo test -p kairo-cluster-tools pubsub --all-targets --all-features
 cargo test -p kairo-cluster-tools system_inbound_routes_pubsub_publish_envelopes --all-targets --all-features
 cargo test -p kairo-cluster-tools cluster_tools_system_manifests_are_stable --all-targets --all-features
 cargo test -p kairo-cluster-tools cluster_tools_manifest_helper_matches_system_protocols --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally --all-targets --all-features
+cargo test -p kairo-cluster-tools cluster_tools_classifier_routes_system_manifests_to_control_lane --all-targets --all-features
+cargo test -p kairo-cluster-tools bootstrap_installed_peer_route_delivers_pubsub_messages_to_receiver --all-targets --all-features
+cargo test -p kairo-cluster-tools remote_tcp --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check

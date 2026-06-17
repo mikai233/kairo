@@ -15,8 +15,8 @@ use kairo_remote::{
 use kairo_serialization::RemoteMessage;
 
 use crate::{
-    ClusterToolsSystemInbound, PubSubDelta, PubSubPublishEnvelope, PubSubStatus,
-    SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
+    ClusterToolsSystemInbound, PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope,
+    PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
     SingletonTakeOverFromMe,
 };
 
@@ -202,6 +202,7 @@ pub fn cluster_tools_lane_classifier() -> RemoteLaneClassifier {
     classifier.add_control_manifest(PubSubStatus::MANIFEST);
     classifier.add_control_manifest(PubSubDelta::MANIFEST);
     classifier.add_control_manifest(PubSubPublishEnvelope::MANIFEST);
+    classifier.add_control_manifest(PubSubPathEnvelope::MANIFEST);
     classifier.add_control_manifest(SingletonHandOverToMe::MANIFEST);
     classifier.add_control_manifest(SingletonHandOverInProgress::MANIFEST);
     classifier.add_control_manifest(SingletonHandOverDone::MANIFEST);
@@ -233,7 +234,7 @@ mod tests {
 
     use bytes::Bytes;
     use kairo_actor::Recipient;
-    use kairo_remote::RemoteOutbound;
+    use kairo_remote::{RemoteOutbound, RemoteStreamId};
     use kairo_serialization::{MessageCodec, Registry, RemoteMessage, SerializationRegistry};
     use kairo_testkit::ActorSystemTestKit;
 
@@ -425,6 +426,28 @@ mod tests {
             }
             _ => panic!("expected pubsub local delivery"),
         }
+        pubsub_delivery_outbound
+            .tell(LocalPubSubMsg::Send {
+                path: "/user/worker".to_string(),
+                message: TestMessage { value: 43 },
+                reply_to: None,
+            })
+            .unwrap();
+        match receiver_mediator
+            .expect_msg(Duration::from_secs(1))
+            .unwrap()
+        {
+            DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::Send {
+                path,
+                message,
+                reply_to,
+            }) => {
+                assert_eq!(path, "/user/worker");
+                assert_eq!(message, TestMessage { value: 43 });
+                assert!(reply_to.is_none());
+            }
+            _ => panic!("expected pubsub path delivery"),
+        }
 
         let singleton_outbound = SingletonManagerRemoteOutbound::from_arc(
             receiver.self_node().clone(),
@@ -470,8 +493,8 @@ mod tests {
             "kairo://receiver@127.0.0.1:2552/system/pubsub",
         )
         .unwrap();
-        let envelope = kairo_serialization::RemoteEnvelope::new(
-            recipient,
+        let status = kairo_serialization::RemoteEnvelope::new(
+            recipient.clone(),
             None,
             registry
                 .serialize(&PubSubStatus {
@@ -481,10 +504,19 @@ mod tests {
                 })
                 .unwrap(),
         );
-
-        assert_eq!(
-            classifier.classify(&envelope, 128),
-            kairo_remote::RemoteStreamId::Control
+        let path = kairo_serialization::RemoteEnvelope::new(
+            recipient,
+            None,
+            registry
+                .serialize(&PubSubPathEnvelope {
+                    path: "/user/worker".to_string(),
+                    all: true,
+                    message: registry.serialize(&TestMessage { value: 1 }).unwrap(),
+                })
+                .unwrap(),
         );
+
+        assert_eq!(classifier.classify(&status, 128), RemoteStreamId::Control);
+        assert_eq!(classifier.classify(&path, 128), RemoteStreamId::Control);
     }
 }
