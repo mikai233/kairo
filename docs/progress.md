@@ -1242,6 +1242,11 @@ Implemented:
   coverage proves per-actor `RemoteTerminated` metadata becomes a local
   `Terminated` signal and that unwatch removes both local and remote
   registrations before later watchee termination.
+- TCP actor-system runtime coverage now pins duplicate `watch_remote`
+  idempotence across the facade boundary: repeating the same local
+  watcher/remote watchee registration keeps one local watch, emits only one
+  stable wire `WatchRemote`, leaves one inbound watch on the peer, and delivers
+  a single local termination signal.
 - TCP actor-system runtime coverage now pins the multi-watcher unwatch
   boundary: when two local actors watch the same remote watchee, unwatching
   one removes only that local path/watch pair, keeps the remaining sender and
@@ -3666,6 +3671,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-remote tcp_remote_actor_system_duplicate_watch_remote_is_idempotent --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-remote tcp_runtime --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding entity_shard_actor_automatically_restarts_remembered_entity_after_unexpected_stop --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-cluster-sharding entity_shard_actor --all-targets --all-features
