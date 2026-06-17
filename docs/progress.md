@@ -2153,8 +2153,9 @@ Implemented:
 - Shard-region discovery subscriber coverage now also validates automatic
   remembered-shard orchestration with a shared remember store: a discovered
   coordinator allocates the remembered shard after region registration, the
-  region hosts the store-backed shard, and a first delivery for a new entity is
-  persisted back to the shared remember store.
+  region hosts the store-backed shard, a recovered remembered entity receives
+  ordinary delivery after shard allocation, and a first delivery for a new
+  entity is persisted back to the shared remember store before activation.
 - `kairo-cluster::VectorClock` provides immutable increment, compare, merge,
   and prune operations with Pekko-style `Same`, `Before`, `After`, and
   `Concurrent` ordering semantics.
@@ -3578,8 +3579,8 @@ Not yet implemented:
   example smoke tests, three-node bootstrap route validation, and focused
   peer-runtime sender-side route-reduction delivery coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
-  orchestration beyond the current focused actor-level coverage and broader
-  multi-node discovery/shared-store first-delivery validation.
+  orchestration beyond the current focused actor-level and multi-node
+  discovery/shared-store first-delivery coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
@@ -5182,5 +5183,12 @@ cargo test -p kairo-examples cluster_tcp_peer_bootstrap --all-targets --all-feat
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding multi_node_region_discovery_delivers_recovered_and_new_shared_store_entities --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_discovery_subscriber --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

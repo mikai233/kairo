@@ -886,7 +886,7 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
 }
 
 #[test]
-fn multi_node_region_discovery_updates_shared_remember_store_for_new_entity() {
+fn multi_node_region_discovery_delivers_recovered_and_new_shared_store_entities() {
     let nodes = kairo_testkit::MultiNodeTestKit::new([
         "sharding-discovery-shared-store",
         "sharding-discovery-shared-coordinator",
@@ -1039,6 +1039,57 @@ fn multi_node_region_discovery_updates_shared_remember_store_for_new_entity() {
     region
         .tell(ShardRegionMsg::RouteToLocalShard {
             shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "recovered-first".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string()
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "recovered-first".to_string()),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("shared-store remembered shard should stay local after allocation");
+
+    let mut entity_1_active = false;
+    for _ in 0..20 {
+        shard
+            .tell(ShardMsg::GetState {
+                reply_to: shard_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
+        entity_1_active = snapshot.active_entities.contains(&"entity-1".to_string());
+        if entity_1_active {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        entity_1_active,
+        "shared remember-store recovery should activate the remembered entity before first delivery"
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
             message: ShardingEnvelope::new("entity-2", "first".to_string()),
             route_reply_to: routes.actor_ref(),
             delivery_reply_to: deliveries.actor_ref(),
@@ -1082,17 +1133,6 @@ fn multi_node_region_discovery_updates_shared_remember_store_for_new_entity() {
         remembered,
         BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
     );
-
-    region
-        .tell(ShardRegionMsg::GetLocalShard {
-            shard: "shard-1".to_string(),
-            reply_to: local_shard.actor_ref(),
-        })
-        .unwrap();
-    let shard = local_shard
-        .expect_msg(Duration::from_millis(500))
-        .unwrap()
-        .expect("shared-store remembered shard should stay local after allocation");
 
     let mut entity_2_active = false;
     for _ in 0..20 {
