@@ -229,6 +229,58 @@ fn distributed_crates_keep_architecture_dependency_boundaries()
 }
 
 #[test]
+fn distributed_layers_do_not_introduce_authoritative_membership_store()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let next_crates = repo_root.join("kairo-next").join("crates");
+    let distributed_layers = [
+        "kairo-cluster",
+        "kairo-distributed-data",
+        "kairo-cluster-sharding",
+        "kairo-cluster-tools",
+    ];
+    let forbidden_terms = [
+        concat!("et", "cd"),
+        concat!("kuber", "netes"),
+        "membership_store",
+        "membershipstore",
+        "centralmembershipstore",
+    ];
+
+    for crate_name in distributed_layers {
+        let src = next_crates.join(crate_name).join("src");
+        let mut files = Vec::new();
+        collect_active_rs_files(&src, &mut files)?;
+
+        for file in files {
+            if file.file_name().and_then(|name| name.to_str()) == Some("lib.rs") {
+                continue;
+            }
+
+            let source = std::fs::read_to_string(&file)?.replace("\r\n", "\n");
+            for (line_index, line) in source.lines().enumerate() {
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("//") {
+                    continue;
+                }
+
+                let normalized_line = line.to_ascii_lowercase();
+                for term in forbidden_terms {
+                    assert!(
+                        !normalized_line.contains(term),
+                        "{}:{} must keep cluster membership gossip-based; distributed layers may consume cluster events but must not introduce a central membership authority",
+                        file.display(),
+                        line_index + 1
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn next_sources_do_not_expose_dyn_message_primary_api() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let next_crates = repo_root.join("kairo-next").join("crates");

@@ -2254,6 +2254,10 @@ Implemented:
   sources for central membership-store terms and known centralized membership
   backends, while leaving split-brain lease-majority as an explicit downing
   hook rather than a membership authority.
+- The `kairo` facade source guards now scan cluster, distributed-data,
+  sharding, and cluster-tools active sources for central membership-store
+  terms, keeping downstream distributed layers from becoming authoritative
+  membership stores while allowing cluster events and discovery as inputs.
 - `kairo-cluster` now has an actor-backed TCP peer connector that subscribes
   to cluster snapshots/events, feeds the cluster TCP peer runtime, exposes
   explicit deterministic retry ticks, can schedule fixed-delay retry ticks with
@@ -4699,5 +4703,11 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo distributed_layers_do_not_introduce_authoritative_membership_store --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```
