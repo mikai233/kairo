@@ -70,6 +70,26 @@ fn actor_harness_expect_stopped_waits_for_subject_stop() {
 }
 
 #[test]
+fn actor_harness_expect_stopped_within_uses_shared_deadline() {
+    let harness = ActorHarness::spawn(
+        "actor-harness-stop-within",
+        "subject",
+        Props::new(|| HarnessActor),
+    )
+    .expect("harness should spawn actor");
+
+    harness
+        .within(Duration::from_secs(1), |harness, scope| {
+            harness.stop();
+            harness.expect_stopped_within(scope)
+        })
+        .expect("subject should stop inside shared deadline");
+    harness
+        .shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn actor_harness_watch_subject_observes_subject_stop() {
     let harness = ActorHarness::spawn(
         "actor-harness-watch-subject",

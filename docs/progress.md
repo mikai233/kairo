@@ -540,6 +540,9 @@ Implemented:
 - `kairo-testkit` now exposes a spawn-backed `ActorHarness<M>` for tests
   centered on one actor under the real local runtime, with typed sends,
   owned probe creation, stop assertions, and optional manual time.
+- `ActorHarness` now also exposes a harness-centered `within` helper and
+  `expect_stopped_within`, so subject stop assertions can share one deadline
+  with surrounding actor sends and probe assertions.
 - `ActorHarness` can now create an `AnyActorRef` probe already watching the
   subject actor, so actor-centered tests can assert subject termination through
   the same testkit death-watch queue used by `TestProbe::watch_terminated`.
@@ -4899,5 +4902,11 @@ cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-testkit actor_harness --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo test -p kairo-testkit --doc --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```

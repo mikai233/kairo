@@ -5,7 +5,7 @@ use kairo_actor::{
     Actor, ActorError, ActorRef, ActorSystem, AnyActorRef, DeadLetter, Props, SendError,
 };
 
-use crate::{ActorSystemTestKit, ManualTime, ProbeError, TestProbe, Within};
+use crate::{ActorSystemTestKit, ManualTime, ProbeError, TestProbe, Within, WithinError, within};
 
 /// Spawn-backed harness for tests centered on one actor under a real actor system.
 ///
@@ -137,6 +137,18 @@ impl<M: Send + 'static> ActorHarness<M> {
         probe.expect_terminated_within(&self.actor_ref, scope)
     }
 
+    /// Runs harness-centered assertions under one shared deadline.
+    ///
+    /// This mirrors [`TestProbe::within`] for tests that need to combine
+    /// subject sends, probe assertions, and subject lifecycle checks without
+    /// accidentally granting each step an independent timeout.
+    pub fn within<T, E, F>(&self, timeout: Duration, assertion: F) -> Result<T, WithinError<E>>
+    where
+        F: FnOnce(&Self, &Within) -> Result<T, E>,
+    {
+        within(timeout, |scope| assertion(self, scope))
+    }
+
     /// Requests the subject actor to stop.
     pub fn stop(&self) {
         self.kit.system().stop(&self.actor_ref);
@@ -152,6 +164,12 @@ impl<M: Send + 'static> ActorHarness<M> {
                 timeout,
             })
         }
+    }
+
+    /// Waits for the subject actor to terminate under a shared [`Within`]
+    /// deadline.
+    pub fn expect_stopped_within(&self, scope: &Within) -> Result<(), ActorHarnessError> {
+        self.expect_stopped(scope.remaining())
     }
 
     /// Terminates the harness-owned actor system.
