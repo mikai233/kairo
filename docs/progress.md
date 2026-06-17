@@ -589,6 +589,10 @@ Implemented:
 - Manual-time actor timer coverage now pins Pekko-style zero initial-delay
   repeated timers: the first tick runs at the current manual time and the next
   tick is scheduled at the configured interval.
+- Manual scheduler advancement now runs due tasks at their scheduled manual
+  timestamps before moving to the final target time, so nested schedules
+  created by a due task use the due task's time rather than the caller's
+  eventual `advance` target.
 - `ManualTime::next_deadline` and `advance_to_next` expose the next active
   scheduled deadline and jump the manual clock to it, skipping cancelled work
   so deterministic tests do not need to hard-code exact timer deltas.
@@ -4613,5 +4617,13 @@ cargo test -p kairo-testkit --doc --all-features
 cargo test -p kairo-testkit --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-testkit --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor manual_scheduler_runs_nested_work_from_due_task_time --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor scheduler --all-targets --all-features
+cargo test -p kairo-testkit manual_time --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo test -p kairo-testkit --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor -p kairo-testkit --all-targets --all-features -- -D warnings
 git diff --check
 ```

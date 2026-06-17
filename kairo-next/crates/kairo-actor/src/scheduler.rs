@@ -292,16 +292,22 @@ impl ManualScheduler {
     }
 
     pub fn advance(&self, amount: Duration) {
-        self.inner.lock().expect("manual scheduler poisoned").now += amount;
-        self.run_due();
+        let run_to = self.now() + amount;
+        self.run_until(run_to);
     }
 
     pub fn run_due(&self) {
+        self.run_until(self.now());
+    }
+
+    fn run_until(&self, run_to: Duration) {
         loop {
-            let Some(mut scheduled) = self.pop_due() else {
+            let Some(mut scheduled) = self.pop_due(run_to) else {
+                self.inner.lock().expect("manual scheduler poisoned").now = run_to;
                 return;
             };
 
+            self.inner.lock().expect("manual scheduler poisoned").now = scheduled.deadline;
             match &mut scheduled.action {
                 ScheduledAction::Once(action) => {
                     if scheduled.cancellable.complete()
@@ -387,13 +393,13 @@ impl ManualScheduler {
         }
     }
 
-    fn pop_due(&self) -> Option<Scheduled> {
+    fn pop_due(&self, run_to: Duration) -> Option<Scheduled> {
         let mut state = self.inner.lock().expect("manual scheduler poisoned");
         let index = state
             .scheduled
             .iter()
             .enumerate()
-            .filter(|(_, scheduled)| scheduled.deadline <= state.now)
+            .filter(|(_, scheduled)| scheduled.deadline <= run_to)
             .min_by_key(|(_, scheduled)| (scheduled.deadline, scheduled.order))
             .map(|(index, _)| index)?;
         Some(state.scheduled.swap_remove(index))
@@ -487,5 +493,46 @@ fn sleep_until(deadline: Instant, task: &Cancellable) {
             return;
         };
         thread::sleep(remaining);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn manual_scheduler_runs_nested_work_from_due_task_time() {
+        let scheduler = ManualScheduler::new();
+        let nested = scheduler.clone();
+        let (observed_tx, observed_rx) = mpsc::channel();
+
+        scheduler.schedule_once_action(
+            Duration::from_secs(1),
+            Box::new(move || {
+                observed_tx
+                    .send(nested.now())
+                    .expect("outer observation should send");
+                let nested_again = nested.clone();
+                let observed_tx = observed_tx.clone();
+                nested.schedule_once_action(
+                    Duration::from_millis(500),
+                    Box::new(move || {
+                        observed_tx
+                            .send(nested_again.now())
+                            .expect("nested observation should send");
+                    }),
+                );
+            }),
+        );
+
+        scheduler.advance(Duration::from_secs(2));
+
+        assert_eq!(observed_rx.recv().unwrap(), Duration::from_secs(1));
+        assert_eq!(observed_rx.recv().unwrap(), Duration::from_millis(1500));
+        assert_eq!(scheduler.now(), Duration::from_secs(2));
+        assert_eq!(scheduler.pending_count(), 0);
     }
 }
