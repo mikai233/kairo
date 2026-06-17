@@ -570,6 +570,10 @@ Implemented:
   semantics: after the parent actor instance restarts, a preserved child stays
   visible through `Context::child("child")` with the same incarnation path and
   continues to reserve its name against duplicate child creation.
+- Bounded child-preserving restart now snapshots surviving children before a
+  replacement actor's `started()` callback runs; if that replacement start
+  fails, children created by the failed attempt are stopped before retry while
+  pre-existing survivors remain live.
 - `BackoffSupervisor` provides a structured on-stop supervisor actor with
   explicit `BackoffSupervisorSettings`, exponential restart delays capped by
   `max_backoff`, optional Pekko-style random-factor jitter, manual or automatic
@@ -5423,6 +5427,13 @@ cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnin
 git diff --check
 cargo test -p kairo-actor queued_already_stopped_watch --all-targets --all-features
 cargo test -p kairo-actor watch --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor preserving_restart_stops_children_from_failed_replacement_start --all-targets --all-features
+cargo test -p kairo-actor supervision --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check

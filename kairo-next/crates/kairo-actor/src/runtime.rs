@@ -24,7 +24,7 @@ use crate::timers::TimerState;
 pub(crate) use lifecycle::stop_child_roots_until_deadline;
 use lifecycle::{
     restart_children_after_parent_restart, stop_adapter_refs, stop_children,
-    stop_children_for_restart,
+    stop_children_except_for_restart, stop_children_for_restart,
 };
 
 pub(crate) fn run_actor<A>(
@@ -590,6 +590,13 @@ where
                 "restart supervision requires restartable props".to_string(),
             ));
         };
+        let preserved_children = if stop_children_on_restart {
+            Vec::new()
+        } else {
+            system_inner
+                .registry
+                .child_handles(actor_ref.path().as_str())
+        };
         context.stop_requested = false;
         match invoke_started(&mut restarted, context) {
             Ok(()) => {
@@ -607,6 +614,12 @@ where
                 stop_adapter_refs(system_inner, context);
                 if stop_children_on_restart {
                     stop_children_for_restart(system_inner, actor_ref.path());
+                } else {
+                    stop_children_except_for_restart(
+                        system_inner,
+                        actor_ref.path(),
+                        &preserved_children,
+                    );
                 }
                 if !supervision_state.restart_allowed(max_restarts, within, Instant::now()) {
                     return Err(error);

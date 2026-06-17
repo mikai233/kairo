@@ -12,6 +12,25 @@ pub(super) struct SupervisionProbe {
     pub(super) restarted: Option<mpsc::Sender<()>>,
 }
 
+struct NamedStopProbe {
+    name: &'static str,
+    stopped: mpsc::Sender<&'static str>,
+}
+
+impl Actor for NamedStopProbe {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.stopped
+            .send(self.name)
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+}
+
 impl Actor for SupervisionProbe {
     type Msg = SupervisionMsg;
 
@@ -301,6 +320,61 @@ impl Actor for RestartStartupProbe {
     }
 }
 
+enum FailedRestartChildMsg {
+    Fail,
+    ChildCount(mpsc::Sender<usize>),
+}
+
+struct FailedRestartChildCleanupProbe {
+    starts: Arc<AtomicU64>,
+    survivor_stopped: mpsc::Sender<&'static str>,
+    failed_attempt_stopped: mpsc::Sender<&'static str>,
+}
+
+impl Actor for FailedRestartChildCleanupProbe {
+    type Msg = FailedRestartChildMsg;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
+        if start == 1 {
+            let survivor_stopped = self.survivor_stopped.clone();
+            ctx.spawn(
+                "survivor",
+                Props::new(move || NamedStopProbe {
+                    name: "survivor",
+                    stopped: survivor_stopped,
+                }),
+            )?;
+            return Ok(());
+        }
+
+        if start == 2 {
+            let failed_attempt_stopped = self.failed_attempt_stopped.clone();
+            ctx.spawn(
+                "failed-attempt",
+                Props::new(move || NamedStopProbe {
+                    name: "failed-attempt",
+                    stopped: failed_attempt_stopped,
+                }),
+            )?;
+            return Err(ActorError::Message(
+                "replacement startup failed".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            FailedRestartChildMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            FailedRestartChildMsg::ChildCount(reply_to) => reply_to
+                .send(ctx.children().len())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
 struct StartupChildFailureProbe {
     starts: Arc<AtomicU64>,
     child_stopped: mpsc::Sender<()>,
@@ -515,6 +589,51 @@ fn bounded_restart_supervision_retries_restarted_startup_failure() {
         .unwrap();
 
     assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 3);
+    assert!(!actor.is_stopped());
+}
+
+#[test]
+fn preserving_restart_stops_children_from_failed_replacement_start() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let (survivor_stopped_tx, survivor_stopped_rx) = mpsc::channel();
+    let (failed_attempt_stopped_tx, failed_attempt_stopped_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "restart-startup-child-cleanup",
+            Props::restartable({
+                let starts = Arc::clone(&starts);
+                move || FailedRestartChildCleanupProbe {
+                    starts: Arc::clone(&starts),
+                    survivor_stopped: survivor_stopped_tx.clone(),
+                    failed_attempt_stopped: failed_attempt_stopped_tx.clone(),
+                }
+            })
+            .with_supervisor(
+                SupervisorStrategy::restart_with_limit_preserving_children(
+                    3,
+                    Duration::from_secs(60),
+                ),
+            ),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor.tell(FailedRestartChildMsg::Fail).unwrap();
+    actor
+        .tell(FailedRestartChildMsg::ChildCount(reply_tx))
+        .unwrap();
+
+    let child_count = reply_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(starts.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        failed_attempt_stopped_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        "failed-attempt"
+    );
+    assert!(survivor_stopped_rx.try_recv().is_err());
+    assert_eq!(child_count, 1);
     assert!(!actor.is_stopped());
 }
 

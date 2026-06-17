@@ -32,6 +32,29 @@ pub(super) fn stop_children_for_restart(system_inner: &ActorSystemInner, parent_
     let _ = stop_child_handles_with_timeout(children, Duration::MAX);
 }
 
+pub(super) fn stop_children_except_for_restart(
+    system_inner: &ActorSystemInner,
+    parent_path: &ActorPath,
+    preserved_children: &[LocalActorHandle],
+) {
+    let children = system_inner
+        .registry
+        .child_handles(parent_path.as_str())
+        .into_iter()
+        .filter(|child| {
+            !preserved_children
+                .iter()
+                .any(|preserved| preserved.path() == child.path())
+        })
+        .collect::<Vec<_>>();
+
+    for child in &children {
+        system_inner.death_watch.unwatch(child.path(), parent_path);
+    }
+
+    let _ = stop_child_handles_with_timeout(children, Duration::MAX);
+}
+
 pub(super) fn restart_children_after_parent_restart(
     system_inner: &ActorSystemInner,
     parent_path: &ActorPath,
