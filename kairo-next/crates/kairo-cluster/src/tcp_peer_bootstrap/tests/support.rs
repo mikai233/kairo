@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use kairo_actor::{ActorRef, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
-use kairo_remote::{RemoteOutbound, RemoteSettings};
+use kairo_remote::{RemoteAssociationCache, RemoteOutbound, RemoteSettings};
 use kairo_serialization::{ActorRefWireData, Registry};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
@@ -112,6 +112,24 @@ pub(super) fn publish_gossip(publisher: &ActorRef<ClusterEventPublisherMsg>, gos
     publisher
         .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
         .unwrap();
+}
+
+pub(super) fn await_cache_route_count(cache: &RemoteAssociationCache, expected: usize) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            let actual = cache.route_count();
+            if actual == expected {
+                Ok(())
+            } else {
+                Err(format!(
+                    "expected {expected} association routes, found {actual}"
+                ))
+            }
+        },
+    )
+    .unwrap();
 }
 
 pub(super) fn await_connector_no_routes(

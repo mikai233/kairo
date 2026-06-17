@@ -3218,6 +3218,11 @@ Implemented:
   continues to deliver stable-manifest `Join` envelopes, sends to the removed
   peer reject through the association cache without another membership
   delivery, and the sender cache drops from two routes to one.
+- `kairo-cluster` TCP peer bootstrap lifecycle coverage now also pins adopted
+  route shutdown: a connector can discover a peer whose socket route already
+  exists in the shared runtime cache, adopt it from membership, deliver a
+  stable-manifest `Join`, and coordinated shutdown still clears that adopted
+  route so later sends reject through the association cache.
 - `kairo-cluster` TCP peer bootstrap full-mesh coverage now also drives
   second-to-third and third-to-second membership delivery after all three
   connectors install routes, so the three-node bootstrap test verifies
