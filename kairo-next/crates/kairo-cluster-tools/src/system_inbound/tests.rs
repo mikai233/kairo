@@ -232,6 +232,33 @@ fn system_inbound_rejects_wrong_recipient_missing_handler_and_unknown_manifest()
         ClusterToolsSystemInboundError::MissingHandler("pubsub delivery")
     ));
 
+    let no_gossip_handler = RemoteEnvelope::new(
+        recipient_for(&self_node, DEFAULT_PUBSUB_REMOTE_PATH),
+        None,
+        registry.serialize(&status).unwrap(),
+    );
+    assert!(matches!(
+        ClusterToolsSystemInbound::<TestMessage>::new(self_node.clone())
+            .receive(no_gossip_handler)
+            .unwrap_err(),
+        ClusterToolsSystemInboundError::MissingHandler("pubsub gossip")
+    ));
+
+    let peer = node("peer", 2);
+    let no_singleton_handler = RemoteEnvelope::new(
+        recipient_for(&self_node, DEFAULT_SINGLETON_MANAGER_REMOTE_PATH),
+        None,
+        registry
+            .serialize(&SingletonHandOverToMe { from: peer })
+            .unwrap(),
+    );
+    assert!(matches!(
+        ClusterToolsSystemInbound::<TestMessage>::new(self_node.clone())
+            .receive(no_singleton_handler)
+            .unwrap_err(),
+        ClusterToolsSystemInboundError::MissingHandler("singleton manager")
+    ));
+
     let unknown = RemoteEnvelope::new(
         recipient_for(&self_node, DEFAULT_PUBSUB_REMOTE_PATH),
         None,

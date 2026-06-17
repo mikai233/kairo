@@ -2487,6 +2487,10 @@ Implemented:
   envelopes route to mediator local delivery, and singleton handover envelopes
   route to the singleton manager inbound, with recipient validation kept at the
   system boundary or focused adapter boundary.
+- Cluster-tools system inbound coverage now pins every optional handler gap:
+  missing pubsub gossip, pubsub delivery, and singleton manager routes all
+  return explicit missing-handler errors instead of falling through as unknown
+  manifests or transport decode failures.
 - `kairo-cluster-tools` now has a focused TCP association runtime that binds a
   handshaken listener, owns a shared `RemoteAssociationCache`, association
   registry, route installer, dialer, and dialing-side lane readers, and routes
