@@ -280,6 +280,30 @@ fn coordinator_system_inbound_rejects_wrong_recipient_sender_or_manifest() {
         ShardCoordinatorSystemInboundError::MissingSender(_)
     ));
 
+    for message in [
+        registry
+            .serialize(&ShardStarted {
+                shard_id: "12".to_string(),
+            })
+            .unwrap(),
+        registry
+            .serialize(&BeginHandOffAck {
+                shard_id: "12".to_string(),
+            })
+            .unwrap(),
+        registry
+            .serialize(&ShardStopped {
+                shard_id: "12".to_string(),
+            })
+            .unwrap(),
+    ] {
+        let missing_sender = RemoteEnvelope::new(coordinator_wire(), None, message);
+        assert!(matches!(
+            inbound.receive(missing_sender).unwrap_err(),
+            ShardCoordinatorSystemInboundError::MissingSender(_)
+        ));
+    }
+
     let wrong_manifest = RemoteEnvelope::new(
         coordinator_wire(),
         Some(region_wire()),

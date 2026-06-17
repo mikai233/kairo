@@ -2953,6 +2953,10 @@ Implemented:
   test module and decodes `RegisterAck`, `HostShard`, and `ShardHome` reply
   payloads through registered codecs instead of relying on manifest-only
   assertions.
+- Shard-coordinator system inbound coverage now also pins missing-sender
+  rejection for sender-dependent stable remote messages: `GetShardHome`,
+  `ShardStarted`, `BeginHandOffAck`, and `ShardStopped` must carry explicit
+  region/requester wire identity before they can re-enter coordinator state.
 - Remote coordinator registration now also attaches a remote region control
   target to the coordinator handoff transport, and newly allocated shard homes
   dispatch `HostShard` before replying `ShardHome`, matching Pekko's
@@ -4709,5 +4713,12 @@ cargo test -p kairo --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding coordinator_system_inbound_rejects_wrong_recipient_sender_or_manifest --all-targets --all-features
+cargo test -p kairo-cluster-sharding coordinator_system_inbound --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
