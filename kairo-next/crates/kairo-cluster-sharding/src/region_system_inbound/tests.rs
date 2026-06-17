@@ -444,6 +444,56 @@ fn region_system_inbound_rejects_missing_handler_wrong_recipient_and_unknown_man
         ShardRegionSystemInboundError::MissingHandler("region route")
     ));
 
+    assert!(matches!(
+        inbound
+            .receive(RemoteEnvelope::new(
+                region_wire(),
+                None,
+                registry
+                    .serialize(&RegisterAck {
+                        coordinator: actor_ref(
+                            "kairo://remote@127.0.0.1:2552/system/sharding/coordinator",
+                        ),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap_err(),
+        ShardRegionSystemInboundError::MissingHandler("coordinator registration")
+    ));
+
+    assert!(matches!(
+        inbound
+            .receive(RemoteEnvelope::new(
+                region_wire(),
+                None,
+                registry
+                    .serialize(&ShardHome {
+                        shard_id: "shard-1".to_string(),
+                        region: actor_ref("kairo://remote@127.0.0.1:2552/system/sharding/region",),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap_err(),
+        ShardRegionSystemInboundError::MissingHandler("coordinator shard-home")
+    ));
+
+    assert!(matches!(
+        inbound
+            .receive(RemoteEnvelope::new(
+                region_wire(),
+                Some(actor_ref(
+                    "kairo://remote@127.0.0.1:2552/system/sharding/coordinator",
+                )),
+                registry
+                    .serialize(&HostShard {
+                        shard_id: "shard-1".to_string(),
+                    })
+                    .unwrap(),
+            ))
+            .unwrap_err(),
+        ShardRegionSystemInboundError::MissingHandler("region control")
+    ));
+
     let wrong_recipient = ShardRegionSystemInbound::new(region.actor_ref()).with_registration(
         ShardCoordinatorRemoteRegistrationInbound::new(region_wire(), registry.clone()),
     );

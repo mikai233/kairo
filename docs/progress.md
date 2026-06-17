@@ -2934,6 +2934,11 @@ Implemented:
   `RoutedShardEnvelope` re-enters local region delivery, `RegisterAck` becomes
   `RemoteCoordinatorRegistrationAck`, and `ShardHome` becomes
   `RemoteCoordinatorShardHome`.
+- Shard-region system inbound coverage now also pins explicit missing-handler
+  failures for routed delivery, remote coordinator registration replies,
+  remote shard-home replies, and remote region control commands, so a
+  partially wired sharding system boundary fails before silently dropping
+  stable protocol envelopes.
 - `kairo-cluster-sharding` now has coordinator-side system inbound routing
   for stable remote envelopes addressed to `/system/sharding/coordinator`:
   decoded `Register` commands register remote regions through the coordinator
@@ -4687,5 +4692,12 @@ cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_system_inbound_rejects_missing_handler_wrong_recipient_and_unknown_manifest --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_system_inbound --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
