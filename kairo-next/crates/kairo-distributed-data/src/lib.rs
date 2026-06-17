@@ -108,6 +108,8 @@ mod tcp_peer_runtime;
 mod wire;
 
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;
 
 pub use aggregation::{

@@ -3241,6 +3241,10 @@ Implemented:
   route from membership, deliver a stable-manifest `ReplicatorRead`, and
   coordinated shutdown clears the adopted route so later sends reject without
   another remote request delivery.
+- `kairo-distributed-data` live TCP tests now share a crate-level socket-test
+  guard across route-owner, peer-runtime, connector, bootstrap, and direct
+  association runtime modules, preventing parallel cargo test runs from racing
+  over temporarily unused ports or cross-addressed handshakes.
 - `kairo-distributed-data` remote request inbound coverage now pins
   reply-requested delta propagation: a stable remote delta request is applied
   through the replicator actor, the temporary reply actor sends a stable

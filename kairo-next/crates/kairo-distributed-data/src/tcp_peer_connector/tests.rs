@@ -1,5 +1,5 @@
 use std::net::TcpListener;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use kairo_actor::{Address, Props};
@@ -15,6 +15,7 @@ use crate::{
     ReplicaId, ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver,
     ReplicatorRemoteRequestError, ReplicatorRemoteRequestReceiver, ReplicatorTcpAssociationRuntime,
     ReplicatorTcpPeerReconnectSettings, ReplicatorTcpPeerRuntimeSettings,
+    test_support::ddata_socket_test_lock,
 };
 
 #[derive(Default)]
@@ -142,7 +143,7 @@ fn eventually_snapshot(
 
 #[test]
 fn connector_subscribes_to_cluster_and_applies_tcp_peer_routes() {
-    let _guard = connector_socket_test_lock();
+    let _guard = ddata_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-sender").unwrap();
     let receiver_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-receiver").unwrap();
     let retry_interval = Duration::from_millis(25);
@@ -229,7 +230,7 @@ fn connector_subscribes_to_cluster_and_applies_tcp_peer_routes() {
 
 #[test]
 fn connector_clears_pending_reconnect_when_peer_leaves_membership() {
-    let _guard = connector_socket_test_lock();
+    let _guard = ddata_socket_test_lock();
     let sender_kit =
         ActorSystemTestKit::new("ddata-tcp-peer-connector-remove-pending-sender").unwrap();
     let retry_interval = Duration::from_millis(25);
@@ -295,7 +296,7 @@ fn connector_clears_pending_reconnect_when_peer_leaves_membership() {
 
 #[test]
 fn connector_clear_routes_removes_active_peer_routes() {
-    let _guard = connector_socket_test_lock();
+    let _guard = ddata_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-clear-sender").unwrap();
     let receiver_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-clear-receiver").unwrap();
     let retry_interval = Duration::from_millis(25);
@@ -380,7 +381,7 @@ fn connector_clear_routes_removes_active_peer_routes() {
 
 #[test]
 fn connector_stop_clears_pending_reconnect_and_unsubscribes_from_cluster() {
-    let _guard = connector_socket_test_lock();
+    let _guard = ddata_socket_test_lock();
     let sender_kit =
         ActorSystemTestKit::new("ddata-tcp-peer-connector-stop-pending-sender").unwrap();
     let receiver_kit =
@@ -457,7 +458,7 @@ fn connector_stop_clears_pending_reconnect_and_unsubscribes_from_cluster() {
 
 #[test]
 fn connector_automatic_retry_timer_drives_due_peer_routes() {
-    let _guard = connector_socket_test_lock();
+    let _guard = ddata_socket_test_lock();
     assert_eq!(
         ReplicatorTcpPeerConnectorSettings::new(Duration::ZERO).unwrap_err(),
         ReplicatorTcpPeerConnectorSettingsError::ZeroRetryInterval
@@ -525,9 +526,4 @@ fn connector_automatic_retry_timer_drives_due_peer_routes() {
     receiver_runtime.shutdown().unwrap();
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
-}
-
-fn connector_socket_test_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap()
 }

@@ -213,6 +213,7 @@ mod tests {
     use crate::{
         ReplicaId, ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver,
         ReplicatorRemoteRequestError, ReplicatorRemoteRequestReceiver,
+        test_support::ddata_socket_test_lock,
     };
 
     #[derive(Default)]
@@ -295,6 +296,7 @@ mod tests {
 
     #[test]
     fn peer_routes_apply_cluster_planner_dial_and_remove_to_ddata_tcp_runtime() {
+        let _guard = ddata_socket_test_lock();
         let sender = bind_runtime("sender", replica("sender"), replica("receiver"), 11);
         let receiver = bind_runtime("receiver", replica("receiver"), replica("sender"), 22);
         let sender_node = node("sender", sender.settings().canonical_port, 1);
@@ -334,6 +336,7 @@ mod tests {
 
     #[test]
     fn peer_routes_keep_remaining_ddata_route_when_one_peer_is_removed() {
+        let _guard = ddata_socket_test_lock();
         let sender = bind_runtime("reduce-sender", replica("sender"), replica("second"), 11);
         let second = bind_runtime("reduce-second", replica("second"), replica("sender"), 22);
         let third = bind_runtime("reduce-third", replica("third"), replica("sender"), 33);
@@ -395,6 +398,7 @@ mod tests {
 
     #[test]
     fn peer_routes_adopt_existing_ddata_tcp_runtime_route_and_clear_it() {
+        let _guard = ddata_socket_test_lock();
         let sender = bind_runtime(
             "existing-sender",
             replica("sender"),
@@ -449,6 +453,7 @@ mod tests {
 
     #[test]
     fn clear_without_routes_reports_no_work() {
+        let _guard = ddata_socket_test_lock();
         let sender = bind_runtime("clear", replica("clear"), replica("peer"), 33);
         let mut routes = ReplicatorTcpPeerRoutes::new();
 

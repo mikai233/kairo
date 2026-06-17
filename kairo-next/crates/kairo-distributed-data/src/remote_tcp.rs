@@ -318,6 +318,7 @@ mod tests {
         ReplicatorRead, ReplicatorReadResult, ReplicatorRemoteAssociationCacheOutbound,
         ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteReplyError, ReplicatorRemoteRequestError,
         ReplicatorRemoteTarget, register_ddata_protocol_codecs,
+        test_support::ddata_socket_test_lock,
     };
 
     #[derive(Default)]
@@ -439,6 +440,7 @@ mod tests {
 
     #[test]
     fn tcp_runtime_routes_replicator_requests_and_replies_over_bidirectional_association() {
+        let _guard = ddata_socket_test_lock();
         let registry = registry();
         let receiver_requests = Arc::new(RecordingRequests::default());
         let receiver_replies = Arc::new(RecordingReplies::default());

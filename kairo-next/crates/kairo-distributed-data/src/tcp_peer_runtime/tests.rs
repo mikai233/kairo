@@ -15,7 +15,7 @@ mod route_tests {
     use super::*;
     use crate::{
         ReplicatorRead, ReplicatorRemoteReplyError, ReplicatorRemoteRequestError,
-        register_ddata_protocol_codecs,
+        register_ddata_protocol_codecs, test_support::ddata_socket_test_lock,
     };
 
     #[derive(Default)]
@@ -198,6 +198,7 @@ mod route_tests {
 
     #[test]
     fn peer_runtime_applies_snapshot_and_reachability_event_to_live_routes() {
+        let _guard = ddata_socket_test_lock();
         let retry_interval = Duration::from_millis(25);
         let receiver_port = unused_port();
         let receiver_node = node("receiver", receiver_port, 2);
@@ -247,6 +248,7 @@ mod route_tests {
 
     #[test]
     fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
+        let _guard = ddata_socket_test_lock();
         let retry_interval = Duration::from_millis(25);
         let second_port = unused_port();
         let third_port = unused_port();
@@ -322,6 +324,7 @@ mod route_tests {
 
     #[test]
     fn peer_runtime_keeps_remaining_route_delivering_after_one_peer_is_removed() {
+        let _guard = ddata_socket_test_lock();
         let retry_interval = Duration::from_millis(25);
         let registry = registry();
         let second_port = unused_port();
@@ -426,6 +429,7 @@ mod route_tests {
 
     #[test]
     fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
+        let _guard = ddata_socket_test_lock();
         let retry_interval = Duration::from_millis(25);
         let receiver_port = unused_port();
         let receiver_node = node("receiver", receiver_port, 2);
@@ -467,6 +471,7 @@ mod route_tests {
 
     #[test]
     fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
+        let _guard = ddata_socket_test_lock();
         let receiver_port = unused_port();
         let receiver_node = node("receiver", receiver_port, 2);
         let retry_interval = Duration::from_millis(25);
@@ -527,6 +532,7 @@ mod route_tests {
 
     #[test]
     fn peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial() {
+        let _guard = ddata_socket_test_lock();
         let receiver_port = unused_port();
         let receiver_node = node("receiver", receiver_port, 2);
         let retry_interval = Duration::from_millis(25);
@@ -564,6 +570,7 @@ mod route_tests {
 
     #[test]
     fn peer_runtime_clears_pending_reconnect_when_peer_is_removed() {
+        let _guard = ddata_socket_test_lock();
         let receiver_port = unused_port();
         let receiver_node = node("receiver", receiver_port, 2);
         let retry_interval = Duration::from_millis(25);
@@ -608,7 +615,10 @@ mod basic_tests {
     use kairo_serialization::RemoteEnvelope;
 
     use super::*;
-    use crate::{ReplicatorRemoteReplyError, ReplicatorRemoteRequestError};
+    use crate::{
+        ReplicatorRemoteReplyError, ReplicatorRemoteRequestError,
+        test_support::ddata_socket_test_lock,
+    };
 
     #[derive(Default)]
     struct IgnoreRequests;
@@ -752,6 +762,7 @@ mod basic_tests {
 
     #[test]
     fn peer_runtime_applies_snapshot_and_reachability_event_to_live_routes() {
+        let _guard = ddata_socket_test_lock();
         let mut sender = bind_peer_runtime("sender", 1, 11, replica("receiver"));
         let receiver =
             bind_association_runtime("receiver", replica("receiver"), replica("sender"), 22);
@@ -790,6 +801,7 @@ mod basic_tests {
 
     #[test]
     fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
+        let _guard = ddata_socket_test_lock();
         let receiver_port = unused_port();
         let retry_interval = Duration::from_millis(25);
         let mut sender = bind_peer_runtime_with_reconnect(
@@ -852,6 +864,7 @@ mod basic_tests {
 
     #[test]
     fn peer_runtime_clears_pending_reconnect_when_peer_is_removed() {
+        let _guard = ddata_socket_test_lock();
         let receiver_port = unused_port();
         let mut runtime = bind_peer_runtime_with_reconnect(
             "sender",
