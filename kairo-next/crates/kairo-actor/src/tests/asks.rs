@@ -512,3 +512,49 @@ fn ask_reply_is_rejected_after_owner_restart() {
     probe.tell(AskProbeMsg::Ping(ping_tx)).unwrap();
     ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn ask_reply_after_owner_resume_is_delivered() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let target = system
+        .spawn("ask-target", Props::new(|| AskTarget))
+        .unwrap();
+    let probe = system
+        .spawn(
+            "ask-probe",
+            Props::new(|| AskProbe { pre_restart: None })
+                .with_supervisor(SupervisorStrategy::Resume),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (captured_tx, captured_rx) = mpsc::channel();
+
+    probe
+        .tell(AskProbeMsg::AskAndFail {
+            target,
+            captured: captured_tx,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+    let reply_ref = captured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    probe.tell(AskProbeMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        system
+            .resolve_local::<AskReply>(reply_ref.path().as_str())
+            .is_some()
+    );
+
+    reply_ref.tell(AskReply(100)).unwrap();
+
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Ok(100)
+    );
+    assert!(
+        system
+            .resolve_local::<AskReply>(reply_ref.path().as_str())
+            .is_none()
+    );
+}

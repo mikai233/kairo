@@ -434,6 +434,9 @@ Implemented:
 - `Context::ask` creates a one-shot typed local reply ref, maps replies or
   `AskError::Timeout` back into the owning actor's mailbox, and rejects late
   replies after completion.
+- Actor-owned ask reply refs now also have resume-supervision coverage: a
+  pending temp reply ref remains registered across a resumed failed receive
+  turn and still maps the eventual reply into the owner mailbox.
 - Ask timeouts now use the actor system scheduler instead of a dedicated
   sleeping thread, so manual-scheduler tests can deterministically advance ask
   timeout delivery and completed asks cancel their pending timeout task.
@@ -3356,6 +3359,9 @@ Implemented:
   adapter ref path as the terminated subject for both owner-stop and
   owner-restart teardown, while resume supervision leaves the existing adapter
   ref live and drains already queued adapted messages normally.
+- `kairo-actor` ask integration tests now pin owner-scoped temp-ref lifecycles
+  across stop, restart, and resume: stop/restart cancel pending ask replies,
+  while resume leaves the pending temp ref live for the eventual reply.
 - `kairo-actor` watch, watch_with, self-watch rejection, duplicate-watch
   rejection, unwatch, signal-failure, and parent-child watch tests now live in
   a focused sibling test module.
@@ -5261,6 +5267,13 @@ cargo test -p kairo-actor spawn_task_completion_after_owner_resume_is_delivered 
 cargo test -p kairo-actor pipe_to_self_completion_after_owner_resume_is_delivered --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-actor tasks --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor ask_reply_after_owner_resume_is_delivered --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor asks --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
