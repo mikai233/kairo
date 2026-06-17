@@ -770,6 +770,9 @@ Implemented:
   boundary when composed with an actor system, delegating guardian and temp-path
   access to the local provider while mapping owned canonical remote paths back
   to local resolution and leaving foreign canonical paths non-local.
+- Object-safe `ActorRefProvider` coverage now also pins owned canonical
+  `/temp` ask reply refs, proving remote-provider trait resolution maps them
+  back to registered local temp actors without requiring a remote codec.
 - `RemoteInboundDiagnosticFilter` and
   `DiagnosticsConfig::remote_inbound_diagnostics` now map the
   `[observability.diagnostics]` serialization and remote-delivery flags onto

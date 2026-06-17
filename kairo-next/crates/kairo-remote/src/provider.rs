@@ -892,6 +892,58 @@ mod tests {
     }
 
     #[test]
+    fn provider_trait_maps_owned_canonical_temp_ref_to_local_resolution() {
+        let system = ActorSystem::builder("local").build().unwrap();
+        let provider = provider_with_empty_registry(system.clone());
+        let (captured_tx, captured_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let target = system
+            .spawn(
+                "ask-capture",
+                Props::new(move || AskCapture {
+                    captured: captured_tx,
+                }),
+            )
+            .unwrap();
+        let owner = system.spawn("ask-owner", Props::new(|| AskOwner)).unwrap();
+
+        owner
+            .tell(AskOwnerMsg::Start {
+                target,
+                result_to: result_tx,
+            })
+            .unwrap();
+        let reply_ref = captured_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let canonical_path =
+            reply_ref
+                .path()
+                .as_str()
+                .replacen("kairo://local", "kairo://local@127.0.0.1:25520", 1);
+
+        let resolved = <RemoteActorRefProvider as ActorRefProvider>::resolve(
+            &provider,
+            &ActorPath::new(canonical_path),
+        );
+
+        assert!(matches!(resolved, ActorRefResolveResult::Local(_)));
+        assert_eq!(resolved.path().as_str(), reply_ref.path().as_str());
+        system
+            .resolve_local::<AskReply>(resolved.path().as_str())
+            .unwrap()
+            .tell(AskReply { value: 53 })
+            .unwrap();
+        assert_eq!(
+            result_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            Ok(53)
+        );
+        assert!(
+            system
+                .resolve_local::<AskReply>(reply_ref.path().as_str())
+                .is_none()
+        );
+    }
+
+    #[test]
     fn provider_resolve_actor_ref_keeps_foreign_paths_remote() {
         let system = ActorSystem::builder("local").build().unwrap();
         let provider = provider_with_system(system);
