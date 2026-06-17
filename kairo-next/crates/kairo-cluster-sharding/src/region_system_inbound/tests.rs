@@ -1,9 +1,10 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use bytes::Bytes;
 use kairo_actor::{ActorRef, Address};
 use kairo_cluster::UniqueAddress;
+use kairo_remote::{RemoteAssociationAddress, RemoteAssociationCache, RemoteOutbound};
 use kairo_serialization::{
     ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationRegistry,
     SerializedMessage,
@@ -264,6 +265,116 @@ fn region_system_inbound_routes_remote_control_commands_and_replies() {
             .unwrap(),
         ShardStopped {
             shard_id: "missing-shard".to_string()
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_system_inbound_replies_through_remote_association_cache() {
+    let kit = ActorSystemTestKit::new("sharding-region-system-association-cache").unwrap();
+    let registry = registry();
+    let region_wire = region_wire();
+    let coordinator = actor_ref("kairo://remote@127.0.0.1:2552/system/sharding/coordinator");
+    let collecting = Arc::new(CollectingRemoteOutbound::default());
+    let cache = RemoteAssociationCache::new();
+    cache.insert_route(
+        RemoteAssociationAddress::new("kairo", "remote", "127.0.0.1", Some(2552)).unwrap(),
+        collecting.clone() as Arc<dyn RemoteOutbound>,
+    );
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            kairo_actor::Props::new(|| {
+                ShardRegionActor::<TestMessage>::new_with_local_shards("region-a", 10, 10)
+            }),
+        )
+        .unwrap();
+    let inbound =
+        ShardRegionSystemInbound::new(region).with_control(ShardRegionRemoteControlInbound::new(
+            region_wire.clone(),
+            registry.clone(),
+            kairo_remote::RemoteOutboundRecipient::from_arc(
+                Arc::new(cache) as Arc<dyn RemoteOutbound>
+            ),
+        ));
+
+    inbound
+        .receive(RemoteEnvelope::new(
+            region_wire.clone(),
+            Some(coordinator.clone()),
+            registry
+                .serialize(&HostShard {
+                    shard_id: "shard-1".to_string(),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+    inbound
+        .receive(RemoteEnvelope::new(
+            region_wire.clone(),
+            Some(coordinator.clone()),
+            registry
+                .serialize(&BeginHandOff {
+                    shard_id: "shard-1".to_string(),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+    inbound
+        .receive(RemoteEnvelope::new(
+            region_wire.clone(),
+            Some(coordinator.clone()),
+            registry
+                .serialize(&HandOff {
+                    shard_id: "missing-shard".to_string(),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+
+    let mut envelopes = Vec::new();
+    for _ in 0..20 {
+        envelopes = collecting.envelopes();
+        if envelopes.len() >= 3 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(envelopes.len(), 3);
+    assert!(
+        envelopes
+            .iter()
+            .all(|envelope| envelope.recipient == coordinator)
+    );
+    assert!(
+        envelopes
+            .iter()
+            .all(|envelope| envelope.sender == Some(region_wire.clone()))
+    );
+    assert_eq!(
+        registry
+            .deserialize::<ShardStarted>(envelopes[0].message.clone())
+            .unwrap(),
+        ShardStarted {
+            shard_id: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        registry
+            .deserialize::<BeginHandOffAck>(envelopes[1].message.clone())
+            .unwrap(),
+        BeginHandOffAck {
+            shard_id: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        registry
+            .deserialize::<ShardStopped>(envelopes[2].message.clone())
+            .unwrap(),
+        ShardStopped {
+            shard_id: "missing-shard".to_string(),
         }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
@@ -565,4 +676,28 @@ fn region_wire() -> ActorRefWireData {
 
 fn actor_ref(path: &str) -> ActorRefWireData {
     ActorRefWireData::new(path).unwrap()
+}
+
+#[derive(Default)]
+struct CollectingRemoteOutbound {
+    envelopes: Mutex<Vec<RemoteEnvelope>>,
+}
+
+impl CollectingRemoteOutbound {
+    fn envelopes(&self) -> Vec<RemoteEnvelope> {
+        self.envelopes
+            .lock()
+            .expect("collecting remote outbound lock poisoned")
+            .clone()
+    }
+}
+
+impl RemoteOutbound for CollectingRemoteOutbound {
+    fn send(&self, envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+        self.envelopes
+            .lock()
+            .expect("collecting remote outbound lock poisoned")
+            .push(envelope);
+        Ok(())
+    }
 }
