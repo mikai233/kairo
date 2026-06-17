@@ -3,18 +3,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use kairo_actor::Address;
+use kairo_actor::{Address, Recipient};
 use kairo_cluster::{CurrentClusterState, Member, MemberStatus, ReachabilityEvent, UniqueAddress};
-use kairo_remote::RemoteSettings;
+use kairo_remote::{RemoteOutbound, RemoteSettings};
 use kairo_serialization::{MessageCodec, Registry, SerializationRegistry};
-use kairo_testkit::ActorSystemTestKit;
+use kairo_testkit::{ActorSystemTestKit, TestProbe};
 
 use super::*;
 use crate::{
-    ClusterToolsSystemInbound, DistributedPubSubMediatorMsg, PubSubGossipMsg,
-    PubSubGossipWireInbound, PubSubRemoteDeliveryInbound, SingletonManagerMsg,
-    SingletonManagerRemoteInbound, register_cluster_tools_protocol_codecs,
-    test_support::cluster_tools_socket_test_lock,
+    ClusterToolsSystemInbound, DistributedPubSubMediatorMsg, LocalPubSubMsg, PubSubGossipMsg,
+    PubSubGossipWireInbound, PubSubRemoteDeliveryInbound, PubSubRemoteDeliveryOutbound,
+    SingletonManagerMsg, SingletonManagerRemoteInbound, TopicName, TopicPublishMode,
+    register_cluster_tools_protocol_codecs, test_support::cluster_tools_socket_test_lock,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,9 +75,34 @@ fn state(members: Vec<Member>, unreachable: Vec<Member>) -> CurrentClusterState 
     }
 }
 
+struct ClusterToolsInboundProbes {
+    mediator: TestProbe<DistributedPubSubMediatorMsg<TestMessage>>,
+}
+
 fn unused_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.local_addr().unwrap().port()
+}
+
+fn assert_pubsub_publish(
+    probes: &ClusterToolsInboundProbes,
+    expected_topic: TopicName,
+    expected_message: TestMessage,
+) {
+    match probes.mediator.expect_msg(Duration::from_secs(1)).unwrap() {
+        DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::Publish {
+            topic,
+            message,
+            mode,
+            reply_to,
+        }) => {
+            assert_eq!(topic, expected_topic);
+            assert_eq!(message, expected_message);
+            assert_eq!(mode, TopicPublishMode::Broadcast);
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected pubsub publish delivery"),
+    }
 }
 
 fn wait_for_route(runtime: &ClusterToolsTcpAssociationRuntime<TestMessage>) {
@@ -193,6 +218,56 @@ fn bind_association_runtime_on_port(
     .unwrap()
 }
 
+fn bind_association_runtime_with_probes(
+    name: &str,
+    uid: u64,
+    system_uid: u64,
+    kit: &ActorSystemTestKit,
+    registry: Arc<Registry>,
+) -> (
+    ClusterToolsTcpAssociationRuntime<TestMessage>,
+    ClusterToolsInboundProbes,
+) {
+    let gossip = kit
+        .create_probe::<PubSubGossipMsg>(format!("{name}-gossip"))
+        .unwrap();
+    let mediator = kit
+        .create_probe::<DistributedPubSubMediatorMsg<TestMessage>>(format!("{name}-mediator"))
+        .unwrap();
+    let manager = kit
+        .create_probe::<SingletonManagerMsg>(format!("{name}-singleton-manager"))
+        .unwrap();
+    let gossip_ref = gossip.actor_ref();
+    let mediator_ref = mediator.actor_ref();
+    let manager_ref = manager.actor_ref();
+    let runtime = ClusterToolsTcpAssociationRuntime::bind(
+        name,
+        uid,
+        system_uid,
+        RemoteSettings::new("127.0.0.1", 0),
+        move |self_node| {
+            ClusterToolsSystemInbound::new(self_node.clone())
+                .with_pubsub_gossip(PubSubGossipWireInbound::new(
+                    self_node.clone(),
+                    registry.clone(),
+                    gossip_ref,
+                ))
+                .with_pubsub_delivery(PubSubRemoteDeliveryInbound::new(
+                    self_node.clone(),
+                    registry.clone(),
+                    mediator_ref,
+                ))
+                .with_singleton_manager(SingletonManagerRemoteInbound::new(
+                    self_node,
+                    registry,
+                    manager_ref,
+                ))
+        },
+    )
+    .unwrap();
+    (runtime, ClusterToolsInboundProbes { mediator })
+}
+
 #[test]
 fn peer_runtime_applies_snapshot_and_reachability_event_to_live_routes() {
     let _guard = cluster_tools_socket_test_lock();
@@ -242,11 +317,24 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
     let third_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-reduce-third").unwrap();
     let registry = registry();
     let mut sender = bind_peer_runtime("reduce-sender", 1, 11, &sender_kit, registry.clone());
-    let second = bind_association_runtime("reduce-second", 2, 22, &second_kit, registry.clone());
-    let third = bind_association_runtime("reduce-third", 3, 33, &third_kit, registry);
+    let (second, second_probes) =
+        bind_association_runtime_with_probes("reduce-second", 2, 22, &second_kit, registry.clone());
+    let (third, third_probes) =
+        bind_association_runtime_with_probes("reduce-third", 3, 33, &third_kit, registry.clone());
     let sender_node = sender.self_node().clone();
     let second_node = second.self_node().clone();
     let third_node = third.self_node().clone();
+    let outbound = Arc::new(sender.association_cache().clone()) as Arc<dyn RemoteOutbound>;
+    let second_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        second_node.clone(),
+        registry.clone(),
+        outbound.clone(),
+    );
+    let third_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        third_node.clone(),
+        registry,
+        outbound,
+    );
 
     let report = sender
         .apply_snapshot(state(
@@ -263,6 +351,32 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
     assert_eq!(sender.association_cache().route_count(), 2);
     wait_for_route(&second);
     wait_for_route(&third);
+    second_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 21 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    third_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("invoices"),
+            message: TestMessage { value: 34 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &second_probes,
+        TopicName::new("orders"),
+        TestMessage { value: 21 },
+    );
+    assert_pubsub_publish(
+        &third_probes,
+        TopicName::new("invoices"),
+        TestMessage { value: 34 },
+    );
 
     let report = sender
         .apply_snapshot(state(
@@ -279,6 +393,37 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
             .active_peer_targets()
             .iter()
             .any(|target| target.node() == &second_node)
+    );
+    let removed_peer_error = third_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("invoices"),
+            message: TestMessage { value: 89 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("removed peer route should reject sends");
+    assert!(
+        removed_peer_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected removed-peer send error: {removed_peer_error:?}"
+    );
+    third_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+    second_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 55 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &second_probes,
+        TopicName::new("orders"),
+        TestMessage { value: 55 },
     );
 
     let sender_report = sender.shutdown().unwrap();
