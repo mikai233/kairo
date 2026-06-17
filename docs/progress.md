@@ -395,6 +395,10 @@ Implemented:
 - Actor-owned task sends are lifecycle scoped: task-originated messages through
   `Context::spawn_task`/`pipe_to_self` are rejected once the owner stops or
   restarts, so stale task completions cannot re-enter the restarted actor.
+- Actor-owned task sends now also have resume-supervision coverage showing
+  that in-flight `spawn_task` and `pipe_to_self` completions remain valid when
+  the owner resumes after a failed receive turn, matching Pekko's
+  state-preserving `Resume` behavior.
 - `Context::spawn_task` and `Context::pipe_to_self` now reject new background
   work after the actor has requested its own stop, matching the same stopping
   boundary used for child creation.
@@ -3341,7 +3345,8 @@ Implemented:
   now live in a focused sibling test module.
 - `kairo-actor` task integration tests now also pin stop/restart scoped
   delivery: stale `spawn_task` and `pipe_to_self` completions after owner stop
-  or restart are rejected and do not re-enter the actor mailbox.
+  or restart are rejected and do not re-enter the actor mailbox, while
+  resume-supervised failures keep existing task completions live.
 - `kairo-actor` message-adapter mapping and stopped-owner rejection tests now
   live in a focused sibling test module.
 - `kairo-actor` message-adapter integration tests now pin owner-scoped
@@ -5248,6 +5253,14 @@ git diff --check
 cargo test -p kairo-actor message_adapter_survives_owner_resume_supervision --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-actor adapters --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor spawn_task_completion_after_owner_resume_is_delivered --all-targets --all-features
+cargo test -p kairo-actor pipe_to_self_completion_after_owner_resume_is_delivered --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor tasks --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings

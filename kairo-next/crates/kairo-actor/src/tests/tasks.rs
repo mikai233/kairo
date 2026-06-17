@@ -351,7 +351,85 @@ fn pipe_to_self_completion_after_owner_restart_is_rejected() {
     assert_dead_letter_count_with_reason(&system, 1, "actor task is cancelled");
 }
 
+#[test]
+fn spawn_task_completion_after_owner_resume_is_delivered() {
+    let system = ActorSystem::builder("test-task-resume").build().unwrap();
+    let actor = system
+        .spawn(
+            "task",
+            Props::new(|| TaskProbe).with_supervisor(SupervisorStrategy::Resume),
+        )
+        .unwrap();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor
+        .tell(TaskProbeMsg::SpawnTaskAfterRelease {
+            ready_to: ready_tx,
+            release: release_rx,
+            result_to: result_tx,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+    ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    fail_actor_and_wait_until_resumed(&actor);
+    release_tx.send(()).unwrap();
+
+    assert_eq!(
+        result_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Ok(())
+    );
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "done"
+    );
+}
+
+#[test]
+fn pipe_to_self_completion_after_owner_resume_is_delivered() {
+    let system = ActorSystem::builder("test-pipe-resume").build().unwrap();
+    let actor = system
+        .spawn(
+            "task",
+            Props::new(|| TaskProbe).with_supervisor(SupervisorStrategy::Resume),
+        )
+        .unwrap();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor
+        .tell(TaskProbeMsg::PipeAfterRelease {
+            ready_to: ready_tx,
+            release: release_rx,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+    ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    fail_actor_and_wait_until_resumed(&actor);
+    release_tx.send(()).unwrap();
+
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "done"
+    );
+}
+
 fn restart_actor_and_wait_until_live(actor: &ActorRef<TaskProbeMsg>) {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    actor.tell(TaskProbeMsg::Fail).unwrap();
+    actor
+        .tell(TaskProbeMsg::Ping { reply_to: reply_tx })
+        .unwrap();
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "pong"
+    );
+}
+
+fn fail_actor_and_wait_until_resumed(actor: &ActorRef<TaskProbeMsg>) {
     let (reply_tx, reply_rx) = mpsc::channel();
     actor.tell(TaskProbeMsg::Fail).unwrap();
     actor
