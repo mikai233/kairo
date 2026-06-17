@@ -149,6 +149,38 @@ impl Actor for RestartStartupProbe {
     }
 }
 
+struct StartupChildFailureProbe {
+    starts: Arc<AtomicU64>,
+    child_stopped: mpsc::Sender<()>,
+    restarted_child_count: mpsc::Sender<usize>,
+}
+
+impl Actor for StartupChildFailureProbe {
+    type Msg = ();
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
+        if start == 1 {
+            let child_stopped = self.child_stopped.clone();
+            ctx.spawn(
+                "startup-child",
+                Props::new(move || StopProbe {
+                    stopped: child_stopped,
+                }),
+            )?;
+            return Err(ActorError::Message("startup failed".to_string()));
+        }
+
+        self.restarted_child_count
+            .send(ctx.children().len())
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
 #[test]
 fn startup_failure_stops_actor_by_default() {
     let system = ActorSystem::builder("test").build().unwrap();
@@ -263,6 +295,43 @@ fn startup_panic_enters_bounded_restart_supervision() {
         .unwrap();
 
     assert_eq!(reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
+    assert!(!actor.is_stopped());
+}
+
+#[test]
+fn preserving_startup_restart_stops_children_from_failed_start() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let (child_stopped_tx, child_stopped_rx) = mpsc::channel();
+    let (child_count_tx, child_count_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "startup-child-failure",
+            Props::restartable({
+                let starts = Arc::clone(&starts);
+                move || StartupChildFailureProbe {
+                    starts: Arc::clone(&starts),
+                    child_stopped: child_stopped_tx.clone(),
+                    restarted_child_count: child_count_tx.clone(),
+                }
+            })
+            .with_supervisor(
+                SupervisorStrategy::restart_with_limit_preserving_children(
+                    2,
+                    Duration::from_secs(60),
+                ),
+            ),
+        )
+        .unwrap();
+
+    child_stopped_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(
+        child_count_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        0
+    );
+    assert_eq!(starts.load(Ordering::SeqCst), 2);
     assert!(!actor.is_stopped());
 }
 

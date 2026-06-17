@@ -67,6 +67,10 @@ Implemented:
   waiting: a restarting parent with a child whose grandchild is still in
   `PostStop` does not process queued user messages until the grandchild and
   child have both fully stopped.
+- Startup-retry lifecycle now follows Pekko's failed-creation cleanup rule:
+  children created by a failed `started()` attempt are stopped before the
+  bounded restart retry, even when the receive-time restart strategy would
+  otherwise preserve children.
 - Actor-system termination now has focused coverage that top-level actor stop
   waits recursively for descendant child termination before the system reports
   `terminated`.

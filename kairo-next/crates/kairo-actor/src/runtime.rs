@@ -390,18 +390,11 @@ where
             SupervisorStrategy::RestartWithLimit {
                 max_restarts,
                 within,
-                stop_children,
+                ..
             } => {
                 if !supervision_state.startup_restart_allowed(max_restarts, within, Instant::now())
-                    || restart_after_start_failure(
-                        actor,
-                        actor_ref,
-                        context,
-                        props,
-                        system_inner,
-                        stop_children,
-                    )
-                    .is_err()
+                    || restart_after_start_failure(actor, actor_ref, context, props, system_inner)
+                        .is_err()
                 {
                     return Some(reason);
                 }
@@ -617,7 +610,6 @@ fn restart_after_start_failure<A>(
     context: &mut Context<A::Msg>,
     props: &Props<A>,
     system_inner: &ActorSystemInner,
-    stop_children_on_restart: bool,
 ) -> ActorResult
 where
     A: Actor,
@@ -627,9 +619,7 @@ where
     context.cancel_tasks();
     context.cancel_asks();
     stop_adapter_refs(system_inner, context);
-    if stop_children_on_restart {
-        stop_children_for_restart(system_inner, actor_ref.path());
-    }
+    stop_children_for_restart(system_inner, actor_ref.path());
     let Some(restarted) = props.restart() else {
         return Err(ActorError::Message(
             "restart supervision requires restartable props".to_string(),
