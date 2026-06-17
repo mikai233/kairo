@@ -343,6 +343,53 @@ fn multi_node_testkit_expects_already_stopped_node_local_actor() {
 }
 
 #[test]
+fn multi_node_testkit_within_composes_node_probe_assertions() {
+    let kit =
+        MultiNodeTestKit::new(["within-node-a", "within-node-b"]).expect("nodes should build");
+    let probe_a = kit
+        .create_probe_on::<&'static str>("within-node-a", "probe-a")
+        .expect("probe on node a should spawn");
+    let probe_b = kit
+        .create_probe_on::<&'static str>("within-node-b", "probe-b")
+        .expect("probe on node b should spawn");
+
+    probe_a.actor_ref().tell("from-a").unwrap();
+    probe_b.actor_ref().tell("from-b").unwrap();
+
+    let observed = kit
+        .within(Duration::from_secs(1), |_kit, scope| {
+            let first = probe_a.expect_msg_within(scope)?;
+            let second = probe_b.expect_msg_within(scope)?;
+            Ok::<_, ProbeError>((first, second))
+        })
+        .expect("node probe assertions should fit within one deadline");
+
+    assert_eq!(observed, ("from-a", "from-b"));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_within_reports_elapsed_successful_block() {
+    let kit = MultiNodeTestKit::new(["within-timeout-node"]).expect("node should build");
+
+    let error = kit
+        .within(Duration::from_millis(1), |_kit, _scope| {
+            thread::sleep(Duration::from_millis(5));
+            Ok::<_, ProbeError>(())
+        })
+        .expect_err("successful block that overruns its budget should time out");
+
+    assert!(matches!(
+        error,
+        WithinError::Timeout { timeout, elapsed }
+            if timeout == Duration::from_millis(1) && elapsed >= timeout
+    ));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("node should terminate");
+}
+
+#[test]
 fn multi_node_testkit_rejects_empty_duplicate_and_unknown_nodes() {
     let empty =
         MultiNodeTestKit::new(Vec::<String>::new()).expect_err("empty node set should be rejected");

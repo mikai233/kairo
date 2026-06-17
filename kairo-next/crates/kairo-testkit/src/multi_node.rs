@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorSystem, AnyActorRef, DeadLetter, Props};
 
-use crate::{ActorSystemTestKit, ManualTime, ProbeError, TestProbe};
+use crate::{ActorSystemTestKit, ManualTime, ProbeError, TestProbe, Within, WithinError, within};
 
 /// Result type returned by multi-node testkit helpers.
 pub type MultiNodeResult<T> = std::result::Result<T, MultiNodeError>;
@@ -428,6 +428,19 @@ impl MultiNodeTestKit {
         }
 
         Ok(statuses)
+    }
+
+    /// Runs multi-node assertions under one shared deadline.
+    ///
+    /// This mirrors [`TestProbe::within`](crate::TestProbe::within) and
+    /// [`ActorHarness::within`](crate::ActorHarness::within) for tests that
+    /// combine node-local sends, probe assertions, barriers, and lifecycle
+    /// checks without granting each step an independent timeout.
+    pub fn within<T, E, F>(&self, timeout: Duration, assertion: F) -> Result<T, WithinError<E>>
+    where
+        F: FnOnce(&Self, &Within) -> Result<T, E>,
+    {
+        within(timeout, |scope| assertion(self, scope))
     }
 
     /// Creates a typed probe actor on a named node.

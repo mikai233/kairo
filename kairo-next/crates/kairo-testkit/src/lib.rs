@@ -57,6 +57,10 @@
 //! - [`MultiNodeTestKit::create_event_probe_on`] and
 //!   [`MultiNodeTestKit::create_dead_letter_probe_on`] subscribe probes on a
 //!   specific named node for node-local lifecycle and diagnostics assertions.
+//! - [`MultiNodeTestKit::watch_terminated_on`],
+//!   [`MultiNodeTestKit::expect_terminated_on`], and
+//!   [`MultiNodeTestKit::within`] compose node-local lifecycle observations and
+//!   cross-node probe assertions under deterministic multi-node test budgets.
 //! - [`MultiNodeTestKit::enter_barrier`] coordinates named local multi-node
 //!   phases with explicit waiting/passed status and ordering errors.
 //! - [`MultiNodeTestKit::await_barrier`] blocks a node at a named local

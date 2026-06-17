@@ -571,10 +571,6 @@ Implemented:
 - `TestProbe<Signal>` now forwards actor lifecycle signals into the typed
   probe queue and exposes plain `watch`/`expect_terminated` helpers, so tests
   can assert `Signal::Terminated` through the same signal path actors observe.
-- `MultiNodeTestKit` now exposes node-local termination watch helpers that
-  create named-node erased probes, observe local actor death-watch
-  notifications, and preserve structured probe assertion errors for
-  multi-node lifecycle tests.
 - `TestProbe<M>` can now stop its backing probe actor and assert its
   termination with timeout diagnostics, matching Pekko's probe-stop testing
   shape while preserving Kairo's typed actor refs.
@@ -657,6 +653,10 @@ Implemented:
   probes on specific named nodes, so cluster and sharding integration tests can
   assert node-local lifecycle and diagnostics events without sharing one global
   probe system.
+- `MultiNodeTestKit` now also exposes node-local termination watch helpers and
+  a harness-centered `within` helper, so multi-node tests can compose actor
+  death-watch assertions and cross-node probe receives under one shared
+  deadline while preserving structured probe errors.
 - `MultiNodeTestKit::enter_barrier` now provides named local multi-node phase
   coordination with explicit waiting/passed status, wrong-barrier order errors,
   duplicate-arrival errors, and unknown-node validation for future cluster and
