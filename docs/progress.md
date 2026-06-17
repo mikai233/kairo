@@ -2075,6 +2075,12 @@ Implemented:
   first deliveries for an unknown remembered shard replay into the
   store-backed shard, persist each remembered entity start, and activate both
   entities with the shard buffer drained.
+- `kairo-cluster-sharding` multi-node discovery/shared-store coverage now also
+  proves first-delivery remember writes after automatic shard allocation: a
+  discovered region hosts the remembered shard, writes a brand-new entity to
+  the shared remember store, observes that the shard activates the entity after
+  the store callback, and verifies the next routed message is normal
+  active-entity delivery.
 - `kairo-cluster-sharding` now has a structured region route transport for
   forwarding sharded business envelopes to another known shard-region target.
   Region actors can forward later messages for known remote shard homes and can
@@ -3549,9 +3555,8 @@ Not yet implemented:
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level coverage, registered
   coordinator first-delivery remember-store validation, multi-node shared-store
-  rehost/passivation validation, and the multi-node discovery/shared-store
-  validation that proves first-delivery remember writes after automatic shard
-  allocation.
+  rehost/passivation validation, and multi-node discovery/shared-store
+  first-delivery validation.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
