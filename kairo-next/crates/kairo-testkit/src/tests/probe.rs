@@ -265,6 +265,110 @@ fn test_probe_unwatch_suppresses_custom_termination_message() {
 }
 
 #[test]
+fn test_probe_watch_receives_plain_termination_signal() {
+    let kit = ActorSystemTestKit::new("test-probe-watch-signal").expect("system should build");
+    let probe = kit
+        .create_probe::<Signal>("probe")
+        .expect("probe should spawn");
+    let subject = kit
+        .system()
+        .spawn("subject", Props::new(|| UnitActor))
+        .expect("subject should spawn");
+
+    probe.watch(&subject).expect("watch should register");
+    kit.system().stop(&subject);
+
+    assert_eq!(
+        probe.expect_msg(Duration::from_millis(50)).unwrap(),
+        Signal::Terminated(subject.as_any())
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_expect_plain_terminated_observes_already_stopped_actor() {
+    let kit =
+        ActorSystemTestKit::new("test-probe-watch-signal-stopped").expect("system should build");
+    let probe = kit
+        .create_probe::<Signal>("probe")
+        .expect("probe should spawn");
+    let subject = kit
+        .system()
+        .spawn("subject", Props::new(|| UnitActor))
+        .expect("subject should spawn");
+
+    kit.system().stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    assert_eq!(
+        probe
+            .expect_terminated(&subject, Duration::from_millis(50))
+            .unwrap(),
+        subject.as_any()
+    );
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_expect_plain_terminated_within_uses_shared_deadline() {
+    let kit =
+        ActorSystemTestKit::new("test-probe-watch-signal-within").expect("system should build");
+    let probe = kit
+        .create_probe::<Signal>("probe")
+        .expect("probe should spawn");
+    let subject = kit
+        .system()
+        .spawn("subject", Props::new(|| UnitActor))
+        .expect("subject should spawn");
+
+    let observed = probe
+        .within(Duration::from_millis(50), |probe, scope| {
+            kit.system().stop(&subject);
+            probe.expect_terminated_within(&subject, scope)
+        })
+        .expect("termination should be observed inside shared deadline");
+
+    assert_eq!(observed, subject.as_any());
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn test_probe_expect_plain_terminated_reports_unexpected_actor() {
+    let kit =
+        ActorSystemTestKit::new("test-probe-watch-signal-unexpected").expect("system should build");
+    let probe = kit
+        .create_probe::<Signal>("probe")
+        .expect("probe should spawn");
+    let expected = kit
+        .system()
+        .spawn("expected", Props::new(|| UnitActor))
+        .expect("expected should spawn");
+    let other = kit
+        .system()
+        .spawn("other", Props::new(|| UnitActor))
+        .expect("other should spawn");
+
+    probe.watch(&other).expect("other watch should register");
+    kit.system().stop(&other);
+
+    let error = probe
+        .expect_terminated(&expected, Duration::from_millis(50))
+        .expect_err("probe should report unexpected terminated actor");
+    assert!(matches!(
+        error,
+        ProbeError::UnexpectedMessage {
+            expected: expected_path,
+            actual
+        } if expected_path == expected.path().to_string() && actual == other.path().to_string()
+    ));
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn test_probe_expect_terminated_checks_expected_actor() {
     let kit = ActorSystemTestKit::new("test-probe-expect-terminated").expect("system should build");
     let probe = kit

@@ -21,10 +21,12 @@
 //!   letters.
 //! - [`TestProbe::receive_messages`] collects a fixed batch under one shared
 //!   deadline.
-//! - [`TestProbe::watch_with`] and [`TestProbe::unwatch`] register and remove
-//!   typed lifecycle notifications through the same death-watch path as actors.
-//!   [`TestProbe::expect_terminated_within`] composes erased-ref termination
-//!   assertions with a shared [`Within`] deadline.
+//! - [`TestProbe::watch`] on `TestProbe<Signal>` observes plain
+//!   `Signal::Terminated`, while [`TestProbe::watch_with`] and
+//!   [`TestProbe::unwatch`] register and remove typed lifecycle notifications
+//!   through the same death-watch path as actors.
+//!   [`TestProbe::expect_terminated_within`] composes termination assertions
+//!   with a shared [`Within`] deadline.
 //! - [`TestProbe::fish_for_message`] classifies incoming messages with
 //!   [`FishingOutcome`].
 //! - [`TestProbe::await_assert`] retries probe-centered assertions with a

@@ -1,9 +1,10 @@
+use std::any::Any;
 use std::fmt::{self, Display, Formatter};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::Duration;
 
 use kairo_actor::{
-    Actor, ActorError, ActorRef, ActorResult, ActorSystem, AnyActorRef, Context, Props,
+    Actor, ActorError, ActorRef, ActorResult, ActorSystem, AnyActorRef, Context, Props, Signal,
 };
 
 use crate::assertions::{AwaitAssertError, await_assert};
@@ -316,6 +317,62 @@ impl<M: Send + 'static> TestProbe<M> {
     }
 }
 
+impl TestProbe<Signal> {
+    /// Watches `subject` and delivers a plain [`Signal::Terminated`] to this
+    /// probe when the subject stops.
+    ///
+    /// This mirrors actor `Context::watch` and is useful when a test wants to
+    /// assert on the same lifecycle signal an actor would receive.
+    pub fn watch<N: Send + 'static>(&self, subject: &ActorRef<N>) -> Result<(), ActorError> {
+        self.system
+            .watch_path(self.actor_ref.clone(), subject.path().clone())?;
+        if subject.wait_for_stop(Duration::ZERO) {
+            self.system.notify_watched_path_terminated(subject.path());
+        }
+        Ok(())
+    }
+
+    /// Watches `subject` and waits for its plain termination signal.
+    pub fn expect_terminated<N: Send + 'static>(
+        &self,
+        subject: &ActorRef<N>,
+        timeout: Duration,
+    ) -> Result<AnyActorRef, ProbeError> {
+        self.watch(subject)
+            .map_err(|error| ProbeError::WatchFailed(error.to_string()))?;
+        self.expect_matching_terminated(subject, timeout)
+    }
+
+    /// Watches `subject` and waits for its plain termination signal under a
+    /// shared [`Within`] deadline.
+    pub fn expect_terminated_within<N: Send + 'static>(
+        &self,
+        subject: &ActorRef<N>,
+        scope: &Within,
+    ) -> Result<AnyActorRef, ProbeError> {
+        self.expect_terminated(subject, scope.remaining())
+    }
+
+    fn expect_matching_terminated<N: Send + 'static>(
+        &self,
+        subject: &ActorRef<N>,
+        timeout: Duration,
+    ) -> Result<AnyActorRef, ProbeError> {
+        let expected = subject.as_any();
+        match self.expect_msg(timeout)? {
+            Signal::Terminated(actual) if actual == expected => Ok(actual),
+            Signal::Terminated(actual) => Err(ProbeError::UnexpectedMessage {
+                expected: expected.path().to_string(),
+                actual: actual.path().to_string(),
+            }),
+            other => Err(ProbeError::UnexpectedMessage {
+                expected: format!("terminated signal for {}", expected.path()),
+                actual: format!("{other:?}"),
+            }),
+        }
+    }
+}
+
 impl TestProbe<AnyActorRef> {
     /// Watches `subject` and expects its erased ref as the termination message.
     ///
@@ -372,6 +429,16 @@ impl<M: Send + 'static> Actor for ProbeActor<M> {
         self.sender.send(msg).map_err(|_| {
             ActorError::Message("test probe receiver was dropped before delivery".to_string())
         })
+    }
+
+    fn signal(&mut self, _ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        let signal: Box<dyn Any + Send> = Box::new(signal);
+        if let Ok(message) = signal.downcast::<M>() {
+            self.sender.send(*message).map_err(|_| {
+                ActorError::Message("test probe receiver was dropped before delivery".to_string())
+            })?;
+        }
+        Ok(())
     }
 }
 

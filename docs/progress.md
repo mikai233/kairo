@@ -530,6 +530,9 @@ Implemented:
   `watch_terminated` registration and `expect_terminated` against an already
   stopped actor, pinning the testkit helper to the same immediate death-watch
   semantics as the local runtime.
+- `TestProbe<Signal>` now forwards actor lifecycle signals into the typed
+  probe queue and exposes plain `watch`/`expect_terminated` helpers, so tests
+  can assert `Signal::Terminated` through the same signal path actors observe.
 - `TestProbe<M>` can now stop its backing probe actor and assert its
   termination with timeout diagnostics, matching Pekko's probe-stop testing
   shape while preserving Kairo's typed actor refs.
