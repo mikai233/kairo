@@ -2091,6 +2091,11 @@ Implemented:
   sharding-to-remoting coupling; dev coverage proves
   `RegionRouteTransport` can route through `RemoteAssociationCache` via that
   recipient adapter.
+- `kairo-cluster-sharding` coordinator system inbound coverage now also routes
+  remote registration and shard-home replies through
+  `kairo-remote::RemoteAssociationCache` via `RemoteOutboundRecipient`, pinning
+  the coordinator reply path to the same shared outbound association boundary
+  used by route transports.
 - `kairo-cluster-sharding` now has focused coordinator discovery state that
   consumes cluster snapshots/events, filters coordinator candidates by
   role/status, preserves Pekko's members-by-age movement detection, and
@@ -5091,4 +5096,12 @@ cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-sharding coordinator_system_inbound_replies_through_remote_association_cache --all-targets --all-features
+cargo test -p kairo-cluster-sharding coordinator_system_inbound --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo test -p kairo distributed_crates_keep_architecture_dependency_boundaries --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 ```

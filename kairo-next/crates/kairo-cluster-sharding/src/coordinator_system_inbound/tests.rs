@@ -1,6 +1,7 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use kairo_remote::{RemoteAssociationAddress, RemoteAssociationCache, RemoteOutbound};
 use kairo_serialization::{
     ActorRefWireData, Manifest, Registry, RemoteEnvelope, SerializedMessage,
 };
@@ -89,6 +90,106 @@ fn coordinator_system_inbound_routes_register_and_get_shard_home() {
     assert_eq!(home.sender, Some(coordinator_wire()));
     assert_eq!(
         registry.deserialize::<ShardHome>(home.message).unwrap(),
+        ShardHome {
+            shard_id: "12".to_string(),
+            region: region_wire(),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn coordinator_system_inbound_replies_through_remote_association_cache() {
+    let kit = ActorSystemTestKit::new("sharding-coordinator-system-association-cache").unwrap();
+    let registry = registry();
+    let collecting = Arc::new(CollectingRemoteOutbound::default());
+    let cache = RemoteAssociationCache::new();
+    cache.insert_route(
+        RemoteAssociationAddress::new("kairo", "remote", "127.0.0.1", Some(2552)).unwrap(),
+        collecting.clone() as Arc<dyn RemoteOutbound>,
+    );
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                (),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let inbound = ShardCoordinatorSystemInbound::<()>::new(
+        coordinator,
+        coordinator_wire(),
+        registry.clone(),
+        kairo_remote::RemoteOutboundRecipient::from_arc(Arc::new(cache) as Arc<dyn RemoteOutbound>),
+    );
+
+    inbound
+        .receive(RemoteEnvelope::new(
+            coordinator_wire(),
+            Some(region_wire()),
+            registry
+                .serialize(&Register {
+                    region: region_wire(),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+    inbound
+        .receive(RemoteEnvelope::new(
+            coordinator_wire(),
+            Some(region_wire()),
+            registry
+                .serialize(&GetShardHome {
+                    shard_id: "12".to_string(),
+                })
+                .unwrap(),
+        ))
+        .unwrap();
+
+    let mut envelopes = Vec::new();
+    for _ in 0..20 {
+        envelopes = collecting.envelopes();
+        if envelopes.len() >= 3 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(envelopes.len(), 3);
+    assert!(
+        envelopes
+            .iter()
+            .all(|envelope| envelope.recipient == region_wire())
+    );
+    assert!(
+        envelopes
+            .iter()
+            .all(|envelope| envelope.sender == Some(coordinator_wire()))
+    );
+    assert_eq!(
+        registry
+            .deserialize::<RegisterAck>(envelopes[0].message.clone())
+            .unwrap(),
+        RegisterAck {
+            coordinator: coordinator_wire(),
+        }
+    );
+    assert_eq!(
+        registry
+            .deserialize::<HostShard>(envelopes[1].message.clone())
+            .unwrap(),
+        HostShard {
+            shard_id: "12".to_string(),
+        }
+    );
+    assert_eq!(
+        registry
+            .deserialize::<ShardHome>(envelopes[2].message.clone())
+            .unwrap(),
         ShardHome {
             shard_id: "12".to_string(),
             region: region_wire(),
@@ -333,4 +434,28 @@ fn coordinator_wire() -> ActorRefWireData {
 
 fn region_wire() -> ActorRefWireData {
     ActorRefWireData::new("kairo://remote@127.0.0.1:2552/system/sharding/region").unwrap()
+}
+
+#[derive(Default)]
+struct CollectingRemoteOutbound {
+    envelopes: Mutex<Vec<RemoteEnvelope>>,
+}
+
+impl CollectingRemoteOutbound {
+    fn envelopes(&self) -> Vec<RemoteEnvelope> {
+        self.envelopes
+            .lock()
+            .expect("collecting remote outbound lock poisoned")
+            .clone()
+    }
+}
+
+impl RemoteOutbound for CollectingRemoteOutbound {
+    fn send(&self, envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+        self.envelopes
+            .lock()
+            .expect("collecting remote outbound lock poisoned")
+            .push(envelope);
+        Ok(())
+    }
 }
