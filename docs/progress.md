@@ -1562,9 +1562,10 @@ Implemented:
   lane can carry a stable-manifest `ReplicatorRead` request, not only reply
   traffic, so one handshaken association can move ddata request and reply
   envelopes in both directions with preserved sender and recipient metadata.
-- The distributed-data TCP association runtime now explicitly closes active
-  dialed outbound lane pipelines during shutdown, with coverage retaining a
-  live route registration across shutdown to prove reader joins complete.
+- The distributed-data TCP association runtime now closes every cached
+  association route during shutdown, including accepted reverse routes and
+  dialed lane pipelines, before joining reader threads so ddata socket routes
+  cannot keep lanes open after runtime stop.
 - `kairo-distributed-data` now has a focused TCP peer-route owner that consumes
   cluster membership-derived dial/remove plans, applies them to
   `ReplicatorTcpAssociationRuntime`, keeps route registrations separate from
@@ -3689,6 +3690,16 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-distributed-data tcp_runtime_routes_replicator_requests_and_replies_over_bidirectional_association --all-targets --all-features
+cargo test -p kairo-distributed-data peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop --all-targets --all-features
+cargo test -p kairo-distributed-data remote_tcp --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-distributed-data bootstrap_coordinated_shutdown_stops_connector_after_live_route --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-remote tcp_remote_actor_system_duplicate_watch_remote_is_idempotent --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-remote tcp_runtime --all-targets --all-features

@@ -17,6 +17,7 @@ use crate::{
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+const REPLICATOR_TCP_SHUTDOWN_REASON: &str = "replicator tcp association runtime shutdown";
 
 pub struct ReplicatorTcpAssociationRuntime {
     local_replica: ReplicaId,
@@ -254,17 +255,17 @@ impl ReplicatorTcpAssociationRuntime {
         self,
         _timeout: Duration,
     ) -> RemoteResult<TcpAssociationListenerReport> {
-        self.association_cache.clear_routes();
+        for result in self
+            .association_cache
+            .clear_routes_and_close(REPLICATOR_TCP_SHUTDOWN_REASON)
+        {
+            result?;
+        }
         self.listener.stop();
-        let outbound_pipelines = self
-            .outbound_pipelines
+        self.outbound_pipelines
             .lock()
             .expect("replicator tcp outbound pipelines lock poisoned")
-            .drain(..)
-            .collect::<Vec<_>>();
-        for pipeline in outbound_pipelines {
-            let _ = pipeline.close("replicator tcp association runtime shutdown");
-        }
+            .clear();
         let outbound_readers = self
             .outbound_readers
             .lock()
@@ -311,6 +312,7 @@ mod tests {
     use std::time::Instant;
 
     use kairo_actor::Recipient;
+    use kairo_remote::AssociationState;
     use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage};
 
     use super::*;
@@ -550,6 +552,16 @@ mod tests {
         let sender_report = sender.shutdown().unwrap();
         assert_eq!(sender_report.accepted_associations, 0);
         assert_eq!(registration.address(), receiver.local_address());
+        assert!(matches!(
+            registration
+                .pipeline()
+                .association()
+                .lock()
+                .expect("association mutex poisoned")
+            .state(),
+            AssociationState::Closed { reason }
+                if reason == REPLICATOR_TCP_SHUTDOWN_REASON
+        ));
         let receiver_report = receiver.shutdown().unwrap();
         assert_eq!(receiver_report.accepted_associations, 1);
         assert_eq!(receiver_report.remote_identities, vec![sender_identity]);
