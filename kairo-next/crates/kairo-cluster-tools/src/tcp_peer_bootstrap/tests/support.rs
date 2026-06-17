@@ -6,7 +6,7 @@ use kairo_actor::{ActorRef, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
 use kairo_cluster::{
     ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus, UniqueAddress,
 };
-use kairo_remote::RemoteSettings;
+use kairo_remote::{RemoteAssociationCache, RemoteSettings};
 use kairo_serialization::{MessageCodec, Registry, RemoteMessage, SerializationRegistry};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
@@ -174,6 +174,24 @@ pub(super) fn publish_gossip(publisher: &ActorRef<ClusterEventPublisherMsg>, gos
     publisher
         .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
         .unwrap();
+}
+
+pub(super) fn await_cache_route_count(cache: &RemoteAssociationCache, expected: usize) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            let actual = cache.route_count();
+            if actual == expected {
+                Ok(())
+            } else {
+                Err(format!(
+                    "expected {expected} association routes, found {actual}"
+                ))
+            }
+        },
+    )
+    .unwrap();
 }
 
 pub(super) fn await_connector_no_routes(

@@ -3255,6 +3255,11 @@ Implemented:
   removed peer reject through the association cache without another mediator
   delivery, and the sender cache drops from two routes to one before
   coordinated shutdown clears it.
+- `kairo-cluster-tools` TCP peer bootstrap lifecycle coverage now also pins
+  adopted route shutdown: a connector can adopt a pre-existing runtime socket
+  route from membership, deliver a stable-manifest remote pubsub publish, and
+  coordinated shutdown clears the adopted route so later sends reject without
+  another mediator delivery.
 - `kairo-cluster-tools` TCP peer bootstrap full-mesh coverage now also drives
   second-to-third and third-to-second pubsub publish delivery after all three
   connectors install routes, so the three-node tools bootstrap test verifies
