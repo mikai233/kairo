@@ -12,6 +12,14 @@ enum WatchProbeMsg {
     WatchWithSelf {
         reply_to: mpsc::Sender<Result<(), ActorError>>,
     },
+    StopThenWatch {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<Result<(), ActorError>>,
+    },
+    StopThenWatchWith {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<Result<(), ActorError>>,
+    },
     WatchFailing {
         subject: ActorRef<SupervisionMsg>,
         reply_to: mpsc::Sender<()>,
@@ -70,6 +78,18 @@ impl Actor for WatchProbe {
                 let myself = ctx.myself();
                 reply_to
                     .send(ctx.watch_with(&myself, WatchProbeMsg::Observed(myself.path().clone())))
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::StopThenWatch { subject, reply_to } => {
+                ctx.stop(ctx.myself())?;
+                reply_to
+                    .send(ctx.watch(&subject))
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::StopThenWatchWith { subject, reply_to } => {
+                ctx.stop(ctx.myself())?;
+                reply_to
+                    .send(ctx.watch_with(&subject, WatchProbeMsg::Observed(subject.path().clone())))
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             WatchProbeMsg::WatchFailing { subject, reply_to } => {
@@ -409,6 +429,66 @@ impl Actor for StartupFailingChild {
     fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
         Ok(())
     }
+}
+
+#[test]
+fn watch_rejects_registration_after_self_stop_is_requested() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::StopThenWatch {
+            subject,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Err(ActorError::ActorStopping { actor }) if actor == watcher.path().to_string()
+    ));
+    assert!(watcher.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn watch_with_rejects_registration_after_self_stop_is_requested() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::StopThenWatchWith {
+            subject,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Err(ActorError::ActorStopping { actor }) if actor == watcher.path().to_string()
+    ));
+    assert!(watcher.wait_for_stop(Duration::from_secs(1)));
 }
 
 #[test]

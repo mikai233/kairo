@@ -208,6 +208,10 @@ Implemented:
   actor's own ref with an explicit `InvalidWatchTarget` error, matching the
   Rust architecture contract that self-watch is not a meaningful lifecycle
   subscription.
+- `Context::watch` and `Context::watch_with` now reject new registrations once
+  the actor has requested or entered stop, including during `PostStop`, so late
+  lifecycle callbacks cannot recreate death-watch state after termination
+  cleanup has already removed the actor as a watcher.
 - Death-watch registrations reject switching between plain `watch` and
   `watch_with` for the same watched actor without an intervening `unwatch`,
   preserving the Pekko rule that termination-message changes must be explicit.

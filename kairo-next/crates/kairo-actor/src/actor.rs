@@ -250,6 +250,7 @@ impl<M: Send + 'static> Context<M> {
     }
 
     pub fn watch<N: Send + 'static>(&mut self, actor: &ActorRef<N>) -> ActorResult {
+        self.ensure_actor_active()?;
         self.system.watch(self.myself.clone(), actor.clone())
     }
 
@@ -258,6 +259,7 @@ impl<M: Send + 'static> Context<M> {
         actor: &ActorRef<N>,
         message: M,
     ) -> ActorResult {
+        self.ensure_actor_active()?;
         self.system
             .watch_with(self.myself.clone(), actor.clone(), message)
     }

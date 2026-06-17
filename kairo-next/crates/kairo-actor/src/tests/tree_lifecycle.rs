@@ -1348,6 +1348,8 @@ struct PostStopHelperResults {
     pipe_to_self: Result<(), String>,
     adapter: Result<(), String>,
     ask: Result<(), String>,
+    watch: Result<(), String>,
+    watch_with: Result<(), String>,
     stash: Result<(), String>,
     unstash_all: Result<(), String>,
     schedule_once_self_cancelled: bool,
@@ -1432,6 +1434,12 @@ impl Actor for PostStopHelperActor {
                 |_| (),
             )
             .map_err(|error| error.to_string());
+        let watch = ctx
+            .watch(&self.ask_target)
+            .map_err(|error| error.to_string());
+        let watch_with = ctx
+            .watch_with(&self.ask_target, ())
+            .map_err(|error| error.to_string());
         let stash = ctx.stash(()).map_err(|error| error.to_string());
         let unstash_all = ctx.unstash_all().map_err(|error| error.to_string());
         let schedule_once_self_cancelled = ctx
@@ -1461,6 +1469,8 @@ impl Actor for PostStopHelperActor {
                 pipe_to_self,
                 adapter,
                 ask,
+                watch,
+                watch_with,
                 stash,
                 unstash_all,
                 schedule_once_self_cancelled,
@@ -1540,6 +1550,16 @@ fn post_stop_rejects_late_helper_creation() {
         expected
     );
     assert_eq!(results.ask.expect_err("ask should be rejected"), expected);
+    assert_eq!(
+        results.watch.expect_err("watch should be rejected"),
+        expected
+    );
+    assert_eq!(
+        results
+            .watch_with
+            .expect_err("watch_with should be rejected"),
+        expected
+    );
     assert_eq!(
         results.stash.expect_err("stash should be rejected"),
         expected
