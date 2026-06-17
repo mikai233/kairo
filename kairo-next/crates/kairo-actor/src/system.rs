@@ -390,13 +390,39 @@ impl ActorSystem {
                 actor: watcher.path().to_string(),
             });
         }
-        let registration = DeathWatchRegistration::new(
-            watcher.path().clone(),
-            DeathWatchKind::Custom,
-            move |_| {
-                let _ = watcher.tell(message);
-            },
-        );
+        let subject_path = subject.path().clone();
+        let watcher_path = watcher.path().clone();
+        let watcher_mailbox = watcher.target.mailbox.clone();
+        let watcher_dead_letters = watcher.dead_letters.clone();
+        let inner = Arc::clone(&self.inner);
+        let registration =
+            DeathWatchRegistration::new(watcher_path.clone(), DeathWatchKind::Custom, move |_| {
+                let Some(mailbox) = watcher_mailbox else {
+                    inner
+                        .death_watch
+                        .clear_queued_custom(&subject_path, &watcher_path);
+                    watcher_dead_letters.publish::<M>(watcher_path, "actor is stopped");
+                    return;
+                };
+                let subject_path_for_delivery = subject_path.clone();
+                let watcher_path_for_delivery = watcher_path.clone();
+                let inner_for_delivery = Arc::clone(&inner);
+                if let Err(error) = mailbox.enqueue_adapted((), move |()| {
+                    if inner_for_delivery
+                        .death_watch
+                        .take_queued_custom(&subject_path_for_delivery, &watcher_path_for_delivery)
+                    {
+                        Some(message)
+                    } else {
+                        None
+                    }
+                }) {
+                    inner
+                        .death_watch
+                        .clear_queued_custom(&subject_path, &watcher_path);
+                    watcher_dead_letters.publish::<M>(watcher_path, error.reason());
+                }
+            });
         self.watch_registered(subject, registration)
     }
 

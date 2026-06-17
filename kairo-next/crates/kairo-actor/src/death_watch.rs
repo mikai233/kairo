@@ -49,6 +49,7 @@ impl DeathWatchRegistration {
 pub(crate) struct DeathWatchRegistry {
     watchers: Mutex<HashMap<ActorPath, Vec<DeathWatchRegistration>>>,
     queued_signals: Mutex<HashSet<QueuedSignal>>,
+    queued_customs: Mutex<HashSet<QueuedSignal>>,
 }
 
 impl fmt::Debug for DeathWatchRegistry {
@@ -105,6 +106,7 @@ impl DeathWatchRegistry {
             }
         }
         self.clear_queued_signal(subject, watcher);
+        self.clear_queued_custom(subject, watcher);
     }
 
     pub(crate) fn remove_watcher(&self, watcher: &ActorPath) {
@@ -116,6 +118,10 @@ impl DeathWatchRegistry {
         self.queued_signals
             .lock()
             .expect("death watch queued signals poisoned")
+            .retain(|queued| &queued.watcher != watcher);
+        self.queued_customs
+            .lock()
+            .expect("death watch queued customs poisoned")
             .retain(|queued| &queued.watcher != watcher);
     }
 
@@ -129,6 +135,8 @@ impl DeathWatchRegistry {
         for registration in registrations {
             if registration.kind == DeathWatchKind::Signal {
                 self.queue_signal(subject.clone(), registration.watcher.clone());
+            } else {
+                self.queue_custom(subject.clone(), registration.watcher.clone());
             }
             registration.notify(cause.clone());
         }
@@ -160,7 +168,9 @@ impl DeathWatchRegistry {
         };
         for (subject, registration) in registrations {
             if registration.kind == DeathWatchKind::Signal {
-                self.queue_signal(subject, registration.watcher.clone());
+                self.queue_signal(subject.clone(), registration.watcher.clone());
+            } else {
+                self.queue_custom(subject.clone(), registration.watcher.clone());
             }
             registration.notify(cause.clone());
         }
@@ -180,6 +190,20 @@ impl DeathWatchRegistry {
         self.take_queued_signal(subject, watcher);
     }
 
+    pub(crate) fn take_queued_custom(&self, subject: &ActorPath, watcher: &ActorPath) -> bool {
+        self.queued_customs
+            .lock()
+            .expect("death watch queued customs poisoned")
+            .remove(&QueuedSignal {
+                subject: subject.clone(),
+                watcher: watcher.clone(),
+            })
+    }
+
+    pub(crate) fn clear_queued_custom(&self, subject: &ActorPath, watcher: &ActorPath) {
+        self.take_queued_custom(subject, watcher);
+    }
+
     fn is_signal_queued(&self, subject: &ActorPath, watcher: &ActorPath) -> bool {
         self.queued_signals
             .lock()
@@ -194,6 +218,13 @@ impl DeathWatchRegistry {
         self.queued_signals
             .lock()
             .expect("death watch queued signals poisoned")
+            .insert(QueuedSignal { subject, watcher });
+    }
+
+    fn queue_custom(&self, subject: ActorPath, watcher: ActorPath) {
+        self.queued_customs
+            .lock()
+            .expect("death watch queued customs poisoned")
             .insert(QueuedSignal { subject, watcher });
     }
 }

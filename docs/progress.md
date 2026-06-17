@@ -3406,6 +3406,9 @@ Implemented:
 - `kairo-actor` death-watch delivery now also drops stale queued plain
   termination signals after `unwatch`, preserving Pekko's rule that unwatching
   between queueing and processing discards the pending `Terminated` signal.
+- `kairo-actor` `watch_with` custom termination delivery now uses the same
+  queued-notification gate as plain `Terminated` signals, so `unwatch` between
+  queueing and mailbox processing drops the pending custom message.
 - `kairo-actor` watch-with coverage now pins that custom termination messages
   are normal user protocol messages that can be explicitly stashed and later
   unstashed before user delivery, preserving Pekko's watch-with stash
@@ -3444,6 +3447,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor unwatch_discards_queued_watch_with_message_for_already_stopped_subject --all-targets --all-features
+cargo test -p kairo-actor watch --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-serialization actor_ref_wire_data --all-targets --all-features
 cargo test -p kairo-serialization --all-targets --all-features
 cargo fmt --all -- --check
