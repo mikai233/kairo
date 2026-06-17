@@ -317,6 +317,35 @@ fn restart_replays_stashed_messages_before_later_mailbox_messages() {
 }
 
 #[test]
+fn resume_supervision_preserves_stashed_messages() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "stash",
+            Props::new(|| StashProbe {
+                open: false,
+                values: Vec::new(),
+            })
+            .with_supervisor(SupervisorStrategy::Resume)
+            .with_stash_capacity(8),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor.tell(StashProbeMsg::Work(1)).unwrap();
+    actor.tell(StashProbeMsg::Work(2)).unwrap();
+    actor.tell(StashProbeMsg::Fail).unwrap();
+    actor.tell(StashProbeMsg::Open).unwrap();
+    actor.tell(StashProbeMsg::Work(3)).unwrap();
+    actor.tell(StashProbeMsg::Get(reply_tx)).unwrap();
+
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        vec![1, 2, 3]
+    );
+}
+
+#[test]
 fn stop_drains_stashed_messages_to_dead_letters() {
     let system = ActorSystem::builder("test").build().unwrap();
     let actor = system

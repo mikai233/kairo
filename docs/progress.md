@@ -139,6 +139,9 @@ Implemented:
 - Actor-owned receive timeouts now also have resume-supervision coverage
   showing that a failed receive turn under `Resume` keeps the timeout armed and
   restarts the idle window from the resumed turn.
+- Actor-owned stash buffers now also have resume-supervision coverage showing
+  that buffered messages survive a resumed failed receive turn and replay
+  before later mailbox messages when explicitly unstashed.
 - Stash operations now reject new public stash/unstash requests once an actor
   has requested or entered stop, while runtime stop cleanup still drains
   already-stashed messages to dead letters.
@@ -438,6 +441,8 @@ Implemented:
   replays stashed messages into the mailbox before later queued user messages,
   and final stop drains stashed messages to dead letters with the rest of the
   user mailbox.
+- Resume supervision leaves the current stash buffer intact, preserving the
+  same explicit unstash ordering as the non-failing actor state.
 - Stash state lives in a focused `stash` module rather than being embedded in
   the actor runtime loop.
 - `Context::ask` creates a one-shot typed local reply ref, maps replies or
@@ -3342,8 +3347,8 @@ Implemented:
   later-phase registration, actor termination task, and system termination
   tests now live in a focused sibling test module.
 - `kairo-actor` stash capacity, full-stash rejection, clear/inspection,
-  unstash-all ordering, limited unstash, restart replay, and stop dead-letter
-  tests now live in a focused sibling test module.
+  unstash-all ordering, limited unstash, restart replay, resume preservation,
+  and stop dead-letter tests now live in a focused sibling test module.
 - `kairo-actor` ask success, timeout, and late-reply rejection tests now live
   in a focused sibling test module.
 - `kairo-actor` scheduler one-shot delivery, cancellation, and self-scheduling
@@ -3635,6 +3640,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor resume_supervision_preserves_stashed_messages --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor stash --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor receive_timeout_reschedules_after_owner_resume_supervision --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-actor receive_timeout --all-targets --all-features
