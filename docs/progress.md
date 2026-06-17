@@ -3051,7 +3051,9 @@ Implemented:
 - `kairo-actor` message-adapter integration tests now pin owner-scoped
   adapter lifecycles across both owner stop and restart: old adapter refs stop
   and notify death-watch subscribers when the owner tears down its adapter
-  scope.
+  scope. The focused coverage now also asserts the watcher receives the
+  adapter ref path as the terminated subject for both owner-stop and
+  owner-restart teardown.
 - `kairo-actor` watch, watch_with, self-watch rejection, duplicate-watch
   rejection, unwatch, signal-failure, and parent-child watch tests now live in
   a focused sibling test module.
@@ -3249,6 +3251,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-actor message_adapter_ --all-targets --all-features
+cargo test -p kairo-actor adapters --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding multi_node_remembered_entity_is_recovered_after_rehost --all-targets --all-features
 cargo test -p kairo-cluster-sharding handoff_orchestration --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
