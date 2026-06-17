@@ -1348,6 +1348,11 @@ struct PostStopHelperResults {
     pipe_to_self: Result<(), String>,
     adapter: Result<(), String>,
     ask: Result<(), String>,
+    schedule_once_self_cancelled: bool,
+    single_timer_active: bool,
+    fixed_delay_timer_active: bool,
+    fixed_rate_timer_active: bool,
+    receive_timeout: Option<Duration>,
 }
 
 enum PostStopAskTargetMsg {
@@ -1425,12 +1430,38 @@ impl Actor for PostStopHelperActor {
                 |_| (),
             )
             .map_err(|error| error.to_string());
+        let schedule_once_self_cancelled = ctx
+            .schedule_once_self(Duration::from_secs(1), ())
+            .is_cancelled();
+        ctx.start_single_timer("late-single", Duration::from_secs(1), ());
+        let single_timer_active = ctx.is_timer_active("late-single");
+        ctx.start_timer_with_fixed_delay(
+            "late-fixed-delay",
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            (),
+        );
+        let fixed_delay_timer_active = ctx.is_timer_active("late-fixed-delay");
+        ctx.start_timer_at_fixed_rate(
+            "late-fixed-rate",
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+            (),
+        );
+        let fixed_rate_timer_active = ctx.is_timer_active("late-fixed-rate");
+        ctx.set_receive_timeout(Duration::from_secs(1), ());
+        let receive_timeout = ctx.receive_timeout();
         self.results
             .send(PostStopHelperResults {
                 spawn_task,
                 pipe_to_self,
                 adapter,
                 ask,
+                schedule_once_self_cancelled,
+                single_timer_active,
+                fixed_delay_timer_active,
+                fixed_rate_timer_active,
+                receive_timeout,
             })
             .map_err(|error| ActorError::Message(error.to_string()))
     }
@@ -1503,6 +1534,26 @@ fn post_stop_rejects_late_helper_creation() {
         expected
     );
     assert_eq!(results.ask.expect_err("ask should be rejected"), expected);
+    assert!(
+        results.schedule_once_self_cancelled,
+        "late self scheduling should return an already-cancelled handle"
+    );
+    assert!(
+        !results.single_timer_active,
+        "late single timers should not become active during PostStop"
+    );
+    assert!(
+        !results.fixed_delay_timer_active,
+        "late fixed-delay timers should not become active during PostStop"
+    );
+    assert!(
+        !results.fixed_rate_timer_active,
+        "late fixed-rate timers should not become active during PostStop"
+    );
+    assert_eq!(
+        results.receive_timeout, None,
+        "late receive timeouts should not be armed during PostStop"
+    );
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 

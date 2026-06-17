@@ -272,11 +272,17 @@ impl<M: Send + 'static> Context<M> {
     }
 
     pub fn schedule_once_self(&self, delay: Duration, message: M) -> Cancellable {
+        if self.ensure_actor_active().is_err() {
+            return Cancellable::cancelled();
+        }
         self.system
             .schedule_once(delay, self.myself.clone(), message)
     }
 
     pub fn start_single_timer(&mut self, key: impl Into<TimerKey>, delay: Duration, message: M) {
+        if self.ensure_actor_active().is_err() {
+            return;
+        }
         let key = key.into();
         let generation = self.timers.next_generation();
         let cancellable = self.system.schedule_timer(
@@ -299,6 +305,9 @@ impl<M: Send + 'static> Context<M> {
     ) where
         M: Clone,
     {
+        if self.ensure_actor_active().is_err() {
+            return;
+        }
         let key = key.into();
         let generation = self.timers.next_generation();
         let cancellable = self.system.schedule_timer_with_fixed_delay(
@@ -322,6 +331,9 @@ impl<M: Send + 'static> Context<M> {
     ) where
         M: Clone,
     {
+        if self.ensure_actor_active().is_err() {
+            return;
+        }
         let key = key.into();
         let generation = self.timers.next_generation();
         let cancellable = self.system.schedule_timer_at_fixed_rate(
@@ -356,6 +368,10 @@ impl<M: Send + 'static> Context<M> {
     where
         M: Clone,
     {
+        if self.ensure_actor_active().is_err() {
+            self.receive_timeout.cancel();
+            return;
+        }
         self.receive_timeout.set(timeout, message);
     }
 
@@ -372,6 +388,9 @@ impl<M: Send + 'static> Context<M> {
     }
 
     pub(crate) fn after_influencing_message(&mut self) {
+        if self.ensure_actor_active().is_err() {
+            return;
+        }
         self.receive_timeout
             .reschedule(&self.system, self.myself.clone());
     }

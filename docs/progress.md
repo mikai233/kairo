@@ -229,6 +229,10 @@ Implemented:
   filtering as single and fixed-delay timers.
 - Timer state and envelopes live in a focused `timers` module and active timers
   are cancelled when the owning actor stops.
+- Actor-owned self scheduling, timer starts, and receive-timeout arming are
+  inert once the actor has requested or entered stop, including during
+  `PostStop`, so late lifecycle callbacks cannot create fresh owned delayed
+  work after the shutdown cleanup pass.
 - `Context::set_receive_timeout`, `cancel_receive_timeout`, and
   `receive_timeout` provide typed local idle notifications that cancel before
   influencing messages and reschedule afterward, using generation-filtered
