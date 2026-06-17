@@ -21,6 +21,7 @@ use crate::{
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+const CLUSTER_TOOLS_TCP_SHUTDOWN_REASON: &str = "cluster-tools tcp association runtime shutdown";
 
 pub struct ClusterToolsTcpAssociationRuntime<M>
 where
@@ -173,17 +174,17 @@ where
         self,
         _timeout: Duration,
     ) -> RemoteResult<TcpAssociationListenerReport> {
-        self.association_cache.clear_routes();
+        for result in self
+            .association_cache
+            .clear_routes_and_close(CLUSTER_TOOLS_TCP_SHUTDOWN_REASON)
+        {
+            result?;
+        }
         self.listener.stop();
-        let outbound_pipelines = self
-            .outbound_pipelines
+        self.outbound_pipelines
             .lock()
             .expect("cluster-tools tcp outbound pipelines lock poisoned")
-            .drain(..)
-            .collect::<Vec<_>>();
-        for pipeline in outbound_pipelines {
-            let _ = pipeline.close("cluster-tools tcp association runtime shutdown");
-        }
+            .clear();
         let outbound_readers = self
             .outbound_readers
             .lock()
@@ -234,7 +235,7 @@ mod tests {
 
     use bytes::Bytes;
     use kairo_actor::Recipient;
-    use kairo_remote::{RemoteOutbound, RemoteStreamId};
+    use kairo_remote::{AssociationState, RemoteOutbound, RemoteStreamId};
     use kairo_serialization::{MessageCodec, Registry, RemoteMessage, SerializationRegistry};
     use kairo_testkit::ActorSystemTestKit;
 
@@ -475,6 +476,16 @@ mod tests {
         let sender_report = sender.shutdown().unwrap();
         assert_eq!(sender_report.accepted_associations, 0);
         assert_eq!(registration.address(), receiver.local_address());
+        assert!(matches!(
+            registration
+                .pipeline()
+                .association()
+                .lock()
+                .expect("association mutex poisoned")
+                .state(),
+            AssociationState::Closed { reason }
+                if reason == CLUSTER_TOOLS_TCP_SHUTDOWN_REASON
+        ));
         let receiver_report = receiver.shutdown().unwrap();
         assert_eq!(receiver_report.accepted_associations, 1);
         assert_eq!(

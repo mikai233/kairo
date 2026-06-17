@@ -2715,10 +2715,10 @@ Implemented:
   registry, route installer, dialer, and dialing-side lane readers, and routes
   pubsub gossip, pubsub publish envelopes, and singleton handover messages
   through live socket associations to the existing system inbound handlers.
-- The cluster-tools TCP association runtime now explicitly closes active
-  dialed outbound lane pipelines during shutdown, with integration coverage
-  retaining a live route registration across shutdown to prove reader joins
-  complete.
+- The cluster-tools TCP association runtime now closes every cached
+  association route during shutdown, including accepted reverse routes and
+  dialed lane pipelines, before joining reader threads so pubsub and singleton
+  socket routes cannot keep lanes open after runtime stop.
 - `kairo-cluster-tools` now has a focused TCP peer-route owner that consumes
   cluster membership-derived dial/remove plans, applies them to
   `ClusterToolsTcpAssociationRuntime`, keeps route registrations separate from
@@ -3690,6 +3690,15 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-tools tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally --all-targets --all-features
+cargo test -p kairo-cluster-tools remote_tcp --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_connector --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-distributed-data tcp_runtime_routes_replicator_requests_and_replies_over_bidirectional_association --all-targets --all-features
 cargo test -p kairo-distributed-data peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop --all-targets --all-features
 cargo test -p kairo-distributed-data remote_tcp --all-targets --all-features
