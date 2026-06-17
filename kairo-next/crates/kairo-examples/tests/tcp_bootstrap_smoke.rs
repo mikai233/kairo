@@ -568,6 +568,46 @@ fn cluster_tools_tcp_peer_bootstrap_delivers_remote_pubsub_publish() -> TestResu
 }
 
 #[test]
+fn cluster_tools_tcp_peer_bootstrap_delivers_remote_pubsub_path_messages() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b) = cluster_tools_tcp::bind_two_nodes()?;
+    let result = (|| -> TestResult {
+        assert_two_node_bidirectional_routes(&node_a, &node_b)?;
+        let one = PubSubStatus {
+            from: node_a.self_node().clone(),
+            versions: BTreeMap::from([(cluster_tools_tcp::EXAMPLE_PUBSUB_TOPIC.to_string(), 101)]),
+            reply: false,
+        };
+        node_a.send_status_path_to(&node_b, one.clone())?;
+        let one_received = node_b.wait_for_path_status_count(1, Duration::from_secs(2));
+        assert_eq!(one_received, vec![one.clone()]);
+        assert!(
+            node_b
+                .wait_for_status_count(1, Duration::from_millis(100))
+                .is_empty()
+        );
+
+        let all = PubSubStatus {
+            from: node_a.self_node().clone(),
+            versions: BTreeMap::from([(cluster_tools_tcp::EXAMPLE_PUBSUB_TOPIC.to_string(), 202)]),
+            reply: false,
+        };
+        node_a.send_status_path_to_all(&node_b, all.clone())?;
+        let all_received = node_b.wait_for_path_status_count(2, Duration::from_secs(2));
+        assert_eq!(all_received, vec![one, all]);
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
 fn cluster_tools_tcp_peer_bootstrap_removes_route_when_membership_shrinks() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b) = cluster_tools_tcp::bind_two_nodes()?;

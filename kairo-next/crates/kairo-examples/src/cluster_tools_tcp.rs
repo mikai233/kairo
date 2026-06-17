@@ -17,10 +17,10 @@ use kairo::cluster_tools::{
     ClusterToolsTcpPeerConnectorMsg, ClusterToolsTcpPeerConnectorSettings,
     ClusterToolsTcpPeerConnectorSnapshot, ClusterToolsTcpPeerRuntime,
     DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg, LocalPubSubMsg,
-    PubSubGossipActor, PubSubGossipMsg, PubSubGossipWireInbound, PubSubRemoteDeliveryInbound,
-    PubSubRemoteDeliveryOutbound, PubSubStatus, PubSubSubscribeAck, SingletonManagerActor,
-    SingletonManagerMsg, SingletonManagerRemoteInbound, TopicName, TopicPublishMode,
-    register_cluster_tools_protocol_codecs,
+    PubSubGossipActor, PubSubGossipMsg, PubSubGossipWireInbound, PubSubPathRegistration,
+    PubSubRemoteDeliveryInbound, PubSubRemoteDeliveryOutbound, PubSubStatus, PubSubSubscribeAck,
+    SingletonManagerActor, SingletonManagerMsg, SingletonManagerRemoteInbound, TopicName,
+    TopicPublishMode, register_cluster_tools_protocol_codecs,
 };
 use kairo::remote::{RemoteAssociationCache, RemoteOutbound, RemoteSettings};
 use kairo::serialization::Registry;
@@ -29,6 +29,7 @@ use crate::reply::spawn_one_shot_reply;
 
 static SNAPSHOT_ID: AtomicU64 = AtomicU64::new(0);
 pub const EXAMPLE_PUBSUB_TOPIC: &str = "example-status";
+pub const EXAMPLE_PUBSUB_PATH_ACTOR: &str = "pubsub-path-recorder";
 
 #[derive(Default)]
 pub struct RecordingPubSubStatuses {
@@ -92,6 +93,8 @@ pub struct ClusterToolsTcpExampleNode {
     registry: Arc<Registry>,
     association_cache: RemoteAssociationCache,
     status_recorder: Arc<RecordingPubSubStatuses>,
+    path_recorder: Arc<RecordingPubSubStatuses>,
+    pubsub_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +128,14 @@ impl ClusterToolsTcpExampleNode {
                 move || RecordingPubSubStatusActor::new(status_recorder.clone())
             }),
         )?;
+        let path_recorder = Arc::new(RecordingPubSubStatuses::default());
+        let path_recorder_actor = system.spawn(
+            EXAMPLE_PUBSUB_PATH_ACTOR,
+            Props::new({
+                let path_recorder = path_recorder.clone();
+                move || RecordingPubSubStatusActor::new(path_recorder.clone())
+            }),
+        )?;
         let mediator_slot = Arc::new(Mutex::new(None));
         let inbound_mediator_slot = mediator_slot.clone();
         let settings = ClusterToolsTcpPeerBootstrapSettings::new()
@@ -150,6 +161,7 @@ impl ClusterToolsTcpExampleNode {
         )?;
         let association_cache = runtime.association_cache().clone();
         subscribe_status_recorder(&system, &mediator_slot, status_recorder_actor)?;
+        let pubsub_path = register_path_recorder(&system, &mediator_slot, path_recorder_actor)?;
         let bootstrap =
             ClusterToolsTcpPeerBootstrap::spawn_with_runtime(&system, cluster, runtime, settings)?;
 
@@ -160,6 +172,8 @@ impl ClusterToolsTcpExampleNode {
             registry,
             association_cache,
             status_recorder,
+            path_recorder,
+            pubsub_path,
         })
     }
 
@@ -235,8 +249,48 @@ impl ClusterToolsTcpExampleNode {
         Ok(())
     }
 
+    pub fn send_status_path_to(
+        &self,
+        target: &ClusterToolsTcpExampleNode,
+        message: PubSubStatus,
+    ) -> Result<(), Box<dyn Error>> {
+        let outbound = PubSubRemoteDeliveryOutbound::<PubSubStatus>::from_arc(
+            target.self_node().clone(),
+            self.registry.clone(),
+            Arc::new(self.association_cache.clone()) as Arc<dyn RemoteOutbound>,
+        );
+        outbound.tell(LocalPubSubMsg::Send {
+            path: target.pubsub_path.clone(),
+            message,
+            reply_to: None,
+        })?;
+        Ok(())
+    }
+
+    pub fn send_status_path_to_all(
+        &self,
+        target: &ClusterToolsTcpExampleNode,
+        message: PubSubStatus,
+    ) -> Result<(), Box<dyn Error>> {
+        let outbound = PubSubRemoteDeliveryOutbound::<PubSubStatus>::from_arc(
+            target.self_node().clone(),
+            self.registry.clone(),
+            Arc::new(self.association_cache.clone()) as Arc<dyn RemoteOutbound>,
+        );
+        outbound.tell(LocalPubSubMsg::SendToAll {
+            path: target.pubsub_path.clone(),
+            message,
+            reply_to: None,
+        })?;
+        Ok(())
+    }
+
     pub fn wait_for_status_count(&self, len: usize, timeout: Duration) -> Vec<PubSubStatus> {
         self.status_recorder.wait_for_len(len, timeout)
+    }
+
+    pub fn wait_for_path_status_count(&self, len: usize, timeout: Duration) -> Vec<PubSubStatus> {
+        self.path_recorder.wait_for_len(len, timeout)
     }
 
     pub fn shutdown(self, timeout: Duration) -> Result<(), ActorError> {
@@ -364,6 +418,26 @@ fn subscribe_status_recorder(
     })?;
     replies.recv_timeout(Duration::from_secs(1))?;
     Ok(())
+}
+
+fn register_path_recorder(
+    system: &ActorSystem,
+    mediator_slot: &Arc<Mutex<Option<ActorRef<DistributedPubSubMediatorMsg<PubSubStatus>>>>>,
+    actor: ActorRef<PubSubStatus>,
+) -> Result<String, Box<dyn Error>> {
+    let mediator = mediator_slot
+        .lock()
+        .expect("cluster-tools example mediator slot poisoned")
+        .clone()
+        .ok_or("cluster-tools example mediator was not installed")?;
+    let id = SNAPSHOT_ID.fetch_add(1, Ordering::Relaxed);
+    let (reply_to, replies) =
+        spawn_one_shot_reply::<PubSubPathRegistration>(system, format!("pubsub-path-put-{id}"))?;
+    mediator.tell(DistributedPubSubMediatorMsg::Put {
+        actor,
+        reply_to: Some(reply_to),
+    })?;
+    Ok(replies.recv_timeout(Duration::from_secs(1))?.path)
 }
 
 fn up_member(node: UniqueAddress) -> Member {

@@ -3453,6 +3453,10 @@ Implemented:
   `cluster_tools_distributed` example, describing its distributed pubsub
   registry-delta merge, remote topic delivery, and one-message-per-group
   routing coverage.
+- The cluster-tools TCP peer bootstrap example now also registers a local
+  pubsub path with the remote mediator and has smoke coverage that remote
+  `Send` and `SendToAll` path messages traverse the loopback TCP route to the
+  registered path actor without being delivered to the topic subscriber.
 - The root and `kairo-next` README validation sections now call out the
   example crate and `kairo-testkit` local multi-node harness commands, making
   the current M12 validation surface discoverable without reading the progress
@@ -5056,5 +5060,11 @@ cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_delivers_remote_pubsub_path_messages --all-targets --all-features
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 ```
