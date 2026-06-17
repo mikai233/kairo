@@ -259,6 +259,24 @@ pub(super) fn publish_gossip(publisher: &ActorRef<ClusterEventPublisherMsg>, gos
         .unwrap();
 }
 
+pub(super) fn await_cache_route_count(cache: &RemoteAssociationCache, expected: usize) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            let actual = cache.route_count();
+            if actual == expected {
+                Ok(())
+            } else {
+                Err(format!(
+                    "expected {expected} association routes, found {actual}"
+                ))
+            }
+        },
+    )
+    .unwrap();
+}
+
 pub(super) fn await_connector_route(
     connector: &ActorRef<ReplicatorTcpPeerConnectorMsg>,
     snapshots: &TestProbe<ReplicatorTcpPeerConnectorSnapshot>,

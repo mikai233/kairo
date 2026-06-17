@@ -3236,6 +3236,11 @@ Implemented:
   sender's cluster membership view, the remaining replicator route continues
   to deliver stable-manifest remote read envelopes, and the sender cache drops
   from two routes to one before coordinated shutdown clears it.
+- `kairo-distributed-data` TCP peer bootstrap lifecycle coverage now also pins
+  adopted route shutdown: a connector can adopt a pre-existing runtime socket
+  route from membership, deliver a stable-manifest `ReplicatorRead`, and
+  coordinated shutdown clears the adopted route so later sends reject without
+  another remote request delivery.
 - `kairo-distributed-data` remote request inbound coverage now pins
   reply-requested delta propagation: a stable remote delta request is applied
   through the replicator actor, the temporary reply actor sends a stable

@@ -337,6 +337,156 @@ fn bootstrap_coordinated_shutdown_stops_connector_after_live_route() {
 }
 
 #[test]
+fn bootstrap_shutdown_clears_adopted_existing_peer_route() {
+    let _guard = bootstrap_socket_test_lock();
+    let registry = registry();
+    let nodes = MultiNodeTestKit::new([
+        "ddata-bootstrap-adopt-sender",
+        "ddata-bootstrap-adopt-receiver",
+    ])
+    .unwrap();
+    let sender_kit = nodes.kit("ddata-bootstrap-adopt-sender").unwrap();
+    let receiver_kit = nodes.kit("ddata-bootstrap-adopt-receiver").unwrap();
+    let receiver_requests = Arc::new(RecordingRequests::default());
+    let sender_runtime = bind_runtime(
+        "ddata-bootstrap-adopt-sender",
+        1,
+        11,
+        ReplicaId::new("receiver"),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_settings = sender_runtime.runtime().settings().clone();
+    let receiver_runtime = bind_runtime_with_requests(
+        "ddata-bootstrap-adopt-receiver",
+        2,
+        22,
+        ReplicaId::new("sender"),
+        receiver_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let receiver_cache = receiver_runtime.association_cache().clone();
+    let receiver_settings = receiver_runtime.runtime().settings().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = receiver_runtime.self_node().clone();
+    sender_runtime
+        .runtime()
+        .dial(receiver_runtime.runtime().local_address().clone())
+        .unwrap();
+    await_cache_route_count(&sender_cache, 1);
+    await_cache_route_count(&receiver_cache, 1);
+    let sender_publisher = spawn_publisher(sender_kit, "sender-publisher", sender_node.clone());
+    let receiver_publisher =
+        spawn_publisher(receiver_kit, "receiver-publisher", receiver_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let receiver_cluster = Cluster::new(receiver_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
+
+    let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings.clone().with_connector_name("sender-ddata-peer"),
+    )
+    .unwrap();
+    let receiver_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        receiver_kit.system(),
+        receiver_cluster,
+        receiver_runtime,
+        settings.with_connector_name("receiver-ddata-peer"),
+    )
+    .unwrap();
+    let sender_snapshots = nodes
+        .create_probe_on::<ReplicatorTcpPeerConnectorSnapshot>(
+            "ddata-bootstrap-adopt-sender",
+            "sender-snapshots",
+        )
+        .unwrap();
+    let receiver_snapshots = nodes
+        .create_probe_on::<ReplicatorTcpPeerConnectorSnapshot>(
+            "ddata-bootstrap-adopt-receiver",
+            "receiver-snapshots",
+        )
+        .unwrap();
+
+    let gossip = Gossip::from_members([
+        Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(receiver_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+    ]);
+    publish_gossip(&sender_publisher, gossip.clone());
+    publish_gossip(&receiver_publisher, gossip);
+
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    await_connector_route(
+        receiver_bootstrap.connector(),
+        &receiver_snapshots,
+        &sender_node,
+    );
+    assert_eq!(sender_cache.route_count(), 1);
+    assert_eq!(receiver_cache.route_count(), 1);
+
+    let sender_ref = replicator_actor_ref_for("ddata-bootstrap-adopt-sender", &sender_settings)
+        .expect("sender ref should be serializable");
+    let receiver_ref =
+        replicator_actor_ref_for("ddata-bootstrap-adopt-receiver", &receiver_settings)
+            .expect("receiver ref should be serializable");
+    let to_receiver = outbound(
+        ReplicaId::from(&receiver_node),
+        receiver_ref.clone(),
+        sender_ref.clone(),
+        registry,
+        sender_cache.clone(),
+    );
+    let received = send_read_until_received(
+        &to_receiver,
+        &receiver_requests,
+        ReplicatorRead {
+            key: "counter-before-adopted-route-shutdown".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        },
+        Duration::from_secs(1),
+    );
+    assert_eq!(received[0].0, ReplicaId::from(&sender_node));
+    assert_eq!(received[0].1.recipient, receiver_ref);
+    assert_eq!(received[0].1.sender, Some(sender_ref));
+
+    run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
+    assert_eq!(sender_cache.route_count(), 0);
+
+    let removed_route_error = to_receiver
+        .tell(ReplicatorRead {
+            key: "counter-after-adopted-route-shutdown".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        })
+        .expect_err("adopted peer route should reject sends after bootstrap shutdown");
+    assert!(
+        removed_route_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected removed-route send error: {removed_route_error:?}"
+    );
+    assert_eq!(
+        receiver_requests
+            .wait_for_len(2, Duration::from_millis(100))
+            .len(),
+        1
+    );
+
+    run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
+    assert_eq!(receiver_cache.route_count(), 0);
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_installed_peer_route_delivers_remote_request_to_receiver() {
     let _guard = bootstrap_socket_test_lock();
     let registry = registry();
