@@ -1923,6 +1923,10 @@ Implemented:
   remembering-stop snapshot boundary: an entity waiting for its remembered stop
   write remains internally tracked but is no longer reported as active, and the
   snapshot clears it once the store update completes.
+- `kairo-cluster-sharding` shard actors now defer shard handoff replies while a
+  remember-entity stop update is in flight, matching Pekko's rule that handoff
+  waits behind remember-store writes instead of acknowledging `ShardStopped`
+  from stale in-memory state.
 - `kairo-cluster-sharding` shard actors can now start in an explicit
   remember-entity loading phase, stash normal shard messages until remembered
   entity IDs are loaded, recover those IDs, and replay the stashed messages in
@@ -4760,6 +4764,7 @@ cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
+cargo test -p kairo-cluster-sharding shard_actor_defers_handoff_until_pending_remember_stop_update_completes --all-targets --all-features
 cargo test -p kairo-cluster-sharding handoff_worker --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding handoff --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_handoff --all-targets --all-features

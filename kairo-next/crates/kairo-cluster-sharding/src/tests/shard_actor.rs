@@ -577,6 +577,95 @@ fn shard_actor_completes_remember_stop_update_before_removal() {
 }
 
 #[test]
+fn shard_actor_defers_handoff_until_pending_remember_stop_update_completes() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-handoff-remember-stop").unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_entities("shard-1", 10),
+        )
+        .unwrap();
+    let recovery = kit
+        .create_probe::<RememberedEntitiesPlan>("recovery")
+        .unwrap();
+    let passivation = kit
+        .create_probe::<crate::PassivatePlan<String>>("passivation")
+        .unwrap();
+    let termination = kit
+        .create_probe::<crate::EntityTerminatedPlan<String>>("termination")
+        .unwrap();
+    let handoff = kit
+        .create_probe::<ShardHandOffPlan<String>>("handoff")
+        .unwrap();
+    let done = kit
+        .create_probe::<RememberUpdateDonePlan<String>>("remember-done")
+        .unwrap();
+    let stop_update =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
+
+    shard
+        .tell(ShardMsg::RecoverRememberedEntities {
+            entities: vec!["entity-1".to_string()],
+            reply_to: recovery.actor_ref(),
+        })
+        .unwrap();
+    recovery.expect_msg(Duration::from_millis(500)).unwrap();
+    shard
+        .tell(ShardMsg::Passivate {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+            reply_to: passivation.actor_ref(),
+        })
+        .unwrap();
+    passivation.expect_msg(Duration::from_millis(500)).unwrap();
+    shard
+        .tell(ShardMsg::EntityTerminated {
+            entity_id: "entity-1".to_string(),
+            reply_to: termination.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        termination.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::EntityTerminatedPlan::RememberUpdate {
+            update: stop_update.clone(),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::HandOff {
+            stop_message: "handoff-stop".to_string(),
+            reply_to: handoff.actor_ref(),
+        })
+        .unwrap();
+    handoff.expect_no_msg(Duration::from_millis(30)).unwrap();
+
+    shard
+        .tell(ShardMsg::RememberUpdateDone {
+            update: stop_update,
+            reply_to: done.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        done.expect_msg(Duration::from_millis(500)).unwrap(),
+        RememberUpdateDonePlan {
+            deliveries: Vec::new(),
+            next_update: None,
+        }
+    );
+    assert_eq!(
+        handoff.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardHandOffPlan::ReplyShardStopped {
+            shard: "shard-1".to_string(),
+            stopped: ShardStopped {
+                shard_id: "shard-1".to_string(),
+            },
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_actor_remembered_entity_waits_for_restart_after_unexpected_termination() {
     let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-remember-restart").unwrap();
     let shard = kit

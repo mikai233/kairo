@@ -17,6 +17,12 @@ pub struct ShardActor<M> {
     remember_load: ShardRememberLoadState<M>,
     remember_store: Option<ShardRememberStore>,
     local_remember_store_provider: Option<LocalShardRememberStoreProvider>,
+    pending_handoffs: VecDeque<PendingShardHandOff<M>>,
+}
+
+struct PendingShardHandOff<M> {
+    stop_message: M,
+    reply_to: ActorRef<ShardHandOffPlan<M>>,
 }
 
 impl<M> ShardActor<M> {
@@ -26,6 +32,7 @@ impl<M> ShardActor<M> {
             remember_load: ShardRememberLoadState::ready(),
             remember_store: None,
             local_remember_store_provider: None,
+            pending_handoffs: VecDeque::new(),
         }
     }
 
@@ -38,6 +45,7 @@ impl<M> ShardActor<M> {
             remember_load: ShardRememberLoadState::ready(),
             remember_store: None,
             local_remember_store_provider: None,
+            pending_handoffs: VecDeque::new(),
         }
     }
 
@@ -50,6 +58,7 @@ impl<M> ShardActor<M> {
             remember_load: ShardRememberLoadState::loading(),
             remember_store: None,
             local_remember_store_provider: None,
+            pending_handoffs: VecDeque::new(),
         }
     }
 
@@ -64,6 +73,7 @@ impl<M> ShardActor<M> {
             remember_load: ShardRememberLoadState::loading(),
             remember_store: Some(ShardRememberStore::new(remember_store, timeout)),
             local_remember_store_provider: None,
+            pending_handoffs: VecDeque::new(),
         }
     }
 
@@ -81,6 +91,7 @@ impl<M> ShardActor<M> {
                 store_state,
                 timeout,
             )),
+            pending_handoffs: VecDeque::new(),
         }
     }
 
@@ -321,8 +332,7 @@ where
                 stop_message,
                 reply_to,
             } => {
-                let plan = self.runtime.handoff(stop_message);
-                let _ = reply_to.tell(plan);
+                self.apply_handoff(stop_message, reply_to);
             }
             ShardMsg::HandOffStopperTerminated { reply_to } => {
                 let was_in_progress = self.runtime.handoff_stopper_terminated();
@@ -345,6 +355,7 @@ where
                 let plan = self.runtime.remember_update_done(update);
                 self.send_next_remember_update(ctx, &plan)?;
                 let _ = reply_to.tell(plan);
+                self.drain_pending_handoffs();
             }
             ShardMsg::RememberStoreUpdateResult { update: _, result } => {
                 let done = match result {
@@ -356,6 +367,7 @@ where
                 let completed = RememberShardUpdate::new(done.started, done.stopped);
                 let plan = self.runtime.remember_update_done(completed);
                 self.send_next_remember_update(ctx, &plan)?;
+                self.drain_pending_handoffs();
             }
             ShardMsg::SetPreparingForShutdown { preparing } => {
                 self.runtime.set_preparing_for_shutdown(preparing);
@@ -416,6 +428,30 @@ where
             self.send_remember_update(ctx, update.clone())?;
         }
         Ok(())
+    }
+
+    fn apply_handoff(&mut self, stop_message: M, reply_to: ActorRef<ShardHandOffPlan<M>>) {
+        if self.runtime.remember_update_in_progress() {
+            self.pending_handoffs.push_back(PendingShardHandOff {
+                stop_message,
+                reply_to,
+            });
+            return;
+        }
+
+        let plan = self.runtime.handoff(stop_message);
+        let _ = reply_to.tell(plan);
+    }
+
+    fn drain_pending_handoffs(&mut self) {
+        if self.runtime.remember_update_in_progress() {
+            return;
+        }
+
+        while let Some(pending) = self.pending_handoffs.pop_front() {
+            let plan = self.runtime.handoff(pending.stop_message);
+            let _ = pending.reply_to.tell(plan);
+        }
     }
 
     fn send_remember_update(
