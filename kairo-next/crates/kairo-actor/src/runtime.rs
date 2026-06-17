@@ -114,6 +114,7 @@ pub(crate) fn run_actor<A>(
     context.cancel_tasks();
     context.cancel_asks();
     stop_adapter_refs(&system_inner, &mut context);
+    let _ = context.unstash_all();
     for _ in 0..mailbox.close_and_drain_user() {
         dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
     }
@@ -526,6 +527,7 @@ where
     context.cancel_tasks();
     context.cancel_asks();
     stop_adapter_refs(system_inner, context);
+    let _ = context.unstash_all();
     let _ = invoke_signal(actor, context, Signal::PreRestart);
     if stop_children_on_restart {
         stop_children_for_restart(system_inner, actor_ref.path());
@@ -571,6 +573,7 @@ where
     context.cancel_tasks();
     context.cancel_asks();
     stop_adapter_refs(system_inner, context);
+    let _ = context.unstash_all();
     let _ = invoke_signal(actor, context, Signal::PreRestart);
     if stop_children_on_restart {
         stop_children_for_restart(system_inner, actor_ref.path());

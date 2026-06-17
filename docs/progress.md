@@ -359,6 +359,10 @@ Implemented:
   `Context::stash`, `unstash`, `unstash_all`, `clear_stash`, and stash
   inspection helpers provide FIFO replay before later mailbox messages with
   explicit disabled/full errors.
+- Actor-owned stash buffers now participate in lifecycle cleanup: restart
+  replays stashed messages into the mailbox before later queued user messages,
+  and final stop drains stashed messages to dead letters with the rest of the
+  user mailbox.
 - Stash state lives in a focused `stash` module rather than being embedded in
   the actor runtime loop.
 - `Context::ask` creates a one-shot typed local reply ref, maps replies or
@@ -3030,8 +3034,8 @@ Implemented:
   later-phase registration, actor termination task, and system termination
   tests now live in a focused sibling test module.
 - `kairo-actor` stash capacity, full-stash rejection, clear/inspection,
-  unstash-all ordering, and limited unstash tests now live in a focused sibling
-  test module.
+  unstash-all ordering, limited unstash, restart replay, and stop dead-letter
+  tests now live in a focused sibling test module.
 - `kairo-actor` ask success, timeout, and late-reply rejection tests now live
   in a focused sibling test module.
 - `kairo-actor` scheduler one-shot delivery, cancellation, and self-scheduling
@@ -4471,5 +4475,10 @@ cargo fmt --all
 cargo fmt --all -- --check
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor stash --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```

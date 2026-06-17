@@ -4,6 +4,7 @@ enum StashProbeMsg {
     Work(usize),
     Open,
     UnstashOne,
+    Fail,
     TryStash {
         value: usize,
         reply_to: mpsc::Sender<Result<(), ActorError>>,
@@ -36,6 +37,7 @@ impl Actor for StashProbe {
                 self.open = true;
                 ctx.unstash(1)
             }
+            StashProbeMsg::Fail => Err(ActorError::Message("boom".to_string())),
             StashProbeMsg::TryStash { value, reply_to } => reply_to
                 .send(ctx.stash(StashProbeMsg::Work(value)))
                 .map_err(|error| ActorError::Message(error.to_string())),
@@ -244,5 +246,76 @@ fn clear_stash_drops_buffered_messages_and_updates_inspection_state() {
     assert_eq!(
         values_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         Vec::<usize>::new()
+    );
+}
+
+#[test]
+fn restart_replays_stashed_messages_before_later_mailbox_messages() {
+    let generation = Arc::new(AtomicU64::new(0));
+    let props_generation = Arc::clone(&generation);
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "stash",
+            Props::restartable(move || {
+                let open = props_generation.fetch_add(1, Ordering::SeqCst) > 0;
+                StashProbe {
+                    open,
+                    values: Vec::new(),
+                }
+            })
+            .with_stash_capacity(8),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor.tell(StashProbeMsg::Work(1)).unwrap();
+    actor.tell(StashProbeMsg::Work(2)).unwrap();
+    actor.tell(StashProbeMsg::Fail).unwrap();
+    actor.tell(StashProbeMsg::Work(3)).unwrap();
+    actor.tell(StashProbeMsg::Get(reply_tx)).unwrap();
+
+    assert_eq!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        vec![1, 2, 3]
+    );
+}
+
+#[test]
+fn stop_drains_stashed_messages_to_dead_letters() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn(
+            "stash",
+            Props::new(|| StashProbe {
+                open: false,
+                values: Vec::new(),
+            })
+            .with_stash_capacity(8),
+        )
+        .unwrap();
+    let (inspect_tx, inspect_rx) = mpsc::channel();
+
+    actor.tell(StashProbeMsg::Work(1)).unwrap();
+    actor.tell(StashProbeMsg::Work(2)).unwrap();
+    actor.tell(StashProbeMsg::Inspect(inspect_tx)).unwrap();
+    assert_eq!(
+        inspect_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        (2, Some(8), false)
+    );
+
+    system.stop(&actor);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(2, Duration::from_secs(1))
+    );
+    assert!(
+        system
+            .dead_letters()
+            .records()
+            .iter()
+            .all(|record| record.recipient() == actor.path())
     );
 }
