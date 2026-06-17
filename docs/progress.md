@@ -107,6 +107,10 @@ Implemented:
 - Context child lookup now has focused coverage that a stopping child remains
   visible through `Context::child` until termination completes, matching the
   same actor-tree reservation window that blocks same-name replacement.
+- Context children listing now has matching focused coverage that a stopping
+  child remains in `Context::children()` until termination completes and is
+  removed only after local registry cleanup, preserving Pekko's terminating
+  child-container visibility semantics.
 - User actor names follow stable actor path element validation; `$`-prefixed
   names are reserved for internal actors such as anonymous children.
 - Focused `kairo-actor` tests cover tell ordering, system stop, and post-stop
@@ -4813,5 +4817,11 @@ cargo test -p kairo-cluster-sharding region_discovery_subscriber --all-targets -
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor stopping_child_remains_in_children_until_termination_completes --all-targets --all-features
+cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```

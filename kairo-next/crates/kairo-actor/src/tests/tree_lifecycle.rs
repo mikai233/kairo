@@ -209,6 +209,7 @@ enum ChildStopMsg {
         other: ActorRef<()>,
         reply_to: mpsc::Sender<String>,
     },
+    Children(mpsc::Sender<Vec<ActorPath>>),
     ChildPath(mpsc::Sender<Option<ActorPath>>),
     Ping(mpsc::Sender<&'static str>),
 }
@@ -270,6 +271,16 @@ impl Actor for ChildStoppingParent {
                 let error = ctx.stop(other).unwrap_err();
                 reply_to
                     .send(error.to_string())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            ChildStopMsg::Children(reply_to) => {
+                let children = ctx
+                    .children()
+                    .into_iter()
+                    .map(|child| child.path().clone())
+                    .collect();
+                reply_to
+                    .send(children)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             ChildStopMsg::ChildPath(reply_to) => {
@@ -792,6 +803,61 @@ fn stopping_child_remains_visible_until_termination_completes() {
             .recv_timeout(Duration::from_secs(1))
             .unwrap(),
         None
+    );
+}
+
+#[test]
+fn stopping_child_remains_in_children_until_termination_completes() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (stop_tx, stop_rx) = mpsc::channel();
+    let (stopping_children_tx, stopping_children_rx) = mpsc::channel();
+    let (terminated_children_tx, terminated_children_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+
+    parent
+        .tell(ChildStopMsg::StopChild { reply_to: stop_tx })
+        .unwrap();
+    stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    parent
+        .tell(ChildStopMsg::Children(stopping_children_tx))
+        .unwrap();
+    assert_eq!(
+        stopping_children_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        vec![child_path.clone()]
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+
+    parent
+        .tell(ChildStopMsg::Children(terminated_children_tx))
+        .unwrap();
+    assert!(
+        terminated_children_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .is_empty()
     );
 }
 
