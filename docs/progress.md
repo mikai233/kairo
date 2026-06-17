@@ -3345,6 +3345,11 @@ Implemented:
   child when `RestartRememberedEntity` moves a waiting remembered entity back
   to active state, so timer-driven restart plans do not leave runtime state
   active without a live child.
+- Actor-backed remembered entity termination now automatically re-enters that
+  restart transition after an unexpectedly stopped remembered child, matching
+  Pekko's remembered-entity starter/retry intent that remembered active
+  entities are recreated without an external test-only nudge; an explicit
+  follow-up restart command observes the entity as already active.
 - Actor-backed remembered entity recovery now starts and watches recovered
   entity children immediately, matching Pekko's remembered-entity starter flow
   instead of leaving recovered runtime state without live actors until first
@@ -3661,6 +3666,15 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding entity_shard_actor_automatically_restarts_remembered_entity_after_unexpected_stop --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-cluster-sharding entity_shard_actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-distributed-data peer_runtime_clears_routes_when_self_member_is_removed --all-targets --all-features
 cargo test -p kairo-cluster-tools peer_runtime_clears_routes_when_self_member_is_removed --all-targets --all-features
 cargo fmt --all

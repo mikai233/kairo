@@ -193,8 +193,11 @@ where
                 }
                 Ok(())
             }
+            EntityTerminatedPlan::RestartRemembered { entity_id } => {
+                let plan = self.runtime.restart_remembered_entity(entity_id.clone());
+                self.apply_restart_remembered_entity_plan(ctx, &plan)
+            }
             EntityTerminatedPlan::Removed { .. }
-            | EntityTerminatedPlan::RestartRemembered { .. }
             | EntityTerminatedPlan::RememberUpdate { .. }
             | EntityTerminatedPlan::RememberUpdateQueued { .. }
             | EntityTerminatedPlan::IgnoredUnknown { .. } => Ok(()),

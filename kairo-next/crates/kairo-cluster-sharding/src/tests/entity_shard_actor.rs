@@ -277,9 +277,9 @@ fn entity_shard_actor_recovery_starts_remembered_entities() {
 }
 
 #[test]
-fn entity_shard_actor_restart_remembered_entity_spawns_child() {
+fn entity_shard_actor_automatically_restarts_remembered_entity_after_unexpected_stop() {
     let kit =
-        kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-remember-restart").unwrap();
+        kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-auto-remember-restart").unwrap();
     let (observed_tx, observed_rx) = mpsc::channel();
     let (refs_tx, refs_rx) = mpsc::channel();
     let factory = EntityActorFactory::new(move |entity_id| ControlledEntity {
@@ -324,38 +324,23 @@ fn entity_shard_actor_restart_remembered_entity_spawns_child() {
     );
     assert!(initial_ref.wait_for_stop(Duration::from_secs(1)));
 
-    let mut restart_plan = None;
-    for _ in 0..20 {
-        shard
-            .tell(ShardMsg::RestartRememberedEntity {
-                entity_id: "entity-1".to_string(),
-                reply_to: restart.actor_ref(),
-            })
-            .unwrap();
-        let plan = restart.expect_msg(Duration::from_millis(500)).unwrap();
-        match plan {
-            RestartRememberedEntityPlan::Started { .. } => {
-                restart_plan = Some(plan);
-                break;
-            }
-            RestartRememberedEntityPlan::AlreadyActive { .. } => {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            RestartRememberedEntityPlan::Ignored { .. } => {
-                panic!("remembered entity restart should not be ignored");
-            }
-        }
-    }
+    let restarted_ref = refs_rx
+        .recv_timeout(Duration::from_millis(500))
+        .expect("remembered entity should be restarted automatically after termination");
+    assert_ne!(initial_ref.path(), restarted_ref.path());
+
+    shard
+        .tell(ShardMsg::RestartRememberedEntity {
+            entity_id: "entity-1".to_string(),
+            reply_to: restart.actor_ref(),
+        })
+        .unwrap();
     assert_eq!(
-        restart_plan.expect("remembered restart should eventually start after termination"),
-        RestartRememberedEntityPlan::Started {
+        restart.expect_msg(Duration::from_millis(500)).unwrap(),
+        RestartRememberedEntityPlan::AlreadyActive {
             entity_id: "entity-1".to_string(),
         }
     );
-    let restarted_ref = refs_rx
-        .recv_timeout(Duration::from_millis(500))
-        .expect("remembered restart should spawn a child entity");
-    assert_ne!(initial_ref.path(), restarted_ref.path());
 
     shard
         .tell(ShardMsg::Deliver {
