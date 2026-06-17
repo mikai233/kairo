@@ -301,25 +301,76 @@ fn remote_request_inbound_rejects_missing_sender_and_unknown_manifest() {
         wire_codecs(),
         outbound_ref,
     );
+    let key = ReplicatorKey::new("counter");
+
+    let missing_write_sender = inbound
+        .receive_from(
+            replica("remote"),
+            RemoteEnvelope::new(
+                local_ref.clone(),
+                None,
+                registry
+                    .serialize(
+                        &crate::encode_write(
+                            &key,
+                            Some(replica("remote")),
+                            &DataEnvelope::new(counter("remote", 1)),
+                            &GCounterCodec,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+            ),
+        )
+        .expect_err("direct write without sender cannot be replied to");
+    assert!(matches!(
+        missing_write_sender,
+        ReplicatorRemoteRequestError::MissingSender(ReplicatorWrite::MANIFEST)
+    ));
 
     let missing_sender = inbound
         .receive_from(
             replica("remote"),
             RemoteEnvelope::new(
-                local_ref,
+                local_ref.clone(),
                 None,
                 registry
-                    .serialize(&crate::encode_read(
-                        &ReplicatorKey::new("counter"),
-                        Some(replica("remote")),
-                    ))
+                    .serialize(&crate::encode_read(&key, Some(replica("remote"))))
                     .unwrap(),
             ),
         )
         .expect_err("direct read without sender cannot be replied to");
     assert!(matches!(
         missing_sender,
-        ReplicatorRemoteRequestError::MissingSender(_)
+        ReplicatorRemoteRequestError::MissingSender(ReplicatorRead::MANIFEST)
+    ));
+
+    let mut log = DeltaPropagationLog::new([replica("local")]);
+    log.record_delta(key, Some(delta_counter("remote", 2)));
+    let propagation = log.collect_propagations().into_values().next().unwrap();
+    let missing_delta_sender = inbound
+        .receive_from(
+            replica("remote"),
+            RemoteEnvelope::new(
+                local_ref,
+                None,
+                registry
+                    .serialize(
+                        &crate::encode_delta_propagation(
+                            replica("remote"),
+                            true,
+                            &propagation,
+                            &GCounterCodec,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+            ),
+        )
+        .expect_err("reply-requested delta propagation without sender cannot be replied to");
+    assert!(matches!(
+        missing_delta_sender,
+        ReplicatorRemoteRequestError::MissingSender(ReplicatorDeltaPropagation::MANIFEST)
     ));
 
     let unknown = inbound

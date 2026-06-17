@@ -3224,7 +3224,9 @@ Implemented:
   reply-requested delta propagation: a stable remote delta request is applied
   through the replicator actor, the temporary reply actor sends a stable
   delta-ack envelope back to the incoming remote sender, and the reply carries
-  the configured local sender metadata.
+  the configured local sender metadata. Missing-sender rejection coverage now
+  also names each reply-producing request manifest: direct write, direct read,
+  and reply-requested delta propagation.
 - `kairo-cluster-tools` TCP peer bootstrap coverage now pins the same
   sender-side route reduction for pubsub delivery: after one of two remote
   peers leaves the sender's cluster membership view, the remaining tools route
