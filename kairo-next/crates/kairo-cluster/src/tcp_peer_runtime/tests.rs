@@ -13,7 +13,7 @@ use crate::{
     ClusterMembershipMsg, ClusterMembershipRemoteEnvelopeOutbound, ClusterMembershipWireInbound,
     ClusterMembershipWireOutbound, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
     DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, HeartbeatRemoteReceiverInbound,
-    HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Join, Member, MemberStatus,
+    HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Join, Member, MemberEvent, MemberStatus,
     ReachabilityEvent, register_cluster_protocol_codecs, test_support::cluster_socket_test_lock,
 };
 
@@ -414,6 +414,90 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     second_kit.shutdown(Duration::from_secs(1)).unwrap();
     third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn peer_runtime_clears_routes_when_self_member_is_removed() {
+    let _guard = cluster_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-peer-runtime-self-remove-sender").unwrap();
+    let receiver_kit =
+        ActorSystemTestKit::new("cluster-peer-runtime-self-remove-receiver").unwrap();
+    let registry = registry();
+    let mut sender = bind_peer_runtime("self-remove-sender", 1, 11, &sender_kit, registry.clone());
+    let (receiver, receiver_probes) = bind_association_runtime_with_probes(
+        "self-remove-receiver",
+        2,
+        22,
+        &receiver_kit,
+        registry.clone(),
+    );
+    let sender_node = sender.self_node().clone();
+    let receiver_node = receiver.self_node().clone();
+    let membership_outbound = ClusterMembershipWireOutbound::new(
+        receiver_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(Arc::new(
+            sender.association_cache().clone(),
+        ) as Arc<dyn RemoteOutbound>),
+    );
+
+    sender
+        .apply_snapshot(state(
+            vec![member(sender_node.clone()), member(receiver_node.clone())],
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(sender.peer_route_count(), 1);
+    assert_eq!(sender.association_cache().route_count(), 1);
+    wait_for_reverse_route(&receiver);
+    send_join_until_received(
+        &membership_outbound,
+        &receiver_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["before-self-removal".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
+    let report = sender
+        .apply_event(ClusterEvent::Member(MemberEvent::Removed {
+            member: member(sender_node.clone()).with_status(MemberStatus::Removed),
+            previous_status: MemberStatus::Up,
+        }))
+        .unwrap();
+
+    assert_eq!(report.removed.len(), 1);
+    assert_eq!(report.removed[0].node(), &receiver_node);
+    assert_eq!(sender.peer_route_count(), 0);
+    assert_eq!(sender.association_cache().route_count(), 0);
+
+    let removed_route_error = membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: sender_node,
+                roles: vec!["after-self-removal".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("self-removed peer runtime should clear outbound routes");
+    assert!(
+        removed_route_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected self-removal send error: {removed_route_error:?}"
+    );
+    receiver_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    let sender_report = sender.shutdown().unwrap();
+    assert_eq!(sender_report.peer_routes.removed.len(), 0);
+    let receiver_report = receiver.shutdown().unwrap();
+    assert_eq!(receiver_report.accepted_associations, 1);
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

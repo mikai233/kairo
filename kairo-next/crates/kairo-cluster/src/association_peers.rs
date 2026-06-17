@@ -145,9 +145,14 @@ impl ClusterAssociationPeerState {
     fn apply_member_event(&mut self, event: MemberEvent) {
         match event {
             MemberEvent::Removed { member, .. } => {
-                self.members.remove(&member.unique_address.ordering_key());
-                self.locally_unreachable
-                    .remove(&member.unique_address.ordering_key());
+                if member.unique_address == self.self_node {
+                    self.members.clear();
+                    self.locally_unreachable.clear();
+                } else {
+                    self.members.remove(&member.unique_address.ordering_key());
+                    self.locally_unreachable
+                        .remove(&member.unique_address.ordering_key());
+                }
             }
             MemberEvent::Joined(member)
             | MemberEvent::WeaklyUp(member)
@@ -369,6 +374,34 @@ mod tests {
             ))))
             .unwrap();
         assert_eq!(dialed_nodes(&dialed), vec![peer_v2]);
+    }
+
+    #[test]
+    fn self_member_removal_removes_all_active_peers() {
+        let self_node = node("self", 2551, 1);
+        let first_peer = node("first-peer", 2552, 2);
+        let second_peer = node("second-peer", 2553, 3);
+        let mut peers = ClusterAssociationPeerState::new(self_node.clone());
+        peers
+            .apply_snapshot(state(
+                vec![
+                    member(self_node.clone()),
+                    member(first_peer.clone()),
+                    member(second_peer.clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+
+        let removed = peers
+            .apply_event(ClusterEvent::Member(MemberEvent::Removed {
+                member: member(self_node).with_status(MemberStatus::Removed),
+                previous_status: MemberStatus::Up,
+            }))
+            .unwrap();
+
+        assert_eq!(removed_nodes(&removed), vec![first_peer, second_peer]);
+        assert!(peers.active_targets().is_empty());
     }
 
     #[test]

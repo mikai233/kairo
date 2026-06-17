@@ -2381,6 +2381,12 @@ Implemented:
   route, keeps the surviving route delivering stable-manifest `Join` messages,
   rejects sends to the removed peer through the association cache, and leaves
   the removed peer's membership inbox empty.
+- Cluster-derived association peer planning now treats local self-removal as a
+  lifecycle boundary: a `MemberRemoved` event for the runtime's own node clears
+  all active peer targets, and composed cluster TCP peer runtime coverage proves
+  the cached outbound route is closed and later stable-manifest sends are
+  rejected. The shared planner feeds distributed-data and cluster-tools TCP
+  peer runtimes as well.
 - `kairo-cluster` now has a focused TCP peer runtime lifecycle owner that
   composes the cluster TCP socket runtime, membership-derived peer planner, and
   peer-route table, applies cluster snapshots/events to live routes, and clears
@@ -3645,6 +3651,15 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster self_member_removal_removes_all_active_peers --all-targets --all-features
+cargo test -p kairo-cluster peer_runtime_clears_routes_when_self_member_is_removed --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-actor schedule_once_self_after_owner_stop_goes_to_dead_letters --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-actor scheduler --all-targets --all-features
