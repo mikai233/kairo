@@ -470,6 +470,63 @@ mod route_tests {
     }
 
     #[test]
+    fn peer_runtime_adopts_existing_ddata_route_and_clears_it_on_shutdown() {
+        let _guard = ddata_socket_test_lock();
+        let retry_interval = Duration::from_millis(25);
+        let receiver_port = unused_port();
+        let receiver_node = node("adopted-receiver", receiver_port, 2);
+        let receiver = bind_association_runtime_on_port(
+            "adopted-receiver",
+            ReplicaId::from(&receiver_node),
+            replica("adopted-sender"),
+            22,
+            receiver_port,
+        );
+        let mut sender = bind_peer_runtime(
+            "adopted-sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&receiver_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+
+        sender
+            .runtime()
+            .dial_peer(
+                receiver.local_address().clone(),
+                ReplicaId::from(&receiver_node),
+            )
+            .unwrap();
+        wait_for_reverse_route(&receiver);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        assert_eq!(sender.peer_route_count(), 0);
+
+        let report = sender
+            .apply_snapshot(state(
+                vec![member(sender_node), member(receiver_node.clone())],
+                vec![],
+            ))
+            .unwrap();
+
+        assert!(report.dialed.is_empty());
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(report.skipped[0].node(), &receiver_node);
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let sender_report = sender.shutdown().unwrap();
+
+        assert_eq!(sender_report.peer_routes.removed.len(), 1);
+        assert_eq!(sender_report.peer_routes.removed[0].node(), &receiver_node);
+        assert!(sender_report.pending_reconnects.is_empty());
+        assert_eq!(sender_report.listener.accepted_associations, 0);
+        let receiver_report = receiver.shutdown().unwrap();
+        assert_eq!(receiver_report.accepted_associations, 1);
+    }
+
+    #[test]
     fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
         let _guard = ddata_socket_test_lock();
         let receiver_port = unused_port();

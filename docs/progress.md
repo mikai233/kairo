@@ -1510,6 +1510,10 @@ Implemented:
 - Distributed-data TCP peer runtime shutdown now has focused lifecycle coverage
   proving that a failed dial's pending reconnect is cleared and reported even
   when the peer never becomes reachable.
+- Distributed-data TCP peer runtime coverage now also pins adoption of an
+  already-open ddata socket route from membership: the composed runtime records
+  the existing route as skipped, owns it as a peer route, and clears it during
+  shutdown.
 - Distributed-data TCP peer runtime tests now live in a focused sibling test
   module, keeping the runtime implementation file focused on routing,
   reconnect, and shutdown behavior.
