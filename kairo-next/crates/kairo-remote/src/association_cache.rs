@@ -30,10 +30,13 @@ impl RemoteAssociationAddress {
             host: host.into(),
             port,
         };
-        if address.protocol.is_empty() || address.system.is_empty() || address.host.is_empty() {
+        if !valid_address_part(&address.protocol, &[':', '/', '@', '#'])
+            || !valid_address_part(&address.system, &[':', '/', '@', '#'])
+            || !valid_address_part(&address.host, &['/', '@', '#'])
+        {
             return Err(RemoteError::InvalidRemoteRef(
                 address.to_string(),
-                "remote association address requires protocol, system, and host".to_string(),
+                "remote association address requires valid protocol, system, and host".to_string(),
             ));
         }
         Ok(address)
@@ -61,6 +64,13 @@ impl RemoteAssociationAddress {
     pub fn port(&self) -> Option<u16> {
         self.port
     }
+}
+
+fn valid_address_part(value: &str, separators: &[char]) -> bool {
+    !value.is_empty()
+        && value.trim() == value
+        && !value.chars().any(char::is_whitespace)
+        && !value.chars().any(|ch| separators.contains(&ch))
 }
 
 impl Display for RemoteAssociationAddress {
@@ -285,6 +295,21 @@ mod tests {
             "kairo://cluster@seed.example.test:not-a-port".parse::<RemoteAssociationAddress>(),
             Err(RemoteError::InvalidRemoteRef(_, _))
         ));
+    }
+
+    #[test]
+    fn association_address_rejects_malformed_authority_parts() {
+        for result in [
+            RemoteAssociationAddress::new("kai ro", "cluster", "seed.example.test", Some(25520)),
+            RemoteAssociationAddress::new("kairo", "clu/ster", "seed.example.test", Some(25520)),
+            RemoteAssociationAddress::new("kairo", "cluster", " seed.example.test", Some(25520)),
+            RemoteAssociationAddress::new("kairo", "cluster", "seed.example.test\t", Some(25520)),
+            "kai ro://cluster@seed.example.test:25520".parse::<RemoteAssociationAddress>(),
+            "kairo://clu/ster@seed.example.test:25520".parse::<RemoteAssociationAddress>(),
+            "kairo://cluster@ seed.example.test:25520".parse::<RemoteAssociationAddress>(),
+        ] {
+            assert!(matches!(result, Err(RemoteError::InvalidRemoteRef(_, _))));
+        }
     }
 
     fn envelope(recipient: &str, value: u8) -> RemoteEnvelope {

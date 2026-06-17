@@ -22,6 +22,7 @@ use super::reports::{TcpAssociationListenerReport, TcpAssociationReadReport};
 use super::stream_reader::TcpAssociationStreamReader;
 
 const DEFAULT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const STOP_READER_JOIN_TIMEOUT: Duration = Duration::from_millis(50);
 
 pub struct TcpAssociationListener {
     listener: TcpListener,
@@ -190,10 +191,11 @@ impl TcpAssociationListener {
 
         let mut read = TcpAssociationReadReport::default();
         let mut supervision = Vec::new();
+        let stop_reader_deadline = Instant::now() + STOP_READER_JOIN_TIMEOUT;
         for handle in reader_handles {
             let report = if stopped {
                 handle
-                    .join_with_supervisor_until(&mut reader_supervisor, Instant::now())
+                    .join_with_supervisor_until(&mut reader_supervisor, stop_reader_deadline)
                     .unwrap_or_default()
             } else {
                 handle.join_with_supervisor(&mut reader_supervisor)

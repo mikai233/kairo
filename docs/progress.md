@@ -2685,6 +2685,12 @@ Implemented:
   remote association addresses while keeping seeds as contact points rather
   than cluster membership truth. Migration notes now show seed, sharding, and
   cluster-tools runtime helper usage.
+- Remote association address construction now rejects malformed protocol,
+  system, and host authority parts before they can become cache keys, TCP
+  handshake identities, or route registry entries.
+- TCP association listener shutdown now keeps a bounded reader-drain window so
+  lane reader failures that complete during stop are preserved in supervision
+  diagnostics without making shutdown wait unboundedly.
 - `kairo-examples` now provides the first runnable example crate under
   `kairo-next`, with a `local_counter` example that demonstrates spawning a
   typed actor, sending local messages without serialization, replying through
@@ -4563,5 +4569,13 @@ cargo test -p kairo-actor tree_lifecycle --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-remote association_address --all-targets --all-features
+cargo test -p kairo-remote association_cache --all-targets --all-features
+cargo test -p kairo-remote tcp_listener_report_includes_reader_supervision_decisions --all-targets --all-features -- --nocapture
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```
