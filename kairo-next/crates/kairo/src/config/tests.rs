@@ -186,6 +186,7 @@ rebalance_relative_limit = 0.25
 
 [cluster.tools.singleton]
 role = "backend"
+hand_over_retry_interval = "750ms"
 
 [cluster.tools.pubsub]
 gossip_interval = "500ms"
@@ -274,6 +275,10 @@ gossip_state_changes = true
     assert_eq!(
         settings.cluster.tools.singleton_role.as_deref(),
         Some("backend")
+    );
+    assert_eq!(
+        settings.cluster.tools.singleton_hand_over_retry_interval,
+        Duration::from_millis(750)
     );
     assert_eq!(
         settings.cluster.tools.pubsub_gossip_interval,
@@ -1290,6 +1295,25 @@ role = ""
 }
 
 #[test]
+fn toml_config_rejects_zero_singleton_handover_retry_interval() {
+    let error = parse_toml_str(
+        r#"
+[cluster.tools.singleton]
+hand_over_retry_interval = "0ms"
+"#,
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        error,
+        ConfigError::InvalidValue {
+            path: "cluster.tools.singleton.hand_over_retry_interval".to_string(),
+            reason: "must be greater than zero".to_string(),
+        }
+    );
+}
+
+#[test]
 fn toml_config_rejects_invalid_pubsub_runtime_values() {
     for (key, path) in [
         (
@@ -1699,6 +1723,7 @@ fn config_converts_cluster_tools_settings_to_runtime_helpers() {
         r#"
 [cluster.tools.singleton]
 role = "backend"
+hand_over_retry_interval = "125ms"
 
 [cluster.tools.pubsub]
 gossip_interval = "250ms"
@@ -1715,6 +1740,24 @@ max_delta_entries = 7
     assert_eq!(scope.role(), Some("backend"));
     assert!(scope.includes(&backend));
     assert!(!scope.includes(&frontend));
+    assert_eq!(
+        settings
+            .cluster
+            .tools
+            .to_singleton_hand_over_retry_interval()
+            .unwrap(),
+        Duration::from_millis(125)
+    );
+    let manager_settings = settings
+        .cluster
+        .tools
+        .to_singleton_manager_settings()
+        .unwrap();
+    assert_eq!(
+        manager_settings.hand_over_retry_interval(),
+        Duration::from_millis(125)
+    );
+    assert!(manager_settings.automatic_hand_over_retries());
     assert_eq!(
         settings.cluster.tools.to_pubsub_gossip_interval().unwrap(),
         Duration::from_millis(250)
@@ -2017,6 +2060,13 @@ fn config_validate_checks_all_format_neutral_sections() {
     );
 
     for (tools, path) in [
+        (
+            super::ClusterToolsConfig {
+                singleton_hand_over_retry_interval: Duration::ZERO,
+                ..Default::default()
+            },
+            "cluster.tools.singleton.hand_over_retry_interval",
+        ),
         (
             super::ClusterToolsConfig {
                 pubsub_gossip_interval: Duration::ZERO,

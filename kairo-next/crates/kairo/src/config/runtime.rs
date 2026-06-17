@@ -571,6 +571,10 @@ impl ClusterToolsConfig {
             });
         }
         reject_zero_duration(
+            self.singleton_hand_over_retry_interval,
+            "cluster.tools.singleton.hand_over_retry_interval",
+        )?;
+        reject_zero_duration(
             self.pubsub_gossip_interval,
             "cluster.tools.pubsub.gossip_interval",
         )?;
@@ -589,6 +593,28 @@ impl ClusterToolsConfig {
             Some(role) => kairo_cluster_tools::SingletonScope::for_role(role.clone()),
             None => kairo_cluster_tools::SingletonScope::all(),
         })
+    }
+
+    #[cfg(feature = "cluster-tools")]
+    /// Converts singleton handover retry settings into runtime manager settings.
+    pub fn to_singleton_manager_settings(
+        &self,
+    ) -> Result<kairo_cluster_tools::SingletonManagerSettings, ConfigError> {
+        self.validate()?;
+        kairo_cluster_tools::SingletonManagerSettings::new(self.singleton_hand_over_retry_interval)
+            .map_err(|error| ConfigError::InvalidValue {
+                path: "cluster.tools.singleton.hand_over_retry_interval".to_string(),
+                reason: error.to_string(),
+            })
+    }
+
+    /// Returns the validated singleton handover retry interval.
+    pub fn to_singleton_hand_over_retry_interval(&self) -> Result<Duration, ConfigError> {
+        reject_zero_duration(
+            self.singleton_hand_over_retry_interval,
+            "cluster.tools.singleton.hand_over_retry_interval",
+        )?;
+        Ok(self.singleton_hand_over_retry_interval)
     }
 
     /// Returns the validated pubsub gossip interval.

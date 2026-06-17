@@ -237,6 +237,8 @@ impl Default for ClusterShardingAllocationConfig {
 pub struct ClusterToolsConfig {
     /// Optional role that may host the singleton.
     pub singleton_role: Option<String>,
+    /// Singleton handover retry interval while a node is becoming oldest.
+    pub singleton_hand_over_retry_interval: Duration,
     /// Pubsub gossip tick interval.
     pub pubsub_gossip_interval: Duration,
     /// Maximum pubsub delta entries sent in one gossip update.
@@ -247,6 +249,7 @@ impl Default for ClusterToolsConfig {
     fn default() -> Self {
         Self {
             singleton_role: None,
+            singleton_hand_over_retry_interval: Duration::from_secs(1),
             pubsub_gossip_interval: Duration::from_secs(1),
             pubsub_max_delta_entries: 1000,
         }

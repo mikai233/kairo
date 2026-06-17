@@ -157,8 +157,8 @@ pub mod prelude {
     #[cfg(feature = "cluster-tools")]
     pub use kairo_cluster_tools::{
         DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg, LocalPubSub,
-        LocalSingletonManagerActor, LocalSingletonManagerMsg, SingletonProxyActor,
-        SingletonProxyMsg, SingletonScope, TopicName, TopicPublishMode,
+        LocalSingletonManagerActor, LocalSingletonManagerMsg, SingletonManagerSettings,
+        SingletonProxyActor, SingletonProxyMsg, SingletonScope, TopicName, TopicPublishMode,
     };
     #[cfg(feature = "distributed-data")]
     pub use kairo_distributed_data::{

@@ -122,6 +122,7 @@ rebalance_relative_limit = 0.25
 
 [cluster.tools.singleton]
 role = "backend"
+hand_over_retry_interval = "1s"
 
 [cluster.tools.pubsub]
 gossip_interval = "500ms"

@@ -445,7 +445,11 @@ fn parse_cluster_singleton_tool(
     config: &mut ClusterToolsConfig,
 ) -> Result<(), ConfigError> {
     let singleton = expect_table(value, "cluster.tools.singleton")?;
-    reject_unknown(singleton, "cluster.tools.singleton", &["role"])?;
+    reject_unknown(
+        singleton,
+        "cluster.tools.singleton",
+        &["role", "hand_over_retry_interval"],
+    )?;
     if let Some(role) = singleton.get("role") {
         let role = parse_string(role, "cluster.tools.singleton.role")?;
         if role.is_empty() {
@@ -455,6 +459,14 @@ fn parse_cluster_singleton_tool(
             });
         }
         config.singleton_role = Some(role);
+    }
+    if let Some(interval) = singleton.get("hand_over_retry_interval") {
+        config.singleton_hand_over_retry_interval =
+            parse_duration(interval, "cluster.tools.singleton.hand_over_retry_interval")?;
+        reject_zero_duration(
+            config.singleton_hand_over_retry_interval,
+            "cluster.tools.singleton.hand_over_retry_interval",
+        )?;
     }
     Ok(())
 }

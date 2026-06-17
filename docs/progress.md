@@ -2594,6 +2594,10 @@ Implemented:
   interval, and stable `shard_id_for` helpers, while `ClusterToolsConfig` maps
   singleton role settings into `SingletonScope` and pubsub settings into
   gossip interval/max-delta values plus a configured `PubSubGossipActor`.
+- `ClusterToolsConfig` now carries the singleton handover retry interval from
+  `[cluster.tools.singleton].hand_over_retry_interval`, validates that it is
+  non-zero, and projects it into `SingletonManagerSettings` for the runtime
+  singleton manager actors.
 - The TOML loader now rejects an explicitly empty
   `[cluster.tools.singleton].role` instead of silently widening singleton scope
   to all members, matching the format-neutral `ClusterToolsConfig` validation.
@@ -3241,6 +3245,11 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo fmt --all -- --check
+cargo test -p kairo config --all-targets --all-features
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+cargo test -p kairo --doc --all-features
+git diff --check
 cargo test -p kairo-remote unwatch_keeps_self_watch_until_last_watcher_of_watchee_is_removed --all-targets --all-features
 cargo test -p kairo-remote remote_watch --all-targets --all-features
 cargo test -p kairo-remote tcp_listener_report_includes_reader_supervision_decisions --all-targets --all-features -- --nocapture
