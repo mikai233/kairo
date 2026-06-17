@@ -2422,6 +2422,12 @@ Implemented:
   starts handover to the previous oldest, marking that member removed starts
   the singleton, records the removed member, and cancels stale handover retry
   ticks.
+- `kairo-cluster-tools` singleton manager runtime, singleton manager actor,
+  and local singleton manager coverage now also pin the WasOldest
+  new-oldest-removal path: when the replacement oldest is removed before
+  handoff starts, the old oldest records the removal, stops the singleton
+  without sending `HandOverDone`, cancels stale take-over retry ticks, and
+  returns to younger state after child termination.
 - `kairo-cluster-tools` singleton manager runtime and actor boundary tests now
   live in a focused sibling test module instead of the broad crate-level test
   file.
@@ -4948,6 +4954,13 @@ cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-cluster-tools singleton_manager_actor_starts_when_previous_oldest_is_removed --all-targets --all-features
 cargo test -p kairo-cluster-tools local_singleton_manager_starts_child_when_previous_oldest_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-tools singleton_manager_hands_over_to_none_when_new_oldest_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools singleton_manager_actor_stops_when_new_oldest_is_removed --all-targets --all-features
+cargo test -p kairo-cluster-tools local_singleton_manager_stops_child_when_new_oldest_is_removed --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings

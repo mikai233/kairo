@@ -136,6 +136,47 @@ fn singleton_manager_hands_over_when_oldest_changes_away() {
 }
 
 #[test]
+fn singleton_manager_hands_over_to_none_when_new_oldest_is_removed() {
+    let node_a = node("new-oldest-removed-old", 1);
+    let node_b = node("new-oldest-removed-new", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let mut manager = SingletonManagerRuntime::new(node_a);
+    manager.apply_initial_observation(observation);
+
+    assert_eq!(
+        manager.apply_oldest_change(SingletonOldestChange::OldestChanged(Some(node_b.clone()))),
+        vec![SingletonManagerEffect::SendTakeOverFromMe { to: node_b.clone() }]
+    );
+    assert_eq!(
+        manager.mark_removed(node_b.clone()),
+        vec![SingletonManagerEffect::StopSingleton]
+    );
+    assert_eq!(
+        manager.state(),
+        &SingletonManagerState::HandingOver {
+            singleton_running: true,
+            handover_to: None,
+        }
+    );
+    assert!(manager.removed_members().contains(&node_b));
+
+    assert!(manager.singleton_terminated().is_empty());
+    assert_eq!(
+        manager.state(),
+        &SingletonManagerState::Younger {
+            previous_oldest: Vec::new(),
+        }
+    );
+}
+
+#[test]
 fn singleton_manager_retries_takeover_while_was_oldest() {
     let node_a = node("takeover-retry-old", 1);
     let node_b = node("takeover-retry-new", 2);
@@ -607,6 +648,102 @@ fn singleton_manager_actor_automatic_timer_retries_takeover_until_handover_start
     effects.expect_msg(Duration::from_millis(500)).unwrap();
     time.advance(retry_interval);
     effects.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn singleton_manager_actor_stops_when_new_oldest_is_removed() {
+    let node_a = node("singleton-actor-remove-new-old", 1);
+    let node_b = node("singleton-actor-remove-new-new", 2);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        node_a.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let retry_interval = Duration::from_millis(25);
+    let settings = SingletonManagerSettings::new(retry_interval).unwrap();
+    let (kit, time) =
+        ActorSystemTestKit::with_manual_time("singleton-manager-remove-new-oldest").unwrap();
+    let effects = kit
+        .create_probe::<Vec<SingletonManagerEffect>>("effects")
+        .unwrap();
+    let state = kit
+        .create_probe::<SingletonManagerSnapshot>("state")
+        .unwrap();
+    let manager = kit
+        .system()
+        .spawn(
+            "singleton-manager",
+            SingletonManagerActor::props_with_effect_sink(
+                node_a.clone(),
+                settings,
+                effects.actor_ref(),
+            ),
+        )
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::ApplyInitialObservation {
+            observation,
+            reply_to: None,
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::StartSingleton],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    manager
+        .tell(SingletonManagerMsg::ApplyOldestChange {
+            change: SingletonOldestChange::OldestChanged(Some(node_b.clone())),
+            reply_to: None,
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendTakeOverFromMe { to: node_b.clone() }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::MarkRemoved {
+            node: node_b.clone(),
+            reply_to: None,
+        })
+        .unwrap();
+    effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::StopSingleton],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    time.advance(retry_interval);
+    effects.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    manager
+        .tell(SingletonManagerMsg::SingletonTerminated { reply_to: None })
+        .unwrap();
+    manager
+        .tell(SingletonManagerMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        state.expect_msg(Duration::from_millis(500)).unwrap(),
+        SingletonManagerSnapshot {
+            self_node: node_a,
+            state: SingletonManagerState::Younger {
+                previous_oldest: Vec::new(),
+            },
+            removed_members: vec![node_b],
+        }
+    );
 
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
