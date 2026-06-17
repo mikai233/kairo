@@ -1968,6 +1968,11 @@ Implemented:
   remembered-shard restart timers so a coordinator handoff or graceful
   shutdown that arrives before the backoff fires suppresses the stale restart
   instead of rehosting a shard that is leaving the region.
+- `kairo-cluster-sharding` shard region coverage now also pins the stale
+  remembered-shard restart timer path where a replacement local shard is
+  explicitly hosted before the backoff fires; the delayed restart command
+  leaves the live replacement child intact and direct remembered-entity
+  delivery continues through that child.
 - `kairo-cluster-sharding` now has an actor-backed handoff worker that follows
   Pekko's rebalance worker sequence: send `BeginHandOff` to participants,
   wait for acknowledgements, hand off the owner region's store-backed local
@@ -3460,6 +3465,12 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-sharding restart_remembered_entity --all-targets --all-features
 cargo test -p kairo-cluster-sharding shard_actor_remembered_entity_waits_for_restart_after_unexpected_termination --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
