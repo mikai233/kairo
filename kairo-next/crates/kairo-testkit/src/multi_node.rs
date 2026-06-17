@@ -402,6 +402,19 @@ impl MultiNodeTestKit {
         }
     }
 
+    /// Enters a named barrier and waits with the remaining budget from `scope`.
+    ///
+    /// Use this inside [`Self::within`] blocks when barrier coordination needs
+    /// to share one deadline with probe or lifecycle assertions.
+    pub fn await_barrier_within(
+        &self,
+        name: impl Into<String>,
+        node_name: impl AsRef<str>,
+        scope: &Within,
+    ) -> MultiNodeResult<MultiNodeBarrierStatus> {
+        self.await_barrier(name, node_name, scope.remaining())
+    }
+
     /// Runs several barriers in order under one shared timeout budget.
     ///
     /// Each barrier consumes time from the same deadline. This mirrors
@@ -428,6 +441,23 @@ impl MultiNodeTestKit {
         }
 
         Ok(statuses)
+    }
+
+    /// Runs several barriers in order with the remaining budget from `scope`.
+    ///
+    /// This lets multi-node phases compose with other scoped assertions without
+    /// granting the barrier sequence its own independent timeout.
+    pub fn await_barriers_within<I, S>(
+        &self,
+        names: I,
+        node_name: impl AsRef<str>,
+        scope: &Within,
+    ) -> MultiNodeResult<Vec<MultiNodeBarrierStatus>>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.await_barriers(names, node_name, scope.remaining())
     }
 
     /// Runs multi-node assertions under one shared deadline.
@@ -539,6 +569,22 @@ impl MultiNodeTestKit {
     {
         let probe = self.create_probe_on::<AnyActorRef>(node_name, probe_name)?;
         Ok(probe.expect_terminated(subject, timeout)?)
+    }
+
+    /// Creates an erased-ref probe on a named node, watches a node-local actor,
+    /// and waits with the remaining budget from `scope`.
+    pub fn expect_terminated_on_within<M>(
+        &self,
+        node_name: impl AsRef<str>,
+        probe_name: impl AsRef<str>,
+        subject: &ActorRef<M>,
+        scope: &Within,
+    ) -> MultiNodeResult<AnyActorRef>
+    where
+        M: Send + 'static,
+    {
+        let probe = self.create_probe_on::<AnyActorRef>(node_name, probe_name)?;
+        Ok(probe.expect_terminated_within(subject, scope)?)
     }
 
     /// Terminates every node-owned actor system.

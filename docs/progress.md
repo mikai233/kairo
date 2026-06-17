@@ -654,9 +654,10 @@ Implemented:
   assert node-local lifecycle and diagnostics events without sharing one global
   probe system.
 - `MultiNodeTestKit` now also exposes node-local termination watch helpers and
-  a harness-centered `within` helper, so multi-node tests can compose actor
-  death-watch assertions and cross-node probe receives under one shared
-  deadline while preserving structured probe errors.
+  a harness-centered `within` helper, with scoped termination and barrier
+  helpers so multi-node tests can compose actor death-watch assertions,
+  cross-node probe receives, and ordered phase coordination under one shared
+  deadline while preserving structured probe and barrier errors.
 - `MultiNodeTestKit::enter_barrier` now provides named local multi-node phase
   coordination with explicit waiting/passed status, wrong-barrier order errors,
   duplicate-arrival errors, and unknown-node validation for future cluster and

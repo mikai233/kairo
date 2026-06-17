@@ -390,6 +390,29 @@ fn multi_node_testkit_within_reports_elapsed_successful_block() {
 }
 
 #[test]
+fn multi_node_testkit_within_composes_scoped_termination_watch() {
+    let kit = MultiNodeTestKit::new(["within-watch-node"]).expect("node should build");
+    let subject = kit
+        .spawn_on(
+            "within-watch-node",
+            "subject",
+            Props::new(|| MultiNodeUnitActor),
+        )
+        .expect("subject should spawn");
+
+    let observed = kit
+        .within(Duration::from_secs(1), |kit, scope| {
+            kit.system("within-watch-node")?.stop(&subject);
+            kit.expect_terminated_on_within("within-watch-node", "watcher", &subject, scope)
+        })
+        .expect("termination watch should fit within the shared deadline");
+
+    assert_eq!(observed.path(), subject.path());
+    kit.shutdown(Duration::from_secs(1))
+        .expect("node should terminate");
+}
+
+#[test]
 fn multi_node_testkit_rejects_empty_duplicate_and_unknown_nodes() {
     let empty =
         MultiNodeTestKit::new(Vec::<String>::new()).expect_err("empty node set should be rejected");
@@ -786,6 +809,44 @@ fn multi_node_testkit_await_barrier_blocks_until_all_nodes_arrive() {
 }
 
 #[test]
+fn multi_node_testkit_await_barrier_within_uses_shared_deadline() {
+    let kit = Arc::new(
+        MultiNodeTestKit::new(["await-within-a", "await-within-b"]).expect("nodes should build"),
+    );
+    let waiting_kit = Arc::clone(&kit);
+    let waiter = thread::spawn(move || {
+        waiting_kit.await_barrier("ready", "await-within-a", Duration::from_secs(1))
+    });
+
+    thread::sleep(Duration::from_millis(20));
+    let main_status = kit
+        .within(Duration::from_secs(1), |kit, scope| {
+            kit.await_barrier_within("ready", "await-within-b", scope)
+        })
+        .expect("scoped barrier should pass within the shared deadline");
+    assert_eq!(
+        main_status,
+        MultiNodeBarrierStatus::Passed {
+            name: "ready".to_string(),
+            participants: BTreeSet::from([
+                "await-within-a".to_string(),
+                "await-within-b".to_string()
+            ]),
+        }
+    );
+
+    let waiter_status = waiter
+        .join()
+        .expect("waiting thread should not panic")
+        .expect("waiting node should pass after second arrival");
+    assert_eq!(waiter_status, main_status);
+
+    let kit = Arc::try_unwrap(kit).expect("test should release shared kit refs");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
 fn multi_node_testkit_await_barrier_times_out_with_arrivals() {
     let kit = MultiNodeTestKit::new(["timeout-a", "timeout-b"]).expect("nodes should build");
 
@@ -902,6 +963,46 @@ fn multi_node_testkit_await_barriers_runs_ordered_phases_under_one_timeout() {
             Duration::from_secs(1),
         )
         .expect("second node should pass both barriers");
+    assert_eq!(
+        passed_barrier_names(&main_statuses),
+        vec!["phase-one", "phase-two"]
+    );
+
+    let waiter_statuses = waiter
+        .join()
+        .expect("waiting thread should not panic")
+        .expect("waiting node should pass both barriers");
+    assert_eq!(
+        passed_barrier_names(&waiter_statuses),
+        vec!["phase-one", "phase-two"]
+    );
+
+    let kit = Arc::try_unwrap(kit).expect("test should release shared kit refs");
+    kit.shutdown(Duration::from_secs(1))
+        .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_await_barriers_within_runs_ordered_phases() {
+    let kit = Arc::new(
+        MultiNodeTestKit::new(["sequence-within-a", "sequence-within-b"])
+            .expect("nodes should build"),
+    );
+    let waiting_kit = Arc::clone(&kit);
+    let waiter = thread::spawn(move || {
+        waiting_kit.await_barriers(
+            ["phase-one", "phase-two"],
+            "sequence-within-a",
+            Duration::from_secs(1),
+        )
+    });
+
+    thread::sleep(Duration::from_millis(20));
+    let main_statuses = kit
+        .within(Duration::from_secs(1), |kit, scope| {
+            kit.await_barriers_within(["phase-one", "phase-two"], "sequence-within-b", scope)
+        })
+        .expect("scoped barrier sequence should pass within one deadline");
     assert_eq!(
         passed_barrier_names(&main_statuses),
         vec!["phase-one", "phase-two"]

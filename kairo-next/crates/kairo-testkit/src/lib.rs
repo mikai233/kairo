@@ -58,7 +58,8 @@
 //!   [`MultiNodeTestKit::create_dead_letter_probe_on`] subscribe probes on a
 //!   specific named node for node-local lifecycle and diagnostics assertions.
 //! - [`MultiNodeTestKit::watch_terminated_on`],
-//!   [`MultiNodeTestKit::expect_terminated_on`], and
+//!   [`MultiNodeTestKit::expect_terminated_on`],
+//!   [`MultiNodeTestKit::expect_terminated_on_within`], and
 //!   [`MultiNodeTestKit::within`] compose node-local lifecycle observations and
 //!   cross-node probe assertions under deterministic multi-node test budgets.
 //! - [`MultiNodeTestKit::enter_barrier`] coordinates named local multi-node
@@ -67,6 +68,9 @@
 //!   multi-node phase until all participants arrive or a timeout expires.
 //! - [`MultiNodeTestKit::await_barriers`] runs ordered local multi-node phases
 //!   under one shared timeout budget.
+//! - [`MultiNodeTestKit::await_barrier_within`] and
+//!   [`MultiNodeTestKit::await_barriers_within`] apply barrier coordination to
+//!   an existing shared [`Within`] deadline.
 //!
 //! ## Probe-backed actor test
 //!
