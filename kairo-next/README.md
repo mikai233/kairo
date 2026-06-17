@@ -98,7 +98,9 @@ local and remote groups.
 The `cluster_sharding_local` example wires a local shard coordinator, typed
 shard region, stable `ShardingEnvelopeRouter`, `EntityRef<String>`, and
 entity-backed shard actor. Business messages reach a typed entity child without
-embedding the entity id in the business message.
+embedding the entity id in the business message. It also exercises entity
+passivation/restart through the same `EntityRef<String>` and a two-region
+graceful local shard movement that rehosts a remembered entity.
 
 The TCP peer bootstrap examples demonstrate the current cluster,
 distributed-data, and cluster-tools route setup around the shared remote

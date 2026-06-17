@@ -104,6 +104,10 @@ EntityRef<String> -> ShardingEnvelope<String> -> ShardRegionActor
   -> EntityShardActor -> typed entity child
 ```
 
+It also exercises entity passivation and restart through the same
+`EntityRef<String>`, then runs a two-region graceful local shard movement that
+rehosts a remembered entity on the surviving region.
+
 ## Configuration
 
 Kairo starts with TOML file loading while keeping runtime settings

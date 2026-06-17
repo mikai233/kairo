@@ -3294,6 +3294,10 @@ Implemented:
   `kairo-examples` doctests, and `kairo-testkit` multi-node harness tests,
   making the M12 example and multi-node acceptance gates visible as named CI
   checks.
+- The root and `kairo-next` README descriptions for `cluster_sharding_local`
+  now match the runnable binary and migration guide: local sharding docs call
+  out basic `EntityRef` routing, passivation/restart, and graceful remembered
+  shard movement.
 
 Not yet implemented:
 
