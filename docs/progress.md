@@ -3387,6 +3387,10 @@ Implemented:
 - The `kairo` facade prelude now re-exports `ResolvedActorRef` and
   `RemoteActorRefResolver`, with coverage that a facade user can wrap and send
   through a local resolved actor ref without a remote codec.
+- `kairo-actor` death-watch now tracks queued plain termination signals so
+  repeated `watch` calls for an already-stopped subject remain idempotent until
+  the queued `Terminated` signal is processed, matching Pekko's already-dead
+  watch behavior.
 
 Not yet implemented:
 

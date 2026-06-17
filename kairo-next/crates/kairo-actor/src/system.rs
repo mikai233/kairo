@@ -474,7 +474,12 @@ impl ActorSystem {
         N: Send + 'static,
     {
         if subject.is_terminated() {
-            registration.notify(TerminationCause::Stopped);
+            self.inner
+                .death_watch
+                .watch(subject.path().clone(), registration)?;
+            self.inner
+                .death_watch
+                .notify(subject.path(), TerminationCause::Stopped);
             return Ok(());
         }
 

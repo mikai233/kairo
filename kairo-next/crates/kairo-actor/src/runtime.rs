@@ -193,6 +193,11 @@ where
             false
         }
         Dequeued::System(SystemMessage::Signal(signal)) => {
+            let queued_subject = match &signal {
+                Signal::Terminated(actor) => Some(actor.path().clone()),
+                Signal::ChildFailed { actor, .. } => Some(actor.path().clone()),
+                Signal::PreRestart | Signal::PostStop => None,
+            };
             let stop_reason = apply_receive_result(
                 invoke_signal(actor, context, signal),
                 actor_ref,
@@ -202,6 +207,11 @@ where
                 system_inner,
                 &mut run_state.supervision,
             );
+            if let Some(subject) = queued_subject {
+                system_inner
+                    .death_watch
+                    .clear_queued_signal(&subject, actor_ref.path());
+            }
             if stop_reason.is_some() || context.stop_requested {
                 if let Some(reason) = stop_reason {
                     run_state.termination_cause = TerminationCause::Failed(reason);

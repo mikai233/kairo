@@ -529,6 +529,45 @@ fn watch_delivers_terminated_signal_once() {
 }
 
 #[test]
+fn watch_twice_delivers_one_terminated_signal_when_subject_already_stopped() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let subject_path = subject.path().clone();
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchTwice {
+            subject,
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject_path
+    );
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+}
+
+#[test]
 fn watch_path_delivers_terminated_signal_once_when_notified() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (terminated_tx, terminated_rx) = mpsc::channel();

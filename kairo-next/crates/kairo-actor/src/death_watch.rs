@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Mutex;
 
@@ -48,6 +48,7 @@ impl DeathWatchRegistration {
 #[derive(Default)]
 pub(crate) struct DeathWatchRegistry {
     watchers: Mutex<HashMap<ActorPath, Vec<DeathWatchRegistration>>>,
+    queued_signals: Mutex<HashSet<QueuedSignal>>,
 }
 
 impl fmt::Debug for DeathWatchRegistry {
@@ -69,6 +70,12 @@ impl DeathWatchRegistry {
         subject: ActorPath,
         registration: DeathWatchRegistration,
     ) -> Result<(), ActorError> {
+        if registration.kind == DeathWatchKind::Signal
+            && self.is_signal_queued(&subject, registration.watcher())
+        {
+            return Ok(());
+        }
+
         let mut watchers = self.watchers.lock().expect("death watch registry poisoned");
         let subject_watchers = watchers.entry(subject.clone()).or_default();
         if let Some(existing) = subject_watchers
@@ -97,6 +104,7 @@ impl DeathWatchRegistry {
                 watchers.remove(subject);
             }
         }
+        self.clear_queued_signal(subject, watcher);
     }
 
     pub(crate) fn remove_watcher(&self, watcher: &ActorPath) {
@@ -105,6 +113,10 @@ impl DeathWatchRegistry {
             subject_watchers.retain(|registration| registration.watcher() != watcher);
             !subject_watchers.is_empty()
         });
+        self.queued_signals
+            .lock()
+            .expect("death watch queued signals poisoned")
+            .retain(|queued| &queued.watcher != watcher);
     }
 
     pub(crate) fn notify(&self, subject: &ActorPath, cause: TerminationCause) {
@@ -115,6 +127,9 @@ impl DeathWatchRegistry {
             .remove(subject)
             .unwrap_or_default();
         for registration in registrations {
+            if registration.kind == DeathWatchKind::Signal {
+                self.queue_signal(subject.clone(), registration.watcher.clone());
+            }
             registration.notify(cause.clone());
         }
     }
@@ -133,12 +148,54 @@ impl DeathWatchRegistry {
                 .collect::<Vec<_>>();
             let mut registrations = Vec::new();
             for subject in subjects {
-                registrations.extend(watchers.remove(&subject).unwrap_or_default());
+                registrations.extend(
+                    watchers
+                        .remove(&subject)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|registration| (subject.clone(), registration)),
+                );
             }
             registrations
         };
-        for registration in registrations {
+        for (subject, registration) in registrations {
+            if registration.kind == DeathWatchKind::Signal {
+                self.queue_signal(subject, registration.watcher.clone());
+            }
             registration.notify(cause.clone());
         }
     }
+
+    pub(crate) fn clear_queued_signal(&self, subject: &ActorPath, watcher: &ActorPath) {
+        self.queued_signals
+            .lock()
+            .expect("death watch queued signals poisoned")
+            .remove(&QueuedSignal {
+                subject: subject.clone(),
+                watcher: watcher.clone(),
+            });
+    }
+
+    fn is_signal_queued(&self, subject: &ActorPath, watcher: &ActorPath) -> bool {
+        self.queued_signals
+            .lock()
+            .expect("death watch queued signals poisoned")
+            .contains(&QueuedSignal {
+                subject: subject.clone(),
+                watcher: watcher.clone(),
+            })
+    }
+
+    fn queue_signal(&self, subject: ActorPath, watcher: ActorPath) {
+        self.queued_signals
+            .lock()
+            .expect("death watch queued signals poisoned")
+            .insert(QueuedSignal { subject, watcher });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct QueuedSignal {
+    subject: ActorPath,
+    watcher: ActorPath,
 }
