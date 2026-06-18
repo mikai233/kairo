@@ -3857,6 +3857,10 @@ Implemented:
   `kairo-next/crates/*/Cargo.toml` and pins the `kairo-next/ARCHITECTURE.md`
   workspace crate list against them, keeping the technical contract aligned
   with the active rewrite package surface.
+- The `kairo` facade test suite now also pins the
+  `kairo-next/ARCHITECTURE.md` dependency-direction diagram against active
+  package `[dependencies]`, and the architecture contract now lists the direct
+  serialization dependency for cluster, sharding, and cluster-tools crates.
 - The root Rust CI matrix now includes M13 rustdoc and benchmark smoke gates:
   workspace documentation builds with `RUSTDOCFLAGS="-D warnings"` and the
   dependency-light benchmark runner executes all scenarios with
@@ -6215,6 +6219,11 @@ cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo architecture_lists_current_workspace_crates --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo architecture_dependency_direction_matches_active_manifests --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings

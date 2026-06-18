@@ -505,6 +505,27 @@ fn architecture_lists_current_workspace_crates() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+#[test]
+fn architecture_dependency_direction_matches_active_manifests()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let crates_dir = repo_root.join("kairo-next/crates");
+    let crate_names = active_workspace_crate_names(&crates_dir)?;
+    let manifest_edges = active_workspace_dependency_edges(&crates_dir, &crate_names)?;
+    let architecture_path = repo_root.join("kairo-next/ARCHITECTURE.md");
+    let architecture = std::fs::read_to_string(&architecture_path)?.replace("\r\n", "\n");
+    let architecture_edges = architecture_dependency_edges(&architecture)?;
+
+    assert_eq!(
+        architecture_edges,
+        manifest_edges,
+        "{} dependency direction block must match active kairo-next package manifests",
+        architecture_path.display()
+    );
+
+    Ok(())
+}
+
 fn active_workspace_crate_names(
     crates_dir: &std::path::Path,
 ) -> Result<std::collections::BTreeSet<String>, Box<dyn std::error::Error>> {
@@ -527,6 +548,59 @@ fn active_workspace_crate_names(
     }
 
     Ok(crate_names)
+}
+
+fn active_workspace_dependency_edges(
+    crates_dir: &std::path::Path,
+    crate_names: &std::collections::BTreeSet<String>,
+) -> Result<
+    std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+    Box<dyn std::error::Error>,
+> {
+    let mut edges = std::collections::BTreeMap::new();
+
+    for entry in std::fs::read_dir(crates_dir)? {
+        let entry = entry?;
+        let manifest_path = entry.path().join("Cargo.toml");
+        if !manifest_path.is_file() {
+            continue;
+        }
+
+        let manifest = std::fs::read_to_string(&manifest_path)?;
+        let package = manifest
+            .lines()
+            .find_map(|line| line.strip_prefix("name = "))
+            .map(unquote_toml_string)
+            .ok_or_else(|| format!("{} must declare package name", manifest_path.display()))?;
+        let mut dependencies = std::collections::BTreeSet::new();
+        let mut in_dependencies = false;
+
+        for line in manifest.lines() {
+            if line == "[dependencies]" {
+                in_dependencies = true;
+                continue;
+            }
+            if in_dependencies && line.starts_with('[') {
+                break;
+            }
+            if !in_dependencies {
+                continue;
+            }
+
+            let Some((dependency, _)) = line.split_once(" = ") else {
+                continue;
+            };
+            if crate_names.contains(dependency) {
+                dependencies.insert(dependency.to_string());
+            }
+        }
+
+        if !dependencies.is_empty() {
+            edges.insert(package, dependencies);
+        }
+    }
+
+    Ok(edges)
 }
 
 fn architecture_workspace_crate_names(
@@ -558,6 +632,73 @@ fn architecture_workspace_crate_names(
     }
 
     Ok(crate_names)
+}
+
+fn architecture_dependency_edges(
+    architecture: &str,
+) -> Result<
+    std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+    Box<dyn std::error::Error>,
+> {
+    let mut edges: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    let mut stack: Vec<(usize, String)> = Vec::new();
+    let mut after_heading = false;
+    let mut in_block = false;
+
+    for line in architecture.lines() {
+        if line == "Dependency direction:" {
+            after_heading = true;
+            continue;
+        }
+        if after_heading && line == "```text" {
+            in_block = true;
+            continue;
+        }
+        if in_block && line == "```" {
+            break;
+        }
+        if !in_block {
+            continue;
+        }
+
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let indent = line.len() - trimmed.len();
+        if !trimmed.starts_with("-> ") {
+            stack.clear();
+            stack.push((indent, trimmed.to_string()));
+            continue;
+        }
+
+        let dependency = trimmed
+            .strip_prefix("-> ")
+            .expect("dependency line starts with arrow")
+            .to_string();
+        while stack
+            .last()
+            .is_some_and(|(parent_indent, _)| *parent_indent >= indent)
+        {
+            stack.pop();
+        }
+        let Some((_, parent)) = stack.last() else {
+            return Err(format!("dependency `{dependency}` has no documented parent").into());
+        };
+        edges
+            .entry(parent.clone())
+            .or_default()
+            .insert(dependency.clone());
+        stack.push((indent, dependency));
+    }
+
+    if edges.is_empty() {
+        return Err("ARCHITECTURE.md must document dependency direction edges".into());
+    }
+
+    Ok(edges)
 }
 
 fn documented_workspace_crate_name(line: &str) -> Option<&str> {

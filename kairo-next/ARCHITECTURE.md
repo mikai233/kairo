@@ -85,6 +85,7 @@ kairo
   -> kairo-cluster
        -> kairo-actor
        -> kairo-remote
+       -> kairo-serialization
   -> kairo-distributed-data
        -> kairo-actor
        -> kairo-cluster
@@ -94,11 +95,13 @@ kairo
        -> kairo-actor
        -> kairo-cluster
        -> kairo-distributed-data
+       -> kairo-serialization
   -> kairo-cluster-tools
        -> kairo-actor
        -> kairo-cluster
        -> kairo-distributed-data
        -> kairo-remote
+       -> kairo-serialization
   -> kairo-testkit
        -> kairo-actor
 kairo-examples
