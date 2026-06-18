@@ -17,6 +17,20 @@ The facade keeps the implementation split across focused crates while exposing
 common actor, configuration, serialization, remote, cluster, distributed-data,
 sharding, cluster-tools, and testkit entry points behind feature flags.
 
+Default facade features enable typed local actors, macros, and TOML
+configuration loading. Distributed layers are opt-in:
+
+| Feature | Enables |
+| --- | --- |
+| `serialization` | stable remote-message metadata and codec registry |
+| `remote` | `actor`, `serialization`, remote refs and associations |
+| `cluster` | `remote`, gossip membership and downing hooks |
+| `distributed-data` | `cluster`, CRDT replication |
+| `cluster-sharding` | `cluster`, `distributed-data`, entity routing |
+| `cluster-tools` | `cluster`, `distributed-data`, singleton and pubsub |
+| `testkit` | local actor test utilities without distributed runtime layers |
+| `full` | every public facade feature for integration checks |
+
 For subsystem internals or advanced tests, import the focused crates directly:
 
 ```rust

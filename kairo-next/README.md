@@ -41,6 +41,24 @@ For migration guidance from the old reference crates, see
 `kairo-examples` and `kairo-benchmarks` are leaf support crates. Runtime crates
 must not depend on them.
 
+## Facade Features
+
+The `kairo` facade is the recommended dependency for application code. The
+default feature set stays local and configuration focused, while distributed
+layers remain explicit opt-ins:
+
+| Feature | Enables |
+| --- | --- |
+| `default` | `actor`, `macros`, `config` |
+| `serialization` | stable remote-message metadata and codec registry |
+| `remote` | `actor`, `serialization`, remote refs and associations |
+| `cluster` | `remote`, gossip membership and downing hooks |
+| `distributed-data` | `cluster`, CRDT replication |
+| `cluster-sharding` | `cluster`, `distributed-data`, entity routing |
+| `cluster-tools` | `cluster`, `distributed-data`, singleton and pubsub |
+| `testkit` | local actor test utilities without distributed runtime layers |
+| `full` | every public facade feature for integration checks |
+
 ## Core User Model
 
 Local actor protocols are plain Rust message types sent through `ActorRef<M>`.

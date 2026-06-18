@@ -3871,6 +3871,9 @@ Implemented:
 - The `kairo` facade test suite now pins the public feature graph: defaults
   remain local actor/config focused, distributed layers stay opt-in, and the
   `full` feature remains the explicit all-surface bundle.
+- The root README, `kairo-next` README, and migration notes now document the
+  `kairo` facade feature map so users can choose local defaults, distributed
+  opt-ins, `testkit`, or `full` without reading crate manifests.
 
 Not yet implemented:
 

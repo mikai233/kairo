@@ -46,6 +46,24 @@ The normal workspace is under `kairo-next/crates/*` and includes:
 - `kairo-benchmarks`: dependency-light M13 benchmark runner for actor tell,
   remote send, gossip merge, and sharding route throughput.
 
+## Facade Features
+
+The `kairo` facade is the recommended user entry point. Its default feature set
+enables local actors, macros, and TOML configuration loading. Distributed
+runtime layers are opt-in and preserve the architecture dependency order:
+
+| Feature | Enables |
+| --- | --- |
+| `default` | `actor`, `macros`, `config` |
+| `serialization` | stable remote-message metadata and codec registry |
+| `remote` | `actor`, `serialization`, remote refs and associations |
+| `cluster` | `remote`, gossip membership and downing hooks |
+| `distributed-data` | `cluster`, CRDT replication |
+| `cluster-sharding` | `cluster`, `distributed-data`, entity routing |
+| `cluster-tools` | `cluster`, `distributed-data`, singleton and pubsub |
+| `testkit` | local actor test utilities without distributed runtime layers |
+| `full` | every public facade feature for integration checks |
+
 ## Running Examples
 
 From `kairo-next`:
