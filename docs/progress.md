@@ -1066,6 +1066,9 @@ Implemented:
   another actor system instead of producing a misleading remote address.
 - `RemoteAssociation` records the initial association state transitions for
   idle, handshaking, active, quarantined, and closed remoting links.
+- `RemoteAssociation` now treats closed and quarantined states as terminal for
+  late handshakes and activations, so stale transport handshakes cannot reopen
+  an association that should reject sends.
 - `kairo-remote::register_remote_protocol_codecs` registers stable explicit
   codecs and serializer ids for remote watch, unwatch, per-actor remote
   termination, heartbeat, heartbeat-ack, and address-terminated system messages
@@ -6227,5 +6230,10 @@ cargo test -p kairo architecture_dependency_direction_matches_active_manifests -
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-remote association_terminal_states_are_not_reopened_by_late_handshake_or_activation --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```

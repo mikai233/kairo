@@ -158,7 +158,14 @@ impl RemoteAssociation {
     }
 
     pub fn activate(&mut self, remote_uid: Option<u64>) {
-        self.state = AssociationState::Active { remote_uid };
+        match &self.state {
+            AssociationState::Idle
+            | AssociationState::Handshaking
+            | AssociationState::Active { .. } => {
+                self.state = AssociationState::Active { remote_uid };
+            }
+            AssociationState::Quarantined { .. } | AssociationState::Closed { .. } => {}
+        }
     }
 
     pub fn quarantine(&mut self, remote_uid: Option<u64>, reason: impl Into<String>) {
@@ -274,6 +281,45 @@ mod tests {
         assert!(matches!(
             association.ensure_send_allowed(),
             Err(RemoteError::AssociationClosed { .. })
+        ));
+    }
+
+    #[test]
+    fn association_terminal_states_are_not_reopened_by_late_handshake_or_activation() {
+        let mut closed = RemoteAssociation::new("kairo://closed@127.0.0.1:25520");
+        closed.close("transport stopped");
+
+        closed.start_handshake();
+        closed.activate(Some(9));
+
+        assert_eq!(
+            closed.state(),
+            &AssociationState::Closed {
+                reason: "transport stopped".to_string(),
+            }
+        );
+        assert!(matches!(
+            closed.ensure_send_allowed(),
+            Err(RemoteError::AssociationClosed { .. })
+        ));
+
+        let mut quarantined = RemoteAssociation::new("kairo://quarantined@127.0.0.1:25521");
+        quarantined.activate(Some(7));
+        quarantined.quarantine(Some(7), "uid mismatch");
+
+        quarantined.start_handshake();
+        quarantined.activate(Some(9));
+
+        assert_eq!(
+            quarantined.state(),
+            &AssociationState::Quarantined {
+                remote_uid: Some(7),
+                reason: "uid mismatch".to_string(),
+            }
+        );
+        assert!(matches!(
+            quarantined.ensure_send_allowed(),
+            Err(RemoteError::AssociationQuarantined { .. })
         ));
     }
 
