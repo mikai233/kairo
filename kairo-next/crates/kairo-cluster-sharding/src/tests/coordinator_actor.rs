@@ -518,6 +518,106 @@ fn coordinator_actor_plans_rebalance_and_defers_shard_home_requests() {
 }
 
 #[test]
+fn coordinator_actor_retries_pending_home_after_cleared_rebalance() {
+    let mut state = CoordinatorState::new();
+    for region in ["region-a", "region-b"] {
+        state
+            .apply(CoordinatorEvent::ShardRegionRegistered {
+                region: region.to_string(),
+            })
+            .unwrap();
+    }
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "s1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("coordinator-cleared-rebalance-retry").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props(
+                state,
+                RebalanceThenAllocateStrategy::new(["s1"], "region-b"),
+            ),
+        )
+        .unwrap();
+    let rebalance = kit
+        .create_probe::<Result<RebalancePlan, ShardingError>>("rebalance")
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+    let snapshot = kit
+        .create_probe::<CoordinatorStateSnapshot>("snapshot")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::PlanRebalance {
+            reply_to: rebalance.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        rebalance
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        RebalancePlan::Started { ref shards } if shards.len() == 1 && shards[0].shard == "s1"
+    ));
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-b".to_string(),
+            shard: "s1".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        home.expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        GetShardHomePlan::Deferred {
+            shard: "s1".to_string(),
+            requester: "region-b".to_string(),
+        }
+    );
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RegionStopped {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::HandoffWorkerDone(HandoffWorkerDone {
+            shard: "s1".to_string(),
+            ok: true,
+        }))
+        .unwrap();
+
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &snapshot,
+        "pending shard-home requester should be retried after source region termination",
+        |state| {
+            !state.rebalance_in_progress.contains_key("s1")
+                && !state
+                    .allocations
+                    .get("region-a")
+                    .is_some_and(|shards| shards.contains(&"s1".to_string()))
+                && state
+                    .allocations
+                    .get("region-b")
+                    .is_some_and(|shards| shards.contains(&"s1".to_string()))
+        },
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_rebalance_tick_uses_allocation_strategy() {
     let mut state = CoordinatorState::new();
     for region in ["region-a", "region-b"] {
@@ -743,12 +843,15 @@ fn wait_for_remembered_coordinator_shard(
     .unwrap()
 }
 
-fn wait_for_coordinator_snapshot(
-    coordinator: &ActorRef<ShardCoordinatorMsg<String>>,
+fn wait_for_coordinator_snapshot<M>(
+    coordinator: &ActorRef<ShardCoordinatorMsg<M>>,
     state: &kairo_testkit::TestProbe<CoordinatorStateSnapshot>,
     description: &str,
     mut matches: impl FnMut(&CoordinatorStateSnapshot) -> bool,
-) -> CoordinatorStateSnapshot {
+) -> CoordinatorStateSnapshot
+where
+    M: Clone + Send + 'static,
+{
     kairo_testkit::await_assert(
         polling_timeout(),
         Duration::from_millis(10),

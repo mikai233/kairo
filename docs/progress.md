@@ -3953,6 +3953,10 @@ Implemented:
   begin-handoff acknowledgement, and a terminated source region completes the
   shard-stop phase successfully, matching Pekko
   `RebalanceWorker.ShardRegionTerminated` behavior.
+- `kairo-cluster-sharding` shard coordinators now retry deferred shard-home
+  requests when a rebalance completes after the previous shard home was already
+  removed by region termination. This mirrors Pekko's
+  `clearRebalanceInProgress` behavior for pending `GetShardHome` requesters.
 
 Not yet implemented:
 
@@ -4020,6 +4024,11 @@ cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnin
 cargo test -p kairo-cluster-sharding handoff_worker_treats_participant_termination_as_begin_ack --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding handoff_worker_completes_when_owner_terminates_while_waiting_for_stop --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding handoff_worker --all-targets --all-features
+cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-sharding coordinator_actor_retries_pending_home_after_cleared_rebalance --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check

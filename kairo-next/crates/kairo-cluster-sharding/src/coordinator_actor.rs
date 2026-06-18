@@ -550,24 +550,45 @@ where
         ctx: &Context<ShardCoordinatorMsg<M>>,
         completion: RebalanceCompletionPlan,
     ) -> ActorResult {
-        let RebalanceCompletionPlan::Deallocated {
-            retry_get_shard_home,
-            pending_requesters,
-            ..
-        } = completion
-        else {
-            return Ok(());
-        };
+        match completion {
+            RebalanceCompletionPlan::Deallocated {
+                retry_get_shard_home,
+                pending_requesters,
+                ..
+            } => {
+                let requesters = if pending_requesters.is_empty() {
+                    vec!["coordinator".to_string()]
+                } else {
+                    pending_requesters
+                };
+                self.retry_completed_rebalance_home(ctx, retry_get_shard_home.shard_id, requesters)
+            }
+            RebalanceCompletionPlan::Cleared {
+                shard,
+                pending_requesters,
+            } => {
+                if pending_requesters.is_empty() {
+                    return Ok(());
+                }
+                self.retry_completed_rebalance_home(ctx, shard, pending_requesters)
+            }
+            RebalanceCompletionPlan::TimedOut { .. } => Ok(()),
+        }
+    }
 
+    fn retry_completed_rebalance_home(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
+        shard: ShardId,
+        pending_requesters: Vec<RegionId>,
+    ) -> ActorResult {
         let requester = pending_requesters
             .into_iter()
             .next()
             .unwrap_or_else(|| "coordinator".to_string());
-        let result = self.runtime.request_shard_home(
-            requester,
-            retry_get_shard_home.shard_id,
-            self.strategy.as_ref(),
-        );
+        let result = self
+            .runtime
+            .request_shard_home(requester, shard, self.strategy.as_ref());
         self.persist_allocated_shard(ctx, &result)?;
         let plan = result.map_err(|error| ActorError::Message(error.to_string()))?;
         if let Some(handoff) = &self.handoff {
