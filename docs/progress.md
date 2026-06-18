@@ -3675,6 +3675,10 @@ Implemented:
 - Duplicate `watch_with` calls for an already stopped subject are now
   idempotent while a custom termination message is already queued, matching the
   same already-dead notification suppression used for plain `watch`.
+- `kairo-actor` death-watch coverage now also pins that already-dead queued
+  notification markers are consumed on delivery: after plain `watch` or
+  `watch_with` delivers for an already stopped subject, watching that same
+  stopped ref again queues and delivers a fresh notification.
 - `kairo-actor` watch-with coverage now pins that custom termination messages
   are normal user protocol messages that can be explicitly stashed and later
   unstashed before user delivery, preserving Pekko's watch-with stash
@@ -5532,6 +5536,13 @@ cargo clippy -p kairo-actor-macros -p kairo-serialization --all-targets --all-fe
 git diff --check
 cargo test -p kairo-actor receptionist_find_with_reply_sends_current_listing_without_subscribing --all-targets --all-features
 cargo test -p kairo-actor receptionist --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor watch_can_requeue_already_stopped_notification_after_delivery --all-targets --all-features
+cargo test -p kairo-actor watch_with_can_requeue_already_stopped_custom_message_after_delivery --all-targets --all-features
+cargo test -p kairo-actor watch --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings

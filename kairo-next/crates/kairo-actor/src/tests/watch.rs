@@ -739,6 +739,128 @@ fn watch_with_twice_delivers_one_custom_message_when_subject_already_stopped() {
 }
 
 #[test]
+fn watch_can_requeue_already_stopped_notification_after_delivery() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let subject_path = subject.path().clone();
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (first_registered_tx, first_registered_rx) = mpsc::channel();
+    let (second_registered_tx, second_registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchTwice {
+            subject: subject.clone(),
+            reply_to: first_registered_tx,
+        })
+        .unwrap();
+    first_registered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject_path
+    );
+
+    watcher
+        .tell(WatchProbeMsg::WatchTwice {
+            subject: subject.clone(),
+            reply_to: second_registered_tx,
+        })
+        .unwrap();
+    second_registered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        subject.path().clone()
+    );
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
+fn watch_with_can_requeue_already_stopped_custom_message_after_delivery() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let subject_path = subject.path().clone();
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (first_registered_tx, first_registered_rx) = mpsc::channel();
+    let (first_observed_tx, first_observed_rx) = mpsc::channel();
+    let (second_registered_tx, second_registered_rx) = mpsc::channel();
+    let (second_observed_tx, second_observed_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWith {
+            subject: subject.clone(),
+            registered: first_registered_tx,
+            observed: first_observed_tx,
+        })
+        .unwrap();
+    first_registered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(
+        first_observed_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        subject_path
+    );
+
+    watcher
+        .tell(WatchProbeMsg::WatchWith {
+            subject: subject.clone(),
+            registered: second_registered_tx,
+            observed: second_observed_tx,
+        })
+        .unwrap();
+    second_registered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    assert_eq!(
+        second_observed_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        subject.path().clone()
+    );
+    assert!(
+        second_observed_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
 fn queued_already_stopped_watch_then_watch_with_requires_unwatch_first() {
     let system = ActorSystem::builder("test").build().unwrap();
     let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
