@@ -5,12 +5,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use kairo_actor::{Address, Props};
+use kairo_actor::{ActorError, Address, Props};
 use kairo_remote::{RemoteOutbound, RemoteSettings};
 use kairo_testkit::{ActorSystemTestKit, MultiNodeTestKit};
 
 use super::{
-    ClusterTcpPeerBootstrap, ClusterTcpPeerBootstrapIdentity, ClusterTcpPeerBootstrapSettings,
+    ClusterTcpPeerBootstrap, ClusterTcpPeerBootstrapError, ClusterTcpPeerBootstrapIdentity,
+    ClusterTcpPeerBootstrapSettings,
 };
 use crate::{
     Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, ClusterMembershipMsg,
@@ -103,6 +104,61 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
     assert!(!bootstrap.connector().is_stopped());
 
     run_bootstrap_shutdown(&kit, bootstrap.connector());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_stops_connector_when_shutdown_registration_fails() {
+    let _guard = bootstrap_socket_test_lock();
+    let kit = ActorSystemTestKit::new("cluster-bootstrap-registration-failure").unwrap();
+    let publisher_node =
+        UniqueAddress::new(Address::local("cluster-bootstrap-registration-failure"), 1);
+    let publisher = spawn_publisher(&kit, "publisher", publisher_node);
+    let cluster = Cluster::new(publisher);
+    let settings = ClusterTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_name("cluster-peer")
+    .with_connector_settings(
+        ClusterTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_shutdown_task_name("");
+
+    let error = match ClusterTcpPeerBootstrap::bind_and_spawn(
+        kit.system(),
+        cluster.clone(),
+        ClusterTcpPeerBootstrapIdentity::new(1, 11),
+        settings,
+        |self_node, _cache| crate::ClusterSystemInbound::new(self_node),
+    ) {
+        Ok(_) => panic!("invalid shutdown task name should fail bootstrap"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        ClusterTcpPeerBootstrapError::Actor(ActorError::InvalidShutdownTaskName)
+    ));
+    let replacement = ClusterTcpPeerBootstrap::bind_and_spawn(
+        kit.system(),
+        cluster,
+        ClusterTcpPeerBootstrapIdentity::new(2, 22),
+        ClusterTcpPeerBootstrapSettings::new(
+            RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+        )
+        .with_connector_name("cluster-peer")
+        .with_connector_settings(
+            ClusterTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        ),
+        |self_node, _cache| crate::ClusterSystemInbound::new(self_node),
+    )
+    .expect("same connector name should be reusable after registration failure cleanup");
+
+    run_bootstrap_shutdown(&kit, replacement.connector());
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

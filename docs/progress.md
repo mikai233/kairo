@@ -453,6 +453,10 @@ Implemented:
   retry: each bootstrap-owned connector reports the pending reconnect before
   shutdown, the stop task clears socket routes, and later membership
   publications do not leave stale adapter dead letters or recreate routes.
+- Cluster, distributed-data, and cluster-tools TCP peer bootstrap facades now
+  stop the newly spawned connector if coordinated-shutdown task registration
+  fails, preventing partial bootstrap construction from leaking the system
+  actor name or bound runtime.
 - Cluster TCP peer connector route application now runs through queued
   actor-owned tasks so blocking TCP dials do not hold the actor message turn;
   connector snapshots are served from cached runtime state and task
@@ -2553,6 +2557,9 @@ Implemented:
   TCP peer runtime, spawns the connector actor with explicit settings, exposes
   the connector ref/self node/local association address, and registers
   coordinated shutdown to stop the connector before cluster shutdown.
+- Cluster TCP peer bootstrap now stops the newly spawned connector if
+  coordinated-shutdown task registration fails, so the same system actor name
+  can be reused by a later successful bootstrap attempt.
 - Cluster TCP peer bootstrap now has a two-node socket validation: two real
   bound runtimes are spawned through the bootstrap facade, cluster membership
   is published to both connector actors, and each side installs a peer route
@@ -2860,6 +2867,9 @@ Implemented:
   tools TCP peer runtime from remote transport settings, spawns the connector,
   exposes its connector ref/self node/local association address, and registers
   a coordinated-shutdown actor-termination task before cluster shutdown.
+- Cluster-tools TCP peer bootstrap now stops the newly spawned connector if
+  coordinated-shutdown task registration fails, so the same system actor name
+  can be reused by a later successful bootstrap attempt.
 - Cluster-tools TCP peer bootstrap now has a two-node socket validation: two
   real bound runtimes are spawned through the bootstrap facade, cluster
   membership is published to both connector actors, and each side installs a
@@ -3861,8 +3871,13 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding region_actor_ignores_prior_remembered_local_shard_restart_timer_after_new_failure --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo test -p kairo-cluster bootstrap_stops_connector_when_shutdown_registration_fails --all-targets --all-features -- --nocapture
 cargo test -p kairo-distributed-data bootstrap_stops_connector_when_shutdown_registration_fails --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools bootstrap_stops_connector_when_shutdown_registration_fails --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_bootstrap --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo test --workspace --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
