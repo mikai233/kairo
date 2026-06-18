@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 
 use kairo_actor::{Address, Props};
 use kairo_cluster::{
-    ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus, Reachability,
+    ClusterEventPublisher, ClusterEventPublisherMsg, CurrentClusterState, Gossip, Member,
+    MemberStatus, Reachability,
 };
 use kairo_remote::{RemoteError, RemoteSettings};
 use kairo_serialization::RemoteEnvelope;
@@ -213,6 +214,24 @@ fn eventually_snapshot(
         assert!(Instant::now() < deadline, "timed out waiting for snapshot");
         std::thread::sleep(Duration::from_millis(5));
     }
+}
+
+fn publish_changes_and_wait(
+    kit: &ActorSystemTestKit,
+    publisher: &ActorRef<ClusterEventPublisherMsg>,
+    gossip: Gossip,
+    probe_name: &str,
+) {
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
+        .unwrap();
+    let state = kit.create_probe::<CurrentClusterState>(probe_name).unwrap();
+    publisher
+        .tell(ClusterEventPublisherMsg::SendCurrentState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    state.expect_msg(Duration::from_secs(1)).unwrap();
 }
 
 #[test]
@@ -607,12 +626,12 @@ fn connector_clear_routes_removes_active_peer_routes() {
 
     sender_kit.system().stop(&connector);
     assert!(connector.wait_for_stop(Duration::from_secs(1)));
-    publisher
-        .tell(ClusterEventPublisherMsg::PublishChanges(
-            Gossip::from_members([member(sender_node)]),
-        ))
-        .unwrap();
-    std::thread::sleep(Duration::from_millis(50));
+    publish_changes_and_wait(
+        &sender_kit,
+        &publisher,
+        Gossip::from_members([member(sender_node)]),
+        "clear-after-stop-state",
+    );
     assert!(sender_kit.system().dead_letters().is_empty());
     assert_eq!(sender_cache.route_count(), 0);
     receiver_runtime.shutdown().unwrap();
@@ -682,12 +701,12 @@ fn connector_stop_clears_pending_reconnect_and_unsubscribes_from_cluster() {
         22,
         receiver_port,
     );
-    publisher
-        .tell(ClusterEventPublisherMsg::PublishChanges(
-            Gossip::from_members([member(sender_node), member(receiver_node)]),
-        ))
-        .unwrap();
-    std::thread::sleep(Duration::from_millis(50));
+    publish_changes_and_wait(
+        &sender_kit,
+        &publisher,
+        Gossip::from_members([member(sender_node), member(receiver_node)]),
+        "stop-pending-after-stop-state",
+    );
 
     assert!(sender_kit.system().dead_letters().is_empty());
     assert_eq!(sender_cache.route_count(), 0);
