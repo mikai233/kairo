@@ -3655,6 +3655,10 @@ Implemented:
   cleanup: child watches owned by the restarting parent are removed before
   default restart teardown stops those children, so stale `watch_with`
   messages from restart-driven child stops do not re-enter the restarted actor.
+- `kairo-actor` restart supervision now also pins the same watch-cleanup and
+  restart-barrier boundary across multiple watched children: default restart
+  teardown waits for every stopped child and suppresses all stale custom watch
+  messages before the restarted parent processes queued user messages.
 - `kairo-actor` tree-lifecycle tests now pin restart-time child termination
   ordering: a restarting parent waits for children stopped by default restart
   teardown before processing queued user messages, so replacement children
@@ -4274,6 +4278,16 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after multi-child restart watch-cleanup coverage:
+
+```bash
+cargo test -p kairo-actor restart_supervision_waits_for_all_restart_stopped_children_without_watch_messages --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after migration legacy-removal gate coverage:
 

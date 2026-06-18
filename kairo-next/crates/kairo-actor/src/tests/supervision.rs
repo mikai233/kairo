@@ -1386,6 +1386,7 @@ impl Actor for RestartWatchedChild {
 enum RestartWatchMsg {
     SpawnAndWatchChild(mpsc::Sender<()>),
     SpawnAndWatchChildRef(mpsc::Sender<ActorRef<()>>),
+    SpawnAndWatchTwoChildren(mpsc::Sender<()>),
     Fail,
     ChildTerminated,
     Ping(mpsc::Sender<()>),
@@ -1424,6 +1425,21 @@ impl Actor for RestartWatchParent {
                 ctx.watch_with(&child, RestartWatchMsg::ChildTerminated)?;
                 reply_to
                     .send(child)
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartWatchMsg::SpawnAndWatchTwoChildren(reply_to) => {
+                for name in ["child-a", "child-b"] {
+                    let events = self.events.clone();
+                    let child = ctx.spawn(
+                        name,
+                        Props::new(move || RestartWatchedChild {
+                            events: events.clone(),
+                        }),
+                    )?;
+                    ctx.watch_with(&child, RestartWatchMsg::ChildTerminated)?;
+                }
+                reply_to
+                    .send(())
                     .map_err(|error| ActorError::Message(error.to_string()))
             }
             RestartWatchMsg::Fail => Err(ActorError::Message("boom".to_string())),
@@ -1469,6 +1485,45 @@ fn restart_supervision_unwatches_children_before_restart_stop() {
         events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         RestartWatchEvent::ChildStopped
     );
+    assert_eq!(events_rx.try_recv().unwrap_err(), mpsc::TryRecvError::Empty);
+}
+
+#[test]
+fn restart_supervision_waits_for_all_restart_stopped_children_without_watch_messages() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (events_tx, events_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(move || RestartWatchParent {
+                events: events_tx.clone(),
+            }),
+        )
+        .unwrap();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartWatchMsg::SpawnAndWatchTwoChildren(spawned_tx))
+        .unwrap();
+    spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(RestartWatchMsg::Fail).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent.tell(RestartWatchMsg::Ping(ping_tx)).unwrap();
+
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RestartWatchEvent::ChildStopped
+    );
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RestartWatchEvent::ChildStopped
+    );
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (drain_tx, drain_rx) = mpsc::channel();
+    parent.tell(RestartWatchMsg::Ping(drain_tx)).unwrap();
+    drain_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
     assert_eq!(events_rx.try_recv().unwrap_err(), mpsc::TryRecvError::Empty);
 }
 
