@@ -56,3 +56,25 @@ jobs:
         run: cargo test -p kairo-examples --doc --all-features
       - name: Run local multi-node harness tests
         run: cargo test -p kairo-testkit multi_node --all-targets --all-features
+
+  docs:
+    name: Rustdoc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang mold protobuf-compiler
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build workspace docs with warnings denied
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+
+  benchmarks:
+    name: Benchmark Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang mold protobuf-compiler
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run M13 benchmark smoke
+        run: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all

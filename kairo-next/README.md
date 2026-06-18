@@ -146,6 +146,8 @@ Examples and Multi-Node:
   cargo test -p kairo-examples --all-targets --all-features
   cargo test -p kairo-examples --doc --all-features
   cargo test -p kairo-testkit multi_node --all-targets --all-features
+Rustdoc: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+Benchmark Smoke: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
 ```
 
 Run the default full validation target locally with:
@@ -163,6 +165,8 @@ directly while developing integration workflows:
 cargo test -p kairo-examples --all-targets --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
 ```
 
 ## Benchmarks

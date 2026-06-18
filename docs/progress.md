@@ -3834,6 +3834,10 @@ Implemented:
 - `kairo-next/ARCHITECTURE.md` now reflects the current workspace support
   crates by listing `kairo-examples` and `kairo-benchmarks` as leaf crates that
   validate public facade workflows without becoming runtime dependencies.
+- The root Rust CI matrix now includes M13 rustdoc and benchmark smoke gates:
+  workspace documentation builds with `RUSTDOCFLAGS="-D warnings"` and the
+  dependency-light benchmark runner executes all scenarios with
+  `KAIRO_BENCH_ITERS=100`.
 
 Not yet implemented:
 
