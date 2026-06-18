@@ -3859,6 +3859,9 @@ Implemented:
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
+- TCP example shutdown observation helpers for cluster, distributed-data, and
+  cluster-tools now share one timeout budget across connector snapshot,
+  coordinated shutdown, and connector stop observation.
 
 Not yet implemented:
 

@@ -307,16 +307,19 @@ impl ClusterToolsTcpExampleNode {
         self,
         timeout: Duration,
     ) -> Result<ClusterToolsTcpShutdownObservation, ActorError> {
+        let deadline = shutdown_deadline(timeout);
         let connector = self.bootstrap.connector().clone();
         let route_count_before_shutdown = self
-            .connector_snapshot(timeout)
+            .connector_snapshot(remaining_shutdown_time(deadline)?)
             .map_err(|error| ActorError::Message(error.to_string()))?
             .route_count;
-        self.system
-            .run_coordinated_shutdown("cluster-tools tcp example complete", timeout)?;
+        self.system.run_coordinated_shutdown(
+            "cluster-tools tcp example complete",
+            remaining_shutdown_time(deadline)?,
+        )?;
         Ok(ClusterToolsTcpShutdownObservation {
             route_count_before_shutdown,
-            connector_stopped: connector.wait_for_stop(timeout),
+            connector_stopped: connector.wait_for_stop(remaining_shutdown_time(deadline)?),
         })
     }
 }
@@ -460,4 +463,16 @@ fn sleep_until_next_poll(deadline: Instant) -> bool {
     };
     thread::sleep(Duration::from_millis(10).min(remaining));
     true
+}
+
+fn shutdown_deadline(timeout: Duration) -> Instant {
+    Instant::now()
+        .checked_add(timeout)
+        .unwrap_or_else(|| Instant::now() + Duration::from_secs(60 * 60 * 24 * 365))
+}
+
+fn remaining_shutdown_time(deadline: Instant) -> Result<Duration, ActorError> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .ok_or(ActorError::TerminationTimeout)
 }
