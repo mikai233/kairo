@@ -4113,6 +4113,11 @@ Implemented:
   an initially missing peer is left pending reconnect, then binding that peer
   and advancing scheduled deadlines installs the route without sending direct
   retry commands to the connector.
+- `kairo-cluster`, `kairo-distributed-data`, and `kairo-cluster-tools` TCP
+  peer bootstrap facades now also cover coordinated shutdown while one peer
+  route is active and another peer is pending reconnect: shutdown stops the
+  connector, clears the live association route, cancels the pending reconnect,
+  and later membership publication cannot resurrect stale routes.
 - `kairo-cluster-sharding` regions now death-watch spawned local shard actors:
   when a remembered shard child stops unexpectedly, the region observes the
   termination itself, removes the local route, schedules the remember-entity
@@ -4251,6 +4256,20 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after mixed active-route and pending-reconnect
+bootstrap shutdown coverage:
+
+```bash
+cargo test bootstrap_coordinated_shutdown_clears_route_and_pending_reconnect --workspace --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
 
 Latest M13 validation refresh after child-preserving non-restartable child
 liveness coverage:

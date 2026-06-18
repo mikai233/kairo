@@ -1147,6 +1147,85 @@ fn bootstrap_coordinated_shutdown_stops_connector_with_pending_reconnect() {
 }
 
 #[test]
+fn bootstrap_coordinated_shutdown_clears_route_and_pending_reconnect() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-shutdown-mixed-sender").unwrap();
+    let retry_interval = Duration::from_millis(25);
+    let bound_port = unused_port();
+    let missing_port = unused_port();
+    let bound_node = node("ddata-bootstrap-shutdown-mixed-bound", bound_port, 2);
+    let missing_node = node("ddata-bootstrap-shutdown-mixed-missing", missing_port, 3);
+    let sender_runtime = bind_runtime(
+        "ddata-bootstrap-shutdown-mixed-sender",
+        1,
+        11,
+        ReplicaId::from(&bound_node),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let bound_runtime = bind_association_runtime_on_port(
+        "ddata-bootstrap-shutdown-mixed-bound",
+        ReplicaId::from(&bound_node),
+        ReplicaId::from(&sender_node),
+        22,
+        bound_port,
+    );
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(retry_interval)
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_connector_name("sender-ddata-peer");
+
+    let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([
+            sender_node.clone(),
+            bound_node.clone(),
+            missing_node.clone(),
+        ]),
+    );
+    await_connector_routes_and_pending_reconnect(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        std::slice::from_ref(&bound_node),
+        &missing_node,
+    );
+    await_cache_route_count(&sender_cache, 1);
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
+
+    publish_gossip_and_wait(
+        &sender_kit,
+        &sender_publisher,
+        up_gossip([sender_node, bound_node, missing_node]),
+        "sender-mixed-after-shutdown-state",
+    );
+    assert!(sender_kit.system().dead_letters().is_empty());
+    await_cache_route_count(&sender_cache, 0);
+
+    bound_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
     let _guard = bootstrap_socket_test_lock();
     let registry = registry();
