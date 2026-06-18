@@ -116,6 +116,10 @@ layered format-neutral settings into an `ActorSystemBuilder`, validates
 diagnostics, remote transport, sharding timing, and least-shard allocation
 helpers through the facade, and runs the same typed counter protocol with the
 configured dispatcher throughput.
+For dependency-free observability bridges, the facade also exposes
+`DiagnosticCounters` for metrics-style category counts and `DiagnosticTextSink`
+for stable single-line diagnostic records that applications can forward into
+their own logging or tracing stack.
 
 The `ask_pipe_to_self` example keeps a calculation service and a pattern
 coordinator in focused modules while demonstrating `Context::ask` and

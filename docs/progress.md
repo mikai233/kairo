@@ -4017,6 +4017,10 @@ Implemented:
 - The `kairo` facade test suite now pins that root README, `kairo-next`
   README, and migration notes keep that facade feature map aligned with the
   manifest, including the local/config-only default feature row.
+- The same public-doc guard now also pins that root README, `kairo-next`
+  README, and migration notes document the facade `DiagnosticCounters` and
+  `DiagnosticTextSink` observability adapters, keeping M11 diagnostics surfaces
+  visible in M12 user-facing guidance.
 - The `kairo` facade test suite now also derives active package names from
   `kairo-next/crates/*/Cargo.toml` and pins the root README and `kairo-next`
   README workspace crate lists against them, so public docs cannot omit the

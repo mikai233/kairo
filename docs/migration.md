@@ -276,6 +276,11 @@ if let Some(diagnostics) = settings
 The diagnostic sink receives structured recipient, optional sender, manifest,
 version, serializer id, and reason data, so applications can route failures to
 logs, metrics, tests, or event streams without changing the wire contract.
+The `kairo` facade includes dependency-free adapters for common cases:
+`DiagnosticCounters` records per-category atomic counts for metrics export, and
+`DiagnosticTextSink` turns the same structured events into stable single-line
+records that can be forwarded to `log`, `tracing`, stderr, files, or tests
+without adding a Kairo logging dependency.
 
 The runnable `remote_ping_pong` example shows the same remote-message contract
 end to end with a registered codec and two loopback TCP remoting actor systems:

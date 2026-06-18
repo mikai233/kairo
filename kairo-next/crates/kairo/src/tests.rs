@@ -444,6 +444,13 @@ fn public_docs_keep_facade_feature_map_aligned() -> Result<(), Box<dyn std::erro
                 doc_path.display()
             );
         }
+        for helper in ["DiagnosticCounters", "DiagnosticTextSink"] {
+            assert!(
+                doc.contains(helper),
+                "{} must document facade observability helper `{helper}`",
+                doc_path.display()
+            );
+        }
     }
 
     Ok(())

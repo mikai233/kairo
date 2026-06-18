@@ -166,6 +166,10 @@ let system = layered_settings.actor_system_builder("app")?.build()?;
 `KairoSettings` stores actor, remote, cluster, sharding, cluster-tools, and
 diagnostics settings without exposing TOML-specific concepts, so future
 configuration loaders can project into the same runtime model.
+For dependency-free observability bridges, the facade also exposes
+`DiagnosticCounters` for metrics-style category counts and `DiagnosticTextSink`
+for stable single-line diagnostic records that applications can forward into
+their own logging or tracing stack.
 
 ## Validation
 
