@@ -3937,6 +3937,10 @@ Implemented:
 - The same M13 validation-gate docs guard now covers `docs/migration.md`,
   and migration guidance includes the rustdoc warnings-denied command alongside
   examples, doctests, multi-node, benchmark smoke, and full workspace gates.
+- Public docs now describe workspace commands as running from the repository
+  root, not `kairo-next`; the `kairo` facade test suite pins that
+  `kairo-next` remains non-workspace documentation/contracts plus crates, while
+  the active Cargo workspace manifest stays at the repository root.
 - `kairo-distributed-data` now covers TCP peer-runtime partial snapshot
   failure: if one peer route is installed and a later peer dial fails, the
   successful route remains active while only the failed peer is scheduled for
@@ -6162,6 +6166,11 @@ cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_docs_use_repository_root_for_workspace_commands --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings

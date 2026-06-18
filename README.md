@@ -66,7 +66,7 @@ runtime layers are opt-in and preserve the architecture dependency order:
 
 ## Running Examples
 
-From `kairo-next`:
+From the repository root:
 
 ```bash
 cargo run -p kairo-examples --example local_counter
@@ -181,10 +181,9 @@ Rustdoc: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-de
 Benchmark Smoke: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
 ```
 
-Run the same default full validation target locally from `kairo-next`:
+Run the same default full validation target locally from the repository root:
 
 ```bash
-cd kairo-next
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
@@ -215,7 +214,6 @@ performance surface: actor tell throughput, remote outbound send overhead,
 gossip merge cost, and sharding route throughput.
 
 ```bash
-cd kairo-next
 cargo run -p kairo-benchmarks --release -- all
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
 ```

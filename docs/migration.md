@@ -404,7 +404,6 @@ cargo run -p kairo-examples --example cluster_tools_distributed
 Run focused validation for the area you touch first, then widen as needed:
 
 ```bash
-cd kairo-next
 cargo fmt --all -- --check
 cargo test -p kairo-examples --all-targets --all-features
 cargo test --doc --workspace --all-features

@@ -536,6 +536,45 @@ fn public_docs_document_m13_validation_gates() -> Result<(), Box<dyn std::error:
 }
 
 #[test]
+fn public_docs_use_repository_root_for_workspace_commands() -> Result<(), Box<dyn std::error::Error>>
+{
+    let repo_root = repo_root()?;
+    assert!(
+        repo_root.join("Cargo.toml").is_file(),
+        "the active workspace manifest must live at the repository root"
+    );
+    assert!(
+        !repo_root.join("kairo-next/Cargo.toml").exists(),
+        "kairo-next is not a standalone Cargo workspace"
+    );
+
+    let public_docs = [
+        repo_root.join("README.md"),
+        repo_root.join("kairo-next/README.md"),
+        repo_root.join("docs/migration.md"),
+    ];
+    let stale_workspace_hints = [
+        "cd kairo-next",
+        "From `kairo-next`",
+        "from `kairo-next`",
+        "locally from `kairo-next`",
+    ];
+
+    for doc_path in public_docs {
+        let doc = std::fs::read_to_string(&doc_path)?.replace("\r\n", "\n");
+        for stale_hint in stale_workspace_hints {
+            assert!(
+                !doc.contains(stale_hint),
+                "{} must not imply cargo workspace commands run from kairo-next; use the repository root instead",
+                doc_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn rust_ci_keeps_m13_release_readiness_gates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let workflow_path = repo_root
