@@ -218,20 +218,12 @@ fn local_singleton_manager_stops_child_before_handover_done() {
         .expect_msg_eq("stopped", Duration::from_millis(500))
         .unwrap();
 
-    let mut end_snapshot = None;
-    for _ in 0..100 {
-        manager
-            .tell(LocalSingletonManagerMsg::GetState {
-                reply_to: state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
-        if snapshot.state == SingletonManagerState::End {
-            end_snapshot = Some(snapshot);
-            break;
-        }
-    }
-    let snapshot = end_snapshot.expect("singleton manager should finish handover");
+    let snapshot = wait_for_local_singleton_state(
+        &manager,
+        &state,
+        "singleton manager should finish handover",
+        |snapshot| snapshot.state == SingletonManagerState::End,
+    );
     assert!(snapshot.singleton_path.is_none());
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -794,4 +786,32 @@ fn local_singleton_manager_stops_manager_and_child_from_self_downed_change() {
         .unwrap();
 
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+fn wait_for_local_singleton_state(
+    manager: &ActorRef<LocalSingletonManagerMsg<LocalSingletonProbeMsg>>,
+    state: &kairo_testkit::TestProbe<LocalSingletonManagerSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&LocalSingletonManagerSnapshot) -> bool,
+) -> LocalSingletonManagerSnapshot {
+    kairo_testkit::await_assert(
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        || -> Result<LocalSingletonManagerSnapshot, String> {
+            manager
+                .tell(LocalSingletonManagerMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
 }

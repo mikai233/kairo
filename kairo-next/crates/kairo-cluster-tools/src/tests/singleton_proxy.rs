@@ -478,21 +478,14 @@ fn singleton_proxy_clears_current_singleton_on_termination_and_buffers_again() {
 
     target_1.tell(SingletonProxyTargetMsg::Stop).unwrap();
     assert!(target_1.wait_for_stop(Duration::from_secs(1)));
-    let mut cleared = None;
-    for _ in 0..100 {
-        proxy
-            .tell(SingletonProxyMsg::GetState {
-                reply_to: state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
-        if snapshot.singleton_path.is_none() {
-            cleared = Some(snapshot);
-            break;
-        }
-    }
+    let cleared = wait_for_singleton_proxy_state(
+        &proxy,
+        &state,
+        "proxy should observe singleton termination",
+        |snapshot| snapshot.singleton_path.is_none(),
+    );
     assert_eq!(
-        cleared.expect("proxy should observe singleton termination"),
+        cleared,
         SingletonProxySnapshot {
             current_oldest: None,
             registered_routes: 0,
@@ -528,4 +521,32 @@ fn singleton_proxy_clears_current_singleton_on_termination_and_buffers_again() {
         .expect_msg_eq("buffered", Duration::from_millis(500))
         .unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+fn wait_for_singleton_proxy_state(
+    proxy: &ActorRef<SingletonProxyMsg<SingletonProxyTargetMsg>>,
+    state: &kairo_testkit::TestProbe<SingletonProxySnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&SingletonProxySnapshot) -> bool,
+) -> SingletonProxySnapshot {
+    kairo_testkit::await_assert(
+        Duration::from_secs(5),
+        Duration::from_millis(10),
+        || -> Result<SingletonProxySnapshot, String> {
+            proxy
+                .tell(SingletonProxyMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
 }
