@@ -4080,6 +4080,11 @@ Implemented:
   active workspace member list against `kairo-next/crates/*/Cargo.toml`, so the
   release audit cannot omit or retain stale active crates while the old
   `crates/` implementation remains reference-only.
+- The `kairo` facade test suite now pins the `docs/migration.md` legacy
+  removal-plan gates, keeping the old `crates/` tree documented as
+  reference-only until facade entry points, example coverage, CI validation,
+  manifest boundaries, and tracked release gaps are all visible in migration
+  guidance.
 - The `kairo` facade test suite now also pins the user-facing module re-exports
   for the cluster, distributed-data, and cluster-tools TCP peer bootstrap
   facades, connector settings, connector message/snapshot types, and bootstrap
@@ -4269,6 +4274,16 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after migration legacy-removal gate coverage:
+
+```bash
+cargo test -p kairo migration_notes_pin_legacy_removal_gates --all-targets --all-features -- --nocapture
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after dependency-audit workspace member
 convergence coverage:

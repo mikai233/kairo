@@ -579,6 +579,38 @@ fn implementation_status_docs_do_not_mark_observability_facade_wiring_as_future_
 }
 
 #[test]
+fn migration_notes_pin_legacy_removal_gates() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let migration_path = repo_root.join("docs").join("migration.md");
+    let migration = std::fs::read_to_string(&migration_path)?.replace("\r\n", "\n");
+
+    let required_legacy_section_phrases = [
+        "The old `crates/` tree is reference material only.",
+        "intentionally excluded",
+        "from the root workspace",
+        "normal validation, runnable examples",
+        "implementation work",
+        "The legacy tree can be removed after these release-hardening gates are met:",
+        "the `kairo` facade is the documented entry point for normal users",
+        "examples cover the local actor, configuration, remote, cluster",
+        "full workspace CI runs formatting, clippy with warnings denied, and tests",
+        "workspace and active crate manifests do not depend on `crates/`",
+        "remaining migration gaps are tracked as release issues",
+        "Removal should happen as a separate `chore` or `docs` checkpoint",
+    ];
+
+    for phrase in required_legacy_section_phrases {
+        assert!(
+            migration.contains(phrase),
+            "{} must keep legacy-removal gate `{phrase}` documented",
+            migration_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn public_readmes_list_current_workspace_crates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let crate_names = active_workspace_crate_names(&repo_root.join("kairo-next/crates"))?;
