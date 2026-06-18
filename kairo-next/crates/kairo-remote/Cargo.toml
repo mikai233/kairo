@@ -10,3 +10,6 @@ bytes = { workspace = true }
 kairo-actor = { workspace = true }
 kairo-serialization = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+kairo-testkit = { workspace = true }

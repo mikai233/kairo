@@ -127,6 +127,7 @@ dependencies = [
  "bytes",
  "kairo-actor",
  "kairo-serialization",
+ "kairo-testkit",
  "thiserror",
 ]
 

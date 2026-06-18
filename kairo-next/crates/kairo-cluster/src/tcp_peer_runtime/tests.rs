@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use kairo_actor::Address;
 use kairo_remote::{RemoteOutbound, RemoteSettings};
 use kairo_serialization::{ActorRefWireData, Registry};
-use kairo_testkit::{ActorSystemTestKit, TestProbe};
+use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
 use super::*;
 use crate::{
@@ -80,11 +80,19 @@ fn send_join_until_received(
 }
 
 fn wait_for_reverse_route(runtime: &ClusterTcpAssociationRuntime) {
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while runtime.association_cache().route_count() == 0 && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(runtime.association_cache().route_count(), 1);
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(1),
+        || -> Result<(), String> {
+            let actual = runtime.association_cache().route_count();
+            if actual == 1 {
+                Ok(())
+            } else {
+                Err(format!("expected 1 association route, found {actual}"))
+            }
+        },
+    )
+    .unwrap();
 }
 
 fn bind_association_runtime_with_probes(

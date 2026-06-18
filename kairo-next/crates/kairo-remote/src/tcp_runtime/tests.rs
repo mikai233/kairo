@@ -10,13 +10,14 @@ use kairo_serialization::{
     ActorRefResolver, ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage,
     SerializationRegistry,
 };
+use kairo_testkit::await_assert;
 
 use super::TcpRemoteActorSystem;
 use crate::{
-    AddressTerminated, AssociationState, RemoteAssociationAddress, RemoteDeathWatchCommand,
-    RemoteDeathWatchEffect, RemoteDeathWatchEffectObserver, RemoteDeathWatchStats, RemoteOutbound,
-    RemoteSettings, RemoteTerminated, TcpAssociationIdentity, UnwatchRemote, WatchRemote,
-    register_remote_protocol_codecs,
+    AddressTerminated, AssociationState, RemoteAssociationAddress, RemoteAssociationCache,
+    RemoteDeathWatchCommand, RemoteDeathWatchEffect, RemoteDeathWatchEffectObserver,
+    RemoteDeathWatchStats, RemoteOutbound, RemoteSettings, RemoteTerminated,
+    TcpAssociationIdentity, UnwatchRemote, WatchRemote, register_remote_protocol_codecs,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,6 +218,46 @@ fn wait_for_watch_stats(
         }
         assert!(Instant::now() < deadline, "timed out waiting for {reason}");
     }
+}
+
+fn await_route_count(cache: &RemoteAssociationCache, expected: usize) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(1),
+        || -> Result<(), String> {
+            let actual = cache.route_count();
+            if actual == expected {
+                Ok(())
+            } else {
+                Err(format!(
+                    "expected {expected} association routes, found {actual}"
+                ))
+            }
+        },
+    )
+    .unwrap();
+}
+
+fn await_bidirectional_routes(
+    sender_remote: &TcpRemoteActorSystem<Ping>,
+    receiver_remote: &TcpRemoteActorSystem<Ping>,
+) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(1),
+        || -> Result<(), String> {
+            let sender_routes = sender_remote.association_cache().route_count();
+            let receiver_routes = receiver_remote.association_cache().route_count();
+            if sender_routes == 1 && receiver_routes == 1 {
+                Ok(())
+            } else {
+                Err(format!(
+                    "expected bidirectional association routes, found sender={sender_routes}, receiver={receiver_routes}"
+                ))
+            }
+        },
+    )
+    .unwrap();
 }
 
 #[test]
@@ -421,13 +462,7 @@ fn tcp_remote_actor_system_sends_remote_ref_to_local_actor_over_loopback() {
             remote_uid: Some(22)
         }
     );
-    let deadline = std::time::Instant::now() + Duration::from_secs(1);
-    while receiver_remote.association_cache().route_count() == 0
-        && std::time::Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+    await_route_count(receiver_remote.association_cache(), 1);
     let reverse_target = receiver_remote
         .resolve::<Ping>(remote_path_for_system(
             sender_target.path().as_str(),
@@ -508,11 +543,7 @@ fn tcp_remote_actor_system_round_trips_remote_death_watch_heartbeat_ack() {
     )
     .unwrap();
     let registration = sender_remote.dial(receiver_address).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while receiver_remote.association_cache().route_count() == 0 && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+    await_route_count(receiver_remote.association_cache(), 1);
     let (stats_tx, stats_rx) = mpsc::channel();
     let stats_probe = receiver_remote
         .system()
@@ -628,15 +659,7 @@ fn tcp_remote_actor_system_routes_remote_terminated_to_watcher() {
     )
     .unwrap();
     let registration = sender_remote.dial(receiver_address).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while (sender_remote.association_cache().route_count() == 0
-        || receiver_remote.association_cache().route_count() == 0)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(sender_remote.association_cache().route_count(), 1);
-    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+    await_bidirectional_routes(&sender_remote, &receiver_remote);
 
     let (receiver_stats_tx, receiver_stats_rx) = mpsc::channel();
     let receiver_stats_probe = receiver_remote
@@ -802,15 +825,7 @@ fn tcp_remote_actor_system_watch_remote_notifies_local_watcher() {
     )
     .unwrap();
     let registration = sender_remote.dial(receiver_address).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while (sender_remote.association_cache().route_count() == 0
-        || receiver_remote.association_cache().route_count() == 0)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(sender_remote.association_cache().route_count(), 1);
-    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+    await_bidirectional_routes(&sender_remote, &receiver_remote);
 
     let (receiver_stats_tx, receiver_stats_rx) = mpsc::channel();
     let receiver_stats_probe = receiver_remote
@@ -962,15 +977,7 @@ fn tcp_remote_actor_system_duplicate_watch_remote_is_idempotent() {
     )
     .unwrap();
     let registration = sender_remote.dial(receiver_address).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while (sender_remote.association_cache().route_count() == 0
-        || receiver_remote.association_cache().route_count() == 0)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(sender_remote.association_cache().route_count(), 1);
-    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+    await_bidirectional_routes(&sender_remote, &receiver_remote);
 
     let (receiver_stats_tx, receiver_stats_rx) = mpsc::channel();
     let receiver_stats_probe = receiver_remote
@@ -1132,15 +1139,7 @@ fn tcp_remote_actor_system_unwatch_remote_removes_local_and_remote_watch() {
     )
     .unwrap();
     let registration = sender_remote.dial(receiver_address).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while (sender_remote.association_cache().route_count() == 0
-        || receiver_remote.association_cache().route_count() == 0)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(sender_remote.association_cache().route_count(), 1);
-    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+    await_bidirectional_routes(&sender_remote, &receiver_remote);
 
     let (receiver_stats_tx, receiver_stats_rx) = mpsc::channel();
     let receiver_stats_probe = receiver_remote
@@ -1293,15 +1292,7 @@ fn tcp_remote_actor_system_unwatch_one_of_two_remote_watchers_keeps_other_watch(
     )
     .unwrap();
     let registration = sender_remote.dial(receiver_address).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while (sender_remote.association_cache().route_count() == 0
-        || receiver_remote.association_cache().route_count() == 0)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(sender_remote.association_cache().route_count(), 1);
-    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+    await_bidirectional_routes(&sender_remote, &receiver_remote);
 
     let (receiver_stats_tx, receiver_stats_rx) = mpsc::channel();
     let receiver_stats_probe = receiver_remote
@@ -1509,15 +1500,7 @@ fn tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch() {
     )
     .unwrap();
     let registration = sender_remote.dial(receiver_address).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while (sender_remote.association_cache().route_count() == 0
-        || receiver_remote.association_cache().route_count() == 0)
-        && Instant::now() < deadline
-    {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(sender_remote.association_cache().route_count(), 1);
-    assert_eq!(receiver_remote.association_cache().route_count(), 1);
+    await_bidirectional_routes(&sender_remote, &receiver_remote);
 
     let (receiver_stats_tx, receiver_stats_rx) = mpsc::channel();
     let receiver_stats_probe = receiver_remote

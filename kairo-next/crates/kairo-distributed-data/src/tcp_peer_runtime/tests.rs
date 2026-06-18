@@ -11,6 +11,7 @@ mod route_tests {
     };
     use kairo_remote::{RemoteError, RemoteSettings};
     use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
+    use kairo_testkit::await_assert;
 
     use super::*;
     use crate::{
@@ -189,11 +190,19 @@ mod route_tests {
     }
 
     fn wait_for_reverse_route(runtime: &ReplicatorTcpAssociationRuntime) {
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while runtime.association_cache().route_count() == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(runtime.association_cache().route_count(), 1);
+        await_assert(
+            Duration::from_secs(1),
+            Duration::from_millis(1),
+            || -> Result<(), String> {
+                let actual = runtime.association_cache().route_count();
+                if actual == 1 {
+                    Ok(())
+                } else {
+                    Err(format!("expected 1 association route, found {actual}"))
+                }
+            },
+        )
+        .unwrap();
     }
 
     #[test]
@@ -922,10 +931,10 @@ mod route_tests {
 
 mod basic_tests {
     use std::net::TcpListener;
-    use std::time::Instant;
 
     use kairo_cluster::{Member, MemberStatus, ReachabilityEvent};
     use kairo_serialization::RemoteEnvelope;
+    use kairo_testkit::await_assert;
 
     use super::*;
     use crate::{
@@ -1066,11 +1075,19 @@ mod basic_tests {
     }
 
     fn wait_for_route(runtime: &ReplicatorTcpAssociationRuntime) {
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while runtime.association_cache().route_count() == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(runtime.association_cache().route_count(), 1);
+        await_assert(
+            Duration::from_secs(1),
+            Duration::from_millis(1),
+            || -> Result<(), String> {
+                let actual = runtime.association_cache().route_count();
+                if actual == 1 {
+                    Ok(())
+                } else {
+                    Err(format!("expected 1 association route, found {actual}"))
+                }
+            },
+        )
+        .unwrap();
     }
 
     #[test]
