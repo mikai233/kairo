@@ -487,6 +487,24 @@ fn public_readmes_list_current_workspace_crates() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+#[test]
+fn architecture_lists_current_workspace_crates() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let crate_names = active_workspace_crate_names(&repo_root.join("kairo-next/crates"))?;
+    let architecture_path = repo_root.join("kairo-next/ARCHITECTURE.md");
+    let architecture = std::fs::read_to_string(&architecture_path)?.replace("\r\n", "\n");
+    let documented_crates = architecture_workspace_crate_names(&architecture)?;
+
+    assert_eq!(
+        documented_crates,
+        crate_names,
+        "{} workspace crate list must match active kairo-next package manifests",
+        architecture_path.display()
+    );
+
+    Ok(())
+}
+
 fn active_workspace_crate_names(
     crates_dir: &std::path::Path,
 ) -> Result<std::collections::BTreeSet<String>, Box<dyn std::error::Error>> {
@@ -506,6 +524,37 @@ fn active_workspace_crate_names(
             .map(unquote_toml_string)
             .ok_or_else(|| format!("{} must declare package name", manifest_path.display()))?;
         crate_names.insert(name);
+    }
+
+    Ok(crate_names)
+}
+
+fn architecture_workspace_crate_names(
+    architecture: &str,
+) -> Result<std::collections::BTreeSet<String>, Box<dyn std::error::Error>> {
+    let mut crate_names = std::collections::BTreeSet::new();
+    let mut in_workspace_block = false;
+
+    for line in architecture.lines() {
+        if line == "kairo-next/crates/" {
+            in_workspace_block = true;
+            continue;
+        }
+        if in_workspace_block && line == "```" {
+            break;
+        }
+        if !in_workspace_block {
+            continue;
+        }
+
+        let crate_name = line.trim();
+        if crate_name.starts_with("kairo") {
+            crate_names.insert(crate_name.to_string());
+        }
+    }
+
+    if crate_names.is_empty() {
+        return Err("ARCHITECTURE.md must list active crates under kairo-next/crates/".into());
     }
 
     Ok(crate_names)

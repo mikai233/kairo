@@ -3853,6 +3853,10 @@ Implemented:
 - `kairo-next/ARCHITECTURE.md` now reflects the current workspace support
   crates by listing `kairo-examples` and `kairo-benchmarks` as leaf crates that
   validate public facade workflows without becoming runtime dependencies.
+- The `kairo` facade test suite now derives active package names from
+  `kairo-next/crates/*/Cargo.toml` and pins the `kairo-next/ARCHITECTURE.md`
+  workspace crate list against them, keeping the technical contract aligned
+  with the active rewrite package surface.
 - The root Rust CI matrix now includes M13 rustdoc and benchmark smoke gates:
   workspace documentation builds with `RUSTDOCFLAGS="-D warnings"` and the
   dependency-light benchmark runner executes all scenarios with
@@ -6206,6 +6210,11 @@ cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo public_readmes_list_current_workspace_crates --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo architecture_lists_current_workspace_crates --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
