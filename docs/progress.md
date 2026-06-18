@@ -3968,6 +3968,11 @@ Implemented:
   unexpectedly, the shard reports `RestartRemembered`, restarts it through the
   explicit restart command, resumes direct delivery, and does not emit a
   duplicate remember-start store update.
+- `kairo-cluster` downing-plan coverage now pins the Pekko split-brain
+  `ReverseDownIndirectlyConnected` branch used when lease-majority downing
+  reverses an indirect decision: indirectly connected and still-reachable
+  downable members are targeted, while already down or exiting members remain
+  excluded.
 
 Not yet implemented:
 
@@ -4122,6 +4127,11 @@ cargo test -p kairo-cluster-sharding shard_actor_with_remember_store_restarts_lo
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster reverse_down_indirectly_connected_downs_indirect_and_reachable_downable_members --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all
+cargo fmt --all -- --check
 ```
 
 Previous implementation checkpoints:

@@ -281,6 +281,42 @@ fn keep_majority_combines_indirect_cycle_with_clean_partition_decision() {
 }
 
 #[test]
+fn reverse_down_indirectly_connected_downs_indirect_and_reachable_downable_members() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let node_c = node("c", 3);
+    let node_d = node("d", 4);
+    let node_e = node("e", 5);
+    let gossip = Gossip::from_members([
+        member(node_a.clone(), MemberStatus::Up),
+        member(node_b.clone(), MemberStatus::Up),
+        member(node_c.clone(), MemberStatus::Up),
+        member(node_d.clone(), MemberStatus::Exiting),
+        member(node_e.clone(), MemberStatus::Down),
+    ])
+    .with_reachability(
+        Reachability::new()
+            .unreachable(node_a.clone(), node_b.clone())
+            .unreachable(node_b.clone(), node_a.clone())
+            .unreachable(node_a.clone(), node_d)
+            .unreachable(node_a.clone(), node_e),
+    );
+
+    let plan = DowningPlan::from_decision(
+        DowningDecision::ReverseDownIndirectlyConnected,
+        &gossip,
+        &node_a,
+    );
+
+    assert_eq!(
+        plan.decision(),
+        DowningDecision::ReverseDownIndirectlyConnected
+    );
+    assert_eq!(plan.nodes_to_down(), &[node_a, node_b, node_c]);
+    assert!(plan.down_self());
+}
+
+#[test]
 fn keep_oldest_treats_seen_unreachable_node_as_indirectly_connected() {
     let node_a = node("a", 1);
     let node_b = node("b", 2);
