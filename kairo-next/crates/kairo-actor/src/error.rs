@@ -37,6 +37,8 @@ pub enum ActorError {
     InvalidStopTarget { actor: String, owner: String },
     #[error("actor `{actor}` is stopping")]
     ActorStopping { actor: String },
+    #[error("death pact triggered by terminated actor `{actor}`")]
+    DeathPact { actor: String },
     #[error("actor `{actor}` cannot watch itself")]
     InvalidWatchTarget { actor: String },
     #[error("actor `{watcher}` is already watching `{actor}` with another notification")]

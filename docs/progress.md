@@ -3801,6 +3801,10 @@ Implemented:
   are rejected as gossip peers, and replacement-self registry buckets are
   ignored during delta merge so stale local-address topics cannot become remote
   delivery targets.
+- `kairo-actor` death-watch defaults now preserve Pekko's death-pact
+  behavior: an actor that watches another actor and leaves the resulting
+  `Signal::Terminated` or `Signal::ChildFailed` unhandled stops with an
+  explicit `ActorError::DeathPact`.
 
 Not yet implemented:
 
@@ -3843,7 +3847,12 @@ cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test -p kairo-cluster-tools pubsub_gossip --all-targets --all-features
 cargo test -p kairo-cluster-tools pubsub_registry --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo test -p kairo-actor default_terminated_signal_triggers_death_pact_stop --all-targets --all-features
+cargo test -p kairo-actor default_child_failed_signal_triggers_death_pact_stop --all-targets --all-features
+cargo test -p kairo-actor watch --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings

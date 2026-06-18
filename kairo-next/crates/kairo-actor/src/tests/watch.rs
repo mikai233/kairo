@@ -241,6 +241,76 @@ impl Actor for WatchProbe {
     }
 }
 
+enum DeathPactProbeMsg {
+    Watch {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<()>,
+    },
+    Ping(mpsc::Sender<()>),
+}
+
+struct DeathPactProbe;
+
+impl Actor for DeathPactProbe {
+    type Msg = DeathPactProbeMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            DeathPactProbeMsg::Watch { subject, reply_to } => {
+                ctx.watch(&subject)?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            DeathPactProbeMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
+enum ChildDeathPactProbeMsg {
+    FailChild,
+    Ping(mpsc::Sender<()>),
+}
+
+struct ChildDeathPactProbe {
+    child: Option<ActorRef<SupervisionMsg>>,
+}
+
+impl Actor for ChildDeathPactProbe {
+    type Msg = ChildDeathPactProbeMsg;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let child = ctx.spawn(
+            "child",
+            Props::new(|| SupervisionProbe {
+                value: 0,
+                restarted: None,
+            }),
+        )?;
+        ctx.watch(&child)?;
+        self.child = Some(child);
+        Ok(())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            ChildDeathPactProbeMsg::FailChild => {
+                if let Some(child) = &self.child {
+                    child
+                        .tell(SupervisionMsg::Fail)
+                        .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+                }
+                Ok(())
+            }
+            ChildDeathPactProbeMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
 enum StoppingWatchWithMsg {
     Start(Box<StoppingWatchWithStart>),
     StartWithWatchedChild(Box<StoppingWatchedChildStart>),
@@ -1630,6 +1700,59 @@ fn stopped_watcher_is_removed_from_subject_watchers() {
         "stopped watcher should have been removed before subject termination"
     );
     assert!(system.dead_letters().is_empty());
+}
+
+#[test]
+fn default_terminated_signal_triggers_death_pact_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let watcher = system
+        .spawn("watcher", Props::new(|| DeathPactProbe))
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    watcher
+        .tell(DeathPactProbeMsg::Watch {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        watcher.wait_for_stop(Duration::from_secs(1)),
+        "unhandled Terminated should stop the watching actor"
+    );
+
+    let error = watcher
+        .tell(DeathPactProbeMsg::Ping(ping_tx))
+        .expect_err("death-pact-stopped watcher should reject later messages");
+    assert_eq!(error.reason(), "actor is stopped");
+    assert!(ping_rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn default_child_failed_signal_triggers_death_pact_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildDeathPactProbe { child: None }))
+        .unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    parent.tell(ChildDeathPactProbeMsg::FailChild).unwrap();
+    assert!(
+        parent.wait_for_stop(Duration::from_secs(1)),
+        "unhandled ChildFailed should stop the watching parent"
+    );
+
+    let error = parent
+        .tell(ChildDeathPactProbeMsg::Ping(ping_tx))
+        .expect_err("death-pact-stopped parent should reject later messages");
+    assert_eq!(error.reason(), "actor is stopped");
+    assert!(ping_rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 
 #[test]

@@ -107,6 +107,9 @@ compared for idempotence.
 
 Consequences:
 - Default death-watch notifications use the existing actor signal path.
+- A default unhandled `Signal::Terminated` or `Signal::ChildFailed` is a
+  death pact and stops the watcher with an explicit `ActorError::DeathPact`,
+  matching Pekko's observable unhandled-termination behavior.
 - Custom watch notifications remain typed and local-only without introducing a
   global message enum.
 - Conflicts are explicit Rust errors, and changing a custom watch message is an

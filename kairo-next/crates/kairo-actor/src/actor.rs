@@ -30,7 +30,11 @@ pub trait Actor: Send + 'static {
     fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
         match signal {
             Signal::PostStop | Signal::PreRestart => self.stopped(ctx),
-            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
+            Signal::Terminated(actor) | Signal::ChildFailed { actor, .. } => {
+                Err(ActorError::DeathPact {
+                    actor: actor.path().to_string(),
+                })
+            }
         }
     }
 
