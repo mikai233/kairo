@@ -560,6 +560,7 @@ fn implementation_status_docs_do_not_mark_observability_facade_wiring_as_future_
         "DiagnosticsConfig::remote_association_diagnostics",
         "DiagnosticsConfig::cluster_diagnostics",
         "DiagnosticCounters",
+        "DiagnosticTextSink",
     ] {
         assert!(
             decisions.contains(helper) && progress.contains(helper),
@@ -1467,6 +1468,67 @@ fn diagnostic_counters_record_remote_categories() {
     );
 }
 
+#[cfg(feature = "remote")]
+#[test]
+fn diagnostic_text_sink_exports_remote_lines() {
+    use crate::prelude::*;
+    use std::sync::{Arc, Mutex};
+
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let sink = DiagnosticTextSink::new({
+        let lines = lines.clone();
+        move |line| lines.lock().expect("diagnostic lines poisoned").push(line)
+    });
+    let recipient =
+        kairo_serialization::ActorRefWireData::new("kairo://facade@127.0.0.1:25520/user/sink#1")
+            .unwrap();
+
+    RemoteInboundDiagnostics::record(
+        &sink,
+        RemoteInboundDiagnostic::SerializationFailure {
+            recipient: recipient.clone(),
+            sender: None,
+            serializer_id: 1201,
+            manifest: "kairo.facade.Ping".to_string(),
+            version: 1,
+            reason: "decode failed".to_string(),
+        },
+    );
+    RemoteInboundDiagnostics::record(
+        &sink,
+        RemoteInboundDiagnostic::DeliveryFailure {
+            recipient,
+            sender: None,
+            reason: "missing actor".to_string(),
+        },
+    );
+    RemoteAssociationDiagnostics::record(
+        &sink,
+        RemoteAssociationDiagnostic::Quarantined {
+            remote: "kairo://peer@127.0.0.1:25521".to_string(),
+            remote_uid: Some(42),
+            reason: "uid changed".to_string(),
+        },
+    );
+    RemoteAssociationDiagnostics::record(
+        &sink,
+        RemoteAssociationDiagnostic::Closed {
+            remote: "kairo://peer@127.0.0.1:25521".to_string(),
+            reason: "shutdown".to_string(),
+        },
+    );
+
+    assert_eq!(
+        *lines.lock().expect("diagnostic lines poisoned"),
+        vec![
+            "remote.serialization_failure recipient=kairo://facade@127.0.0.1:25520/user/sink#1 sender=- serializer_id=1201 manifest=kairo.facade.Ping version=1 reason=decode failed",
+            "remote.delivery_failure recipient=kairo://facade@127.0.0.1:25520/user/sink#1 sender=- reason=missing actor",
+            "remote.association_quarantined remote=kairo://peer@127.0.0.1:25521 remote_uid=42 reason=uid changed",
+            "remote.association_closed remote=kairo://peer@127.0.0.1:25521 reason=shutdown",
+        ]
+    );
+}
+
 #[cfg(feature = "cluster")]
 #[test]
 fn diagnostic_counters_record_cluster_categories() {
@@ -1491,6 +1553,37 @@ fn diagnostic_counters_record_cluster_categories() {
             association_close_events: 0,
             cluster_gossip_state_changes: 1,
         }
+    );
+}
+
+#[cfg(feature = "cluster")]
+#[test]
+fn diagnostic_text_sink_exports_cluster_lines() {
+    use crate::prelude::*;
+    use std::sync::{Arc, Mutex};
+
+    let lines = Arc::new(Mutex::new(Vec::new()));
+    let sink = DiagnosticTextSink::new({
+        let lines = lines.clone();
+        move |line| lines.lock().expect("diagnostic lines poisoned").push(line)
+    });
+    let local = UniqueAddress::new(kairo_actor::Address::local("facade-cluster"), 1);
+    let current = kairo_cluster::Gossip::from_members([
+        Member::new(local, vec![]).with_status(MemberStatus::Up)
+    ]);
+
+    ClusterDiagnostics::record(
+        &sink,
+        ClusterDiagnostic::GossipStateChanged {
+            previous: kairo_cluster::Gossip::new(),
+            current,
+            events: vec![ClusterEvent::LeaderChanged { leader: None }],
+        },
+    );
+
+    assert_eq!(
+        *lines.lock().expect("diagnostic lines poisoned"),
+        vec!["cluster.gossip_state_changed previous_members=0 current_members=1 events=1"]
     );
 }
 

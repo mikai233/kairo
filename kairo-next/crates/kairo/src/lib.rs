@@ -100,9 +100,10 @@
 //! use the same pattern through
 //! `DiagnosticsConfig::remote_association_diagnostics` and
 //! `DiagnosticsConfig::cluster_diagnostics`.
-//! When a dependency-free metrics bridge is enough, [`DiagnosticCounters`]
-//! implements the enabled remote and cluster diagnostic observer traits and
-//! exposes point-in-time [`DiagnosticCounterSnapshot`] values for export.
+//! When a dependency-free observability bridge is enough,
+//! [`DiagnosticCounters`] and [`DiagnosticTextSink`] implement the enabled
+//! remote and cluster diagnostic observer traits, exposing point-in-time
+//! [`DiagnosticCounterSnapshot`] values or stable text lines for export.
 //!
 //! `kairo::prelude` exports the common typed actor API plus enabled facade
 //! features. For subsystem-specific protocols and lower-level test fixtures,
@@ -142,7 +143,9 @@ pub mod prelude {
         RemoteTransportConfig, STANDARD_TOML_FILES, find_standard_toml_files,
         load_standard_toml_files, load_toml_file, load_toml_files, parse_toml_str,
     };
-    pub use crate::observability::{DiagnosticCounterSnapshot, DiagnosticCounters};
+    pub use crate::observability::{
+        DiagnosticCounterSnapshot, DiagnosticCounters, DiagnosticTextSink,
+    };
     #[cfg(feature = "actor")]
     pub use kairo_actor::prelude::*;
     #[cfg(feature = "macros")]

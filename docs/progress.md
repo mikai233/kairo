@@ -48,9 +48,9 @@ workspace stabilization before M13 release readiness.
   remote delivery, TCP peer runtime, and examples are present.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
-  helpers, dependency-free diagnostic counters, dead-letter publication
-  controls, and coordinated-shutdown surfaces exist; concrete logging exporters
-  and broader operator polish remain release hardening.
+  helpers, dependency-free diagnostic counters/text sinks, dead-letter
+  publication controls, and coordinated-shutdown surfaces exist; richer logging
+  exporters and broader operator polish remain release hardening.
 - M12 examples, migration, and documentation: substantial implementation.
   Examples, migration guidance, README feature maps, workspace doctests,
   rustdoc warning gates, and compile-tested public API snippets exist; final
@@ -959,6 +959,11 @@ Implemented:
   enabled remote inbound, remote association, and cluster diagnostic observer
   traits, so applications can export configured diagnostic categories without
   Kairo choosing a logging or metrics backend.
+- The `kairo` facade now also provides `DiagnosticTextSink`, a dependency-free
+  logging-style adapter for the same diagnostic observer traits. It emits one
+  stable single-line text record per diagnostic event so applications can
+  bridge Kairo diagnostics into `log`, `tracing`, stderr, files, or tests
+  without Kairo depending on any concrete logging backend.
 - `kairo-serialization::WireWriter` and `WireReader` provide a small shared
   stable binary helper for explicit system-protocol codecs, using
   length-prefixed UTF-8 strings and byte payloads, optional strings, boolean

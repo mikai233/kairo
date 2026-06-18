@@ -2898,6 +2898,10 @@ for the enabled remote inbound, remote association, and cluster diagnostic
 observer traits. It records per-category atomic counts and exposes
 `DiagnosticCounterSnapshot` for applications that want to export metrics to
 their own backend without Kairo selecting a logging, tracing, or metrics crate.
+`DiagnosticTextSink` uses the same observer traits to emit stable single-line
+diagnostic records through a caller-provided closure, giving applications a
+concrete bridge to `log`, `tracing`, stderr, files, or tests while preserving
+the dependency boundary.
 
 ## ADR-0100: Serialized Remote Envelopes Use Explicit Wire Helpers
 
