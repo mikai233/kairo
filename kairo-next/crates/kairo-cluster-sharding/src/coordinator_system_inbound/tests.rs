@@ -5,7 +5,7 @@ use kairo_remote::{RemoteAssociationAddress, RemoteAssociationCache, RemoteOutbo
 use kairo_serialization::{
     ActorRefWireData, Manifest, Registry, RemoteEnvelope, SerializedMessage,
 };
-use kairo_testkit::ActorSystemTestKit;
+use kairo_testkit::{ActorSystemTestKit, await_assert};
 
 use crate::{
     CoordinatorState, HandoffTransport, HostShard, LeastShardAllocationStrategy, RegisterAck,
@@ -151,14 +151,22 @@ fn coordinator_system_inbound_replies_through_remote_association_cache() {
         ))
         .unwrap();
 
-    let mut envelopes = Vec::new();
-    for _ in 0..20 {
-        envelopes = collecting.envelopes();
-        if envelopes.len() >= 3 {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let envelopes = await_assert(
+        Duration::from_millis(200),
+        Duration::from_millis(10),
+        || -> Result<Vec<RemoteEnvelope>, String> {
+            let envelopes = collecting.envelopes();
+            if envelopes.len() >= 3 {
+                Ok(envelopes)
+            } else {
+                Err(format!(
+                    "expected 3 remote envelopes, found {}",
+                    envelopes.len()
+                ))
+            }
+        },
+    )
+    .unwrap();
     assert_eq!(envelopes.len(), 3);
     assert!(
         envelopes

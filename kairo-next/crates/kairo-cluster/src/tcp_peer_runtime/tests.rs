@@ -1,7 +1,6 @@
 use std::net::TcpListener;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use kairo_actor::Address;
 use kairo_remote::{RemoteOutbound, RemoteSettings};
@@ -52,31 +51,35 @@ fn send_join_until_received(
     join: Join,
     timeout: Duration,
 ) {
-    let deadline = Instant::now() + timeout;
     let mut last_error = None;
-    while Instant::now() < deadline {
-        if let Err(error) = outbound.send_membership(ClusterMembershipMsg::Join {
-            join: join.clone(),
-            reply_to: None,
-        }) {
-            last_error = Some(error.to_string());
-        }
-
-        match probes.membership.expect_msg(Duration::from_millis(50)) {
-            Ok(ClusterMembershipMsg::Join {
-                join: received,
-                reply_to,
-            }) => {
-                assert_eq!(received, join);
-                assert!(reply_to.is_none());
-                return;
+    await_assert(
+        timeout,
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            if let Err(error) = outbound.send_membership(ClusterMembershipMsg::Join {
+                join: join.clone(),
+                reply_to: None,
+            }) {
+                last_error = Some(error.to_string());
             }
-            Ok(other) => panic!("expected cluster join, got {other:?}"),
-            Err(_) => thread::sleep(Duration::from_millis(10)),
-        }
-    }
 
-    panic!("cluster join was not delivered before timeout; last send error: {last_error:?}");
+            match probes.membership.expect_msg(Duration::from_millis(50)) {
+                Ok(ClusterMembershipMsg::Join {
+                    join: received,
+                    reply_to,
+                }) => {
+                    assert_eq!(received, join);
+                    assert!(reply_to.is_none());
+                    Ok(())
+                }
+                Ok(other) => panic!("expected cluster join, got {other:?}"),
+                Err(error) => Err(format!(
+                    "cluster join was not delivered yet: {error}; last send error: {last_error:?}"
+                )),
+            }
+        },
+    )
+    .unwrap();
 }
 
 fn wait_for_reverse_route(runtime: &ClusterTcpAssociationRuntime) {

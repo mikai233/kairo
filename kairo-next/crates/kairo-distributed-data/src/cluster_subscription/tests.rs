@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use kairo_actor::{ActorSystem, Address, ManualScheduler, Props};
 use kairo_cluster::{
@@ -9,6 +9,7 @@ use kairo_cluster::{
     MemberStatus, Reachability, ReachabilityEvent,
 };
 use kairo_serialization::Registry;
+use kairo_testkit::await_assert;
 
 use super::*;
 use crate::{
@@ -489,24 +490,30 @@ fn eventually_snapshot(
     rx: &mpsc::Receiver<ReplicatorClusterConnectorSnapshot>,
     matches: impl Fn(&ReplicatorClusterConnectorSnapshot) -> bool,
 ) -> ReplicatorClusterConnectorSnapshot {
-    let deadline = Instant::now() + Duration::from_secs(2);
     let mut last_snapshot = None;
-
-    while Instant::now() < deadline {
-        connector
-            .tell(ReplicatorClusterConnectorMsg::Snapshot {
-                reply_to: reply_to.clone(),
-            })
-            .unwrap();
-        let snapshot = rx.recv_timeout(Duration::from_millis(100)).unwrap();
-        if matches(&snapshot) {
-            return snapshot;
-        }
-        last_snapshot = Some(snapshot);
-        std::thread::sleep(Duration::from_millis(10));
-    }
-
-    panic!("snapshot condition was not met; last snapshot: {last_snapshot:?}")
+    await_assert(
+        Duration::from_secs(2),
+        Duration::from_millis(10),
+        || -> Result<ReplicatorClusterConnectorSnapshot, String> {
+            connector
+                .tell(ReplicatorClusterConnectorMsg::Snapshot {
+                    reply_to: reply_to.clone(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = rx
+                .recv_timeout(Duration::from_millis(100))
+                .map_err(|error| format!("snapshot response was not received: {error}"))?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                last_snapshot = Some(snapshot);
+                Err(format!(
+                    "snapshot condition was not met; last snapshot: {last_snapshot:?}"
+                ))
+            }
+        },
+    )
+    .unwrap()
 }
 
 struct Forward<M> {

@@ -2,8 +2,7 @@ mod support;
 
 use std::net::TcpListener;
 use std::sync::Arc;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use kairo_actor::{ActorError, Address, Props, Recipient};
 use kairo_cluster::{
@@ -12,7 +11,7 @@ use kairo_cluster::{
 };
 use kairo_remote::RemoteSettings;
 use kairo_serialization::RemoteMessage;
-use kairo_testkit::{ActorSystemTestKit, MultiNodeTestKit};
+use kairo_testkit::{ActorSystemTestKit, MultiNodeTestKit, await_assert};
 
 use super::{
     ReplicatorTcpPeerBootstrap, ReplicatorTcpPeerBootstrapError,
@@ -47,19 +46,26 @@ fn send_read_until_count_received(
     expected_count: usize,
     timeout: Duration,
 ) -> Vec<(ReplicaId, kairo_serialization::RemoteEnvelope)> {
-    let deadline = Instant::now() + timeout;
     let mut last_error = None;
-    while Instant::now() < deadline {
-        if let Err(error) = outbound.tell(read.clone()) {
-            last_error = Some(error.reason().to_string());
-        }
-        let received = requests.wait_for_len(expected_count, Duration::from_millis(50));
-        if received.len() >= expected_count {
-            return received;
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    panic!("remote request was not delivered before timeout; last send error: {last_error:?}");
+    await_assert(
+        timeout,
+        Duration::from_millis(10),
+        || -> Result<Vec<(ReplicaId, kairo_serialization::RemoteEnvelope)>, String> {
+            if let Err(error) = outbound.tell(read.clone()) {
+                last_error = Some(error.reason().to_string());
+            }
+            let received = requests.wait_for_len(expected_count, Duration::from_millis(50));
+            if received.len() >= expected_count {
+                Ok(received)
+            } else {
+                Err(format!(
+                    "remote request count was {}, expected at least {expected_count}; last send error: {last_error:?}",
+                    received.len()
+                ))
+            }
+        },
+    )
+    .unwrap()
 }
 
 fn send_read_until_key_received(
@@ -74,28 +80,38 @@ fn send_read_until_key_received(
     kairo_serialization::RemoteEnvelope,
     ReplicatorRead,
 ) {
-    let deadline = Instant::now() + timeout;
     let mut last_error = None;
-    while Instant::now() < deadline {
-        if let Err(error) = outbound.tell(read.clone()) {
-            last_error = Some(error.reason().to_string());
-        }
-        for (from, envelope) in requests.wait_for_len(1, Duration::from_millis(50)) {
-            if envelope.message.manifest.as_str() != ReplicatorRead::MANIFEST {
-                continue;
+    await_assert(
+        timeout,
+        Duration::from_millis(10),
+        || -> Result<
+            (
+                ReplicaId,
+                kairo_serialization::RemoteEnvelope,
+                ReplicatorRead,
+            ),
+            String,
+        > {
+            if let Err(error) = outbound.tell(read.clone()) {
+                last_error = Some(error.reason().to_string());
             }
-            let decoded = registry
-                .deserialize::<ReplicatorRead>(envelope.message.clone())
-                .expect("recorded read request should decode");
-            if decoded.key == key {
-                return (from, envelope, decoded);
+            for (from, envelope) in requests.wait_for_len(1, Duration::from_millis(50)) {
+                if envelope.message.manifest.as_str() != ReplicatorRead::MANIFEST {
+                    continue;
+                }
+                let decoded = registry
+                    .deserialize::<ReplicatorRead>(envelope.message.clone())
+                    .expect("recorded read request should decode");
+                if decoded.key == key {
+                    return Ok((from, envelope, decoded));
+                }
             }
-        }
-        thread::sleep(Duration::from_millis(10));
-    }
-    panic!(
-        "remote request `{key}` was not delivered before timeout; last send error: {last_error:?}"
-    );
+            Err(format!(
+                "remote request `{key}` was not delivered yet; last send error: {last_error:?}"
+            ))
+        },
+    )
+    .unwrap()
 }
 
 #[test]

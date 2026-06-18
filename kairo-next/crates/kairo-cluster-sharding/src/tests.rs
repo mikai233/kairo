@@ -326,19 +326,26 @@ fn wait_for_local_shard(
     let reply = kit
         .create_probe::<Option<ActorRef<ShardMsg<String>>>>("local-shard")
         .unwrap();
-    for _ in 0..20 {
-        region
-            .tell(ShardRegionMsg::GetLocalShard {
-                shard: shard.to_string(),
-                reply_to: reply.actor_ref(),
-            })
-            .unwrap();
-        if let Some(shard_ref) = reply.expect_msg(Duration::from_millis(500)).unwrap() {
-            return shard_ref;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    panic!("timed out waiting for local shard `{shard}`");
+    kairo_testkit::await_assert(
+        Duration::from_millis(10_200),
+        Duration::from_millis(10),
+        || -> Result<ActorRef<ShardMsg<String>>, String> {
+            region
+                .tell(ShardRegionMsg::GetLocalShard {
+                    shard: shard.to_string(),
+                    reply_to: reply.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            match reply.expect_msg(Duration::from_millis(500)) {
+                Ok(Some(shard_ref)) => Ok(shard_ref),
+                Ok(None) => Err(format!("local shard `{shard}` is not available yet")),
+                Err(error) => Err(format!(
+                    "timed out waiting for local shard `{shard}` response: {error}"
+                )),
+            }
+        },
+    )
+    .unwrap()
 }
 
 impl Actor for RegionProbe {
