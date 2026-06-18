@@ -1169,6 +1169,10 @@ Implemented:
   track dial-created outbound pipelines and close their lane sinks during
   shutdown before joining dialing-side readers, so live route registrations
   cannot keep socket lanes open after routes have been cleared.
+- Cluster, distributed-data, and cluster-tools TCP association runtime shutdown
+  now performs a second association-cache clear after the listener has joined,
+  matching the base remoting runtime and closing any late reverse route
+  registered during listener stop before coordinated shutdown reports success.
 - `kairo-remote` now has a focused `RemoteAssociationRegistry` with
   address-indexed associations and a stable UID index. Validated TCP handshakes
   can complete associations into the registry, repeated handshakes for the
@@ -6049,4 +6053,14 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-tools bootstrap_coordinated_shutdown_stops_connector_after_live_route --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_runtime_shutdown_clears_late_routes_registered_during_shutdown --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster remote_tcp --all-targets --all-features
+cargo test -p kairo-distributed-data remote_tcp --all-targets --all-features
+cargo test -p kairo-cluster-tools remote_tcp --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
 ```

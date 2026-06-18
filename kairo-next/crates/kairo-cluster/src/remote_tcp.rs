@@ -183,7 +183,14 @@ impl ClusterTcpAssociationRuntime {
         for reader in outbound_readers {
             let _ = reader.join_after_stop_until(Instant::now());
         }
-        self.listener.join()
+        let listener_report = self.listener.join()?;
+        for result in self
+            .association_cache
+            .clear_routes_and_close(CLUSTER_TCP_SHUTDOWN_REASON)
+        {
+            result?;
+        }
+        Ok(listener_report)
     }
 }
 

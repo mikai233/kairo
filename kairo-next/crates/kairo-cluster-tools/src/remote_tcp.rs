@@ -194,7 +194,14 @@ where
         for reader in outbound_readers {
             let _ = reader.join_after_stop_until(Instant::now());
         }
-        self.listener.join()
+        let listener_report = self.listener.join()?;
+        for result in self
+            .association_cache
+            .clear_routes_and_close(CLUSTER_TOOLS_TCP_SHUTDOWN_REASON)
+        {
+            result?;
+        }
+        Ok(listener_report)
     }
 }
 
@@ -351,6 +358,32 @@ mod tests {
         (runtime, gossip, mediator, manager)
     }
 
+    #[derive(Default)]
+    struct NoopOutbound;
+
+    impl RemoteOutbound for NoopOutbound {
+        fn send(&self, _envelope: kairo_serialization::RemoteEnvelope) -> RemoteResult<()> {
+            Ok(())
+        }
+    }
+
+    struct LateRouteOnClose {
+        cache: RemoteAssociationCache,
+        late_address: RemoteAssociationAddress,
+    }
+
+    impl RemoteOutbound for LateRouteOnClose {
+        fn send(&self, _envelope: kairo_serialization::RemoteEnvelope) -> RemoteResult<()> {
+            Ok(())
+        }
+
+        fn close(&self, _reason: &str) -> RemoteResult<()> {
+            self.cache
+                .insert_route(self.late_address.clone(), Arc::new(NoopOutbound));
+            Ok(())
+        }
+    }
+
     #[test]
     fn tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally() {
         let _guard = cluster_tools_socket_test_lock();
@@ -496,6 +529,34 @@ mod tests {
         );
         sender_kit.shutdown(Duration::from_secs(1)).unwrap();
         receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn tcp_runtime_shutdown_clears_late_routes_registered_during_shutdown() {
+        let _guard = cluster_tools_socket_test_lock();
+        let kit = ActorSystemTestKit::new("cluster-tools-tcp-late-route").unwrap();
+        let registry = registry();
+        let (runtime, _gossip, _mediator, _manager) =
+            bind_runtime("late-route", 1, 11, &kit, registry);
+        let cache = runtime.association_cache().clone();
+        let initial_address =
+            RemoteAssociationAddress::new("kairo", "initial", "127.0.0.1", Some(2552)).unwrap();
+        let late_address =
+            RemoteAssociationAddress::new("kairo", "late", "127.0.0.1", Some(2553)).unwrap();
+        cache.insert_route(
+            initial_address,
+            Arc::new(LateRouteOnClose {
+                cache: cache.clone(),
+                late_address,
+            }),
+        );
+        assert_eq!(cache.route_count(), 1);
+
+        let report = runtime.shutdown().unwrap();
+
+        assert_eq!(report.accepted_associations, 0);
+        assert_eq!(cache.route_count(), 0);
+        kit.shutdown(Duration::from_secs(1)).unwrap();
     }
 
     #[test]
