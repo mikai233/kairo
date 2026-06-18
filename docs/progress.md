@@ -3888,6 +3888,9 @@ Implemented:
 - `docs/migration.md` now mirrors the benchmark help command and the
   `KAIRO_BENCH_ITERS=100` smoke run, keeping M12 migration guidance aligned
   with the M13 benchmark runner and README.
+- `kairo-examples` TCP bootstrap smoke coverage now pins cluster bootstrap
+  shutdown from a three-node mesh: a node with two live peer routes clears
+  both association-cache routes and stops its connector during shutdown.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -5033,6 +5036,7 @@ cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-examples ddata_tcp_peer_bootstrap_delivers_read_to_replacement_peer --all-targets --all-features
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo test -p kairo-examples cluster_tcp_peer_bootstrap_shutdown_clears_three_node_mesh_routes --test tcp_bootstrap_smoke --all-features -- --nocapture
 cargo test -p kairo-examples --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
