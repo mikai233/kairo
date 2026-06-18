@@ -73,11 +73,18 @@ impl LocalShardingExample {
         entity_id: &str,
         timeout: Duration,
     ) -> Result<ShardSnapshot, Box<dyn Error>> {
-        let shard = default_shard_id_for(entity_id);
-        let shard_ref = self.wait_for_local_shard(&shard, timeout)?;
         let deadline = Instant::now() + timeout;
+        let shard = default_shard_id_for(entity_id);
+        let shard_ref = self.wait_for_local_shard_until(&shard, deadline)?;
         loop {
-            let snapshot = self.shard_snapshot(&shard_ref, Duration::from_millis(100))?;
+            let Some(remaining) = remaining_until(deadline) else {
+                return Err(format!(
+                    "timed out waiting for entity `{entity_id}` in shard `{shard}`: no snapshot observed"
+                )
+                .into());
+            };
+            let snapshot =
+                self.shard_snapshot(&shard_ref, remaining.min(Duration::from_millis(100)))?;
             if snapshot
                 .active_entities
                 .iter()
@@ -85,13 +92,12 @@ impl LocalShardingExample {
             {
                 return Ok(snapshot);
             }
-            if Instant::now() >= deadline {
+            if !sleep_until_next_poll(deadline) {
                 return Err(format!(
-                    "timed out waiting for entity `{entity_id}` in shard `{shard}`"
+                    "timed out waiting for entity `{entity_id}` in shard `{shard}`: {snapshot:?}"
                 )
                 .into());
             }
-            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -100,11 +106,18 @@ impl LocalShardingExample {
         entity_id: &str,
         timeout: Duration,
     ) -> Result<ShardSnapshot, Box<dyn Error>> {
-        let shard = default_shard_id_for(entity_id);
-        let shard_ref = self.wait_for_local_shard(&shard, timeout)?;
         let deadline = Instant::now() + timeout;
+        let shard = default_shard_id_for(entity_id);
+        let shard_ref = self.wait_for_local_shard_until(&shard, deadline)?;
         loop {
-            let snapshot = self.shard_snapshot(&shard_ref, Duration::from_millis(100))?;
+            let Some(remaining) = remaining_until(deadline) else {
+                return Err(format!(
+                    "timed out waiting for entity `{entity_id}` to leave shard `{shard}`: no snapshot observed"
+                )
+                .into());
+            };
+            let snapshot =
+                self.shard_snapshot(&shard_ref, remaining.min(Duration::from_millis(100)))?;
             if !snapshot
                 .active_entities
                 .iter()
@@ -112,13 +125,12 @@ impl LocalShardingExample {
             {
                 return Ok(snapshot);
             }
-            if Instant::now() >= deadline {
+            if !sleep_until_next_poll(deadline) {
                 return Err(format!(
-                    "timed out waiting for entity `{entity_id}` to leave shard `{shard}`"
+                    "timed out waiting for entity `{entity_id}` to leave shard `{shard}`: {snapshot:?}"
                 )
                 .into());
             }
-            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -127,8 +139,9 @@ impl LocalShardingExample {
         entity_id: &str,
         timeout: Duration,
     ) -> Result<PassivatePlan<String>, Box<dyn Error>> {
+        let deadline = Instant::now() + timeout;
         let shard = default_shard_id_for(entity_id);
-        let shard_ref = self.wait_for_local_shard(&shard, timeout)?;
+        let shard_ref = self.wait_for_local_shard_until(&shard, deadline)?;
         let id = next_reply_id();
         let (reply_to, replies) =
             spawn_one_shot_reply(&self.system, format!("passivate-entity-{id}"))?;
@@ -137,7 +150,10 @@ impl LocalShardingExample {
             stop_message: "stop".to_string(),
             reply_to,
         })?;
-        Ok(replies.recv_timeout(timeout)?)
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(format!("timed out waiting to passivate entity `{entity_id}`").into());
+        };
+        Ok(replies.recv_timeout(remaining)?)
     }
 
     pub fn wait_for_entity_value(
@@ -171,13 +187,15 @@ impl LocalShardingExample {
             .run_coordinated_shutdown("local sharding example complete", timeout)
     }
 
-    fn wait_for_local_shard(
+    fn wait_for_local_shard_until(
         &self,
         shard: &str,
-        timeout: Duration,
+        deadline: Instant,
     ) -> Result<ActorRef<ShardMsg<String>>, Box<dyn Error>> {
-        let deadline = Instant::now() + timeout;
         loop {
+            let Some(remaining) = remaining_until(deadline) else {
+                return Err(format!("timed out waiting for local shard `{shard}`").into());
+            };
             let id = next_reply_id();
             let (reply_to, replies) =
                 spawn_one_shot_reply(&self.system, format!("local-shard-{id}"))?;
@@ -185,13 +203,14 @@ impl LocalShardingExample {
                 shard: shard.to_string(),
                 reply_to,
             })?;
-            if let Some(shard_ref) = replies.recv_timeout(Duration::from_millis(100))? {
+            if let Some(shard_ref) =
+                replies.recv_timeout(remaining.min(Duration::from_millis(100)))?
+            {
                 return Ok(shard_ref);
             }
-            if Instant::now() >= deadline {
+            if !sleep_until_next_poll(deadline) {
                 return Err(format!("timed out waiting for local shard `{shard}`").into());
             }
-            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -206,6 +225,19 @@ impl LocalShardingExample {
         shard.tell(ShardMsg::GetState { reply_to })?;
         Ok(replies.recv_timeout(timeout)?)
     }
+}
+
+fn remaining_until(deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    (!remaining.is_zero()).then_some(remaining)
+}
+
+fn sleep_until_next_poll(deadline: Instant) -> bool {
+    let Some(remaining) = remaining_until(deadline) else {
+        return false;
+    };
+    thread::sleep(Duration::from_millis(10).min(remaining));
+    true
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

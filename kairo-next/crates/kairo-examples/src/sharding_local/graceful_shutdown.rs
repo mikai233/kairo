@@ -145,10 +145,16 @@ fn wait_for_coordinator_shard_owner(
 ) -> Result<CoordinatorStateSnapshot, Box<dyn Error>> {
     let deadline = Instant::now() + timeout;
     loop {
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(format!(
+                "timed out waiting for shard `{shard}` owner `{expected_region}`: no snapshot observed"
+            )
+            .into());
+        };
         let id = next_reply_id();
         let (reply_to, replies) = spawn_one_shot_reply(system, format!("coordinator-state-{id}"))?;
         coordinator.tell(ShardCoordinatorMsg::GetState { reply_to })?;
-        let snapshot = replies.recv_timeout(Duration::from_millis(100))?;
+        let snapshot = replies.recv_timeout(remaining.min(Duration::from_millis(100)))?;
         if snapshot
             .allocations
             .get(expected_region)
@@ -156,12 +162,12 @@ fn wait_for_coordinator_shard_owner(
         {
             return Ok(snapshot);
         }
-        if Instant::now() >= deadline {
-            return Err(
-                format!("timed out waiting for shard `{shard}` owner `{expected_region}`").into(),
-            );
+        if !sleep_until_next_poll(deadline) {
+            return Err(format!(
+                "timed out waiting for shard `{shard}` owner `{expected_region}`: {snapshot:?}"
+            )
+            .into());
         }
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -173,19 +179,21 @@ fn wait_for_region_shard_ref(
 ) -> Result<ActorRef<ShardMsg<String>>, Box<dyn Error>> {
     let deadline = Instant::now() + timeout;
     loop {
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(format!("timed out waiting for local shard `{shard}`").into());
+        };
         let id = next_reply_id();
         let (reply_to, replies) = spawn_one_shot_reply(system, format!("region-shard-{id}"))?;
         region.tell(ShardRegionMsg::GetLocalShard {
             shard: shard.to_string(),
             reply_to,
         })?;
-        if let Some(shard_ref) = replies.recv_timeout(Duration::from_millis(100))? {
+        if let Some(shard_ref) = replies.recv_timeout(remaining.min(Duration::from_millis(100)))? {
             return Ok(shard_ref);
         }
-        if Instant::now() >= deadline {
+        if !sleep_until_next_poll(deadline) {
             return Err(format!("timed out waiting for local shard `{shard}`").into());
         }
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -197,10 +205,17 @@ fn wait_for_shard_entity(
 ) -> Result<ShardSnapshot, Box<dyn Error>> {
     let deadline = Instant::now() + timeout;
     loop {
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(format!(
+                "timed out waiting for recovered entity `{entity_id}`: no snapshot observed"
+            )
+            .into());
+        };
         let id = next_reply_id();
         let (reply_to, replies) = spawn_one_shot_reply(system, format!("shard-state-{id}"))?;
         shard.tell(ShardMsg::GetState { reply_to })?;
-        let snapshot: ShardSnapshot = replies.recv_timeout(Duration::from_millis(100))?;
+        let snapshot: ShardSnapshot =
+            replies.recv_timeout(remaining.min(Duration::from_millis(100)))?;
         if snapshot
             .active_entities
             .iter()
@@ -208,9 +223,24 @@ fn wait_for_shard_entity(
         {
             return Ok(snapshot);
         }
-        if Instant::now() >= deadline {
-            return Err(format!("timed out waiting for recovered entity `{entity_id}`").into());
+        if !sleep_until_next_poll(deadline) {
+            return Err(format!(
+                "timed out waiting for recovered entity `{entity_id}`: {snapshot:?}"
+            )
+            .into());
         }
-        thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn remaining_until(deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    (!remaining.is_zero()).then_some(remaining)
+}
+
+fn sleep_until_next_poll(deadline: Instant) -> bool {
+    let Some(remaining) = remaining_until(deadline) else {
+        return false;
+    };
+    thread::sleep(Duration::from_millis(10).min(remaining));
+    true
 }
