@@ -479,6 +479,10 @@ Implemented:
   receptionist with `ServiceKey<M>`, `Listing<M>`, register, deregister, find,
   subscribe, immediate listings, update publication, and actor-termination
   cleanup.
+- `Receptionist::find_with_reply` now sends a typed one-shot `Listing<M>` to
+  an explicit reply actor without subscribing it for later updates, matching
+  Pekko's observable `Find(key, replyTo)` command shape in Kairo's direct
+  Rust API.
 - `Receptionist::register_with_ack` and `deregister_with_ack` now send typed
   `Registered<M>` and `Deregistered<M>` acknowledgement messages to explicit
   reply actors, preserving Pekko's observable acknowledgement shape while
@@ -5515,5 +5519,11 @@ cargo test -p kairo-serialization --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor-macros -p kairo-serialization --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor receptionist_find_with_reply_sends_current_listing_without_subscribing --all-targets --all-features
+cargo test -p kairo-actor receptionist --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```

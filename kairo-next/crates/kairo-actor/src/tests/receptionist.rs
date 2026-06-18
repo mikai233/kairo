@@ -200,6 +200,39 @@ fn local_receptionist_listing_reports_all_services_as_reachable() {
 }
 
 #[test]
+fn receptionist_find_with_reply_sends_current_listing_without_subscribing() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let key = ServiceKey::<()>::new("svc");
+    let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
+    let (listing_tx, listing_rx) = mpsc::channel();
+    let reply_to = system
+        .spawn(
+            "listing-reply",
+            Props::new(move || ListingProbe {
+                observed: listing_tx,
+            }),
+        )
+        .unwrap();
+
+    assert!(system.receptionist().register(key.clone(), service.clone()));
+    system
+        .receptionist()
+        .find_with_reply(&key, reply_to)
+        .unwrap();
+
+    assert_eq!(
+        listing_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        vec![service.path().clone()]
+    );
+
+    assert!(system.receptionist().deregister(&key, &service));
+    assert!(
+        listing_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "find_with_reply must be a one-shot query, not a subscription"
+    );
+}
+
+#[test]
 fn receptionist_service_keys_with_same_id_are_protocol_separated() {
     let system = ActorSystem::builder("test").build().unwrap();
     let unit_key = ServiceKey::<()>::new("svc");

@@ -278,6 +278,20 @@ impl Receptionist {
         bucket.listing()
     }
 
+    pub fn find_with_reply<M>(
+        &self,
+        key: &ServiceKey<M>,
+        reply_to: ActorRef<Listing<M>>,
+    ) -> Result<(), ActorError>
+    where
+        M: Send + 'static,
+    {
+        let listing = self.find(key);
+        reply_to
+            .tell(listing)
+            .map_err(|error| ActorError::Message(error.to_string()))
+    }
+
     pub fn subscribe<M>(&self, key: ServiceKey<M>, subscriber: ActorRef<Listing<M>>) -> bool
     where
         M: Send + 'static,
