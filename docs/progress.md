@@ -2433,6 +2433,10 @@ Implemented:
 - `kairo-cluster` membership actor join, welcome, gossip, downing, and
   reachability tests now live in a focused sibling test module instead of the
   production membership actor file.
+- `kairo-cluster` membership actor coverage now pins the Pekko same-address
+  incarnation boundary: a join attempt from a new UID at an existing
+  host:port marks the old incarnation down and terminated, does not admit the
+  new member yet, and withholds `Welcome` until the old member is removed.
 - `kairo-cluster` now has a focused live-socket membership/downing validation:
   a remote `Join` crosses a real TCP association into an actor-backed
   membership node, the registered downing provider observes the resulting

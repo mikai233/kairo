@@ -6,7 +6,8 @@ use kairo_testkit::{ActorSystemTestKit, await_assert};
 use super::*;
 use crate::{
     ClusterEvent, ClusterEventPublisher, DowningProviderActor, DowningProviderSnapshot,
-    MemberEvent, MemberStatus, ReachabilityEvent, StaticDowningHook, SubscriptionInitialState,
+    MemberEvent, MemberStatus, ReachabilityEvent, ReachabilityStatus, StaticDowningHook,
+    SubscriptionInitialState,
 };
 
 #[test]
@@ -65,6 +66,67 @@ fn remote_join_adds_joining_member_and_replies_with_welcome() {
         welcome.gossip.member(&joining).map(|member| member.status),
         Some(MemberStatus::Joining)
     );
+}
+
+#[test]
+fn new_incarnation_join_downs_existing_same_address_without_welcome() {
+    let kit = ActorSystemTestKit::new("cluster-membership-new-incarnation").unwrap();
+    let self_node = node("self", 1);
+    let old_peer = node("peer", 2);
+    let new_peer = node("peer", 3);
+    let (membership, events) = spawn_membership(&kit, self_node.clone(), "membership");
+    let reply_probe = kit
+        .create_probe::<ClusterMembershipMsg>("new-welcome")
+        .unwrap();
+    let gossip_probe = kit
+        .create_probe::<Gossip>("new-incarnation-gossip")
+        .unwrap();
+
+    membership.tell(ClusterMembershipMsg::JoinSelf).unwrap();
+    membership
+        .tell(ClusterMembershipMsg::Join {
+            join: Join {
+                node: old_peer.clone(),
+                roles: vec!["backend".to_string()],
+            },
+            reply_to: None,
+        })
+        .unwrap();
+    membership
+        .tell(ClusterMembershipMsg::Join {
+            join: Join {
+                node: new_peer.clone(),
+                roles: vec!["backend".to_string()],
+            },
+            reply_to: Some(reply_probe.actor_ref()),
+        })
+        .unwrap();
+    membership
+        .tell(ClusterMembershipMsg::SendCurrentGossip {
+            reply_to: gossip_probe.actor_ref(),
+        })
+        .unwrap();
+
+    let gossip = gossip_probe.expect_msg(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        gossip.member(&old_peer).map(|member| member.status),
+        Some(MemberStatus::Down)
+    );
+    assert!(!gossip.has_member(&new_peer));
+    assert_eq!(
+        gossip.reachability().status(&self_node, &old_peer),
+        ReachabilityStatus::Terminated
+    );
+    reply_probe
+        .expect_no_msg(Duration::from_millis(50))
+        .unwrap();
+    expect_event(&events, |event| {
+        matches!(
+            event,
+            ClusterEvent::Member(MemberEvent::Downed(member))
+                if member.unique_address == old_peer
+        )
+    });
 }
 
 #[test]
