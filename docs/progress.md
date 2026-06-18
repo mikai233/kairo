@@ -662,6 +662,10 @@ Implemented:
   semantics: after the parent actor instance restarts, a preserved child stays
   visible through `Context::child("child")` with the same incarnation path and
   continues to reserve its name against duplicate child creation.
+- Child-preserving restart coverage now also pins non-restartable child
+  liveness: after the parent actor instance restarts, a preserved local child
+  keeps its typed ref live and continues processing stateful messages without
+  being recreated.
 - Bounded child-preserving restart now snapshots surviving children before a
   replacement actor's `started()` callback runs; if that replacement start
   fails, children created by the failed attempt are stopped before retry while
@@ -4247,6 +4251,17 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after child-preserving non-restartable child
+liveness coverage:
+
+```bash
+cargo test -p kairo-actor restart_preserving_children_keeps_non_restartable_child_live --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after remote accepted-route cleanup and
 death-watch test hardening:

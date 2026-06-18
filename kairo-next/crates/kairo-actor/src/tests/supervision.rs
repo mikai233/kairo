@@ -1042,6 +1042,9 @@ enum RestartParentMsg {
         stopped: mpsc::Sender<()>,
         reply_to: mpsc::Sender<()>,
     },
+    SpawnCounterChild {
+        reply_to: mpsc::Sender<ActorRef<CounterMsg>>,
+    },
     SpawnRestartableChild {
         restarted: mpsc::Sender<()>,
         reply_to: mpsc::Sender<ActorRef<SupervisionMsg>>,
@@ -1063,6 +1066,12 @@ impl Actor for RestartParent {
                 ctx.spawn("child", Props::new(move || StopProbe { stopped }))?;
                 reply_to
                     .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartParentMsg::SpawnCounterChild { reply_to } => {
+                let child = ctx.spawn("counter-child", Props::new(|| Counter { value: 0 }))?;
+                reply_to
+                    .send(child)
                     .map_err(|error| ActorError::Message(error.to_string()))
             }
             RestartParentMsg::SpawnRestartableChild {
@@ -1526,6 +1535,35 @@ fn restart_supervision_can_preserve_children() {
 
     assert_eq!(count_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
     assert!(child_stopped_rx.try_recv().is_err());
+}
+
+#[test]
+fn restart_preserving_children_keeps_non_restartable_child_live() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(|| RestartParent)
+                .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+    let (child_tx, child_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartParentMsg::SpawnCounterChild { reply_to: child_tx })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child.tell(CounterMsg::Increment).unwrap();
+
+    parent.tell(RestartParentMsg::Fail).unwrap();
+    let (count_tx, count_rx) = mpsc::channel();
+    parent.tell(RestartParentMsg::ChildCount(count_tx)).unwrap();
+    assert_eq!(count_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 1);
+
+    child.tell(CounterMsg::Increment).unwrap();
+    let (value_tx, value_rx) = mpsc::channel();
+    child.tell(CounterMsg::Get(value_tx)).unwrap();
+    assert_eq!(value_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
 }
 
 #[test]
