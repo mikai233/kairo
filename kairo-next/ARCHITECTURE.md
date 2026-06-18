@@ -68,6 +68,8 @@ kairo-next/crates/
   kairo-cluster-sharding
   kairo-cluster-tools
   kairo-testkit
+  kairo-examples
+  kairo-benchmarks
 ```
 
 Dependency direction:
@@ -99,6 +101,10 @@ kairo
        -> kairo-remote
   -> kairo-testkit
        -> kairo-actor
+kairo-examples
+  -> kairo
+kairo-benchmarks
+  -> kairo
 ```
 
 Rules:
@@ -116,6 +122,9 @@ Rules:
   remoting as a source of cluster membership truth.
 - `kairo-cluster-sharding` consumes cluster events and actor refs; it must not
   mutate cluster membership directly.
+- `kairo-examples` and `kairo-benchmarks` are leaf support crates. They may
+  depend on the user-facing `kairo` facade to validate public workflows, but no
+  runtime crate may depend on them.
 
 ## Configuration
 

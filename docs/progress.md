@@ -3831,6 +3831,9 @@ Implemented:
   dependency rationale, resolved license metadata, and policy checks that no
   HOCON parser, central membership store client, async runtime, public wire
   serializer framework, or benchmark framework has entered the build surface.
+- `kairo-next/ARCHITECTURE.md` now reflects the current workspace support
+  crates by listing `kairo-examples` and `kairo-benchmarks` as leaf crates that
+  validate public facade workflows without becoming runtime dependencies.
 
 Not yet implemented:
 
