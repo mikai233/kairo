@@ -3202,6 +3202,10 @@ Implemented:
   that starts two distributed pubsub mediators, merges one mediator's registry
   delta into the other, publishes to a remote topic subscriber, and validates
   one-message-per-group delivery across a local and remote group.
+- The distributed cluster-tools example now explicitly unsubscribes its local
+  one-message group subscriber and waits for the mediator acknowledgement
+  before taking the final state snapshot, removing a smoke-test race where
+  death-watch cleanup could lag the example's topic assertion.
 - `kairo-examples` now includes a runnable local cluster-sharding example that
   wires a shard coordinator, local shard region, `ShardingEnvelopeRouter`, and
   `EntityRef<String>` through reusable helper code and demonstrates stable
@@ -3328,6 +3332,10 @@ Implemented:
   sender-side three-node pubsub delivery: a sender publishes a three-member
   membership snapshot, installs routes to both peers, and sends distinct
   stable-codec `PubSubStatus` publishes to each peer mediator subscriber.
+- Cluster-tools three-node TCP bootstrap coverage now also drives the removed
+  peer's own connector through the reduced membership view before asserting
+  stale-route rejection, so full-mesh shrink validation no longer depends on
+  cross-node route cleanup racing ahead of the test assertion.
 - The cluster-tools TCP bootstrap example smoke suite now validates
   failed-dial lifecycle cleanup through the public example boundary: an
   unreachable peer produces a pending reconnect snapshot, and removing that

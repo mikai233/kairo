@@ -6,7 +6,7 @@ use kairo::actor::{ActorSystem, Address, Props};
 use kairo::cluster::UniqueAddress;
 use kairo::cluster_tools::{
     DistributedPubSubMediatorActor, DistributedPubSubMediatorMsg, DistributedPubSubPublishReport,
-    PubSubDeliveryTarget, TopicName, TopicPublishMode,
+    PubSubDeliveryTarget, PubSubSubscribeAck, TopicName, TopicPublishMode,
 };
 
 use crate::reply::spawn_one_shot_reply;
@@ -109,7 +109,7 @@ impl ClusterToolsDistributedExample {
         mediator_a.tell(DistributedPubSubMediatorMsg::SubscribeGroup {
             topic: group_topic.clone(),
             group: "blue".to_string(),
-            subscriber: local_jobs,
+            subscriber: local_jobs.clone(),
             reply_to: None,
         })?;
         mediator_b.tell(DistributedPubSubMediatorMsg::SubscribeGroup {
@@ -136,6 +136,16 @@ impl ClusterToolsDistributedExample {
         let group_report = group_report_rx.recv_timeout(timeout)?;
         let local_group_message = local_jobs_rx.recv_timeout(timeout)?;
         let remote_group_message = remote_jobs_rx.recv_timeout(timeout)?;
+
+        let (unsubscribe_ref, unsubscribe_rx) =
+            spawn_one_shot_reply::<PubSubSubscribeAck>(&self.system, "local-blue-unsubscribe")?;
+        mediator_a.tell(DistributedPubSubMediatorMsg::UnsubscribeGroup {
+            topic: group_topic.clone(),
+            group: "blue".to_string(),
+            subscriber: local_jobs,
+            reply_to: Some(unsubscribe_ref),
+        })?;
+        let _ = unsubscribe_rx.recv_timeout(timeout)?;
 
         let (state_ref, state_rx) = spawn_one_shot_reply(&self.system, "mediator-a-state")?;
         mediator_a.tell(DistributedPubSubMediatorMsg::GetState {
