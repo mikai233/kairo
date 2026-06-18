@@ -34,6 +34,32 @@ See `ARCHITECTURE.md` for the planned public model and implementation order.
 For migration guidance from the old reference crates, see
 `../docs/migration.md`.
 
+## Core User Model
+
+Local actor protocols are plain Rust message types sent through `ActorRef<M>`.
+They do not need manifests, serializer ids, codecs, or any other wire metadata
+unless the protocol crosses a remote boundary.
+
+Remote-capable messages are explicit wire contracts. A remote message must
+implement `RemoteMessage` with a stable manifest and version, and it must have
+a registered `MessageCodec`. Do not rely on Rust enum discriminants, type
+names, memory layout, or compiler-generated details as the remote protocol.
+
+`Actor::receive` is synchronous by design. Actor state changes happen in one
+mailbox turn at a time, which keeps ownership and failure behavior explicit.
+Async work should run outside the actor turn and return through `tell`,
+`Context::ask`, `Context::pipe_to_self`, timers, or adapters.
+
+Cluster membership is gossip plus local failure-detector observations. Seed and
+discovery settings may provide contact addresses, but they are not membership
+truth, and Kairo does not use etcd or another central authoritative membership
+store.
+
+Cluster sharding keeps routing metadata at the sharding boundary. Use
+`EntityRef<M>` when a caller already knows the entity id, or send
+`ShardingEnvelope<M>` to a region. Entity actors receive business messages `M`;
+the entity id does not need to be embedded in every business protocol message.
+
 ## Examples
 
 Runnable examples live in the `kairo-examples` crate:
