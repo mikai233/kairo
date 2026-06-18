@@ -54,16 +54,16 @@ impl RemoteAssociationRouteInstaller {
             ordinary,
             large,
         );
+        let outbound = Arc::new(pipeline.clone()) as Arc<dyn RemoteOutbound>;
         let replaced = self
             .cache
-            .insert_route(
-                address.clone(),
-                Arc::new(pipeline.clone()) as Arc<dyn RemoteOutbound>,
-            )
+            .insert_route(address.clone(), outbound.clone())
             .is_some();
         RemoteAssociationRouteRegistration {
+            cache: self.cache.clone(),
             address,
             pipeline,
+            outbound,
             replaced,
         }
     }
@@ -80,8 +80,10 @@ impl RemoteAssociationRouteInstaller {
 
 #[derive(Clone)]
 pub struct RemoteAssociationRouteRegistration {
+    cache: RemoteAssociationCache,
     address: RemoteAssociationAddress,
     pipeline: AssociationOutboundPipeline,
+    outbound: Arc<dyn RemoteOutbound>,
     replaced: bool,
 }
 
@@ -96,6 +98,17 @@ impl RemoteAssociationRouteRegistration {
 
     pub fn replaced_existing_route(&self) -> bool {
         self.replaced
+    }
+
+    pub fn remove_route(&self, reason: &str) -> bool {
+        let Some(route) = self
+            .cache
+            .remove_route_if_same(&self.address, &self.outbound)
+        else {
+            return false;
+        };
+        let _ = route.close(reason);
+        true
     }
 }
 
@@ -257,6 +270,28 @@ mod tests {
         assert_eq!(cache.route_count(), 1);
 
         assert!(installer.remove_route(&address()).is_some());
+        assert_eq!(cache.route_count(), 0);
+    }
+
+    #[test]
+    fn stale_registration_removal_does_not_remove_replacement_route() {
+        let cache = RemoteAssociationCache::new();
+        let installer = RemoteAssociationRouteInstaller::new(cache.clone());
+        let sinks = || {
+            (
+                Arc::new(CollectingByteSink::default()) as Arc<dyn RemoteByteSink>,
+                Arc::new(CollectingByteSink::default()) as Arc<dyn RemoteByteSink>,
+                Arc::new(CollectingByteSink::default()) as Arc<dyn RemoteByteSink>,
+            )
+        };
+        let (control, ordinary, large) = sinks();
+        let stale = installer.insert_stream_pipeline(address(), control, ordinary, large);
+        let (control, ordinary, large) = sinks();
+        let replacement = installer.insert_stream_pipeline(address(), control, ordinary, large);
+
+        assert!(!stale.remove_route("old reader finished"));
+        assert_eq!(cache.route_count(), 1);
+        assert!(replacement.remove_route("replacement reader finished"));
         assert_eq!(cache.route_count(), 0);
     }
 

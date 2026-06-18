@@ -190,16 +190,26 @@ fn coordinator_actor_observes_registered_local_region_stop() {
 
     region.stop();
     region.expect_stopped(Duration::from_secs(1)).unwrap();
-    coordinator
-        .tell(ShardCoordinatorMsg::GetState {
-            reply_to: state.actor_ref(),
-        })
-        .unwrap();
-    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
-    assert!(
-        !snapshot.allocations.contains_key("region-a"),
-        "coordinator should remove watched region allocation after region stop"
-    );
+    kairo_testkit::await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            coordinator
+                .tell(ShardCoordinatorMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            if snapshot.allocations.contains_key("region-a") {
+                Err("coordinator still has watched region allocation".to_string())
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

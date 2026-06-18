@@ -4182,6 +4182,18 @@ Implemented:
   three-node shrink scenarios, then waits for the removed node's route cache to
   clear. The shared helper hardens the public cluster, distributed-data, and
   cluster-tools TCP bootstrap smoke tests against stale removed-peer routes.
+- `kairo-remote` accepted TCP associations now remove their installed reverse
+  route when an inbound lane reader finishes, and route registrations remove
+  only the exact cached outbound they installed so stale reader cleanup cannot
+  delete a replacement association for the same address.
+- `kairo-cluster` three-node TCP bootstrap coverage now synchronizes all
+  connector snapshots before asserting cache shrink and allows the accepted
+  TCP reader cleanup window to drain, hardening the full workspace gate against
+  removed-peer reverse-route races.
+- `kairo-cluster-sharding` coordinator death-watch coverage now waits for the
+  coordinator actor to process a registered local region's termination before
+  asserting allocations were removed, matching the asynchronous death-watch
+  delivery contract.
 
 Not yet implemented:
 
@@ -4225,6 +4237,21 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after remote accepted-route cleanup and
+death-watch test hardening:
+
+```bash
+cargo test -p kairo-remote --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+for i in 1 2 3 4 5; do cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture || exit 1; done
+cargo test -p kairo-cluster-sharding coordinator_actor_observes_registered_local_region_stop --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features -- --format terse
+git diff --check
+```
 
 Latest M13 validation refresh after unbounded child-preserving restart cleanup
 coverage:

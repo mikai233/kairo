@@ -12,7 +12,8 @@ use crate::tcp::{
 };
 use crate::{
     RemoteAssociationAddress, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
-    RemoteByteSink, RemoteError, RemoteFrameHandler, RemoteStreamId, Result,
+    RemoteAssociationRouteRegistration, RemoteByteSink, RemoteError, RemoteFrameHandler,
+    RemoteStreamId, Result,
 };
 
 use super::DEFAULT_EXPECTED_LANE_STREAMS;
@@ -142,10 +143,11 @@ impl TcpAssociationListener {
         }
         let remote_identity = self.validate_handshakes(&handshakes)?;
         self.register_remote_identity(&remote_identity)?;
-        self.install_reverse_route(&remote_identity, &streams)?;
+        let route_registration = self.install_reverse_route(&remote_identity, &streams)?;
         Ok(TcpAcceptedAssociation {
             reader: self.reader_for(&remote_identity),
             remote_identity,
+            route_registration,
             streams,
         })
     }
@@ -256,10 +258,11 @@ impl TcpAssociationListener {
         }
         let remote_identity = self.validate_handshakes(&handshakes)?;
         self.register_remote_identity(&remote_identity)?;
-        self.install_reverse_route(&remote_identity, &streams)?;
+        let route_registration = self.install_reverse_route(&remote_identity, &streams)?;
         Ok(Some(TcpAcceptedAssociation {
             reader: self.reader_for(&remote_identity),
             remote_identity,
+            route_registration,
             streams,
         }))
     }
@@ -306,16 +309,20 @@ impl TcpAssociationListener {
         &self,
         identity: &Option<TcpAssociationIdentity>,
         streams: &[TcpAcceptedStream],
-    ) -> Result<()> {
+    ) -> Result<Option<RemoteAssociationRouteRegistration>> {
         let (Some(identity), Some(installer)) = (identity, &self.route_installer) else {
-            return Ok(());
+            return Ok(None);
         };
 
         let control = clone_lane_sink(streams, RemoteStreamId::Control, identity.address())?;
         let ordinary = clone_lane_sink(streams, RemoteStreamId::Ordinary, identity.address())?;
         let large = clone_lane_sink(streams, RemoteStreamId::Large, identity.address())?;
-        installer.insert_stream_pipeline(identity.address().clone(), control, ordinary, large);
-        Ok(())
+        Ok(Some(installer.insert_stream_pipeline(
+            identity.address().clone(),
+            control,
+            ordinary,
+            large,
+        )))
     }
 
     fn reader_for(&self, identity: &Option<TcpAssociationIdentity>) -> TcpAssociationStreamReader {

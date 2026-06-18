@@ -6,7 +6,10 @@ use crate::tcp::{
     TcpAssociationIdentity, TcpAssociationReaderFailure, TcpAssociationReaderSupervisionDecision,
     TcpAssociationReaderSupervisor,
 };
-use crate::{RemoteAssociationAddress, RemoteError, RemoteStreamId, Result};
+use crate::{
+    RemoteAssociationAddress, RemoteAssociationRouteRegistration, RemoteError, RemoteStreamId,
+    Result,
+};
 
 use super::reports::{TcpAssociationReadReport, TcpAssociationSupervisedReadReport};
 use super::stream_reader::TcpAssociationStreamReader;
@@ -14,6 +17,7 @@ use super::stream_reader::TcpAssociationStreamReader;
 pub struct TcpAcceptedAssociation {
     pub(super) reader: TcpAssociationStreamReader,
     pub(super) remote_identity: Option<TcpAssociationIdentity>,
+    pub(super) route_registration: Option<RemoteAssociationRouteRegistration>,
     pub(super) streams: Vec<TcpAcceptedStream>,
 }
 
@@ -56,10 +60,15 @@ impl TcpAcceptedAssociation {
             .into_iter()
             .map(|accepted| {
                 let reader = self.reader.clone();
+                let route_registration = self.route_registration.clone();
                 TcpAssociationReaderJoin {
                     stream_id: accepted.stream_id,
                     join: thread::spawn(move || {
-                        reader.read_stream(accepted.peer.to_string(), accepted.stream)
+                        let result = reader.read_stream(accepted.peer.to_string(), accepted.stream);
+                        if let Some(registration) = route_registration {
+                            registration.remove_route("tcp inbound association stream closed");
+                        }
+                        result
                     }),
                 }
             })

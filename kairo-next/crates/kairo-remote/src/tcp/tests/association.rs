@@ -4,6 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use bytes::Bytes;
+use kairo_testkit::await_assert;
 
 use super::*;
 use crate::{
@@ -261,8 +262,20 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
     listener_handle.stop();
     drop(registration);
     drop(cache);
-    drop(receiver_cache);
     drop(dialer);
+
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        let actual = receiver_cache.route_count();
+        if actual == 0 {
+            Ok(())
+        } else {
+            Err(format!(
+                "expected receiver cache to be empty, found {actual}"
+            ))
+        }
+    })
+    .unwrap();
+    drop(receiver_cache);
 
     let report = listener_handle.join().unwrap();
     let sender_report = sender_reader_handle.join().unwrap();

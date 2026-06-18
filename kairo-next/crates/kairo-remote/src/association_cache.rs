@@ -161,6 +161,22 @@ impl RemoteAssociationCache {
             .remove(address)
     }
 
+    pub(crate) fn remove_route_if_same(
+        &self,
+        address: &RemoteAssociationAddress,
+        expected: &Arc<dyn RemoteOutbound>,
+    ) -> Option<Arc<dyn RemoteOutbound>> {
+        let mut routes = self
+            .routes
+            .write()
+            .expect("remote association cache lock poisoned");
+        let route = routes.get(address)?;
+        if !Arc::ptr_eq(route, expected) {
+            return None;
+        }
+        routes.remove(address)
+    }
+
     pub fn remove_route_and_close(
         &self,
         address: &RemoteAssociationAddress,
@@ -197,6 +213,15 @@ impl RemoteAssociationCache {
             .read()
             .expect("remote association cache lock poisoned")
             .len()
+    }
+
+    pub fn route_addresses(&self) -> Vec<RemoteAssociationAddress> {
+        self.routes
+            .read()
+            .expect("remote association cache lock poisoned")
+            .keys()
+            .cloned()
+            .collect()
     }
 
     pub fn contains_route(&self, address: &RemoteAssociationAddress) -> bool {

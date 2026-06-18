@@ -195,7 +195,7 @@ pub(super) fn publish_gossip_and_wait(
 
 pub(super) fn await_cache_route_count(cache: &RemoteAssociationCache, expected: usize) {
     await_assert(
-        Duration::from_secs(1),
+        Duration::from_secs(5),
         Duration::from_millis(10),
         || -> Result<(), String> {
             let actual = cache.route_count();
@@ -203,7 +203,8 @@ pub(super) fn await_cache_route_count(cache: &RemoteAssociationCache, expected: 
                 Ok(())
             } else {
                 Err(format!(
-                    "expected {expected} association routes, found {actual}"
+                    "expected {expected} association routes, found {actual}: {:?}",
+                    cache.route_addresses()
                 ))
             }
         },
