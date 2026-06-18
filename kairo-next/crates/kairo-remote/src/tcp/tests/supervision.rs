@@ -2,13 +2,14 @@ use std::io::Write;
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::*;
 use crate::{
     RemoteAssociationRegistry, RemoteByteSink, RemoteError, RemoteStreamId,
     TcpAssociationReadReport, TcpAssociationReaderFailure, TcpAssociationReaderSupervisionDecision,
 };
+use kairo_testkit::await_assert;
 
 #[test]
 fn tcp_lane_reader_supervision_records_lane_restart_decision() {
@@ -86,10 +87,12 @@ fn tcp_listener_report_includes_reader_supervision_decisions() {
     stream.write_all(b"not-a-stream").unwrap();
     drop(stream);
 
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while registry.association_count() == 0 && Instant::now() < deadline {
-        thread::sleep(Duration::from_millis(1));
-    }
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        (registry.association_count() > 0)
+            .then_some(())
+            .ok_or("association not registered")
+    })
+    .unwrap();
 
     listener_handle.stop();
     let report = listener_handle.join().unwrap();
