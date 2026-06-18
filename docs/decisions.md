@@ -2161,9 +2161,10 @@ Pekko shard regions track likely coordinator singleton locations from cluster
 membership snapshots and member events. The logic is behavior-sensitive:
 candidate members are filtered by role/status, sorted by cluster age, and
 coordinator movement clears the region's cached coordinator before
-registration retries resume. Kairo does not yet have the final actor-ref and
-remote-target wiring for discovering coordinator singletons, and folding that
-state into `ShardRegionActor` would make the region boundary harder to test.
+registration retries resume. Kairo first needed the membership candidate state
+before layering actor-ref and remote-target wiring for discovered coordinator
+locations, and folding that state into `ShardRegionActor` would make the region
+boundary harder to test.
 
 Decision:
 Kairo adds `CoordinatorDiscoveryState` as a focused pure state module in
@@ -2176,8 +2177,8 @@ data-center role; future data-center support can supply that role through the
 same settings.
 
 Consequences:
-- Cluster-event-driven coordinator discovery is testable before region actor
-  registration is wired to remote coordinator refs.
+- Cluster-event-driven coordinator discovery stays testable independently from
+  the local and remote region actor registration paths layered on top of it.
 - Sharding keeps coordinator discovery data separate from routing, buffering,
   handoff, and remember-entity state.
 - Downed and removed members are dropped from candidate state immediately,
@@ -2190,29 +2191,32 @@ Status: Accepted
 Context:
 Pekko shard regions send registration to actor selections for the likely
 coordinator singleton locations computed from cluster membership. Kairo has
-typed actor refs and stable remote envelopes, but it does not yet have the
-final singleton/path resolution layer that can turn every discovered
-`UniqueAddress` into a remote coordinator target. The region actor still needs
-to react to cluster snapshots/events without embedding discovery logic into
-its routing and buffering code.
+typed actor refs and stable remote envelopes; the first wiring layer makes
+coordinator targets explicit so local refs and remote wire recipients can share
+the same discovery state. The region actor still needs to react to cluster
+snapshots/events without embedding discovery logic into its routing and
+buffering code.
 
 Decision:
 Kairo adds a focused `RegionCoordinatorDiscovery` bridge in
 `kairo-cluster-sharding`. It owns the mapping from discovered coordinator
-nodes to typed local `ShardCoordinatorMsg<M>` refs for the current vertical
-slice, uses `CoordinatorDiscoveryState` for membership semantics, and returns
-registration configs only when the selected coordinator target changes. The
+nodes to explicit local or remote coordinator targets, uses
+`CoordinatorDiscoveryState` for membership semantics, and returns registration
+plans only when the selected coordinator target changes. Local targets produce
+`RegionRegistrationConfig` values, while remote targets produce
+`ShardCoordinatorRemoteTarget` plans for the remote coordinator bridge. The
 region actor accepts discovery snapshots/events and refreshes its existing
-`RegionRegistration` boundary from that bridge.
+registration boundary from that bridge.
 
 Consequences:
 - Region actor code remains focused on applying plans, routing messages, and
   asking a registered coordinator for shard homes.
-- The current slice exercises cluster-event-driven registration with typed
-  local coordinator refs before remote singleton target resolution exists.
-- Future remote coordinator targets can extend the bridge without changing the
-  pure discovery state machine or making cluster membership authoritative in
-  sharding.
+- Local coordinator refs and remote wire recipients share the same discovery
+  path; remote registration is handled by the remote coordinator transport
+  state layered after discovery.
+- Adding higher-level singleton discovery/bootstrap can reuse this bridge
+  without changing the pure discovery state machine or making cluster
+  membership authoritative in sharding.
 
 ## ADR-0078: Sharding Discovery Subscription Is Owned By A Focused Actor
 
@@ -2240,8 +2244,9 @@ Consequences:
   that drives coordinator discovery.
 - Region actor logic stays structured around region messages rather than
   cluster facade lifecycle details.
-- Future bootstrap helpers can spawn the subscriber alongside the region and
-  later extend it to support remote singleton target resolution.
+- Region construction can already combine this subscriber-driven discovery with
+  local coordinator refs or remote coordinator targets; a future higher-level
+  region bootstrap helper can own spawning the subscriber alongside the region.
 
 ## ADR-0079: Remote Sharding Coordinator Targets Are Wire Recipients
 

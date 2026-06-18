@@ -3735,6 +3735,9 @@ Implemented:
 - `docs/decisions.md` now also reconciles the cluster-tools TCP peer route,
   reconnect, connector, and bootstrap ADR consequences with the implemented
   pubsub/singleton socket lifecycle and multi-node example smoke coverage.
+- `docs/decisions.md` now reconciles the sharding coordinator discovery ADRs
+  with the implemented remote coordinator target and transport path while
+  preserving the remaining higher-level region bootstrap helper as future work.
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
@@ -6261,5 +6264,11 @@ cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --al
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_coordinator_discovery_reports_remote_target_without_local_registration --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_marks_remote_coordinator_registered_from_decoded_ack --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
