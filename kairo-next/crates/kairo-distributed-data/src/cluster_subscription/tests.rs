@@ -9,13 +9,13 @@ use kairo_cluster::{
     MemberStatus, Reachability, ReachabilityEvent,
 };
 use kairo_serialization::Registry;
-use kairo_testkit::await_assert;
+use kairo_testkit::{MultiNodeTestKit, await_assert};
 
 use super::*;
 use crate::{
     DataEnvelope, DeltaPropagationLog, DeltaPropagationTransport, DeltaTransportFailure, GCounter,
     GCounterCodec, ReplicatorActor, ReplicatorClusterConnectorClock, ReplicatorKey,
-    ReplicatorRemoteEnvelope, register_ddata_protocol_codecs,
+    ReplicatorRemoteEnvelope, decode_read_result, encode_read, register_ddata_protocol_codecs,
 };
 
 #[test]
@@ -398,6 +398,197 @@ fn connector_gates_removed_node_pruning_until_all_replicas_reachable() {
     assert_eq!(report.initialized, BTreeSet::from([key]));
 
     system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn multi_node_connector_pruning_performs_after_peer_seen_marker() {
+    let leader_name = "ddata-pruning-leader";
+    let peer_name = "ddata-pruning-peer";
+    let nodes = MultiNodeTestKit::new([leader_name, peer_name]).unwrap();
+    assert!(
+        !nodes
+            .enter_barrier("systems-ready", leader_name)
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        nodes
+            .enter_barrier("systems-ready", peer_name)
+            .unwrap()
+            .passed()
+    );
+    let leader_system = nodes.system(leader_name).unwrap();
+    let peer_system = nodes.system(peer_name).unwrap();
+    let leader_node = node("multi-leader", 1);
+    let peer_node = node("multi-peer", 2);
+    let removed_node = node("multi-removed", 3);
+    let leader_replica = ReplicaId::from(&leader_node);
+    let peer_replica = ReplicaId::from(&peer_node);
+    let removed_replica = ReplicaId::from(&removed_node);
+    let key = ReplicatorKey::new("multi-node-removed-counter");
+    let publisher = leader_system
+        .spawn(
+            "publisher",
+            Props::new({
+                let leader_node = leader_node.clone();
+                move || ClusterEventPublisher::new(leader_node)
+            }),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let replicator = leader_system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let (snapshot_ref, snapshot_rx) =
+        forward_ref::<ReplicatorClusterConnectorSnapshot>(leader_system, "multi-snapshots");
+    let (seen_ref, seen_rx) =
+        forward_ref::<BTreeSet<ReplicatorKey>>(peer_system, "peer-seen-reports");
+    let (read_ref, read_rx) =
+        forward_ref::<Result<crate::DirectReadResult, String>>(peer_system, "peer-read-results");
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                member(leader_node.clone(), MemberStatus::Up, ["ddata"]),
+                member(peer_node.clone(), MemberStatus::Up, ["ddata"]),
+                member(removed_node.clone(), MemberStatus::Up, ["ddata"]),
+            ]),
+        ))
+        .unwrap();
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::LeaderChanged {
+                leader: Some(leader_node.clone()),
+            },
+        ))
+        .unwrap();
+
+    let connector = leader_system
+        .spawn(
+            "connector",
+            Props::new({
+                let cluster = cluster.clone();
+                let leader_node = leader_node.clone();
+                let replicator = replicator.clone();
+                move || {
+                    ReplicatorClusterConnector::with_required_roles(
+                        cluster,
+                        leader_node,
+                        replicator,
+                        ["ddata"],
+                    )
+                    .with_pruning_settings(ReplicatorClusterPruningSettings::new(10, 100))
+                }
+            }),
+        )
+        .unwrap();
+
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.remote_replicas == vec![peer_replica.clone(), removed_replica.clone()]
+            && snapshot.is_leader
+    });
+    replicator
+        .tell(ReplicatorActorMsg::WriteFull {
+            key: key.clone(),
+            envelope: DataEnvelope::new(
+                GCounter::new()
+                    .increment(leader_replica.clone(), 1)
+                    .unwrap()
+                    .increment(removed_replica.clone(), 4)
+                    .unwrap()
+                    .reset_delta(),
+            ),
+        })
+        .unwrap();
+    connector
+        .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 100 })
+        .unwrap();
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::Member(MemberEvent::Removed {
+                member: member(removed_node.clone(), MemberStatus::Removed, ["ddata"]),
+                previous_status: MemberStatus::Up,
+            }),
+        ))
+        .unwrap();
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.remote_replicas == vec![peer_replica.clone()]
+            && snapshot
+                .last_report
+                .as_ref()
+                .is_some_and(|report| report.recorded_removed.contains(&removed_replica))
+    });
+
+    connector
+        .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 111 })
+        .unwrap();
+    connector
+        .tell(ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis: 1_000 })
+        .unwrap();
+    let initialized = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot
+            .last_pruning_report
+            .as_ref()
+            .is_some_and(|report| report.initialized.contains(&key))
+    });
+    let report = initialized.last_pruning_report.unwrap();
+    assert_eq!(report.initialized, BTreeSet::from([key.clone()]));
+    assert!(report.performed.is_empty());
+
+    replicator
+        .tell(ReplicatorActorMsg::MarkRemovedNodePruningSeen {
+            seen_by: peer_replica.clone(),
+            reply_to: seen_ref,
+        })
+        .unwrap();
+    assert_eq!(
+        seen_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        BTreeSet::from([key.clone()])
+    );
+    assert!(
+        !nodes
+            .enter_barrier("peer-saw-pruning-marker", peer_name)
+            .unwrap()
+            .passed()
+    );
+    assert!(
+        nodes
+            .enter_barrier("peer-saw-pruning-marker", leader_name)
+            .unwrap()
+            .passed()
+    );
+
+    connector
+        .tell(ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis: 1_100 })
+        .unwrap();
+    let performed = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot
+            .last_pruning_report
+            .as_ref()
+            .is_some_and(|report| report.performed.contains(&key))
+    });
+    let report = performed.last_pruning_report.unwrap();
+    assert_eq!(report.performed, BTreeSet::from([key.clone()]));
+    assert!(report.failures.is_empty());
+
+    replicator
+        .tell(ReplicatorActorMsg::ServeRead {
+            read: encode_read(&key, None),
+            codec: Arc::new(GCounterCodec),
+            reply_to: read_ref,
+        })
+        .unwrap();
+    let read_result = read_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    let decoded = decode_read_result(read_result.message(), &GCounterCodec)
+        .unwrap()
+        .unwrap();
+    assert_eq!(decoded.data().replica_value(&removed_replica), 0);
+    assert_eq!(decoded.data().replica_value(&leader_replica), 5);
+
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

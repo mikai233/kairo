@@ -4194,6 +4194,12 @@ Implemented:
   coverage now mirror the cluster route-cache shrink checks: after membership
   removes a peer, both survivor caches must settle to one route and the removed
   peer cache must clear before stale delivery is asserted to fail.
+- `kairo-distributed-data` cluster connector coverage now includes a local
+  two-node `MultiNodeTestKit` pruning scenario: the leader connector records a
+  removed replica, waits for the all-reachable dissemination window,
+  initializes pruning, accepts a peer-side seen marker from the second node,
+  then performs pruning and verifies the removed replica's data was collapsed
+  into the leader.
 - `kairo-cluster-sharding` coordinator death-watch coverage now waits for the
   coordinator actor to process a registered local region's termination before
   asserting allocations were removed, matching the asynchronous death-watch
