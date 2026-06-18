@@ -618,6 +618,105 @@ fn coordinator_actor_retries_pending_home_after_cleared_rebalance() {
 }
 
 #[test]
+fn coordinator_actor_retries_all_pending_homes_after_cleared_rebalance() {
+    let mut state = CoordinatorState::new();
+    for region in ["region-a", "region-b"] {
+        state
+            .apply(CoordinatorEvent::ShardRegionRegistered {
+                region: region.to_string(),
+            })
+            .unwrap();
+    }
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "s1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("coordinator-cleared-rebalance-retry-all").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props(state, RequesterAllocationStrategy::new(["s1"])),
+        )
+        .unwrap();
+    let rebalance = kit
+        .create_probe::<Result<RebalancePlan, ShardingError>>("rebalance")
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+    let snapshot = kit
+        .create_probe::<CoordinatorStateSnapshot>("snapshot")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::PlanRebalance {
+            reply_to: rebalance.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        rebalance
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        RebalancePlan::Started { ref shards } if shards.len() == 1 && shards[0].shard == "s1"
+    ));
+
+    for requester in ["region-a", "region-b"] {
+        coordinator
+            .tell(ShardCoordinatorMsg::RequestShardHome {
+                requester: requester.to_string(),
+                shard: "s1".to_string(),
+                reply_to: home.actor_ref(),
+            })
+            .unwrap();
+        assert_eq!(
+            home.expect_msg(Duration::from_millis(500))
+                .unwrap()
+                .unwrap(),
+            GetShardHomePlan::Deferred {
+                shard: "s1".to_string(),
+                requester: requester.to_string(),
+            }
+        );
+    }
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RegionStopped {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::HandoffWorkerDone(HandoffWorkerDone {
+            shard: "s1".to_string(),
+            ok: true,
+        }))
+        .unwrap();
+
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &snapshot,
+        "all pending shard-home requesters should be retried after source region termination",
+        |state| {
+            !state.rebalance_in_progress.contains_key("s1")
+                && !state
+                    .allocations
+                    .get("region-a")
+                    .is_some_and(|shards| shards.contains(&"s1".to_string()))
+                && state
+                    .allocations
+                    .get("region-b")
+                    .is_some_and(|shards| shards.contains(&"s1".to_string()))
+        },
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_rebalance_tick_uses_allocation_strategy() {
     let mut state = CoordinatorState::new();
     for region in ["region-a", "region-b"] {
@@ -801,6 +900,37 @@ fn coordinator_actor_allocates_remembered_shards_after_local_region_registration
         |snapshot| snapshot.local_shards.contains("shard-1"),
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+struct RequesterAllocationStrategy {
+    rebalance_shards: BTreeSet<String>,
+}
+
+impl RequesterAllocationStrategy {
+    fn new<const N: usize>(rebalance_shards: [&str; N]) -> Self {
+        Self {
+            rebalance_shards: rebalance_shards.into_iter().map(str::to_string).collect(),
+        }
+    }
+}
+
+impl ShardAllocationStrategy for RequesterAllocationStrategy {
+    fn allocate_shard(
+        &self,
+        requester: &String,
+        _shard: &String,
+        _current: &ShardAllocations,
+    ) -> Result<String, ShardingError> {
+        Ok(requester.clone())
+    }
+
+    fn rebalance(
+        &self,
+        _current: &ShardAllocations,
+        _in_progress: &BTreeSet<String>,
+    ) -> Result<BTreeSet<String>, ShardingError> {
+        Ok(self.rebalance_shards.clone())
+    }
 }
 
 fn polling_timeout() -> Duration {

@@ -3957,6 +3957,9 @@ Implemented:
   requests when a rebalance completes after the previous shard home was already
   removed by region termination. This mirrors Pekko's
   `clearRebalanceInProgress` behavior for pending `GetShardHome` requesters.
+- The same coordinator retry path now replays every pending shard-home
+  requester, not just the first one, so a stale requester from a terminated
+  region cannot block allocation to a surviving requester.
 
 Not yet implemented:
 
@@ -4032,6 +4035,11 @@ cargo test -p kairo-cluster-sharding coordinator_actor_retries_pending_home_afte
 cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-sharding coordinator_actor_retries_all_pending_homes_after_cleared_rebalance --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster bootstrap_stops_connector_when_shutdown_registration_fails --all-targets --all-features -- --nocapture
 cargo test -p kairo-distributed-data bootstrap_stops_connector_when_shutdown_registration_fails --all-targets --all-features -- --nocapture

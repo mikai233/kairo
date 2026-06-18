@@ -561,7 +561,7 @@ where
                 } else {
                     pending_requesters
                 };
-                self.retry_completed_rebalance_home(ctx, retry_get_shard_home.shard_id, requesters)
+                self.retry_completed_rebalance_homes(ctx, retry_get_shard_home.shard_id, requesters)
             }
             RebalanceCompletionPlan::Cleared {
                 shard,
@@ -570,29 +570,27 @@ where
                 if pending_requesters.is_empty() {
                     return Ok(());
                 }
-                self.retry_completed_rebalance_home(ctx, shard, pending_requesters)
+                self.retry_completed_rebalance_homes(ctx, shard, pending_requesters)
             }
             RebalanceCompletionPlan::TimedOut { .. } => Ok(()),
         }
     }
 
-    fn retry_completed_rebalance_home(
+    fn retry_completed_rebalance_homes(
         &mut self,
         ctx: &Context<ShardCoordinatorMsg<M>>,
         shard: ShardId,
         pending_requesters: Vec<RegionId>,
     ) -> ActorResult {
-        let requester = pending_requesters
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| "coordinator".to_string());
-        let result = self
-            .runtime
-            .request_shard_home(requester, shard, self.strategy.as_ref());
-        self.persist_allocated_shard(ctx, &result)?;
-        let plan = result.map_err(|error| ActorError::Message(error.to_string()))?;
-        if let Some(handoff) = &self.handoff {
-            handoff.dispatch_host_shard(ctx, &plan)?;
+        for requester in pending_requesters {
+            let result =
+                self.runtime
+                    .request_shard_home(requester, shard.clone(), self.strategy.as_ref());
+            self.persist_allocated_shard(ctx, &result)?;
+            let plan = result.map_err(|error| ActorError::Message(error.to_string()))?;
+            if let Some(handoff) = &self.handoff {
+                handoff.dispatch_host_shard(ctx, &plan)?;
+            }
         }
         Ok(())
     }
