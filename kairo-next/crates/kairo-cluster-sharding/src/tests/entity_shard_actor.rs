@@ -174,28 +174,35 @@ fn entity_shard_actor_buffers_passivating_delivery_and_restarts_child_after_term
 
     let mut new_ref = None;
     let mut replayed = None;
-    for _ in 0..20 {
-        if new_ref.is_none()
-            && let Ok(ref_after_restart) = refs_rx.recv_timeout(Duration::from_millis(50))
-        {
-            new_ref = Some(ref_after_restart);
-        }
-        if replayed.is_none()
-            && let Ok(observed) = observed_rx.recv_timeout(Duration::from_millis(50))
-        {
-            replayed = Some(observed);
-        }
-        if new_ref.is_some() && replayed.is_some() {
-            break;
-        }
-    }
+    let (restarted_ref, replayed) = kairo_testkit::await_assert(
+        Duration::from_millis(2_200),
+        Duration::from_millis(10),
+        || -> Result<(ActorRef<String>, (String, String)), String> {
+            if new_ref.is_none()
+                && let Ok(ref_after_restart) = refs_rx.recv_timeout(Duration::from_millis(50))
+            {
+                new_ref = Some(ref_after_restart);
+            }
+            if replayed.is_none()
+                && let Ok(observed) = observed_rx.recv_timeout(Duration::from_millis(50))
+            {
+                replayed = Some(observed);
+            }
+            match (new_ref.clone(), replayed.clone()) {
+                (Some(restarted_ref), Some(replayed)) => Ok((restarted_ref, replayed)),
+                (maybe_ref, maybe_replayed) => Err(format!(
+                    "buffered delivery should restart child and replay message; \
+                     new_ref observed: {}; replayed observed: {}",
+                    maybe_ref.is_some(),
+                    maybe_replayed.is_some()
+                )),
+            }
+        },
+    )
+    .unwrap();
 
-    let restarted_ref = new_ref.expect("buffered delivery should start a new child incarnation");
     assert_ne!(first_ref.path(), restarted_ref.path());
-    assert_eq!(
-        replayed.expect("buffered delivery should be replayed to the restarted child"),
-        ("entity-1".to_string(), "buffered".to_string())
-    );
+    assert_eq!(replayed, ("entity-1".to_string(), "buffered".to_string()));
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
