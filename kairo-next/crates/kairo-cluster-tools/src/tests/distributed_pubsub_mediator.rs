@@ -270,6 +270,106 @@ fn distributed_pubsub_mediator_sends_to_registered_path_with_local_affinity() {
 }
 
 #[test]
+fn distributed_pubsub_mediator_sends_to_deterministic_remote_path_without_local_affinity() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let path = "/user/worker".to_string();
+    let local_kit = ActorSystemTestKit::new("distributed-pubsub-path-no-affinity-local").unwrap();
+    let remote_kit = ActorSystemTestKit::new("distributed-pubsub-path-no-affinity-remote").unwrap();
+    let local_routee = local_kit.create_probe::<String>("worker").unwrap();
+    let remote_routee = remote_kit.create_probe::<String>("worker").unwrap();
+    let registry_probe = remote_kit
+        .create_probe::<PubSubRegistryState>("registry")
+        .unwrap();
+    let report_probe = local_kit
+        .create_probe::<DistributedPubSubSendReport>("reports")
+        .unwrap();
+    let mediator_a = remote_kit
+        .system()
+        .spawn(
+            "mediator-a",
+            Props::new({
+                let node_a = node_a.clone();
+                move || DistributedPubSubMediatorActor::<String>::new(node_a)
+            }),
+        )
+        .unwrap();
+    let mediator_b = local_kit
+        .system()
+        .spawn(
+            "mediator-b",
+            Props::new({
+                let node_b = node_b.clone();
+                move || DistributedPubSubMediatorActor::<String>::new(node_b)
+            }),
+        )
+        .unwrap();
+
+    mediator_a
+        .tell(DistributedPubSubMediatorMsg::Put {
+            actor: remote_routee.actor_ref(),
+            reply_to: None,
+        })
+        .unwrap();
+    mediator_b
+        .tell(DistributedPubSubMediatorMsg::Put {
+            actor: local_routee.actor_ref(),
+            reply_to: None,
+        })
+        .unwrap();
+    mediator_a
+        .tell(DistributedPubSubMediatorMsg::GetRegistry {
+            reply_to: registry_probe.actor_ref(),
+        })
+        .unwrap();
+    let registry_a = registry_probe
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    mediator_b
+        .tell(DistributedPubSubMediatorMsg::AddRemoteMediator {
+            node: node_a.clone(),
+            mediator: mediator_a,
+        })
+        .unwrap();
+    mediator_b
+        .tell(DistributedPubSubMediatorMsg::MergeDelta {
+            delta: registry_a.collect_delta(&BTreeMap::new(), 10),
+        })
+        .unwrap();
+
+    mediator_b
+        .tell(DistributedPubSubMediatorMsg::Send {
+            path: path.clone(),
+            message: "remote".to_string(),
+            local_affinity: false,
+            reply_to: Some(report_probe.actor_ref()),
+        })
+        .unwrap();
+
+    let report = report_probe.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(report.path, path);
+    assert_eq!(
+        report.mode,
+        PubSubPathDeliveryMode::One {
+            local_affinity: false
+        }
+    );
+    assert_eq!(
+        report.plan.targets,
+        vec![PubSubPathDeliveryTarget::RemotePath { node: node_a }]
+    );
+    assert!(report.delivery.is_success());
+    remote_routee
+        .expect_msg_eq("remote".to_string(), Duration::from_millis(500))
+        .unwrap();
+    local_routee
+        .expect_no_msg(Duration::from_millis(50))
+        .unwrap();
+    local_kit.shutdown(Duration::from_secs(1)).unwrap();
+    remote_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn distributed_pubsub_mediator_sends_path_to_all_except_self() {
     let node_a = node("path-all-remote", 1);
     let node_b = node("path-all-local", 2);

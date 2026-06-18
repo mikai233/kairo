@@ -2764,6 +2764,11 @@ Implemented:
   lifecycle events for node removal, dropping remote mediator routes and
   registry buckets when members leave, are downed, or are removed, and it routes
   one-message-per-group publishes across local and remote mediator targets.
+- `kairo-cluster-tools` distributed pubsub mediator actor-boundary coverage now
+  also pins path `Send` without local affinity when both local and remote path
+  registrations exist: the mediator keeps Pekko-style deterministic route
+  choice at the actor surface, sends to the sorted remote candidate, and leaves
+  the local routee untouched.
 - `kairo-cluster-tools` distributed pubsub mediator protocol data and local
   delivery adapter now live in focused submodules instead of being embedded in
   the mediator actor implementation.
@@ -6037,4 +6042,11 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
+cargo test -p kairo-cluster-tools distributed_pubsub_mediator_sends_to_deterministic_remote_path_without_local_affinity --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools distributed_pubsub_mediator --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-tools bootstrap_coordinated_shutdown_stops_connector_after_live_route --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools --all-targets --all-features
 ```
