@@ -2335,6 +2335,10 @@ Implemented:
   helper that spawns a discovery-enabled local shard region together with its
   cluster discovery subscriber, cleans up the region if subscriber startup
   fails, and returns both actor refs for user control and tests.
+- The `kairo` facade test suite now pins the implementation-status docs
+  against the completed `ShardRegionBootstrap` helper, so progress and ADR
+  docs cannot regress to describing the sharding region bootstrap path as
+  future work.
 - Shard-region discovery subscriber coverage now validates coordinator
   movement: a region registers with the first discovered local coordinator and
   re-registers with a newly selected local coordinator after cluster membership
@@ -3748,8 +3752,9 @@ Implemented:
   reconnect, connector, and bootstrap ADR consequences with the implemented
   pubsub/singleton socket lifecycle and multi-node example smoke coverage.
 - `docs/decisions.md` now reconciles the sharding coordinator discovery ADRs
-  with the implemented remote coordinator target and transport path while
-  preserving the remaining higher-level region bootstrap helper as future work.
+  with the implemented remote coordinator target, transport path, and
+  `ShardRegionBootstrap` helper that spawns a discovery-enabled region
+  alongside its cluster discovery subscriber.
 - `docs/decisions.md` now reconciles the cluster TCP configured-peer runtime
   ADR with the later implemented membership-derived peer planning,
   reconnect/backoff, actor connector, timer, and bootstrap lifecycle layers.
@@ -6346,5 +6351,10 @@ cargo test -p kairo-cluster-sharding region_bootstrap_ --all-targets --all-featu
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo implementation_status_docs_do_not_mark_region_bootstrap_as_future_work --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```

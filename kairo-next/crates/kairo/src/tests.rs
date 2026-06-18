@@ -450,6 +450,38 @@ fn public_docs_keep_facade_feature_map_aligned() -> Result<(), Box<dyn std::erro
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_region_bootstrap_as_future_work()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let docs = [
+        repo_root.join("docs").join("progress.md"),
+        repo_root.join("docs").join("decisions.md"),
+    ];
+    let stale_phrases = [
+        "higher-level region bootstrap helper as future work",
+        "future higher-level region bootstrap helper",
+    ];
+
+    for doc_path in docs {
+        let doc = std::fs::read_to_string(&doc_path)?.replace("\r\n", "\n");
+        assert!(
+            doc.contains("ShardRegionBootstrap"),
+            "{} must mention the implemented sharding region bootstrap helper",
+            doc_path.display()
+        );
+        for phrase in stale_phrases {
+            assert!(
+                !doc.contains(phrase),
+                "{} must not describe the implemented ShardRegionBootstrap helper as future work",
+                doc_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn public_readmes_list_current_workspace_crates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let crate_names = active_workspace_crate_names(&repo_root.join("kairo-next/crates"))?;
