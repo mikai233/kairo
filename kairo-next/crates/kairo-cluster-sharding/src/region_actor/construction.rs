@@ -16,8 +16,9 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
-            pending_local_restarts: BTreeSet::new(),
-            suppressed_local_restarts: BTreeSet::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
         }
     }
 
@@ -37,8 +38,9 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
-            pending_local_restarts: BTreeSet::new(),
-            suppressed_local_restarts: BTreeSet::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
         }
     }
 
@@ -66,8 +68,9 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
-            pending_local_restarts: BTreeSet::new(),
-            suppressed_local_restarts: BTreeSet::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
         }
     }
 
@@ -94,8 +97,9 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
-            pending_local_restarts: BTreeSet::new(),
-            suppressed_local_restarts: BTreeSet::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
         }
     }
 
@@ -127,8 +131,9 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
-            pending_local_restarts: BTreeSet::new(),
-            suppressed_local_restarts: BTreeSet::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
         }
     }
 
@@ -156,8 +161,9 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
-            pending_local_restarts: BTreeSet::new(),
-            suppressed_local_restarts: BTreeSet::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
         }
     }
 
@@ -189,8 +195,9 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
-            pending_local_restarts: BTreeSet::new(),
-            suppressed_local_restarts: BTreeSet::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
         }
     }
 
@@ -216,8 +223,9 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
-            pending_local_restarts: BTreeSet::new(),
-            suppressed_local_restarts: BTreeSet::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
         }
     }
 
@@ -244,8 +252,9 @@ where
             coordinator_discovery: None,
             home_requests: RegionHomeRequests::new(),
             route_transport: None,
-            pending_local_restarts: BTreeSet::new(),
-            suppressed_local_restarts: BTreeSet::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
         }
     }
 

@@ -121,6 +121,7 @@ pub enum ShardRegionMsg<M> {
     },
     RestartLocalShard {
         shard: ShardId,
+        generation: u64,
     },
     SetGracefulShutdown {
         in_progress: bool,

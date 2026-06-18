@@ -157,9 +157,14 @@ where
         &mut self,
         ctx: &Context<ShardRegionMsg<M>>,
         shard: ShardId,
+        generation: u64,
     ) -> Result<(), ActorError> {
+        if self.pending_local_restarts.get(&shard).copied() != Some(generation) {
+            return Ok(());
+        }
         self.pending_local_restarts.remove(&shard);
-        if self.suppressed_local_restarts.remove(&shard) {
+        if self.suppressed_local_restarts.get(&shard).copied() == Some(generation) {
+            self.suppressed_local_restarts.remove(&shard);
             return Ok(());
         }
         if self.local_shard_spawner.is_none() || self.local_shards.contains_key(&shard) {

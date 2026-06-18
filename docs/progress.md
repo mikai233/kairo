@@ -3805,6 +3805,10 @@ Implemented:
   behavior: an actor that watches another actor and leaves the resulting
   `Signal::Terminated` or `Signal::ChildFailed` unhandled stops with an
   explicit `ActorError::DeathPact`.
+- `kairo-cluster-sharding` remembered local shard restart timers now carry an
+  internal generation, so a delayed restart from an older shard failure cannot
+  satisfy or accelerate a newer pending restart after a replacement shard also
+  fails.
 
 Not yet implemented:
 
@@ -3852,9 +3856,12 @@ cargo test -p kairo-actor default_child_failed_signal_triggers_death_pact_stop -
 cargo test -p kairo-actor watch --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding region_actor_ignores_prior_remembered_local_shard_restart_timer_after_new_failure --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo test --workspace --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings

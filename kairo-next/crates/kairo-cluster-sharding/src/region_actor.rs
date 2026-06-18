@@ -47,8 +47,9 @@ where
     coordinator_discovery: Option<RegionCoordinatorDiscovery<M>>,
     home_requests: RegionHomeRequests<M>,
     route_transport: Option<RegionRouteTransport<M>>,
-    pending_local_restarts: BTreeSet<ShardId>,
-    suppressed_local_restarts: BTreeSet<ShardId>,
+    pending_local_restarts: BTreeMap<ShardId, u64>,
+    suppressed_local_restarts: BTreeMap<ShardId, u64>,
+    local_restart_generations: BTreeMap<ShardId, u64>,
 }
 
 impl<M> Actor for ShardRegionActor<M>
@@ -237,19 +238,20 @@ where
                 self.runtime.mark_shard_stopped(&shard);
                 self.local_shards.remove(&shard);
                 if let Some(backoff) = restart_backoff {
-                    self.pending_local_restarts.insert(shard.clone());
+                    let generation = self.schedule_pending_local_restart(&shard);
                     ctx.schedule_once_self(
                         backoff,
                         ShardRegionMsg::RestartLocalShard {
                             shard: shard.clone(),
+                            generation,
                         },
                     );
                 }
                 reply_optional(reply_to, self.snapshot());
                 self.try_complete_graceful_shutdown(ctx)?;
             }
-            ShardRegionMsg::RestartLocalShard { shard } => {
-                self.restart_local_shard(ctx, shard)?;
+            ShardRegionMsg::RestartLocalShard { shard, generation } => {
+                self.restart_local_shard(ctx, shard, generation)?;
             }
             ShardRegionMsg::SetGracefulShutdown { in_progress } => {
                 self.runtime.set_graceful_shutdown_in_progress(in_progress);
@@ -273,9 +275,23 @@ where
     M: Send + 'static,
 {
     fn suppress_pending_local_restart(&mut self, shard: &ShardId) {
-        if self.pending_local_restarts.contains(shard) {
-            self.suppressed_local_restarts.insert(shard.clone());
+        if let Some(generation) = self.pending_local_restarts.get(shard).copied() {
+            self.suppressed_local_restarts
+                .insert(shard.clone(), generation);
         }
+    }
+
+    fn schedule_pending_local_restart(&mut self, shard: &ShardId) -> u64 {
+        let generation = self
+            .local_restart_generations
+            .entry(shard.clone())
+            .and_modify(|generation| *generation = generation.wrapping_add(1))
+            .or_insert(1);
+        let generation = *generation;
+        self.pending_local_restarts
+            .insert(shard.clone(), generation);
+        self.suppressed_local_restarts.remove(shard);
+        generation
     }
 
     fn remembered_shard_restart_backoff(&self, shard: &ShardId) -> Option<Duration> {
