@@ -1,7 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props, Signal};
+use kairo_actor::{Actor, ActorError, ActorPath, ActorRef, ActorResult, Context, Props, Signal};
 
 use crate::region_home_requests::RegionHomeRequests;
 use crate::region_protocol::{
@@ -47,6 +47,7 @@ where
     coordinator_discovery: Option<RegionCoordinatorDiscovery<M>>,
     home_requests: RegionHomeRequests<M>,
     route_transport: Option<RegionRouteTransport<M>>,
+    region_watch_by_path: HashMap<ActorPath, RegionId>,
     pending_local_restarts: BTreeMap<ShardId, u64>,
     suppressed_local_restarts: BTreeMap<ShardId, u64>,
     local_restart_generations: BTreeMap<ShardId, u64>,
@@ -69,7 +70,9 @@ where
     fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
         match signal {
             Signal::Terminated(actor) | Signal::ChildFailed { actor, .. } => {
-                if self.apply_local_shard_terminated(ctx, actor.path())? {
+                if self.apply_local_shard_terminated(ctx, actor.path())?
+                    || self.apply_watched_region_terminated(actor.path())
+                {
                     Ok(())
                 } else {
                     Err(ActorError::DeathPact {
@@ -138,7 +141,10 @@ where
             } => {
                 let plan = self.runtime.record_shard_home(shard, region);
                 let plan = match plan {
-                    Ok(plan) => Ok(self.maybe_start_local_shard_from_home_plan(ctx, plan)?),
+                    Ok(plan) => {
+                        self.watch_region_from_home_plan(ctx, &plan)?;
+                        Ok(self.maybe_start_local_shard_from_home_plan(ctx, plan)?)
+                    }
                     Err(error) => Err(error),
                 };
                 let _ = reply_to.tell(plan);
@@ -254,7 +260,7 @@ where
                 self.try_complete_graceful_shutdown(ctx)?;
             }
             ShardRegionMsg::MarkRegionStopped { region, reply_to } => {
-                self.runtime.mark_region_stopped(&region);
+                self.mark_region_stopped(&region);
                 reply_optional(reply_to, self.snapshot());
             }
             ShardRegionMsg::RestartLocalShard { shard, generation } => {
@@ -299,6 +305,56 @@ where
 
         Ok(path.parent().as_ref() == Some(ctx.myself().path())
             && path.name().is_some_and(|name| name.starts_with("shard-")))
+    }
+
+    fn apply_watched_region_terminated(&mut self, path: &ActorPath) -> bool {
+        let Some(region) = self.region_watch_by_path.remove(path) else {
+            return false;
+        };
+
+        self.runtime.mark_region_stopped(&region);
+        if let Some(route_transport) = &mut self.route_transport {
+            route_transport.remove_target(&region);
+        }
+        true
+    }
+
+    fn mark_region_stopped(&mut self, region: &RegionId) {
+        self.runtime.mark_region_stopped(region);
+        if let Some(route_transport) = &mut self.route_transport {
+            route_transport.remove_target(region);
+        }
+    }
+
+    pub(super) fn watch_region_from_home_plan(
+        &mut self,
+        ctx: &mut Context<ShardRegionMsg<M>>,
+        plan: &ShardHomePlan<M>,
+    ) -> ActorResult {
+        let ShardHomePlan::Forward { region, .. } = plan else {
+            return Ok(());
+        };
+        if region == self.runtime.self_region() {
+            return Ok(());
+        }
+        let Some(region_ref) = self
+            .route_transport
+            .as_ref()
+            .and_then(|transport| transport.watch_ref_for(region))
+        else {
+            return Ok(());
+        };
+        if region_ref.path() == ctx.myself().path() {
+            return Ok(());
+        }
+        if self.region_watch_by_path.get(region_ref.path()) == Some(region) {
+            return Ok(());
+        }
+
+        ctx.watch(&region_ref)?;
+        self.region_watch_by_path
+            .insert(region_ref.path().clone(), region.clone());
+        Ok(())
     }
 
     fn mark_local_shard_stopped(&mut self, ctx: &mut Context<ShardRegionMsg<M>>, shard: &ShardId) {

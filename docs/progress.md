@@ -3933,6 +3933,11 @@ Implemented:
 - `kairo-cluster-sharding` region actors now expose that stopped peer-region
   cleanup through `ShardRegionMsg::MarkRegionStopped`, clearing remote shard
   homes at the actor boundary while preserving unrelated region homes.
+- `kairo-cluster-sharding` route targets can now carry a watchable region
+  actor ref. Shard regions watch peer regions when shard-home replies point to
+  those targets, consume the resulting termination signal, clear that region's
+  shard homes, and route later delivery back through shard-home resolution
+  instead of death-pacting.
 
 Not yet implemented:
 
@@ -3989,6 +3994,7 @@ cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local
 cargo test -p kairo-cluster-sharding region_actor_ignores_prior_remembered_local_shard_restart_timer_after_new_failure --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_mark_region_stopped_clears_remote_shard_homes --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding region_actor_observes_watchable_remote_region_stop --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding region_route_resolution --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check

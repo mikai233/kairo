@@ -168,6 +168,7 @@ where
             Ok(plan) => plan,
             Err(_) => return Ok(()),
         };
+        self.watch_region_from_home_plan(ctx, &plan)?;
         let delivery_reply_to = self.home_requests.drain(&shard);
         self.apply_coordinator_shard_home_plan(ctx, plan, delivery_reply_to)
     }
@@ -183,6 +184,7 @@ where
             Ok(plan) => plan,
             Err(_) => return Ok(()),
         };
+        self.watch_region_from_home_plan(ctx, &plan)?;
         let delivery_reply_to = self.home_requests.drain(&shard);
         self.apply_coordinator_shard_home_plan(ctx, plan, delivery_reply_to)
     }

@@ -16,6 +16,7 @@ where
 {
     region: RegionId,
     recipient: RegionRecipient<M>,
+    watch_ref: Option<ActorRef<ShardRegionMsg<M>>>,
 }
 
 impl<M> RegionRouteTarget<M>
@@ -29,6 +30,7 @@ where
         Self {
             region: region.into(),
             recipient: Arc::new(recipient),
+            watch_ref: None,
         }
     }
 
@@ -36,11 +38,24 @@ where
         Self {
             region: region.into(),
             recipient,
+            watch_ref: None,
+        }
+    }
+
+    pub fn from_actor_ref(region: impl Into<RegionId>, actor: ActorRef<ShardRegionMsg<M>>) -> Self {
+        Self {
+            region: region.into(),
+            recipient: Arc::new(actor.clone()),
+            watch_ref: Some(actor),
         }
     }
 
     pub fn region(&self) -> &RegionId {
         &self.region
+    }
+
+    pub fn watch_ref(&self) -> Option<&ActorRef<ShardRegionMsg<M>>> {
+        self.watch_ref.as_ref()
     }
 }
 
@@ -98,6 +113,13 @@ where
 
     pub fn target_count(&self) -> usize {
         self.targets.len()
+    }
+
+    pub fn watch_ref_for(&self, region: &RegionId) -> Option<ActorRef<ShardRegionMsg<M>>> {
+        self.targets
+            .get(region)
+            .and_then(RegionRouteTarget::watch_ref)
+            .cloned()
     }
 
     pub fn send_route_to(

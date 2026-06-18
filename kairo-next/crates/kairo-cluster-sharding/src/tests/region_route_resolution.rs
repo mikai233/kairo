@@ -651,6 +651,105 @@ fn region_actor_mark_region_stopped_clears_remote_shard_homes() {
 }
 
 #[test]
+fn region_actor_observes_watchable_remote_region_stop() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-watch-clears-homes").unwrap();
+    let region_b = kit
+        .system()
+        .spawn(
+            "region-b",
+            ShardRegionActor::<String>::props_with_local_shards("region-b", 10, 10),
+        )
+        .unwrap();
+    let mut route_transport = RegionRouteTransport::new();
+    route_transport.insert_target(RegionRouteTarget::from_actor_ref(
+        "region-b",
+        region_b.clone(),
+    ));
+    let region_a = kit
+        .system()
+        .spawn(
+            "region-a",
+            Props::new(move || {
+                ShardRegionActor::<String>::new("region-a", 10)
+                    .with_region_route_transport(route_transport)
+            }),
+        )
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<ShardHomePlan<String>, ShardingError>>("home")
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionRoutePlan<String>>("routes")
+        .unwrap();
+    let state = kit
+        .create_probe::<ShardRegionSnapshot>("region-a-state")
+        .unwrap();
+
+    for shard in ["shard-1", "shard-2"] {
+        region_a
+            .tell(ShardRegionMsg::RecordShardHome {
+                shard: shard.to_string(),
+                region: "region-b".to_string(),
+                reply_to: home.actor_ref(),
+            })
+            .unwrap();
+        assert_eq!(
+            home.expect_msg(Duration::from_millis(500)).unwrap(),
+            Ok(ShardHomePlan::Forward {
+                shard: shard.to_string(),
+                region: "region-b".to_string(),
+                buffered: Vec::new(),
+            })
+        );
+    }
+
+    kit.system().stop(&region_b);
+    assert!(region_b.wait_for_stop(Duration::from_secs(1)));
+
+    region_a
+        .tell(ShardRegionMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    state.expect_msg(Duration::from_millis(500)).unwrap();
+
+    region_a
+        .tell(ShardRegionMsg::Route {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-stop".to_string()),
+            reply_to: routes.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+
+    region_a
+        .tell(ShardRegionMsg::Route {
+            shard: "shard-2".to_string(),
+            message: ShardingEnvelope::new("entity-2", "after-stop".to_string()),
+            reply_to: routes.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionRoutePlan::Buffered {
+            shard: "shard-2".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-2".to_string(),
+            }),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_forwards_buffered_remote_home_after_resolution() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("region-forward-buffered-remote-home").unwrap();
