@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use kairo_actor::{Address, Props, Recipient};
+use kairo_actor::{ActorError, Address, Props, Recipient};
 use kairo_cluster::{
     Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus,
     UniqueAddress,
@@ -15,8 +15,8 @@ use kairo_serialization::RemoteMessage;
 use kairo_testkit::{ActorSystemTestKit, MultiNodeTestKit};
 
 use super::{
-    ReplicatorTcpPeerBootstrap, ReplicatorTcpPeerBootstrapIdentity,
-    ReplicatorTcpPeerBootstrapSettings,
+    ReplicatorTcpPeerBootstrap, ReplicatorTcpPeerBootstrapError,
+    ReplicatorTcpPeerBootstrapIdentity, ReplicatorTcpPeerBootstrapSettings,
 };
 use crate::{
     ReplicaId, ReplicatorRead, ReplicatorRemoteReplyReceiver, ReplicatorRemoteRequestReceiver,
@@ -143,6 +143,70 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
     assert!(!bootstrap.connector().is_stopped());
 
     run_bootstrap_shutdown(&kit, bootstrap.connector());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_stops_connector_when_shutdown_registration_fails() {
+    let _guard = bootstrap_socket_test_lock();
+    let kit = ActorSystemTestKit::new("ddata-bootstrap-registration-failure").unwrap();
+    let runtime = bind_runtime(
+        "ddata-bootstrap-registration-failure",
+        1,
+        11,
+        ReplicaId::new("sender"),
+    );
+    let sender_node = runtime.self_node().clone();
+    let publisher = spawn_publisher(&kit, "sender-publisher", sender_node);
+    let cluster = Cluster::new(publisher);
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_name("ddata-peer")
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_shutdown_task_name("");
+
+    let error = match ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        kit.system(),
+        cluster.clone(),
+        runtime,
+        settings,
+    ) {
+        Ok(_) => panic!("invalid shutdown task name should fail bootstrap"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        ReplicatorTcpPeerBootstrapError::Actor(ActorError::InvalidShutdownTaskName)
+    ));
+    let replacement_runtime = bind_runtime(
+        "ddata-bootstrap-registration-failure",
+        2,
+        22,
+        ReplicaId::new("sender-replacement"),
+    );
+    let replacement = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        kit.system(),
+        cluster,
+        replacement_runtime,
+        ReplicatorTcpPeerBootstrapSettings::new(
+            RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+        )
+        .with_connector_name("ddata-peer")
+        .with_connector_settings(
+            ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        ),
+    )
+    .expect("same connector name should be reusable after registration failure cleanup");
+
+    run_bootstrap_shutdown(&kit, replacement.connector());
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

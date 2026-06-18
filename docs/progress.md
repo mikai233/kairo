@@ -1711,6 +1711,9 @@ Implemented:
   distributed-data peer runtime, spawns the connector actor with explicit
   settings, and registers coordinated shutdown to stop the connector before
   cluster shutdown so socket cleanup goes through the actor stop path.
+- Distributed-data TCP peer bootstrap now stops the newly spawned connector if
+  coordinated-shutdown task registration fails, preventing a partial bootstrap
+  from leaving the system actor name or bound runtime alive.
 - Distributed-data TCP peer bootstrap now has a two-node socket validation:
   two real bound runtimes are spawned through the bootstrap facade, cluster
   membership is published to both connector actors, and each side installs a
@@ -3858,6 +3861,8 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding region_actor_ignores_prior_remembered_local_shard_restart_timer_after_new_failure --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo test -p kairo-distributed-data bootstrap_stops_connector_when_shutdown_registration_fails --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test --workspace --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings

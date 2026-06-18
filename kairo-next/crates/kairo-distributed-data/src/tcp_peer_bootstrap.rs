@@ -206,13 +206,17 @@ impl ReplicatorTcpPeerBootstrap {
                 ReplicatorTcpPeerConnector::with_settings(cluster, runtime, connector_settings)
             }),
         )?;
-        register_connector_shutdown(
+        if let Err(error) = register_connector_shutdown(
             system,
             &connector,
             &shutdown_phase,
             &shutdown_task_name,
             shutdown_timeout,
-        )?;
+        ) {
+            system.stop(&connector);
+            let _ = connector.wait_for_stop(shutdown_timeout);
+            return Err(error.into());
+        }
         Ok(Self {
             connector,
             self_node,
