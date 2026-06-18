@@ -3931,6 +3931,9 @@ Implemented:
   convergence: root README and `kairo-next` README must list every current
   `kairo-examples/examples/*.rs` binary, and public docs that mention example
   commands must not point at missing binaries.
+- The `kairo` facade test suite now shares one M13 validation-gate command
+  list between CI checks and README checks, so root README and `kairo-next`
+  README must document every release-readiness command enforced by CI.
 - `kairo-distributed-data` now covers TCP peer-runtime partial snapshot
   failure: if one peer route is installed and a later peer dial fails, the
   successful route remains active while only the failed peer is scheduled for
@@ -6145,6 +6148,12 @@ cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo public_readmes_list_current_example_binaries --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_readmes_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo rust_ci_keeps_m13_release_readiness_gates --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings

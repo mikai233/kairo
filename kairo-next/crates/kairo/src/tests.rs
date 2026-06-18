@@ -54,6 +54,45 @@ const FACADE_FEATURE_EXPECTATIONS: [(&str, &str, &str); 8] = [
     ),
 ];
 
+const M13_VALIDATION_GATE_EXPECTATIONS: [(&str, &str); 9] = [
+    (
+        "cargo fmt --all -- --check",
+        "formatting must remain a release-readiness gate",
+    ),
+    (
+        "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+        "workspace clippy with warnings denied must remain a release-readiness gate",
+    ),
+    (
+        "cargo test --workspace --all-targets --all-features",
+        "full workspace tests must remain a release-readiness gate",
+    ),
+    (
+        "cargo test -p kairo-examples --all-targets --all-features",
+        "public example workflows must remain in CI",
+    ),
+    (
+        "cargo test --doc --workspace --all-features",
+        "public API doctests must remain compile-tested across the workspace",
+    ),
+    (
+        "cargo test -p kairo-examples --doc --all-features",
+        "example rustdoc snippets must remain checked",
+    ),
+    (
+        "cargo test -p kairo-testkit multi_node --all-targets --all-features",
+        "deterministic multi-node testkit coverage must remain in CI",
+    ),
+    (
+        "RUSTDOCFLAGS=\"-D warnings\" cargo doc --workspace --all-features --no-deps",
+        "workspace rustdoc warnings must remain denied",
+    ),
+    (
+        "KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all",
+        "M13 benchmark smoke coverage must remain in CI",
+    ),
+];
+
 #[test]
 fn root_workspace_members_stay_on_kairo_next() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
@@ -474,6 +513,28 @@ fn public_readmes_list_current_example_binaries() -> Result<(), Box<dyn std::err
 }
 
 #[test]
+fn public_readmes_document_m13_validation_gates() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let readmes = [
+        repo_root.join("README.md"),
+        repo_root.join("kairo-next/README.md"),
+    ];
+
+    for readme_path in readmes {
+        let readme = std::fs::read_to_string(&readme_path)?.replace("\r\n", "\n");
+        for (command, reason) in M13_VALIDATION_GATE_EXPECTATIONS {
+            assert!(
+                readme.contains(command),
+                "{} must document validation command `{command}`: {reason}",
+                readme_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn rust_ci_keeps_m13_release_readiness_gates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let workflow_path = repo_root
@@ -481,46 +542,8 @@ fn rust_ci_keeps_m13_release_readiness_gates() -> Result<(), Box<dyn std::error:
         .join("workflows")
         .join("rust-ci.yml");
     let workflow = std::fs::read_to_string(&workflow_path)?.replace("\r\n", "\n");
-    let required_gates = [
-        (
-            "cargo fmt --all -- --check",
-            "formatting must remain a release-readiness gate",
-        ),
-        (
-            "cargo clippy --workspace --all-targets --all-features -- -D warnings",
-            "workspace clippy with warnings denied must remain a release-readiness gate",
-        ),
-        (
-            "cargo test --workspace --all-targets --all-features",
-            "full workspace tests must remain a release-readiness gate",
-        ),
-        (
-            "cargo test -p kairo-examples --all-targets --all-features",
-            "public example workflows must remain in CI",
-        ),
-        (
-            "cargo test --doc --workspace --all-features",
-            "public API doctests must remain compile-tested across the workspace",
-        ),
-        (
-            "cargo test -p kairo-examples --doc --all-features",
-            "example rustdoc snippets must remain checked",
-        ),
-        (
-            "cargo test -p kairo-testkit multi_node --all-targets --all-features",
-            "deterministic multi-node testkit coverage must remain in CI",
-        ),
-        (
-            "RUSTDOCFLAGS=\"-D warnings\" cargo doc --workspace --all-features --no-deps",
-            "workspace rustdoc warnings must remain denied",
-        ),
-        (
-            "KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all",
-            "M13 benchmark smoke coverage must remain in CI",
-        ),
-    ];
 
-    for (command, reason) in required_gates {
+    for (command, reason) in M13_VALIDATION_GATE_EXPECTATIONS {
         assert!(
             workflow.contains(command),
             "{} must contain `{command}`: {reason}",
