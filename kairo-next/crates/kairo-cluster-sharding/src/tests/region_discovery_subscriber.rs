@@ -77,29 +77,11 @@ fn region_discovery_subscriber_forwards_cluster_snapshot_to_region_registration(
     let subscriber_state = kit
         .create_probe::<ShardRegionDiscoverySubscriberSnapshot>("subscriber-state")
         .unwrap();
-    let coordinator_state = kit
-        .create_probe::<CoordinatorStateSnapshot>("subscription-coordinator-state")
-        .unwrap();
-
-    let mut registered = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let state = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        registered = state.allocations.contains_key("region-a");
-        if registered {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        registered,
-        "subscriber should forward the cluster snapshot into region discovery"
+    wait_for_coordinator_registration(
+        &kit,
+        &coordinator,
+        "subscription-coordinator-state",
+        "region-a",
     );
 
     subscriber
@@ -409,48 +391,59 @@ fn region_discovery_reissues_buffered_remembered_home_after_coordinator_moves() 
         }
     );
 
-    let mut activated = false;
-    for _ in 0..20 {
-        shard_store
-            .tell(RememberShardStoreMsg::GetState {
-                reply_to: store_state.actor_ref(),
-            })
-            .unwrap();
-        let remembered_entities = store_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap()
-            .entities_by_key
-            .values()
-            .flat_map(|entities| entities.iter().cloned())
-            .collect::<BTreeSet<_>>();
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            shard_store
+                .tell(RememberShardStoreMsg::GetState {
+                    reply_to: store_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let remembered_entities = store_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?
+                .entities_by_key
+                .values()
+                .flat_map(|entities| entities.iter().cloned())
+                .collect::<BTreeSet<_>>();
 
-        region
-            .tell(ShardRegionMsg::GetLocalShard {
-                shard: "shard-1".to_string(),
-                reply_to: local_shard.actor_ref(),
-            })
-            .unwrap();
-        if let Some(shard) = local_shard.expect_msg(Duration::from_millis(500)).unwrap() {
+            region
+                .tell(ShardRegionMsg::GetLocalShard {
+                    shard: "shard-1".to_string(),
+                    reply_to: local_shard.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let Some(shard) = local_shard
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?
+            else {
+                return Err(format!(
+                    "buffered remembered delivery should be persisted and activated after coordinator move; remembered entities: {remembered_entities:?}; local shard unavailable"
+                ));
+            };
+
             shard
                 .tell(ShardMsg::GetState {
                     reply_to: shard_state.actor_ref(),
                 })
-                .unwrap();
-            let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
-            activated = remembered_entities == BTreeSet::from(["entity-1".to_string()])
+                .map_err(|error| error.to_string())?;
+            let snapshot = shard_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if remembered_entities == BTreeSet::from(["entity-1".to_string()])
                 && snapshot.active_entities == vec!["entity-1".to_string()]
-                && snapshot.total_buffered == 0;
-        }
-
-        if activated {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        activated,
-        "buffered remembered delivery should be persisted and activated after coordinator move"
-    );
+                && snapshot.total_buffered == 0
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "buffered remembered delivery should be persisted and activated after coordinator move; remembered entities: {remembered_entities:?}; shard snapshot: {snapshot:?}"
+                ))
+            }
+        },
+    )
+    .unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
@@ -544,25 +537,11 @@ fn multi_node_region_discovery_registers_and_routes_via_coordinator_node() {
         ))
         .unwrap();
 
-    let mut registered = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let state = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        registered = state.allocations.contains_key("region-a");
-        if registered {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        registered,
-        "multi-node region discovery should register with coordinator node"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "multi-node region discovery should register with coordinator node",
+        |snapshot| snapshot.allocations.contains_key("region-a"),
     );
 
     region
@@ -740,51 +719,18 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
         ))
         .unwrap();
 
-    let mut allocated = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        allocated = snapshot.unallocated_shards.is_empty()
-            && snapshot
-                .allocations
-                .get("region-a")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if allocated {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        allocated,
-        "remembered shard should be allocated after discovered region registers"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "remembered shard should be allocated after discovered region registers",
+        remembered_shard_allocated,
     );
 
-    let mut hosted = false;
-    for _ in 0..20 {
-        region
-            .tell(ShardRegionMsg::GetState {
-                reply_to: region_state.actor_ref(),
-            })
-            .unwrap();
-        hosted = region_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap()
-            .local_shards
-            .contains("shard-1");
-        if hosted {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        hosted,
-        "remembered shard should be hosted by the registered region node"
+    wait_for_region_snapshot(
+        &region,
+        &region_state,
+        "remembered shard should be hosted by the registered region node",
+        |snapshot| snapshot.local_shards.contains("shard-1"),
     );
 
     region
@@ -843,23 +789,11 @@ fn multi_node_region_discovery_allocates_remembered_shard_on_registration() {
         }
     );
 
-    let mut entity_2_active = false;
-    for _ in 0..20 {
-        shard
-            .tell(ShardMsg::GetState {
-                reply_to: shard_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
-        entity_2_active = snapshot.active_entities.contains(&"entity-2".to_string());
-        if entity_2_active {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        entity_2_active,
-        "remember-start update should activate the newly delivered entity"
+    wait_for_active_entity(
+        &shard,
+        &shard_state,
+        "entity-2",
+        "remember-start update should activate the newly delivered entity",
     );
 
     region
@@ -1011,29 +945,11 @@ fn multi_node_region_discovery_delivers_recovered_and_new_shared_store_entities(
         ))
         .unwrap();
 
-    let mut allocated = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        allocated = snapshot.unallocated_shards.is_empty()
-            && snapshot
-                .allocations
-                .get("region-a")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if allocated {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        allocated,
-        "shared-store remembered shard should be allocated after discovery registration"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "shared-store remembered shard should be allocated after discovery registration",
+        remembered_shard_allocated,
     );
 
     region
@@ -1068,23 +984,11 @@ fn multi_node_region_discovery_delivers_recovered_and_new_shared_store_entities(
         .unwrap()
         .expect("shared-store remembered shard should stay local after allocation");
 
-    let mut entity_1_active = false;
-    for _ in 0..20 {
-        shard
-            .tell(ShardMsg::GetState {
-                reply_to: shard_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
-        entity_1_active = snapshot.active_entities.contains(&"entity-1".to_string());
-        if entity_1_active {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        entity_1_active,
-        "shared remember-store recovery should activate the remembered entity before first delivery"
+    wait_for_active_entity(
+        &shard,
+        &shard_state,
+        "entity-1",
+        "shared remember-store recovery should activate the remembered entity before first delivery",
     );
 
     region
@@ -1111,46 +1015,22 @@ fn multi_node_region_discovery_delivers_recovered_and_new_shared_store_entities(
         }
     );
 
-    let mut remembered = BTreeSet::new();
-    for _ in 0..20 {
-        remember_store
-            .tell(RememberShardStoreMsg::GetState {
-                reply_to: store_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
-        remembered = snapshot
-            .entities_by_key
-            .values()
-            .flat_map(|entities| entities.iter().cloned())
-            .collect();
-        if remembered.contains("entity-1") && remembered.contains("entity-2") {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let remembered = wait_for_remembered_entities(
+        &remember_store,
+        &store_state,
+        "shared remember-store should persist both delivered entities",
+        |entities| entities.contains("entity-1") && entities.contains("entity-2"),
+    );
     assert_eq!(
         remembered,
         BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
     );
 
-    let mut entity_2_active = false;
-    for _ in 0..20 {
-        shard
-            .tell(ShardMsg::GetState {
-                reply_to: shard_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
-        entity_2_active = snapshot.active_entities.contains(&"entity-2".to_string());
-        if entity_2_active {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        entity_2_active,
-        "shared remember-store write should activate the first-delivered entity"
+    wait_for_active_entity(
+        &shard,
+        &shard_state,
+        "entity-2",
+        "shared remember-store write should activate the first-delivered entity",
     );
 
     region
@@ -1185,19 +1065,141 @@ fn wait_for_coordinator_registration(
     let state = kit
         .create_probe::<CoordinatorStateSnapshot>(probe_name)
         .unwrap();
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
-        if snapshot.allocations.contains_key(region) {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    panic!("timed out waiting for coordinator to register region `{region}`");
+    wait_for_coordinator_snapshot(
+        coordinator,
+        &state,
+        &format!("timed out waiting for coordinator to register region `{region}`"),
+        |snapshot| snapshot.allocations.contains_key(region),
+    );
+}
+
+fn polling_timeout() -> Duration {
+    Duration::from_millis(10_200)
+}
+
+fn remembered_shard_allocated(snapshot: &CoordinatorStateSnapshot) -> bool {
+    snapshot.unallocated_shards.is_empty()
+        && snapshot
+            .allocations
+            .get("region-a")
+            .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
+}
+
+fn wait_for_coordinator_snapshot(
+    coordinator: &ActorRef<ShardCoordinatorMsg<String>>,
+    state: &kairo_testkit::TestProbe<CoordinatorStateSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&CoordinatorStateSnapshot) -> bool,
+) -> CoordinatorStateSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<CoordinatorStateSnapshot, String> {
+            coordinator
+                .tell(ShardCoordinatorMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_region_snapshot(
+    region: &ActorRef<ShardRegionMsg<String>>,
+    state: &kairo_testkit::TestProbe<ShardRegionSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&ShardRegionSnapshot) -> bool,
+) -> ShardRegionSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ShardRegionSnapshot, String> {
+            region
+                .tell(ShardRegionMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_active_entity(
+    shard: &ActorRef<ShardMsg<String>>,
+    state: &kairo_testkit::TestProbe<ShardSnapshot>,
+    entity: &str,
+    description: &str,
+) -> ShardSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ShardSnapshot, String> {
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if snapshot.active_entities.contains(&entity.to_string()) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_remembered_entities(
+    remember_store: &ActorRef<RememberShardStoreMsg>,
+    state: &kairo_testkit::TestProbe<RememberShardStoreSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&BTreeSet<String>) -> bool,
+) -> BTreeSet<String> {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<BTreeSet<String>, String> {
+            remember_store
+                .tell(RememberShardStoreMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            let entities = snapshot
+                .entities_by_key
+                .values()
+                .flat_map(|entities| entities.iter().cloned())
+                .collect::<BTreeSet<_>>();
+            if matches(&entities) {
+                Ok(entities)
+            } else {
+                Err(format!("{description}; remembered entities: {entities:?}"))
+            }
+        },
+    )
+    .unwrap()
 }
 
 struct CoordinatorMoveProbeCoordinator {
