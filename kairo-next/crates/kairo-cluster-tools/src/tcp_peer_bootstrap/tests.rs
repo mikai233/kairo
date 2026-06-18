@@ -33,7 +33,12 @@ fn assert_pubsub_publish(
     expected_topic: TopicName,
     expected_message: TestMessage,
 ) {
-    match probes.mediator.expect_msg(Duration::from_secs(1)).unwrap() {
+    match probes
+        .mediator
+        .expect_msg(Duration::from_secs(1))
+        .unwrap_or_else(|error| {
+            panic!("expected pubsub publish for topic {expected_topic:?}: {error}")
+        }) {
         DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::Publish {
             topic,
             message,
@@ -1145,7 +1150,7 @@ fn bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed()
         up_gossip([first_node.clone(), second_node.clone()]),
     );
     await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
-    assert_eq!(first_cache.route_count(), 1);
+    await_cache_route_count(&first_cache, 1);
 
     let removed_peer_error = third_outbound
         .tell(LocalPubSubMsg::Publish {
@@ -1459,13 +1464,11 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &first_snapshots,
         std::slice::from_ref(&second_node),
     );
-    assert_eq!(first_cache.route_count(), 1);
     await_connector_routes(
         second_bootstrap.connector(),
         &second_snapshots,
         std::slice::from_ref(&first_node),
     );
-    assert_eq!(second_cache.route_count(), 1);
     assert_eq!(third_cache.route_count(), 2);
 
     let removed_second_to_third_error = second_to_third

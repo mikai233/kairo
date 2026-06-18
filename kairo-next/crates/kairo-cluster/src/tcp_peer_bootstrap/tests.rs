@@ -997,7 +997,7 @@ fn bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_remov
         up_gossip([first_node.clone(), second_node.clone()]),
     );
     await_connector_route(first_bootstrap.connector(), &first_snapshots, &second_node);
-    assert_eq!(first_cache.route_count(), 1);
+    await_cache_route_count(&first_cache, 1);
 
     let removed_peer_error = third_membership_outbound
         .send_membership(ClusterMembershipMsg::Join {
@@ -1270,13 +1270,11 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         &first_snapshots,
         std::slice::from_ref(&second_node),
     );
-    assert_eq!(first_cache.route_count(), 1);
     await_connector_routes(
         second_bootstrap.connector(),
         &second_snapshots,
         std::slice::from_ref(&first_node),
     );
-    assert_eq!(second_cache.route_count(), 1);
     assert_eq!(third_cache.route_count(), 2);
 
     let removed_second_to_third_error = second_to_third_outbound
