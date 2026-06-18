@@ -16,6 +16,8 @@ use kairo::serialization::{
 };
 
 const REMOTE_PING_PONG_SERIALIZER_ID: SerializerId = 12_001;
+const ROUTE_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
+const ROUTE_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemotePingPongMsg {
@@ -319,14 +321,19 @@ fn wait_for_route_count(
     route_count: impl Fn() -> usize,
     expected: usize,
 ) -> Result<(), Box<dyn Error>> {
-    let deadline = Instant::now() + Duration::from_secs(1);
+    let deadline = Instant::now() + ROUTE_WAIT_TIMEOUT;
     loop {
         if route_count() == expected {
             return Ok(());
         }
-        if Instant::now() >= deadline {
+        let Some(remaining) = remaining_until(deadline) else {
             return Err(format!("timed out waiting for {expected} remote route(s)").into());
-        }
-        thread::sleep(Duration::from_millis(5));
+        };
+        thread::sleep(ROUTE_WAIT_POLL_INTERVAL.min(remaining));
     }
+}
+
+fn remaining_until(deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    (!remaining.is_zero()).then_some(remaining)
 }
