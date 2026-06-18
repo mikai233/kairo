@@ -421,6 +421,10 @@ sharding route behavior:
 cargo run -p kairo-benchmarks -- --help
 KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
 cargo run -p kairo-benchmarks --release -- all
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- actor-tell
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- remote-send
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- gossip-merge
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
 ```
 
 The full workspace target is:

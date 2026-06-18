@@ -513,6 +513,74 @@ fn public_readmes_list_current_example_binaries() -> Result<(), Box<dyn std::err
 }
 
 #[test]
+fn public_docs_list_current_benchmark_scenarios() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let benchmark_source_path = repo_root
+        .join("kairo-next")
+        .join("crates")
+        .join("kairo-benchmarks")
+        .join("src")
+        .join("main.rs");
+    let benchmark_source = std::fs::read_to_string(&benchmark_source_path)?.replace("\r\n", "\n");
+    let benchmark_scenarios = benchmark_scenarios_from_source(&benchmark_source)?;
+    assert!(
+        !benchmark_scenarios.is_empty(),
+        "{} must expose at least one benchmark scenario",
+        benchmark_source_path.display()
+    );
+
+    let public_docs = [
+        repo_root.join("README.md"),
+        repo_root.join("kairo-next/README.md"),
+        repo_root.join("docs/migration.md"),
+    ];
+    for doc_path in public_docs {
+        let doc = std::fs::read_to_string(&doc_path)?.replace("\r\n", "\n");
+        assert!(
+            doc.contains("cargo run -p kairo-benchmarks -- --help"),
+            "{} must document the benchmark help command",
+            doc_path.display()
+        );
+        for scenario in &benchmark_scenarios {
+            let command = format!("cargo run -p kairo-benchmarks --release -- {scenario}");
+            assert!(
+                doc.contains(&command),
+                "{} must document benchmark scenario command `{command}`",
+                doc_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn benchmark_scenarios_from_source(
+    source: &str,
+) -> Result<std::collections::BTreeSet<String>, Box<dyn std::error::Error>> {
+    let mut scenarios = std::collections::BTreeSet::new();
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if !trimmed.contains("=> Ok(Self::") {
+            continue;
+        }
+
+        let Some(after_quote) = trimmed.strip_prefix('"') else {
+            continue;
+        };
+        let Some((scenario, _)) = after_quote.split_once('"') else {
+            return Err(format!("malformed benchmark command parser row: {trimmed}").into());
+        };
+        if scenario == "help" || scenario.starts_with('-') {
+            continue;
+        }
+        scenarios.insert(scenario.to_string());
+    }
+
+    Ok(scenarios)
+}
+
+#[test]
 fn public_docs_document_m13_validation_gates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let public_docs = [

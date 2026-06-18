@@ -3888,6 +3888,11 @@ Implemented:
 - `docs/migration.md` now mirrors the benchmark help command and the
   `KAIRO_BENCH_ITERS=100` smoke run, keeping M12 migration guidance aligned
   with the M13 benchmark runner and README.
+- The `kairo` facade test suite now pins public benchmark documentation
+  against the scenarios accepted by `kairo-benchmarks`, so the root README,
+  `kairo-next` README, and migration notes must list the help command plus
+  the `all`, `actor-tell`, `remote-send`, `gossip-merge`, and
+  `sharding-route` release-mode commands.
 - `kairo-examples` TCP bootstrap smoke coverage now pins cluster bootstrap
   shutdown from a three-node mesh: a node with two live peer routes clears
   both association-cache routes and stops its connector during shutdown.
@@ -6180,6 +6185,11 @@ cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo dependency_audit_matches_resolved_external_lockfile_packages --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_docs_list_current_benchmark_scenarios --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings

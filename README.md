@@ -214,7 +214,11 @@ performance surface: actor tell throughput, remote outbound send overhead,
 gossip merge cost, and sharding route throughput.
 
 ```bash
+cargo run -p kairo-benchmarks -- --help
 cargo run -p kairo-benchmarks --release -- all
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- actor-tell
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- remote-send
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- gossip-merge
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
 ```
 
