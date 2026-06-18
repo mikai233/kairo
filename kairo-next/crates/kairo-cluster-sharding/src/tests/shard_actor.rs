@@ -260,6 +260,108 @@ fn shard_actor_with_remember_store_loads_entities_on_start() {
 }
 
 #[test]
+fn shard_actor_with_remember_store_restarts_loaded_entity_without_duplicate_store_update() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-store-restart-loaded").unwrap();
+    let (store_tx, store_rx) = mpsc::channel();
+    let store = kit
+        .system()
+        .spawn("store", ControlledRememberShardStore::props(store_tx))
+        .unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_store(
+                "shard-1",
+                10,
+                store,
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let termination = kit
+        .create_probe::<crate::EntityTerminatedPlan<String>>("termination")
+        .unwrap();
+    let restart = kit
+        .create_probe::<RestartRememberedEntityPlan>("restart")
+        .unwrap();
+
+    match store_rx.recv_timeout(Duration::from_millis(500)).unwrap() {
+        ControlledRememberShardStoreEvent::GetEntities { reply_to } => {
+            reply_to
+                .tell(RememberedEntities {
+                    entities: BTreeSet::from(["entity-1".to_string()]),
+                })
+                .unwrap();
+        }
+        ControlledRememberShardStoreEvent::Update { .. } => {
+            panic!("store should load remembered entities before writing updates")
+        }
+    }
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "loaded".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "loaded".to_string()),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::EntityTerminated {
+            entity_id: "entity-1".to_string(),
+            reply_to: termination.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        termination.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::EntityTerminatedPlan::RestartRemembered {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::RestartRememberedEntity {
+            entity_id: "entity-1".to_string(),
+            reply_to: restart.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        restart.expect_msg(Duration::from_millis(500)).unwrap(),
+        RestartRememberedEntityPlan::Started {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-restart".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "after-restart".to_string()),
+        }
+    );
+    assert!(
+        store_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+        "restarting a loaded remembered entity should not write a duplicate remember-start update"
+    );
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_actor_with_remember_store_persists_start_updates() {
     let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-store-start").unwrap();
     let store = kit

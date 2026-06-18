@@ -3963,6 +3963,11 @@ Implemented:
 - Timed-out rebalance completions now also replay pending shard-home
   requesters after clearing the rebalance marker, covering the Pekko timeout
   branch that also calls `clearRebalanceInProgress`.
+- `kairo-cluster-sharding` shard actors now pin the remember-store restart
+  path for loaded remembered entities: when an already remembered entity stops
+  unexpectedly, the shard reports `RestartRemembered`, restarts it through the
+  explicit restart command, resumes direct delivery, and does not emit a
+  duplicate remember-start store update.
 
 Not yet implemented:
 
@@ -3980,8 +3985,9 @@ Not yet implemented:
   delivery, connector member-removal delivery, bootstrap automatic retry, and
   partial-failure retry coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
-  orchestration beyond the current focused actor-level, region death-watch
-  restart, and multi-node discovery/shared-store first-delivery coverage.
+  orchestration beyond the current focused actor-level load/update/restart,
+  region death-watch restart, and multi-node discovery/shared-store
+  first-delivery coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
@@ -4112,6 +4118,10 @@ cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
+cargo test -p kairo-cluster-sharding shard_actor_with_remember_store_restarts_loaded_entity_without_duplicate_store_update --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 ```
 
 Previous implementation checkpoints:
