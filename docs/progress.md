@@ -3744,6 +3744,9 @@ Implemented:
 - `docs/decisions.md` now also reconciles the earlier cluster TCP route/runtime
   ADRs and the cluster-tools configured-peer runtime ADR with their later
   reconnectable peer runtime, actor connector, timer, and bootstrap layers.
+- `docs/decisions.md` now reconciles the early cluster heartbeat typed-route
+  ADR with the later remote heartbeat envelope adapters and TCP system inbound
+  delivery path.
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
@@ -6290,5 +6293,11 @@ cargo test -p kairo-cluster-tools peer_runtime_retries_failed_peer_dial_after_re
 cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo -p kairo-cluster -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo-cluster remote_heartbeat_round_trip_updates_sender_failure_detector --all-targets --all-features
+cargo test -p kairo-cluster tcp_runtime_routes_membership_and_heartbeat_over_bidirectional_association --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo -p kairo-cluster --all-targets --all-features -- -D warnings
 git diff --check
 ```

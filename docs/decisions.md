@@ -512,10 +512,10 @@ Status: Accepted
 Context:
 Pekko's cluster heartbeat sender resolves a remote heartbeat receiver through
 an actor selection at `/system/cluster/heartbeatReceiver`, sends a heartbeat,
-and updates the failure detector when the receiver replies. Kairo does not yet
-have the remote provider and association cache needed to resolve remote system
-actor paths, but the heartbeat sender/receiver behavior is needed by the
-cluster runtime milestone.
+and updates the failure detector when the receiver replies. Kairo first needed
+the heartbeat sender/receiver state machine before layering remote system-path
+resolution, association-cache routing, and TCP system inbound delivery on top
+of it.
 
 Decision:
 The first Kairo heartbeat actor slice keeps the Pekko state transitions but
@@ -528,12 +528,13 @@ for `Heartbeat` and `HeartbeatRsp` lives in the cluster `protocol` module so
 the later remote transport can carry the same protocol messages.
 
 Consequences:
-- The heartbeat runtime remains actor-backed and testable before remote actor
-  selection exists.
+- The heartbeat runtime remains actor-backed and testable independently from
+  the later remote heartbeat envelope and TCP association paths.
 - Cluster membership remains gossip/failure-detector based; route registration
   is a transport addressing concern, not membership authority.
-- The route table can be replaced or populated by remote association/provider
-  code later without changing the heartbeat state machine or wire manifests.
+- Remote heartbeat outbound/inbound adapters and cluster TCP system routing
+  now reuse the same heartbeat state machine and wire manifests without making
+  association routes cluster membership evidence.
 
 ## ADR-0022: Cluster Subscription Snapshots Use A Typed Sum Protocol
 
