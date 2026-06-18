@@ -1214,9 +1214,10 @@ Implemented:
   route is live, but rejects later sends after coordinated shutdown clears the
   route and does not deliver a message to the remote actor.
 - `kairo-remote` now has a focused TCP reader supervision state machine:
-  inbound lane or association reader failures plan full inbound-stream
-  restarts by default, finite restart limits can stop inbound streams, and
-  late failures after stop are ignored deterministically.
+  `TcpAssociationReaderSupervisor` plans full inbound-stream restarts for
+  inbound lane or association reader failures by default, finite restart
+  limits can stop inbound streams, and late failures after stop are ignored
+  deterministically.
 - TCP reader handles now preserve lane identity while joining reader threads,
   expose `TcpAssociationSupervisedReadReport`, and listener lifecycle reports
   include structured reader supervision decisions instead of reducing lane

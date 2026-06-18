@@ -1389,8 +1389,9 @@ Consequences:
   both directions.
 - Reverse routes are still explicit cache entries and are not cluster
   membership evidence.
-- Reader supervision and reconnect/backoff policy remain future work; this
-  decision only establishes bidirectional lane ownership for live associations.
+- Reader supervision is now covered by `TcpAssociationReaderSupervisor` and
+  ADR-0092. Outbound reconnect/backoff policy remains a separate runtime
+  concern from this bidirectional lane ownership decision.
 
 ## ADR-0050: Inbound Remote Watch Is Separate From Outbound Watch Intent
 
