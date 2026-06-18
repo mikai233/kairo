@@ -175,3 +175,15 @@ cargo test -p kairo-examples --all-targets --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 ```
+
+## Benchmarks
+
+The `kairo-benchmarks` crate provides a dependency-light baseline for the M13
+performance surface: actor tell throughput, remote outbound send overhead,
+gossip merge cost, and sharding route throughput.
+
+```bash
+cd kairo-next
+cargo run -p kairo-benchmarks --release -- all
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
+```

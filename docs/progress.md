@@ -3822,6 +3822,10 @@ Implemented:
   internal generation, so a delayed restart from an older shard failure cannot
   satisfy or accelerate a newer pending restart after a replacement shard also
   fails.
+- `kairo-benchmarks` now provides the initial M13 benchmark suite without a new
+  benchmarking dependency. The runner covers actor tell throughput, remote
+  outbound send overhead, gossip merge cost, and sharding route throughput, and
+  exposes per-scenario commands plus an `all` run for release-hardening checks.
 
 Not yet implemented:
 

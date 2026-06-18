@@ -397,6 +397,14 @@ cargo test -p kairo-testkit multi_node --all-targets --all-features
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 ```
 
+The initial M13 benchmark suite is optional for everyday edits but should be
+run when changing actor dispatch, remote outbound delivery, gossip merge, or
+sharding route behavior:
+
+```bash
+cargo run -p kairo-benchmarks --release -- all
+```
+
 The full workspace target is:
 
 ```bash

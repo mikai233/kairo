@@ -164,3 +164,17 @@ cargo test -p kairo-examples --all-targets --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 ```
+
+## Benchmarks
+
+`kairo-benchmarks` is the initial M13 benchmark suite. It uses the standard
+library plus Kairo's public APIs to measure actor tell throughput, remote
+outbound send overhead, gossip merge cost, and sharding route throughput.
+
+```bash
+cargo run -p kairo-benchmarks --release -- all
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- actor-tell
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- remote-send
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- gossip-merge
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
+```

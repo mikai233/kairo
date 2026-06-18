@@ -64,6 +64,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "kairo-benchmarks"
+version = "0.1.0"
+dependencies = [
+ "kairo",
+]
+
+[[package]]
 name = "kairo-cluster"
 version = "0.1.0"
 dependencies = [
