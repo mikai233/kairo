@@ -3900,6 +3900,9 @@ Implemented:
 - Distributed-data and cluster-tools peer-runtime shutdown coverage now pin the
   matching multi-route cleanup invariant, so all TCP peer runtimes assert
   shutdown removes two active route-cache entries before listener stop.
+- `kairo-cluster` actor-backed TCP peer connector coverage now pins explicit
+  `ClearRoutes` cleanup with two active peer routes, including the clear
+  report and empty association cache after the command.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -6028,6 +6031,7 @@ cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnin
 git diff --check
 cargo test -p kairo-cluster peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
 cargo test -p kairo-cluster peer_runtime_shutdown_clears_multiple_active_peer_routes --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster connector_clear_routes_removes_multiple_active_peer_routes --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-tools peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
 cargo test -p kairo-cluster-tools peer_runtime_shutdown_clears_multiple_active_peer_routes --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features
