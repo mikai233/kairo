@@ -3792,6 +3792,10 @@ Implemented:
   replacement incarnations as local self for snapshots and `MemberRemoved`,
   preventing self-dials and clearing active peer routes when the local cluster
   address is removed.
+- `kairo-distributed-data` cluster-route coverage now pins the same Pekko
+  self-address rule at the route-table boundary: replacement unique-address
+  incarnations at the local address are excluded from snapshots, ignored as
+  remote `MemberUp` events, and not reported as peer removals.
 
 Not yet implemented:
 
@@ -3829,8 +3833,11 @@ cargo test -p kairo-cluster association_peers --all-targets --all-features
 cargo test -p kairo-cluster --all-targets --all-features
 cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-distributed-data cluster_routes --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```
 

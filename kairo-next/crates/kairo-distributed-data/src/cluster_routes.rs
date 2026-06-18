@@ -338,6 +338,59 @@ mod tests {
         );
     }
 
+    #[test]
+    fn route_snapshot_excludes_same_address_replacement_self() {
+        let self_node = node("self", 1);
+        let replacement_self = UniqueAddress::new(self_node.address.clone(), 2);
+        let peer = member(node("peer", 3), MemberStatus::Up, ["ddata"]);
+        let state = CurrentClusterState {
+            members: vec![
+                member(self_node.clone(), MemberStatus::Up, ["ddata"]),
+                member(replacement_self, MemberStatus::Up, ["ddata"]),
+                peer.clone(),
+            ],
+            unreachable: vec![],
+            seen_by: HashSet::new(),
+            leader: Some(self_node.clone()),
+            role_leaders: HashMap::new(),
+            member_tombstones: HashSet::new(),
+        };
+
+        let routes =
+            ReplicatorClusterRoutes::from_current_state(self_node.clone(), &state, ["ddata"]);
+
+        assert_eq!(
+            routes.remote_replicas(),
+            vec![ReplicaId::from(&peer.unique_address)]
+        );
+        assert_eq!(routes.remote_nodes(), vec![peer.unique_address]);
+    }
+
+    #[test]
+    fn route_events_ignore_same_address_replacement_self() {
+        let self_node = node("self", 1);
+        let replacement_self = UniqueAddress::new(self_node.address.clone(), 2);
+        let peer = member(node("peer", 3), MemberStatus::Up, ["ddata"]);
+        let mut routes = ReplicatorClusterRoutes::with_required_roles(self_node.clone(), ["ddata"]);
+
+        let replacement_update = routes.apply_event(&ClusterEvent::Member(MemberEvent::Up(
+            member(replacement_self, MemberStatus::Up, ["ddata"]),
+        )));
+        assert!(replacement_update.remote_replicas.is_empty());
+
+        routes.apply_event(&ClusterEvent::Member(MemberEvent::Up(peer.clone())));
+        let removed_self = routes.apply_event(&ClusterEvent::Member(MemberEvent::Removed {
+            member: member(self_node, MemberStatus::Removed, ["ddata"]),
+            previous_status: MemberStatus::Up,
+        }));
+
+        assert_eq!(
+            removed_self.remote_replicas,
+            vec![ReplicaId::from(&peer.unique_address)]
+        );
+        assert!(removed_self.removed_replicas.is_empty());
+    }
+
     fn node(name: &str, uid: u64) -> UniqueAddress {
         UniqueAddress::new(
             Address::new(
