@@ -41,6 +41,10 @@ The normal workspace is under `kairo-next/crates/*` and includes:
   region envelopes.
 - `kairo-cluster-tools`: singleton and distributed pubsub tools.
 - `kairo-testkit`: deterministic probes and manual-time test support.
+- `kairo-examples`: runnable vertical slices for local actors, configuration,
+  remoting, cluster membership, distributed data, sharding, and cluster tools.
+- `kairo-benchmarks`: dependency-light M13 benchmark runner for actor tell,
+  remote send, gossip merge, and sharding route throughput.
 
 ## Running Examples
 

@@ -3838,6 +3838,10 @@ Implemented:
   workspace documentation builds with `RUSTDOCFLAGS="-D warnings"` and the
   dependency-light benchmark runner executes all scenarios with
   `KAIRO_BENCH_ITERS=100`.
+- The root README and `kairo-next` README now both describe the support-crate
+  surface: `kairo-examples` validates public facade workflows and
+  `kairo-benchmarks` provides the dependency-light M13 benchmark runner, while
+  remaining leaf crates outside the runtime dependency graph.
 
 Not yet implemented:
 

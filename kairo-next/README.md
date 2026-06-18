@@ -29,10 +29,17 @@ workspace split.
   cluster utilities.
 - `kairo-testkit`: probes, manual time, actor system test harnesses, and
   multi-node test helpers.
+- `kairo-examples`: runnable vertical slices that validate public facade
+  workflows across local and distributed features.
+- `kairo-benchmarks`: dependency-light M13 benchmark runner for actor tell,
+  remote send, gossip merge, and sharding route throughput.
 
 See `ARCHITECTURE.md` for the planned public model and implementation order.
 For migration guidance from the old reference crates, see
 `../docs/migration.md`.
+
+`kairo-examples` and `kairo-benchmarks` are leaf support crates. Runtime crates
+must not depend on them.
 
 ## Core User Model
 
