@@ -3846,6 +3846,10 @@ Implemented:
   `kairo-benchmarks` remain leaf support crates: both consume the public
   `kairo` facade, and no runtime crate manifest may depend on either support
   crate.
+- The `kairo` facade test suite now also pins the resolved all-feature
+  lockfile against deferred dependency families from the M13 audit: HOCON,
+  central membership store clients, async runtimes, serde/protobuf wire-format
+  frameworks for public remote contracts, and benchmark frameworks.
 
 Not yet implemented:
 

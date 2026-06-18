@@ -272,6 +272,84 @@ fn support_crates_remain_leaf_facade_consumers() -> Result<(), Box<dyn std::erro
 }
 
 #[test]
+fn resolved_workspace_lockfile_excludes_deferred_dependency_families()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let lockfile = std::fs::read_to_string(repo_root.join("Cargo.lock"))?.to_ascii_lowercase();
+    let forbidden_packages = [
+        (
+            "hocon",
+            "TOML is the first configuration file format; do not resolve HOCON support yet",
+        ),
+        (
+            "hocon-rs",
+            "TOML is the first configuration file format; do not resolve HOCON support yet",
+        ),
+        (
+            "etcd-client",
+            "cluster membership must remain gossip-based without a central membership store",
+        ),
+        (
+            "kube",
+            "cluster membership must not depend on Kubernetes as an authority",
+        ),
+        (
+            "k8s-openapi",
+            "cluster membership must not depend on Kubernetes as an authority",
+        ),
+        (
+            "tokio",
+            "the initial local actor runtime must not introduce an async runtime dependency",
+        ),
+        (
+            "async-std",
+            "the initial local actor runtime must not introduce an async runtime dependency",
+        ),
+        (
+            "smol",
+            "the initial local actor runtime must not introduce an async runtime dependency",
+        ),
+        (
+            "serde_json",
+            "public remote wire contracts must stay manifest/codec based, not serde-format based",
+        ),
+        (
+            "bincode",
+            "public remote wire contracts must stay manifest/codec based, not serde-format based",
+        ),
+        (
+            "prost",
+            "public remote wire contracts must stay manifest/codec based, not protobuf based",
+        ),
+        (
+            "criterion",
+            "the M13 benchmark runner is intentionally dependency-light",
+        ),
+        (
+            "iai",
+            "the M13 benchmark runner is intentionally dependency-light",
+        ),
+        (
+            "divan",
+            "the M13 benchmark runner is intentionally dependency-light",
+        ),
+        (
+            "bencher",
+            "the M13 benchmark runner is intentionally dependency-light",
+        ),
+    ];
+
+    for (package, reason) in forbidden_packages {
+        assert!(
+            !lockfile.contains(&format!("name = \"{package}\"")),
+            "Cargo.lock must not resolve `{package}`: {reason}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn distributed_layers_do_not_introduce_authoritative_membership_store()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
