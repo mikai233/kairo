@@ -106,7 +106,7 @@ impl ClusterAssociationPeerState {
         self.members = snapshot
             .members
             .into_iter()
-            .filter(|member| member.unique_address != self.self_node)
+            .filter(|member| !self.is_self_address(&member.unique_address))
             .map(|member| (member.unique_address.ordering_key(), member))
             .collect();
         self.locally_unreachable = snapshot
@@ -145,7 +145,7 @@ impl ClusterAssociationPeerState {
     fn apply_member_event(&mut self, event: MemberEvent) {
         match event {
             MemberEvent::Removed { member, .. } => {
-                if member.unique_address == self.self_node {
+                if self.is_self_address(&member.unique_address) {
                     self.members.clear();
                     self.locally_unreachable.clear();
                 } else {
@@ -160,7 +160,7 @@ impl ClusterAssociationPeerState {
             | MemberEvent::Left(member)
             | MemberEvent::Exited(member)
             | MemberEvent::Downed(member) => {
-                if member.unique_address != self.self_node {
+                if !self.is_self_address(&member.unique_address) {
                     self.members
                         .insert(member.unique_address.ordering_key(), member);
                 }
@@ -207,7 +207,7 @@ impl ClusterAssociationPeerState {
         for member in self.members.values() {
             let key = member.unique_address.ordering_key();
             if member.status == MemberStatus::Removed
-                || member.unique_address == self.self_node
+                || self.is_self_address(&member.unique_address)
                 || self.locally_unreachable.contains(&key)
             {
                 continue;
@@ -218,6 +218,10 @@ impl ClusterAssociationPeerState {
             );
         }
         Ok(desired)
+    }
+
+    fn is_self_address(&self, node: &UniqueAddress) -> bool {
+        node.address == self.self_node.address
     }
 }
 
@@ -296,6 +300,31 @@ mod tests {
         assert_eq!(dialed_nodes(&changes), vec![reachable.clone()]);
         assert_eq!(peers.active_targets()[0].association().port(), Some(2552));
         assert_eq!(peers.active_targets()[0].node(), &reachable);
+    }
+
+    #[test]
+    fn snapshot_excludes_replacement_incarnation_with_self_address() {
+        let self_node = node("self", 2551, 1);
+        let replacement_self = UniqueAddress::new(self_node.address.clone(), 11);
+        let reachable = node("reachable", 2552, 2);
+        let mut peers = ClusterAssociationPeerState::new(self_node);
+
+        let changes = peers
+            .apply_snapshot(state(
+                vec![member(replacement_self), member(reachable.clone())],
+                vec![],
+            ))
+            .unwrap();
+
+        assert_eq!(dialed_nodes(&changes), vec![reachable.clone()]);
+        assert_eq!(
+            peers
+                .active_targets()
+                .into_iter()
+                .map(|target| target.node().clone())
+                .collect::<Vec<_>>(),
+            vec![reachable]
+        );
     }
 
     #[test]
@@ -396,6 +425,35 @@ mod tests {
         let removed = peers
             .apply_event(ClusterEvent::Member(MemberEvent::Removed {
                 member: member(self_node).with_status(MemberStatus::Removed),
+                previous_status: MemberStatus::Up,
+            }))
+            .unwrap();
+
+        assert_eq!(removed_nodes(&removed), vec![first_peer, second_peer]);
+        assert!(peers.active_targets().is_empty());
+    }
+
+    #[test]
+    fn self_member_removal_by_address_removes_all_active_peers() {
+        let self_node = node("self", 2551, 1);
+        let replacement_self = UniqueAddress::new(self_node.address.clone(), 11);
+        let first_peer = node("first-peer", 2552, 2);
+        let second_peer = node("second-peer", 2553, 3);
+        let mut peers = ClusterAssociationPeerState::new(self_node.clone());
+        peers
+            .apply_snapshot(state(
+                vec![
+                    member(self_node),
+                    member(first_peer.clone()),
+                    member(second_peer.clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+
+        let removed = peers
+            .apply_event(ClusterEvent::Member(MemberEvent::Removed {
+                member: member(replacement_self).with_status(MemberStatus::Removed),
                 previous_status: MemberStatus::Up,
             }))
             .unwrap();

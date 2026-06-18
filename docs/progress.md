@@ -3788,6 +3788,10 @@ Implemented:
 - `kairo-cluster-tools` distributed pubsub mediator now stops on local
   `MemberRemoved` by cluster address, matching Pekko mediator semantics even
   when the removed member has a replacement unique-address incarnation.
+- `kairo-cluster` association peer planning now treats same-address
+  replacement incarnations as local self for snapshots and `MemberRemoved`,
+  preventing self-dials and clearing active peer routes when the local cluster
+  address is removed.
 
 Not yet implemented:
 
@@ -3821,9 +3825,12 @@ Not yet implemented:
 Latest progress refresh validation:
 
 ```bash
-cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo test -p kairo-cluster association_peers --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
 cargo fmt --all -- --check
-cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
