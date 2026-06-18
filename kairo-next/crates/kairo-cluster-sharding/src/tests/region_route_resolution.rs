@@ -39,24 +39,11 @@ fn region_actor_requests_shard_home_from_registered_coordinator_for_local_route(
         .create_probe::<ShardDeliverPlan<String>>("delivery")
         .unwrap();
 
-    let mut registered = false;
-    for _ in 0..20 {
-        region
-            .tell(ShardRegionMsg::GetState {
-                reply_to: region_state.actor_ref(),
-            })
-            .unwrap();
-        registered = region_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap()
-            .registration_status
-            == RegionRegistrationStatus::Registered;
-        if registered {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(registered, "region should register before route resolution");
+    wait_for_region_registration(
+        &region,
+        &region_state,
+        "region should register before route resolution",
+    );
 
     region
         .tell(ShardRegionMsg::RouteToLocalShard {
@@ -160,24 +147,11 @@ fn region_actor_allocates_remembered_shard_and_persists_first_delivery() {
         .create_probe::<RememberShardStoreSnapshot>("shard-store-state")
         .unwrap();
 
-    let mut registered = false;
-    for _ in 0..20 {
-        region
-            .tell(ShardRegionMsg::GetState {
-                reply_to: region_state.actor_ref(),
-            })
-            .unwrap();
-        registered = region_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap()
-            .registration_status
-            == RegionRegistrationStatus::Registered;
-        if registered {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(registered, "region should register before route resolution");
+    wait_for_region_registration(
+        &region,
+        &region_state,
+        "region should register before route resolution",
+    );
 
     region
         .tell(ShardRegionMsg::RouteToLocalShard {
@@ -206,49 +180,18 @@ fn region_actor_allocates_remembered_shard_and_persists_first_delivery() {
         }
     );
 
-    let mut activated = false;
-    for _ in 0..20 {
-        shard_store
-            .tell(RememberShardStoreMsg::GetState {
-                reply_to: shard_store_state.actor_ref(),
-            })
-            .unwrap();
-        let shard_snapshot = shard_store_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        let remembered_entities = shard_snapshot
-            .entities_by_key
-            .values()
-            .flat_map(|entities| entities.iter().cloned())
-            .collect::<BTreeSet<_>>();
-
-        region
-            .tell(ShardRegionMsg::GetLocalShard {
-                shard: "shard-1".to_string(),
-                reply_to: local_shard.actor_ref(),
-            })
-            .unwrap();
-        let shard = local_shard.expect_msg(Duration::from_millis(500)).unwrap();
-        if let Some(shard) = shard {
-            shard
-                .tell(ShardMsg::GetState {
-                    reply_to: shard_state.actor_ref(),
-                })
-                .unwrap();
-            let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
-            activated = remembered_entities.contains("entity-1")
+    wait_for_remembered_shard_activation(
+        &region,
+        &local_shard,
+        &shard_store,
+        &shard_store_state,
+        &shard_state,
+        "automatic shard home allocation should persist and activate first delivery",
+        |remembered_entities, snapshot| {
+            remembered_entities.contains("entity-1")
                 && snapshot.active_entities == vec!["entity-1".to_string()]
-                && snapshot.total_buffered == 0;
-        }
-
-        if activated {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        activated,
-        "automatic shard home allocation should persist and activate first delivery"
+                && snapshot.total_buffered == 0
+        },
     );
 
     region
@@ -392,50 +335,18 @@ fn region_actor_persists_batched_remember_starts_after_buffered_allocation() {
         }
     );
 
-    let mut activated = false;
-    for _ in 0..20 {
-        shard_store
-            .tell(RememberShardStoreMsg::GetState {
-                reply_to: shard_store_state.actor_ref(),
-            })
-            .unwrap();
-        let shard_snapshot = shard_store_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        let remembered_entities = shard_snapshot
-            .entities_by_key
-            .values()
-            .flat_map(|entities| entities.iter().cloned())
-            .collect::<BTreeSet<_>>();
-
-        region
-            .tell(ShardRegionMsg::GetLocalShard {
-                shard: "shard-1".to_string(),
-                reply_to: local_shard.actor_ref(),
-            })
-            .unwrap();
-        let shard = local_shard.expect_msg(Duration::from_millis(500)).unwrap();
-        if let Some(shard) = shard {
-            shard
-                .tell(ShardMsg::GetState {
-                    reply_to: shard_state.actor_ref(),
-                })
-                .unwrap();
-            let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
-            activated = remembered_entities
-                == BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
+    wait_for_remembered_shard_activation(
+        &region,
+        &local_shard,
+        &shard_store,
+        &shard_store_state,
+        &shard_state,
+        "buffered first deliveries should persist batched remembered starts before activation",
+        |remembered_entities, snapshot| {
+            *remembered_entities == BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
                 && snapshot.active_entities == vec!["entity-1".to_string(), "entity-2".to_string()]
-                && snapshot.total_buffered == 0;
-        }
-
-        if activated {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        activated,
-        "buffered first deliveries should persist batched remembered starts before activation"
+                && snapshot.total_buffered == 0
+        },
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -829,6 +740,99 @@ fn region_actor_applies_decoded_remote_shard_home_reply() {
         }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+fn polling_timeout() -> Duration {
+    Duration::from_millis(10_200)
+}
+
+fn wait_for_region_registration(
+    region: &ActorRef<ShardRegionMsg<String>>,
+    state: &kairo_testkit::TestProbe<ShardRegionSnapshot>,
+    description: &str,
+) -> ShardRegionSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ShardRegionSnapshot, String> {
+            region
+                .tell(ShardRegionMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if snapshot.registration_status == RegionRegistrationStatus::Registered {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_remembered_shard_activation(
+    region: &ActorRef<ShardRegionMsg<String>>,
+    local_shard: &kairo_testkit::TestProbe<Option<ActorRef<ShardMsg<String>>>>,
+    shard_store: &ActorRef<RememberShardStoreMsg>,
+    shard_store_state: &kairo_testkit::TestProbe<RememberShardStoreSnapshot>,
+    shard_state: &kairo_testkit::TestProbe<ShardSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&BTreeSet<String>, &ShardSnapshot) -> bool,
+) -> ShardSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ShardSnapshot, String> {
+            shard_store
+                .tell(RememberShardStoreMsg::GetState {
+                    reply_to: shard_store_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let store_snapshot = shard_store_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            let remembered_entities = store_snapshot
+                .entities_by_key
+                .values()
+                .flat_map(|entities| entities.iter().cloned())
+                .collect::<BTreeSet<_>>();
+
+            region
+                .tell(ShardRegionMsg::GetLocalShard {
+                    shard: "shard-1".to_string(),
+                    reply_to: local_shard.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let Some(shard) = local_shard
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?
+            else {
+                return Err(format!(
+                    "{description}; remembered entities: {remembered_entities:?}; local shard unavailable"
+                ));
+            };
+
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: shard_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = shard_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&remembered_entities, &snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!(
+                    "{description}; remembered entities: {remembered_entities:?}; shard snapshot: {snapshot:?}"
+                ))
+            }
+        },
+    )
+    .unwrap()
 }
 
 struct DelayedRegistrationCoordinator {
