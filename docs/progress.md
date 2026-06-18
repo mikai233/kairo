@@ -3189,6 +3189,10 @@ Implemented:
   distributed-data, and cluster-tools bootstrap-owned connector actors stop
   through coordinated shutdown after installing a live peer route through the
   public reusable example node boundary.
+- The TCP bootstrap example shutdown observations now also report the
+  association-cache route count after coordinated shutdown, and the localhost
+  smoke suite pins that cluster, distributed-data, and cluster-tools example
+  nodes clear their live route before reporting shutdown success.
 - The TCP bootstrap example modules now expose reusable three-node binding
   helpers, and the localhost smoke suite validates cluster, distributed-data,
   and cluster-tools full-mesh route installation followed by a membership
@@ -6062,5 +6066,11 @@ cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-examples tcp_peer_bootstrap_shutdown_stops_connector_after_live_route --test tcp_bootstrap_smoke --all-features -- --nocapture
+cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
 ```

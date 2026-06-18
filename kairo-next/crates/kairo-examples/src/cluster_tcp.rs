@@ -90,6 +90,7 @@ pub struct ClusterTcpExampleNode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterTcpShutdownObservation {
     pub route_count_before_shutdown: usize,
+    pub route_count_after_shutdown: usize,
     pub connector_stopped: bool,
 }
 
@@ -257,8 +258,10 @@ impl ClusterTcpExampleNode {
             "cluster tcp example complete",
             remaining_shutdown_time(deadline)?,
         )?;
+        let route_count_after_shutdown = self.association_cache.route_count();
         Ok(ClusterTcpShutdownObservation {
             route_count_before_shutdown,
+            route_count_after_shutdown,
             connector_stopped: connector.wait_for_stop(remaining_shutdown_time(deadline)?),
         })
     }

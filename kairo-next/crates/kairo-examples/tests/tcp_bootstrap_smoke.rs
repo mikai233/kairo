@@ -52,6 +52,7 @@ fn cluster_tcp_peer_bootstrap_shutdown_stops_connector_after_live_route() -> Tes
 
     let observation = observation_a?;
     assert_eq!(observation.route_count_before_shutdown, 1);
+    assert_eq!(observation.route_count_after_shutdown, 0);
     assert!(observation.connector_stopped);
     shutdown_b?;
     Ok(())
@@ -344,6 +345,7 @@ fn ddata_tcp_peer_bootstrap_shutdown_stops_connector_after_live_route() -> TestR
 
     let observation = observation_a?;
     assert_eq!(observation.route_count_before_shutdown, 1);
+    assert_eq!(observation.route_count_after_shutdown, 0);
     assert!(observation.connector_stopped);
     shutdown_b?;
     Ok(())
@@ -645,6 +647,7 @@ fn cluster_tools_tcp_peer_bootstrap_shutdown_stops_connector_after_live_route() 
 
     let observation = observation_a?;
     assert_eq!(observation.route_count_before_shutdown, 1);
+    assert_eq!(observation.route_count_after_shutdown, 0);
     assert!(observation.connector_stopped);
     shutdown_b?;
     Ok(())
