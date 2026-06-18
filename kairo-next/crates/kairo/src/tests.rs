@@ -514,6 +514,27 @@ fn implementation_status_docs_do_not_mark_reader_supervision_as_future_work()
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_public_api_docs_as_unreviewed()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let progress =
+        std::fs::read_to_string(repo_root.join("docs").join("progress.md"))?.replace("\r\n", "\n");
+
+    assert!(
+        !progress.contains("public API documentation needs to be reviewed"),
+        "progress status must not describe compile-tested public API docs as unreviewed"
+    );
+    assert!(
+        progress.contains("workspace doctests")
+            && progress.contains("rustdoc warning gates")
+            && progress.contains("compile-tested public API snippets"),
+        "progress status must mention the implemented public API documentation gates"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn public_readmes_list_current_workspace_crates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let crate_names = active_workspace_crate_names(&repo_root.join("kairo-next/crates"))?;

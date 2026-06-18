@@ -49,9 +49,10 @@ workspace stabilization before M13 release readiness.
 - M11 configuration and observability: partially complete. TOML-based settings,
   builder conversion, diagnostics settings, and coordinated-shutdown surfaces
   exist; broader observability and operator polish remain.
-- M12 examples, migration, and documentation: partially complete. Examples and
-  migration guidance exist, but public API documentation needs to be reviewed
-  against the current implementation surface.
+- M12 examples, migration, and documentation: substantial implementation.
+  Examples, migration guidance, README feature maps, workspace doctests,
+  rustdoc warning gates, and compile-tested public API snippets exist; final
+  narrative polish remains part of M13 release hardening.
 - M13 hardening and release readiness: not complete. Remaining work is focused
   on full-workspace validation stability, multi-node hardening, performance and
   failure-mode review, final documentation, and any cleanup needed before the
