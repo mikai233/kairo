@@ -1806,11 +1806,12 @@ Implemented:
   connectors; the same scenario now publishes a reduced two-node membership
   view and validates the surviving nodes remove the departed node's active
   route through the connector boundary. The same route-reduction scenario now
-  also proves sends to the removed peer reject through the association cache
-  while the remaining first/second routes still carry stable `ReplicatorRead`
-  traffic in both directions. The test now also pins the underlying
-  association-cache route counts across full mesh, reduced membership, and
-  coordinated shutdown cleanup for all three bootstrap-owned runtimes.
+  also proves all stale directions involving the removed peer reject through
+  the association cache without recording extra inbound requests, while the
+  remaining first/second routes still carry stable `ReplicatorRead` traffic in
+  both directions. The test now also pins the underlying association-cache
+  route counts across full mesh, reduced membership, and coordinated shutdown
+  cleanup for all three bootstrap-owned runtimes.
 - Distributed-data TCP peer bootstrap lifecycle coverage now validates
   membership removal: after two bound runtimes install socket routes from a
   shared gossip snapshot, publishing a sender-side snapshot without the peer
@@ -4284,6 +4285,17 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after distributed-data three-node shrink
+stale-route coverage:
+
+```bash
+cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after coordinator-move remembered-entity routing
 coverage:

@@ -1915,9 +1915,31 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     await_cache_route_count(&second_cache, 1);
     await_cache_route_count(&third_cache, 0);
 
+    let first_request_count_after_reduction = first_requests
+        .wait_for_len(0, Duration::from_millis(0))
+        .len();
+    let second_request_count_after_reduction = second_requests
+        .wait_for_len(0, Duration::from_millis(0))
+        .len();
+    let third_request_count_after_reduction = third_requests
+        .wait_for_len(0, Duration::from_millis(0))
+        .len();
+
+    let removed_first_to_third_error = to_third
+        .tell(ReplicatorRead {
+            key: "counter-third-from-first-after-reduction".to_string(),
+            from: Some(ReplicaId::from(&first_node)),
+        })
+        .expect_err("first-to-third route should reject sends after third is removed");
+    assert!(
+        removed_first_to_third_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected first-to-third send error: {removed_first_to_third_error:?}"
+    );
     let removed_second_to_third_error = second_to_third
         .tell(ReplicatorRead {
-            key: "counter-third-after-reduction".to_string(),
+            key: "counter-third-from-second-after-reduction".to_string(),
             from: Some(ReplicaId::from(&second_node)),
         })
         .expect_err("second-to-third route should reject sends after third is removed");
@@ -1926,6 +1948,57 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
             .reason()
             .contains("no remote association route"),
         "unexpected second-to-third send error: {removed_second_to_third_error:?}"
+    );
+    let removed_third_to_first_error = third_to_first
+        .tell(ReplicatorRead {
+            key: "counter-first-from-third-after-reduction".to_string(),
+            from: Some(ReplicaId::from(&third_node)),
+        })
+        .expect_err("third-to-first route should reject sends after third is removed");
+    assert!(
+        removed_third_to_first_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected third-to-first send error: {removed_third_to_first_error:?}"
+    );
+    let removed_third_to_second_error = third_to_second
+        .tell(ReplicatorRead {
+            key: "counter-second-from-third-after-reduction".to_string(),
+            from: Some(ReplicaId::from(&third_node)),
+        })
+        .expect_err("third-to-second route should reject sends after third is removed");
+    assert!(
+        removed_third_to_second_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected third-to-second send error: {removed_third_to_second_error:?}"
+    );
+    assert_eq!(
+        third_requests
+            .wait_for_len(
+                third_request_count_after_reduction + 1,
+                Duration::from_millis(100)
+            )
+            .len(),
+        third_request_count_after_reduction
+    );
+    assert_eq!(
+        first_requests
+            .wait_for_len(
+                first_request_count_after_reduction + 1,
+                Duration::from_millis(100)
+            )
+            .len(),
+        first_request_count_after_reduction
+    );
+    assert_eq!(
+        second_requests
+            .wait_for_len(
+                second_request_count_after_reduction + 1,
+                Duration::from_millis(100)
+            )
+            .len(),
+        second_request_count_after_reduction
     );
 
     let (second_after_reduction_from_first, _, second_after_reduction_read) =
