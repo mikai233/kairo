@@ -3876,6 +3876,10 @@ Implemented:
 - The root README, `kairo-next` README, and migration notes now document the
   `kairo` facade feature map so users can choose local defaults, distributed
   opt-ins, `testkit`, or `full` without reading crate manifests.
+- `kairo-distributed-data` now covers TCP peer-runtime partial snapshot
+  failure: if one peer route is installed and a later peer dial fails, the
+  successful route remains active while only the failed peer is scheduled for
+  reconnect and later retried.
 
 Not yet implemented:
 
@@ -3889,7 +3893,7 @@ Not yet implemented:
   runtime, actor-backed connector beyond current route-target shrinkage, and
   bootstrap beyond the current localhost two-node and sender-side three-node
   example smoke tests, three-node bootstrap route validation, and focused
-  peer-runtime sender-side route-reduction delivery coverage.
+  peer-runtime sender-side route-reduction and partial-failure retry coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level and multi-node
   discovery/shared-store first-delivery coverage.
@@ -3936,6 +3940,10 @@ cargo test --workspace --all-targets --all-features
 cargo test --doc --workspace --all-features
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test -p kairo-distributed-data peer_runtime_preserves_successful_routes_when_later_snapshot_dial_fails --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings

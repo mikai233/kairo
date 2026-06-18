@@ -853,6 +853,80 @@ mod route_tests {
     }
 
     #[test]
+    fn peer_runtime_preserves_successful_routes_when_later_snapshot_dial_fails() {
+        let _guard = ddata_socket_test_lock();
+        let bound_port = unused_port();
+        let missing_port = unused_port();
+        let bound_node = node("partial-bound", bound_port, 2);
+        let missing_node = node("partial-missing", missing_port, 3);
+        let retry_interval = Duration::from_millis(25);
+        let mut sender = bind_peer_runtime(
+            "partial-sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&bound_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+        let bound = bind_association_runtime_on_port(
+            "partial-bound",
+            ReplicaId::from(&bound_node),
+            ReplicaId::from(&sender_node),
+            22,
+            bound_port,
+        );
+
+        let error = sender
+            .apply_snapshot_at(
+                state(
+                    vec![
+                        member(sender_node.clone()),
+                        member(bound_node.clone()),
+                        member(missing_node.clone()),
+                    ],
+                    vec![],
+                ),
+                Duration::ZERO,
+            )
+            .unwrap_err();
+
+        assert!(matches!(error, ReplicatorTcpPeerRuntimeError::Route(_)));
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        wait_for_reverse_route(&bound);
+        let pending = sender.pending_peer_reconnects();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].target.node(), &missing_node);
+        assert_eq!(pending[0].attempts, 1);
+        assert_eq!(pending[0].next_retry_at, retry_interval);
+
+        let missing = bind_association_runtime_on_port(
+            "partial-missing",
+            ReplicaId::from(&missing_node),
+            ReplicaId::from(&sender_node),
+            33,
+            missing_port,
+        );
+        let report = sender.retry_due_peer_routes(retry_interval).unwrap();
+
+        assert_eq!(report.dialed.len(), 1);
+        assert_eq!(report.dialed[0].node(), &missing_node);
+        assert_eq!(sender.peer_route_count(), 2);
+        assert_eq!(sender.association_cache().route_count(), 2);
+        assert_eq!(sender.pending_peer_reconnect_count(), 0);
+        wait_for_reverse_route(&missing);
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.peer_routes.removed.len(), 2);
+        assert!(sender_report.pending_reconnects.is_empty());
+        let bound_report = bound.shutdown().unwrap();
+        assert_eq!(bound_report.accepted_associations, 1);
+        let missing_report = missing.shutdown().unwrap();
+        assert_eq!(missing_report.accepted_associations, 1);
+    }
+
+    #[test]
     fn peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial() {
         let _guard = ddata_socket_test_lock();
         let receiver_port = unused_port();
