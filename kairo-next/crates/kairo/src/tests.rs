@@ -535,6 +535,37 @@ fn implementation_status_docs_do_not_mark_public_api_docs_as_unreviewed()
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_observability_facade_wiring_as_future_work()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let decisions =
+        std::fs::read_to_string(repo_root.join("docs").join("decisions.md"))?.replace("\r\n", "\n");
+    let progress =
+        std::fs::read_to_string(repo_root.join("docs").join("progress.md"))?.replace("\r\n", "\n");
+
+    assert!(
+        !decisions.contains("Future facade wiring can map observability settings"),
+        "decisions must not describe implemented observability facade helpers as future work"
+    );
+    assert!(
+        !progress.contains("M11 configuration and observability: partially complete"),
+        "progress must not mark implemented M11 observability helpers as only partially complete"
+    );
+    for helper in [
+        "DiagnosticsConfig::remote_inbound_diagnostics",
+        "DiagnosticsConfig::remote_association_diagnostics",
+        "DiagnosticsConfig::cluster_diagnostics",
+    ] {
+        assert!(
+            decisions.contains(helper) && progress.contains(helper),
+            "observability status docs must mention implemented helper `{helper}`"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn public_readmes_list_current_workspace_crates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let crate_names = active_workspace_crate_names(&repo_root.join("kairo-next/crates"))?;

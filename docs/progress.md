@@ -46,9 +46,11 @@ workspace stabilization before M13 release readiness.
   stores, remote routes, and many local and multi-node tests exist.
 - M10 cluster tools: substantial implementation. Singleton and pubsub logic,
   remote delivery, TCP peer runtime, and examples are present.
-- M11 configuration and observability: partially complete. TOML-based settings,
-  builder conversion, diagnostics settings, and coordinated-shutdown surfaces
-  exist; broader observability and operator polish remain.
+- M11 configuration and observability: substantial implementation. TOML-based
+  settings, builder conversion, backend-neutral diagnostic filters/observer
+  helpers, dead-letter publication controls, and coordinated-shutdown surfaces
+  exist; concrete logging/metrics adapters and operator polish remain release
+  hardening.
 - M12 examples, migration, and documentation: substantial implementation.
   Examples, migration guidance, README feature maps, workspace doctests,
   rustdoc warning gates, and compile-tested public API snippets exist; final

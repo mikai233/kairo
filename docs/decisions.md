@@ -2858,8 +2858,9 @@ Consequences:
   tracing, or metrics crates.
 - Tests and runtime integrations can collect remote inbound failures
   deterministically.
-- Future facade wiring can map observability settings into concrete observer
-  installation without changing wire decoding or local delivery semantics.
+- Facade diagnostics helpers now map observability settings into
+  caller-provided observer wrappers without changing wire decoding or local
+  delivery semantics.
 
 Follow-up:
 `ActorSystemRemoteInbound` now exposes diagnostic-aware constructors that pass
