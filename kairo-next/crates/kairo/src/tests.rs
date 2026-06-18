@@ -99,6 +99,51 @@ fn active_manifests_do_not_introduce_hocon() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
+fn active_crates_inherit_workspace_license_and_support_crates_stay_private()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let root_manifest = std::fs::read_to_string(repo_root.join("Cargo.toml"))?;
+    let next_crates = repo_root.join("kairo-next").join("crates");
+    let support_crates = ["kairo-examples", "kairo-benchmarks"];
+
+    assert!(
+        root_manifest.contains("license = \"MIT\""),
+        "workspace package metadata must keep the audited MIT license"
+    );
+
+    for entry in std::fs::read_dir(next_crates)? {
+        let entry = entry?;
+        let crate_name = entry.file_name().to_string_lossy().into_owned();
+        let manifest_path = entry.path().join("Cargo.toml");
+        if !manifest_path.is_file() {
+            continue;
+        }
+
+        let manifest = std::fs::read_to_string(&manifest_path)?;
+        assert!(
+            manifest.contains("license.workspace = true"),
+            "{} must inherit the workspace license metadata recorded by the M13 audit",
+            manifest_path.display()
+        );
+        assert!(
+            !manifest.contains("license = \""),
+            "{} must not override the audited workspace license locally",
+            manifest_path.display()
+        );
+
+        if support_crates.contains(&crate_name.as_str()) {
+            assert!(
+                manifest.contains("publish = false"),
+                "{} must remain a private support crate, not a published runtime surface",
+                manifest_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn foundational_crates_keep_architecture_dependency_boundaries()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;

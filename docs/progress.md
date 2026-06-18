@@ -3850,6 +3850,9 @@ Implemented:
   lockfile against deferred dependency families from the M13 audit: HOCON,
   central membership store clients, async runtimes, serde/protobuf wire-format
   frameworks for public remote contracts, and benchmark frameworks.
+- The `kairo` facade test suite now pins the M13 license/private-surface audit
+  by requiring active crates to inherit the workspace MIT license metadata and
+  keeping `kairo-examples` and `kairo-benchmarks` unpublished support crates.
 
 Not yet implemented:
 
