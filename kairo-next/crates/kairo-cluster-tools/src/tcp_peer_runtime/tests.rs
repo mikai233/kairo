@@ -442,6 +442,124 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
 }
 
 #[test]
+fn peer_runtime_keeps_remaining_route_delivering_after_member_removed_event() {
+    let _guard = cluster_tools_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("cluster-tools-peer-runtime-event-remove-sender").unwrap();
+    let second_kit =
+        ActorSystemTestKit::new("cluster-tools-peer-runtime-event-remove-second").unwrap();
+    let third_kit =
+        ActorSystemTestKit::new("cluster-tools-peer-runtime-event-remove-third").unwrap();
+    let registry = registry();
+    let mut sender = bind_peer_runtime("event-remove-sender", 1, 11, &sender_kit, registry.clone());
+    let (second, second_probes) = bind_association_runtime_with_probes(
+        "event-remove-second",
+        2,
+        22,
+        &second_kit,
+        registry.clone(),
+    );
+    let (third, third_probes) = bind_association_runtime_with_probes(
+        "event-remove-third",
+        3,
+        33,
+        &third_kit,
+        registry.clone(),
+    );
+    let sender_node = sender.self_node().clone();
+    let second_node = second.self_node().clone();
+    let third_node = third.self_node().clone();
+    let outbound = Arc::new(sender.association_cache().clone()) as Arc<dyn RemoteOutbound>;
+    let second_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        second_node.clone(),
+        registry.clone(),
+        outbound.clone(),
+    );
+    let third_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        third_node.clone(),
+        registry,
+        outbound,
+    );
+
+    let report = sender
+        .apply_snapshot(state(
+            vec![
+                member(sender_node.clone()),
+                member(second_node.clone()),
+                member(third_node.clone()),
+            ],
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(report.dialed.len(), 2);
+    assert_eq!(sender.peer_route_count(), 2);
+    assert_eq!(sender.association_cache().route_count(), 2);
+    wait_for_route(&second);
+    wait_for_route(&third);
+
+    let report = sender
+        .apply_event(ClusterEvent::Member(MemberEvent::Removed {
+            member: member(third_node.clone()).with_status(MemberStatus::Removed),
+            previous_status: MemberStatus::Up,
+        }))
+        .unwrap();
+    assert_eq!(report.removed.len(), 1);
+    assert_eq!(report.removed[0].node(), &third_node);
+    assert_eq!(sender.peer_route_count(), 1);
+    assert_eq!(sender.association_cache().route_count(), 1);
+    assert!(
+        sender
+            .active_peer_targets()
+            .iter()
+            .any(|target| target.node() == &second_node)
+    );
+
+    second_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders"),
+            message: TestMessage { value: 64 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &second_probes,
+        TopicName::new("orders"),
+        TestMessage { value: 64 },
+    );
+    let removed_peer_error = third_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("invoices"),
+            message: TestMessage { value: 91 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("removed member route should reject sends");
+    assert!(
+        removed_peer_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected removed-member send error: {removed_peer_error:?}"
+    );
+    third_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    let sender_report = sender.shutdown().unwrap();
+    assert_eq!(sender_report.peer_routes.removed.len(), 1);
+    assert!(sender_report.pending_reconnects.is_empty());
+    assert_eq!(sender_report.listener.accepted_associations, 0);
+    let second_report = second.shutdown().unwrap();
+    assert_eq!(second_report.accepted_associations, 1);
+    let third_report = third.shutdown().unwrap();
+    assert_eq!(third_report.accepted_associations, 1);
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn peer_runtime_clears_routes_when_self_member_is_removed() {
     let _guard = cluster_tools_socket_test_lock();
     let sender_kit =

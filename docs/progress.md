@@ -3697,6 +3697,10 @@ Implemented:
   tracking reports that the local member was removed, matching Pekko's proxy
   handling of local `MemberRemoved`, while self-downed remains a lifecycle
   change that does not terminate the proxy before removal.
+- `kairo-cluster` and `kairo-cluster-tools` TCP peer-runtime coverage now pins
+  that a `MemberRemoved` event removes only the departed peer route, keeps
+  remaining live routes delivering, and rejects later sends to the removed
+  route.
 
 Not yet implemented:
 
@@ -5568,5 +5572,14 @@ cargo test -p kairo-distributed-data peer_runtime --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
+cargo test -p kairo-cluster-tools peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
+cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```
