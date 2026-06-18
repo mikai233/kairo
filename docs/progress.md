@@ -3705,6 +3705,10 @@ Implemented:
   a pending remembered-shard restart timer is suppressed once graceful
   shutdown starts, matching the local-store shutdown race coverage for the
   actor-backed region orchestration path.
+- `kairo-distributed-data` actor-backed TCP peer connector coverage now pins
+  that a cluster `MemberRemoved` event removes only the departed route, keeps
+  the remaining route delivering real replicator requests, and rejects later
+  delivery to the removed replica.
 
 Not yet implemented:
 
@@ -5591,5 +5595,11 @@ cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-feat
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data connector_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
+cargo test -p kairo-distributed-data tcp_peer_connector --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```

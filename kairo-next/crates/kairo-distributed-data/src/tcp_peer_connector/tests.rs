@@ -1,21 +1,22 @@
 use std::net::TcpListener;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use kairo_actor::{Address, Props};
 use kairo_cluster::{
     ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus, Reachability,
 };
-use kairo_remote::RemoteSettings;
+use kairo_remote::{RemoteError, RemoteSettings};
 use kairo_serialization::RemoteEnvelope;
+use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
 use kairo_testkit::{ActorSystemTestKit, TestProbe};
 
 use super::*;
 use crate::{
-    ReplicaId, ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver,
+    ReplicaId, ReplicatorRead, ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver,
     ReplicatorRemoteRequestError, ReplicatorRemoteRequestReceiver, ReplicatorTcpAssociationRuntime,
     ReplicatorTcpPeerReconnectSettings, ReplicatorTcpPeerRuntimeSettings,
-    test_support::ddata_socket_test_lock,
+    register_ddata_protocol_codecs, test_support::ddata_socket_test_lock,
 };
 
 #[derive(Default)]
@@ -40,6 +41,48 @@ impl ReplicatorRemoteReplyReceiver for IgnoreReplies {
         _from: ReplicaId,
         _envelope: RemoteEnvelope,
     ) -> Result<(), ReplicatorRemoteReplyError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct RecordingRequests {
+    received: Mutex<Vec<(ReplicaId, RemoteEnvelope)>>,
+    changed: Condvar,
+}
+
+impl RecordingRequests {
+    fn wait_for_len(&self, len: usize, timeout: Duration) -> Vec<(ReplicaId, RemoteEnvelope)> {
+        let deadline = Instant::now() + timeout;
+        let mut received = self.received.lock().expect("requests poisoned");
+        while received.len() < len {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let (next_received, wait) = self
+                .changed
+                .wait_timeout(received, remaining)
+                .expect("requests poisoned");
+            received = next_received;
+            if wait.timed_out() {
+                break;
+            }
+        }
+        received.clone()
+    }
+}
+
+impl ReplicatorRemoteRequestReceiver for RecordingRequests {
+    fn receive_request_from(
+        &self,
+        from: ReplicaId,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ReplicatorRemoteRequestError> {
+        self.received
+            .lock()
+            .expect("requests poisoned")
+            .push((from, envelope));
+        self.changed.notify_all();
         Ok(())
     }
 }
@@ -89,15 +132,46 @@ fn bind_association_runtime_on_port(
     system_uid: u64,
     port: u16,
 ) -> ReplicatorTcpAssociationRuntime {
+    bind_association_runtime_on_port_with_requests(
+        name,
+        local,
+        remote,
+        system_uid,
+        port,
+        Arc::new(IgnoreRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    )
+}
+
+fn bind_association_runtime_on_port_with_requests(
+    name: &str,
+    local: ReplicaId,
+    remote: ReplicaId,
+    system_uid: u64,
+    port: u16,
+    requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
+) -> ReplicatorTcpAssociationRuntime {
     ReplicatorTcpAssociationRuntime::bind(
         name,
         local,
         remote,
         system_uid,
         RemoteSettings::new("127.0.0.1", port),
-        Arc::new(IgnoreRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        requests,
         Arc::new(IgnoreReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
     )
+    .unwrap()
+}
+
+fn registry() -> Registry {
+    let mut registry = Registry::new();
+    register_ddata_protocol_codecs(&mut registry).unwrap();
+    registry
+}
+
+fn replicator_ref(system: &str, port: u16) -> ActorRefWireData {
+    ActorRefWireData::new(format!(
+        "kairo://{system}@127.0.0.1:{port}/system/replicator"
+    ))
     .unwrap()
 }
 
@@ -226,6 +300,173 @@ fn connector_subscribes_to_cluster_and_applies_tcp_peer_routes() {
     receiver_runtime.shutdown().unwrap();
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn connector_keeps_remaining_route_delivering_after_member_removed_event() {
+    let _guard = ddata_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("ddata-tcp-peer-connector-event-remove-sender").unwrap();
+    let second_kit =
+        ActorSystemTestKit::new("ddata-tcp-peer-connector-event-remove-second").unwrap();
+    let third_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-event-remove-third").unwrap();
+    let retry_interval = Duration::from_millis(25);
+    let registry = registry();
+    let second_port = unused_port();
+    let third_port = unused_port();
+    let second_node = node("event-remove-second", second_port, 2);
+    let third_node = node("event-remove-third", third_port, 3);
+    let second_requests = Arc::new(RecordingRequests::default());
+    let third_requests = Arc::new(RecordingRequests::default());
+    let sender_runtime = bind_peer_runtime(
+        "event-remove-sender",
+        1,
+        11,
+        ReplicaId::from(&second_node),
+        retry_interval,
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let second_runtime = bind_association_runtime_on_port_with_requests(
+        "event-remove-second",
+        ReplicaId::from(&second_node),
+        ReplicaId::from(&sender_node),
+        22,
+        second_port,
+        second_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let third_runtime = bind_association_runtime_on_port_with_requests(
+        "event-remove-third",
+        ReplicaId::from(&third_node),
+        ReplicaId::from(&sender_node),
+        33,
+        third_port,
+        third_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+    let cluster = Cluster::new(publisher.clone());
+    let snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("event-remove-snapshots")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                member(sender_node.clone()),
+                member(second_node.clone()),
+                member(third_node.clone()),
+            ]),
+        ))
+        .unwrap();
+    let connector = sender_kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ReplicatorTcpPeerConnector::with_settings(
+                    cluster,
+                    sender_runtime,
+                    ReplicatorTcpPeerConnectorSettings::new(retry_interval)
+                        .unwrap()
+                        .with_automatic_retry_ticks(false),
+                )
+            }),
+        )
+        .unwrap();
+
+    let snapshot =
+        eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 2);
+    assert!(
+        snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == &second_node)
+    );
+    assert!(
+        snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == &third_node)
+    );
+    assert_eq!(sender_cache.route_count(), 2);
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(sender_node.clone()), member(second_node.clone())]),
+        ))
+        .unwrap();
+    let snapshot =
+        eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 1);
+    assert_eq!(snapshot.active_targets.len(), 1);
+    assert_eq!(snapshot.active_targets[0].node(), &second_node);
+    assert_eq!(sender_cache.route_count(), 1);
+    let report = snapshot
+        .last_report
+        .expect("member removal should record a route report");
+    assert_eq!(report.removed.len(), 1);
+    assert_eq!(report.removed[0].node(), &third_node);
+
+    let second_recipient = replicator_ref("event-remove-second", second_port);
+    let sender_ref = replicator_ref(
+        sender_node.address.system(),
+        sender_node.address.port().unwrap(),
+    );
+    let read = ReplicatorRead {
+        key: "counter-after-connector-member-removed".to_string(),
+        from: Some(ReplicaId::from(&sender_node)),
+    };
+    sender_cache
+        .send_to_recipient(RemoteEnvelope::new(
+            second_recipient.clone(),
+            Some(sender_ref.clone()),
+            registry.serialize(&read).unwrap(),
+        ))
+        .unwrap();
+
+    let received = second_requests.wait_for_len(1, Duration::from_secs(1));
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].0, ReplicaId::from(&sender_node));
+    assert_eq!(received[0].1.recipient, second_recipient);
+    assert_eq!(received[0].1.sender, Some(sender_ref.clone()));
+    assert_eq!(
+        received[0].1.message.manifest.as_str(),
+        ReplicatorRead::MANIFEST
+    );
+    let decoded = registry
+        .deserialize::<ReplicatorRead>(received[0].1.message.clone())
+        .unwrap();
+    assert_eq!(decoded, read);
+
+    let removed_read = ReplicatorRead {
+        key: "counter-after-connector-removed-member".to_string(),
+        from: Some(ReplicaId::from(&sender_node)),
+    };
+    let removed_error = sender_cache
+        .send_to_recipient(RemoteEnvelope::new(
+            replicator_ref("event-remove-third", third_port),
+            Some(sender_ref),
+            registry.serialize(&removed_read).unwrap(),
+        ))
+        .expect_err("removed member route should reject delivery");
+    assert!(matches!(
+        removed_error,
+        RemoteError::AssociationUnavailable { .. }
+    ));
+    assert!(
+        third_requests
+            .wait_for_len(1, Duration::from_millis(50))
+            .is_empty(),
+        "removed member must not receive connector-routed requests"
+    );
+
+    sender_kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(sender_cache.route_count(), 0);
+    second_runtime.shutdown().unwrap();
+    third_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]
