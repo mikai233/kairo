@@ -3862,6 +3862,9 @@ Implemented:
 - TCP example shutdown observation helpers for cluster, distributed-data, and
   cluster-tools now share one timeout budget across connector snapshot,
   coordinated shutdown, and connector stop observation.
+- The `kairo` facade test suite now pins the root Rust CI M13 release gates:
+  formatting, full workspace clippy/tests, example and doc tests, multi-node
+  testkit coverage, rustdoc warnings, and benchmark smoke execution.
 
 Not yet implemented:
 
