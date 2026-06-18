@@ -1418,10 +1418,10 @@ remote-watch registrations in a separate map from the outbound watched-address
 state. Inbound registrations are idempotent and produce no outbound watch,
 heartbeat, or failure-detector effects.
 
-The inbound state is intentionally small until local actor termination can
-drive remote per-watchee termination notifications over the system lane.
-Heartbeat replies still use the existing remote watcher sender metadata and
-outbound heartbeat-ack effect path.
+The inbound state is intentionally separate so local actor termination can
+drive remote per-watchee termination notifications over the system lane without
+touching outbound watch intent. Heartbeat replies still use the existing
+remote watcher sender metadata and outbound heartbeat-ack effect path.
 
 Consequences:
 - Receiving a wire `WatchRemote` records the remote watcher of a local watchee
@@ -1430,8 +1430,8 @@ Consequences:
 - The split matches Pekko's observable directionality while keeping Kairo's
   Rust implementation as explicit command/state variants instead of Scala
   provider interception.
-- Future per-watchee remote termination delivery can extend the inbound watch
-  map without changing the outbound heartbeat state machine.
+- Per-watchee remote termination delivery now reuses the inbound watch map
+  without changing the outbound heartbeat state machine.
 
 ## ADR-0051: Cluster Tools Use A Configured-Peer TCP Runtime
 

@@ -3750,6 +3750,9 @@ Implemented:
 - `docs/decisions.md` now reconciles the serialized remote envelope ADR
   context with the implemented canonical `SerializedMessage` and
   `RemoteEnvelope` wire helpers.
+- `docs/decisions.md` now reconciles the inbound remote-watch ADR with the
+  implemented per-watchee remote termination delivery through the state
+  machine, remote-watch actor, and TCP control lane.
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
@@ -6309,5 +6312,12 @@ cargo test -p kairo-serialization remote_envelope_wire_round_trip_preserves_refs
 cargo test -p kairo-remote remote_envelope_frame_uses_canonical_envelope_body --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo -p kairo-serialization -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo-remote local_watchee_termination_notifies_inbound_remote_watchers_once --all-targets --all-features
+cargo test -p kairo-remote remote_watch_actor_notifies_remote_watchers_when_local_watchee_terminates --all-targets --all-features
+cargo test -p kairo-remote tcp_remote_actor_system_watch_remote_notifies_local_watcher --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```
