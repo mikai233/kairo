@@ -261,13 +261,31 @@ pub(super) fn bind_association_runtime_on_port(
     system_uid: u64,
     port: u16,
 ) -> ReplicatorTcpAssociationRuntime {
+    bind_association_runtime_on_port_with_requests(
+        system,
+        local,
+        remote,
+        system_uid,
+        port,
+        Arc::new(IgnoreRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    )
+}
+
+pub(super) fn bind_association_runtime_on_port_with_requests(
+    system: &str,
+    local: ReplicaId,
+    remote: ReplicaId,
+    system_uid: u64,
+    port: u16,
+    requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
+) -> ReplicatorTcpAssociationRuntime {
     ReplicatorTcpAssociationRuntime::bind(
         system,
         local,
         remote,
         system_uid,
         RemoteSettings::new("127.0.0.1", port),
-        Arc::new(IgnoreRequests) as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        requests,
         Arc::new(IgnoreReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
     )
     .unwrap()

@@ -753,7 +753,7 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
     let sender_node = sender_runtime.self_node().clone();
     let bound_node = node("cluster-bootstrap-partial-bound", bound_port, 2);
     let missing_node = node("cluster-bootstrap-partial-missing", missing_port, 3);
-    let bound_runtime = bind_association_runtime_on_port(
+    let (bound_runtime, bound_probes) = bind_association_runtime_on_port_with_probes(
         "cluster-bootstrap-partial-bound",
         2,
         22,
@@ -799,6 +799,23 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
         &missing_node,
     );
     await_cache_route_count(&sender_cache, 1);
+
+    let membership_outbound = ClusterMembershipWireOutbound::new(
+        bound_node.clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(
+            Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>
+        ),
+    );
+    send_join_until_received(
+        &membership_outbound,
+        &bound_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["partial-active-route".to_string()],
+        },
+        Duration::from_secs(1),
+    );
 
     let missing_runtime = bind_association_runtime_on_port(
         "cluster-bootstrap-partial-missing",

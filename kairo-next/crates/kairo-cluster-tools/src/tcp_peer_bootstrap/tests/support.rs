@@ -135,13 +135,49 @@ pub(super) fn bind_association_runtime_on_port(
     kit: &ActorSystemTestKit,
     registry: Arc<Registry>,
 ) -> ClusterToolsTcpAssociationRuntime<TestMessage> {
+    bind_association_runtime_on_port_with_probes(system, node_uid, system_uid, port, kit, registry)
+        .0
+}
+
+pub(super) fn bind_association_runtime_on_port_with_probes(
+    system: &str,
+    node_uid: u64,
+    system_uid: u64,
+    port: u16,
+    kit: &ActorSystemTestKit,
+    registry: Arc<Registry>,
+) -> (
+    ClusterToolsTcpAssociationRuntime<TestMessage>,
+    ClusterToolsInboundProbes,
+) {
+    let gossip = kit
+        .create_probe::<PubSubGossipMsg>(format!("{system}-gossip"))
+        .unwrap();
+    let mediator = kit
+        .create_probe::<DistributedPubSubMediatorMsg<TestMessage>>(format!("{system}-mediator"))
+        .unwrap();
+    let manager = kit
+        .create_probe::<SingletonManagerMsg>(format!("{system}-singleton-manager"))
+        .unwrap();
+    let gossip_ref = gossip.actor_ref();
+    let mediator_ref = mediator.actor_ref();
+    let manager_ref = manager.actor_ref();
     ClusterToolsTcpAssociationRuntime::bind(
         system,
         node_uid,
         system_uid,
         RemoteSettings::new("127.0.0.1", port),
-        move |self_node| inbound_for(system, kit, registry.clone(), self_node),
+        move |self_node| {
+            inbound_from_refs(
+                self_node,
+                registry.clone(),
+                gossip_ref.clone(),
+                mediator_ref.clone(),
+                manager_ref.clone(),
+            )
+        },
     )
+    .map(|runtime| (runtime, ClusterToolsInboundProbes { mediator }))
     .unwrap()
 }
 

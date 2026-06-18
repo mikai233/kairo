@@ -868,7 +868,7 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
     let sender_node = sender_runtime.self_node().clone();
     let bound_node = node("cluster-tools-bootstrap-partial-bound", bound_port, 2);
     let missing_node = node("cluster-tools-bootstrap-partial-missing", missing_port, 3);
-    let bound_runtime = bind_association_runtime_on_port(
+    let (bound_runtime, bound_probes) = bind_association_runtime_on_port_with_probes(
         "cluster-tools-bootstrap-partial-bound",
         2,
         22,
@@ -912,6 +912,25 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
         &missing_node,
     );
     await_cache_route_count(&sender_cache, 1);
+
+    let outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        bound_node.clone(),
+        registry.clone(),
+        Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>,
+    );
+    outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("partial-active-route"),
+            message: TestMessage { value: 88 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &bound_probes,
+        TopicName::new("partial-active-route"),
+        TestMessage { value: 88 },
+    );
 
     let missing_runtime = bind_association_runtime_on_port(
         "cluster-tools-bootstrap-partial-missing",

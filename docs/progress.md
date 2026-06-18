@@ -3900,6 +3900,10 @@ Implemented:
   the public bootstrap facade: one reachable peer route remains active, the
   later failed peer stays pending reconnect, and binding the missing peer lets
   the connector retry to full route coverage.
+- The same bootstrap partial-failure tests now prove that the still-active
+  route keeps delivering while the later peer is pending reconnect: cluster
+  membership joins, distributed-data read requests, and cluster-tools pubsub
+  publishes all cross the surviving route before the missing peer is rebound.
 
 Not yet implemented:
 
@@ -3922,7 +3926,8 @@ Not yet implemented:
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
   `run_coordinated_shutdown` coverage, focused sender-side route-reduction
-  delivery coverage, focused peer-runtime, connector, and bootstrap
+  delivery coverage, focused bootstrap partial-failure delivery coverage,
+  focused peer-runtime, connector, and bootstrap
   partial-failure retry coverage, and three-node full-mesh delivery coverage
   where applicable.
 - Multi-node cluster membership socket lifecycle orchestration still needs
@@ -3994,7 +3999,13 @@ cargo test -p kairo-cluster --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
+cargo test bootstrap_preserves_successful_route_when_later_snapshot_dial_fails --workspace --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
 cargo test --workspace --all-targets --all-features
+cargo test --doc --workspace --all-features
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 git diff --check

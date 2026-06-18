@@ -858,6 +858,7 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
     let bound_kit = ActorSystemTestKit::new("ddata-bootstrap-partial-bound").unwrap();
     let missing_kit = ActorSystemTestKit::new("ddata-bootstrap-partial-missing").unwrap();
     let retry_interval = Duration::from_millis(25);
+    let registry = registry();
     let bound_port = unused_port();
     let missing_port = unused_port();
     let bound_node = node("ddata-bootstrap-partial-bound", bound_port, 2);
@@ -869,14 +870,18 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
         ReplicaId::from(&bound_node),
     );
     let sender_cache = sender_runtime.association_cache().clone();
+    let sender_settings = sender_runtime.runtime().settings().clone();
     let sender_node = sender_runtime.self_node().clone();
-    let bound_runtime = bind_association_runtime_on_port(
+    let bound_requests = Arc::new(RecordingRequests::default());
+    let bound_runtime = bind_association_runtime_on_port_with_requests(
         "ddata-bootstrap-partial-bound",
         ReplicaId::from(&bound_node),
         ReplicaId::from(&sender_node),
         22,
         bound_port,
+        bound_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
     );
+    let bound_settings = bound_runtime.settings().clone();
     let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
     let sender_cluster = Cluster::new(sender_publisher.clone());
     let settings = ReplicatorTcpPeerBootstrapSettings::new(
@@ -915,6 +920,35 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
         &missing_node,
     );
     await_cache_route_count(&sender_cache, 1);
+
+    let sender_ref = replicator_actor_ref_for("ddata-bootstrap-partial-sender", &sender_settings)
+        .expect("sender ref should be serializable");
+    let bound_ref = replicator_actor_ref_for("ddata-bootstrap-partial-bound", &bound_settings)
+        .expect("bound ref should be serializable");
+    let to_bound = outbound(
+        ReplicaId::from(&bound_node),
+        bound_ref.clone(),
+        sender_ref.clone(),
+        registry.clone(),
+        sender_cache.clone(),
+    );
+    let received = send_read_until_received(
+        &to_bound,
+        bound_requests.as_ref(),
+        ReplicatorRead {
+            key: "partial-active-route".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        },
+        Duration::from_secs(1),
+    );
+    assert_eq!(received[0].0, ReplicaId::from(&sender_node));
+    let decoded = registry
+        .deserialize::<ReplicatorRead>(received[0].1.message.clone())
+        .unwrap();
+    assert_eq!(decoded.key, "partial-active-route");
+    assert_eq!(decoded.from, Some(ReplicaId::from(&sender_node)));
+    assert_eq!(received[0].1.recipient, bound_ref);
+    assert_eq!(received[0].1.sender, Some(sender_ref));
 
     let missing_runtime = bind_association_runtime_on_port(
         "ddata-bootstrap-partial-missing",

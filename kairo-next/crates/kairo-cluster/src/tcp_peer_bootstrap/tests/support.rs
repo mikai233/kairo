@@ -92,6 +92,26 @@ pub(super) fn bind_association_runtime_on_port(
     kit: &ActorSystemTestKit,
     registry: Arc<Registry>,
 ) -> ClusterTcpAssociationRuntime {
+    bind_association_runtime_on_port_with_probes(system, node_uid, system_uid, port, kit, registry)
+        .0
+}
+
+pub(super) fn bind_association_runtime_on_port_with_probes(
+    system: &str,
+    node_uid: u64,
+    system_uid: u64,
+    port: u16,
+    kit: &ActorSystemTestKit,
+    registry: Arc<Registry>,
+) -> (ClusterTcpAssociationRuntime, ClusterInboundProbes) {
+    let membership = kit
+        .create_probe::<ClusterMembershipMsg>(format!("{system}-membership"))
+        .unwrap();
+    let heartbeat_sender = kit
+        .create_probe::<HeartbeatSenderMsg>(format!("{system}-heartbeat-sender"))
+        .unwrap();
+    let membership_ref = membership.actor_ref();
+    let heartbeat_sender_ref = heartbeat_sender.actor_ref();
     ClusterTcpAssociationRuntime::bind(
         system,
         node_uid,
@@ -102,9 +122,7 @@ pub(super) fn bind_association_runtime_on_port(
                 .with_membership(ClusterMembershipWireInbound::new(
                     self_node.clone(),
                     registry.clone(),
-                    kit.create_probe::<ClusterMembershipMsg>(format!("{system}-membership"))
-                        .unwrap()
-                        .actor_ref(),
+                    membership_ref.clone(),
                 ))
                 .with_heartbeat_receiver(
                     HeartbeatRemoteReceiverInbound::from_arc(
@@ -120,12 +138,11 @@ pub(super) fn bind_association_runtime_on_port(
                 .with_heartbeat_response(HeartbeatRemoteResponseInbound::new(
                     wire_for(&self_node, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH),
                     registry.clone(),
-                    kit.create_probe::<HeartbeatSenderMsg>(format!("{system}-heartbeat-sender"))
-                        .unwrap()
-                        .actor_ref(),
+                    heartbeat_sender_ref.clone(),
                 ))
         },
     )
+    .map(|runtime| (runtime, ClusterInboundProbes { membership }))
     .unwrap()
 }
 
