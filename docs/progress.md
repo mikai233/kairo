@@ -954,6 +954,11 @@ Implemented:
   surface backend-neutral gossip state-change diagnostics with previous gossip,
   current gossip, and computed cluster-event diff data, while honoring the
   `[observability.diagnostics].gossip_state_changes` flag.
+- The `kairo` facade now provides `DiagnosticCounters` and
+  `DiagnosticCounterSnapshot` as dependency-free metrics-style adapters for the
+  enabled remote inbound, remote association, and cluster diagnostic observer
+  traits, so applications can export configured diagnostic categories without
+  Kairo choosing a logging or metrics backend.
 - `kairo-serialization::WireWriter` and `WireReader` provide a small shared
   stable binary helper for explicit system-protocol codecs, using
   length-prefixed UTF-8 strings and byte payloads, optional strings, boolean

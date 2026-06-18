@@ -1405,6 +1405,90 @@ fn prelude_exposes_remote_entry_points() {
     assert!(error.to_string().contains("send failed"));
 }
 
+#[cfg(feature = "remote")]
+#[test]
+fn diagnostic_counters_record_remote_categories() {
+    use crate::prelude::*;
+
+    let counters = DiagnosticCounters::new();
+    let recipient =
+        kairo_serialization::ActorRefWireData::new("kairo://facade@127.0.0.1:25520/user/sink#1")
+            .unwrap();
+
+    RemoteInboundDiagnostics::record(
+        &counters,
+        RemoteInboundDiagnostic::SerializationFailure {
+            recipient: recipient.clone(),
+            sender: None,
+            serializer_id: 1201,
+            manifest: "kairo.facade.Ping".to_string(),
+            version: 1,
+            reason: "decode failed".to_string(),
+        },
+    );
+    RemoteInboundDiagnostics::record(
+        &counters,
+        RemoteInboundDiagnostic::DeliveryFailure {
+            recipient,
+            sender: None,
+            reason: "missing actor".to_string(),
+        },
+    );
+    RemoteAssociationDiagnostics::record(
+        &counters,
+        RemoteAssociationDiagnostic::Quarantined {
+            remote: "kairo://peer@127.0.0.1:25521".to_string(),
+            remote_uid: Some(42),
+            reason: "uid changed".to_string(),
+        },
+    );
+    RemoteAssociationDiagnostics::record(
+        &counters,
+        RemoteAssociationDiagnostic::Closed {
+            remote: "kairo://peer@127.0.0.1:25521".to_string(),
+            reason: "shutdown".to_string(),
+        },
+    );
+
+    assert_eq!(
+        counters.snapshot(),
+        DiagnosticCounterSnapshot {
+            remote_serialization_failures: 1,
+            remote_delivery_failures: 1,
+            association_quarantine_events: 1,
+            association_close_events: 1,
+            cluster_gossip_state_changes: 0,
+        }
+    );
+}
+
+#[cfg(feature = "cluster")]
+#[test]
+fn diagnostic_counters_record_cluster_categories() {
+    use crate::prelude::*;
+
+    let counters = DiagnosticCounters::new();
+    ClusterDiagnostics::record(
+        &counters,
+        ClusterDiagnostic::GossipStateChanged {
+            previous: kairo_cluster::Gossip::new(),
+            current: kairo_cluster::Gossip::new(),
+            events: Vec::new(),
+        },
+    );
+
+    assert_eq!(
+        counters.snapshot(),
+        DiagnosticCounterSnapshot {
+            remote_serialization_failures: 0,
+            remote_delivery_failures: 0,
+            association_quarantine_events: 0,
+            association_close_events: 0,
+            cluster_gossip_state_changes: 1,
+        }
+    );
+}
+
 #[cfg(feature = "distributed-data")]
 #[test]
 fn prelude_exposes_distributed_data_entry_points() {
