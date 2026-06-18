@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 
 use crate::{
-    EntityActorFactory, EntityDelivery, EntityId, EntityTerminatedPlan, PassivatePlan,
-    RememberedEntitiesPlan, ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardMsg, ShardRuntime,
-    ShardSnapshot,
+    EntityActorFactory, EntityDelivery, EntityId, EntityTerminatedPlan,
+    MovedRememberedEntitiesPlan, PassivatePlan, RememberedEntitiesPlan, ShardDeliverPlan,
+    ShardHandOffPlan, ShardId, ShardMsg, ShardRuntime, ShardSnapshot,
 };
 
 pub struct EntityShardActor<M>
@@ -108,6 +108,13 @@ where
             } => {
                 let plan = self.runtime.restart_remembered_entity(entity_id);
                 self.apply_restart_remembered_entity_plan(ctx, &plan)?;
+                let _ = reply_to.tell(plan);
+            }
+            ShardMsg::RememberedEntitiesMovedToOtherShard { entities, reply_to } => {
+                let plan = self
+                    .runtime
+                    .remembered_entities_moved_to_other_shard(entities);
+                self.apply_moved_remembered_entities_plan(ctx, &plan)?;
                 let _ = reply_to.tell(plan);
             }
             ShardMsg::HandOff {
@@ -252,6 +259,19 @@ where
     ) -> Result<(), ActorError> {
         for entity_id in &plan.started {
             self.ensure_entity_child(ctx, entity_id)?;
+        }
+        Ok(())
+    }
+
+    fn apply_moved_remembered_entities_plan(
+        &mut self,
+        ctx: &mut Context<ShardMsg<M>>,
+        plan: &MovedRememberedEntitiesPlan,
+    ) -> Result<(), ActorError> {
+        for entity_id in &plan.removed {
+            if let Some(entity) = self.entity_refs.remove(entity_id) {
+                ctx.stop(entity)?;
+            }
         }
         Ok(())
     }

@@ -114,6 +114,13 @@ pub enum RestartRememberedEntityIgnoreReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovedRememberedEntitiesPlan {
+    pub removed: Vec<EntityId>,
+    pub ignored: Vec<EntityId>,
+    pub update: Option<RememberShardUpdate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShardHandOffPlan<M> {
     StartEntityStopper {
         shard: ShardId,
@@ -431,6 +438,42 @@ impl<M> ShardRuntime<M> {
                     reason: RestartRememberedEntityIgnoreReason::NotWaitingForRestart,
                 }
             }
+        }
+    }
+
+    pub fn remembered_entities_moved_to_other_shard(
+        &mut self,
+        entities: impl IntoIterator<Item = EntityId>,
+    ) -> MovedRememberedEntitiesPlan {
+        let mut removed = Vec::new();
+        let mut ignored = Vec::new();
+        let mut update = None;
+
+        for entity_id in entities.into_iter().collect::<BTreeSet<_>>() {
+            if entity_id.is_empty() || !self.remember_entities() {
+                ignored.push(entity_id);
+                continue;
+            }
+
+            match self.entities.get(&entity_id).copied() {
+                Some(ShardEntityState::Active | ShardEntityState::WaitingForRestart) => {
+                    self.entities.remove(&entity_id);
+                    self.message_buffers.remove(&entity_id);
+                    removed.push(entity_id.clone());
+                    if let Some(next_update) = self.remember.record_stop(entity_id) {
+                        update.get_or_insert(next_update);
+                    }
+                }
+                Some(ShardEntityState::Passivating | ShardEntityState::RememberingStop) | None => {
+                    ignored.push(entity_id);
+                }
+            }
+        }
+
+        MovedRememberedEntitiesPlan {
+            removed,
+            ignored,
+            update,
         }
     }
 

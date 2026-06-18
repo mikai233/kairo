@@ -6,10 +6,11 @@ use kairo_actor::{Actor, ActorRef, ActorResult, AskError, Context, Props};
 use crate::shard_loading::ShardRememberLoadState;
 use crate::shard_store::{LocalShardRememberStoreProvider, ShardRememberStore};
 use crate::{
-    EntityId, EntityTerminatedPlan, PassivatePlan, RememberShardStoreMsg, RememberShardStoreState,
-    RememberShardUpdate, RememberShardUpdateDone, RememberUpdateDonePlan, RememberedEntities,
-    RememberedEntitiesPlan, RestartRememberedEntityPlan, ShardDeliverPlan, ShardHandOffPlan,
-    ShardId, ShardRuntime, ShardingEnvelope, ShardingError,
+    EntityId, EntityTerminatedPlan, MovedRememberedEntitiesPlan, PassivatePlan,
+    RememberShardStoreMsg, RememberShardStoreState, RememberShardUpdate, RememberShardUpdateDone,
+    RememberUpdateDonePlan, RememberedEntities, RememberedEntitiesPlan,
+    RestartRememberedEntityPlan, ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardRuntime,
+    ShardingEnvelope, ShardingError,
 };
 
 pub struct ShardActor<M> {
@@ -179,6 +180,10 @@ pub enum ShardMsg<M> {
         entity_id: EntityId,
         reply_to: ActorRef<RestartRememberedEntityPlan>,
     },
+    RememberedEntitiesMovedToOtherShard {
+        entities: Vec<EntityId>,
+        reply_to: ActorRef<MovedRememberedEntitiesPlan>,
+    },
     HandOff {
         stop_message: M,
         reply_to: ActorRef<ShardHandOffPlan<M>>,
@@ -328,6 +333,13 @@ where
                 let plan = self.runtime.restart_remembered_entity(entity_id);
                 let _ = reply_to.tell(plan);
             }
+            ShardMsg::RememberedEntitiesMovedToOtherShard { entities, reply_to } => {
+                let plan = self
+                    .runtime
+                    .remembered_entities_moved_to_other_shard(entities);
+                self.send_moved_entities_store_effect(ctx, &plan)?;
+                let _ = reply_to.tell(plan);
+            }
             ShardMsg::HandOff {
                 stop_message,
                 reply_to,
@@ -414,6 +426,17 @@ where
         plan: &EntityTerminatedPlan<M>,
     ) -> ActorResult {
         if let EntityTerminatedPlan::RememberUpdate { update } = plan {
+            self.send_remember_update(ctx, update.clone())?;
+        }
+        Ok(())
+    }
+
+    fn send_moved_entities_store_effect(
+        &self,
+        ctx: &Context<ShardMsg<M>>,
+        plan: &MovedRememberedEntitiesPlan,
+    ) -> ActorResult {
+        if let Some(update) = &plan.update {
             self.send_remember_update(ctx, update.clone())?;
         }
         Ok(())

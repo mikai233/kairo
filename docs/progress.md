@@ -3778,6 +3778,10 @@ Implemented:
   requests stops for both `/user` and `/system` guardian children before
   waiting on either blocked subtree, preserving cross-root shutdown ordering
   for framework-owned system actors.
+- `kairo-cluster-sharding` remember-entity runtime and shard actors now handle
+  remembered entities that move to another shard after shard-id extraction
+  changes: the shard removes local runtime state, records a remember-store stop
+  update, and the entity-backed shard stops the old child actor.
 
 Not yet implemented:
 

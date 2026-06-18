@@ -277,6 +277,74 @@ fn entity_shard_actor_recovery_starts_remembered_entities() {
 }
 
 #[test]
+fn entity_shard_actor_stops_child_for_moved_remembered_entity() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-moved-remembered").unwrap();
+    let (observed_tx, _observed_rx) = mpsc::channel();
+    let (refs_tx, refs_rx) = mpsc::channel();
+    let factory = EntityActorFactory::new(move |entity_id| ControlledEntity {
+        entity_id,
+        observed: observed_tx.clone(),
+        refs: refs_tx.clone(),
+    });
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            EntityShardActor::props_with_remember_entities("shard-1", 10, factory),
+        )
+        .unwrap();
+    let recovery = kit
+        .create_probe::<RememberedEntitiesPlan>("recovery")
+        .unwrap();
+    let moved = kit
+        .create_probe::<MovedRememberedEntitiesPlan>("moved")
+        .unwrap();
+    let state = kit.create_probe::<ShardSnapshot>("state").unwrap();
+
+    shard
+        .tell(ShardMsg::RecoverRememberedEntities {
+            entities: vec!["entity-1".to_string()],
+            reply_to: recovery.actor_ref(),
+        })
+        .unwrap();
+    recovery.expect_msg(Duration::from_millis(500)).unwrap();
+    let first_ref = refs_rx
+        .recv_timeout(Duration::from_millis(500))
+        .expect("recovery should start the remembered child");
+
+    shard
+        .tell(ShardMsg::RememberedEntitiesMovedToOtherShard {
+            entities: vec!["entity-1".to_string()],
+            reply_to: moved.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        moved.expect_msg(Duration::from_millis(500)).unwrap(),
+        MovedRememberedEntitiesPlan {
+            removed: vec!["entity-1".to_string()],
+            ignored: Vec::new(),
+            update: Some(RememberShardUpdate::new(
+                std::iter::empty::<String>(),
+                ["entity-1".to_string()],
+            )),
+        }
+    );
+
+    assert!(first_ref.wait_for_stop(Duration::from_secs(1)));
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+    assert!(snapshot.active_entities.is_empty());
+    assert_eq!(snapshot.entity_count, 0);
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn entity_shard_actor_automatically_restarts_remembered_entity_after_unexpected_stop() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-auto-remember-restart").unwrap();

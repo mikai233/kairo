@@ -338,6 +338,115 @@ fn shard_actor_with_remember_store_persists_start_updates() {
 }
 
 #[test]
+fn shard_actor_with_remember_store_removes_moved_entities() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-store-moved-entities").unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_store(
+                "shard-1",
+                10,
+                store.clone(),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let moved = kit
+        .create_probe::<MovedRememberedEntitiesPlan>("moved")
+        .unwrap();
+    let store_state = kit
+        .create_probe::<RememberShardStoreSnapshot>("store-state")
+        .unwrap();
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "loaded".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "loaded".to_string()),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::RememberedEntitiesMovedToOtherShard {
+            entities: vec!["entity-1".to_string(), "entity-2".to_string()],
+            reply_to: moved.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        moved.expect_msg(Duration::from_millis(500)).unwrap(),
+        MovedRememberedEntitiesPlan {
+            removed: vec!["entity-1".to_string()],
+            ignored: vec!["entity-2".to_string()],
+            update: Some(RememberShardUpdate::new(
+                std::iter::empty::<String>(),
+                ["entity-1".to_string()],
+            )),
+        }
+    );
+
+    let mut removed_from_store = false;
+    let mut removed_from_runtime = false;
+    for _ in 0..20 {
+        store
+            .tell(RememberShardStoreMsg::GetState {
+                reply_to: store_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
+        let remembered = snapshot
+            .entities_by_key
+            .values()
+            .flat_map(|entities| entities.iter().cloned())
+            .collect::<BTreeSet<_>>();
+        removed_from_store = !remembered.contains("entity-1");
+
+        shard
+            .tell(ShardMsg::GetState {
+                reply_to: shard_state.actor_ref(),
+            })
+            .unwrap();
+        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
+        removed_from_runtime = snapshot.active_entities.is_empty() && snapshot.entity_count == 0;
+
+        if removed_from_store && removed_from_runtime {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert!(
+        removed_from_store,
+        "moved remembered entity should be removed from the shared store"
+    );
+    assert!(
+        removed_from_runtime,
+        "moved remembered entity should be removed from the shard runtime"
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_actor_spawns_local_remember_store_and_loads_entities() {
     let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-local-store-load").unwrap();
     let shard = kit

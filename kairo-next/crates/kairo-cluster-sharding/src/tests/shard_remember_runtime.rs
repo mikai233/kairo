@@ -1,5 +1,7 @@
 use super::*;
-use crate::{RestartRememberedEntityIgnoreReason, RestartRememberedEntityPlan};
+use crate::{
+    MovedRememberedEntitiesPlan, RestartRememberedEntityIgnoreReason, RestartRememberedEntityPlan,
+};
 
 #[test]
 fn shard_runtime_recovers_remembered_entities_as_active() {
@@ -265,6 +267,56 @@ fn shard_runtime_remember_entities_restarts_buffered_after_stop_update() {
     assert_eq!(runtime.entity_state(&"entity-1".to_string()), None);
     assert_eq!(runtime.buffered_count(&"entity-1".to_string()), 1);
 
+    assert_eq!(
+        runtime.remember_update_done(start_update),
+        RememberUpdateDonePlan {
+            deliveries: vec![crate::EntityDelivery::new("entity-1", "next".to_string())],
+            next_update: None,
+        }
+    );
+    assert_eq!(
+        runtime.entity_state(&"entity-1".to_string()),
+        Some(ShardEntityState::Active)
+    );
+}
+
+#[test]
+fn shard_runtime_removes_moved_remembered_entities_from_store() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    runtime.recover_remembered_entities(["entity-1".to_string()]);
+    let stop_update =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
+
+    assert_eq!(
+        runtime.remembered_entities_moved_to_other_shard([
+            "entity-1".to_string(),
+            "entity-2".to_string(),
+            String::new(),
+        ]),
+        MovedRememberedEntitiesPlan {
+            removed: vec!["entity-1".to_string()],
+            ignored: vec![String::new(), "entity-2".to_string()],
+            update: Some(stop_update.clone()),
+        }
+    );
+    assert_eq!(runtime.entity_state(&"entity-1".to_string()), None);
+    assert!(runtime.remember_update_in_progress());
+
+    assert_eq!(
+        runtime.deliver(ShardingEnvelope::new("entity-1", "next".to_string())),
+        ShardDeliverPlan::Buffered {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+    let start_update =
+        RememberShardUpdate::new(["entity-1".to_string()], std::iter::empty::<String>());
+    assert_eq!(
+        runtime.remember_update_done(stop_update),
+        RememberUpdateDonePlan {
+            deliveries: Vec::new(),
+            next_update: Some(start_update.clone()),
+        }
+    );
     assert_eq!(
         runtime.remember_update_done(start_update),
         RememberUpdateDonePlan {
