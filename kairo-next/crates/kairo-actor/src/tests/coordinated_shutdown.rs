@@ -259,6 +259,44 @@ fn coordinated_shutdown_earlier_phase_can_cancel_later_phase_task() {
 }
 
 #[test]
+fn coordinated_shutdown_task_handle_cannot_cancel_running_task() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (finished_tx, finished_rx) = mpsc::channel();
+
+    let handle = shutdown
+        .add_cancellable_task(PHASE_SERVICE_STOP, "running", move || {
+            started_tx
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+            release_rx
+                .recv()
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+            finished_tx
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))
+        })
+        .unwrap();
+    let shutdown_runner = shutdown.clone();
+    let join = std::thread::spawn(move || shutdown_runner.run("test"));
+
+    started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(handle.is_running_or_done());
+    assert!(
+        !handle.cancel(),
+        "a coordinated-shutdown task cannot be cancelled after it starts running"
+    );
+    assert!(!handle.is_cancelled());
+
+    release_tx.send(()).unwrap();
+    join.join().unwrap().unwrap();
+    finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(handle.is_running_or_done());
+}
+
+#[test]
 fn coordinated_shutdown_actor_termination_task_stops_actor() {
     let system = ActorSystem::builder("test").build().unwrap();
     let counter = system

@@ -311,6 +311,10 @@ Implemented:
   `ShutdownTaskHandle` that can cancel pending task registrations before their
   phase starts, while duplicate task names remain distinct registrations and
   earlier phases can cancel later-phase work.
+- Coordinated-shutdown handle coverage now pins the in-flight boundary:
+  after a cancellable task starts running, its handle reports running/done,
+  `cancel()` returns false, and the task completes through the normal phase
+  result path.
 - `CoordinatedShutdown::add_actor_termination_task` now preserves Pekko's
   wait-only semantics when no stop message is supplied; cluster,
   distributed-data, and cluster-tools TCP bootstrap facades register explicit
@@ -5492,6 +5496,12 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor stopping_parent_unwatches_child_before_stopping_it --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor coordinated_shutdown_task_handle_cannot_cancel_running_task --all-targets --all-features
 cargo fmt --all
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
