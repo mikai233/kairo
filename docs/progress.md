@@ -3904,6 +3904,10 @@ Implemented:
   route keeps delivering while the later peer is pending reconnect: cluster
   membership joins, distributed-data read requests, and cluster-tools pubsub
   publishes all cross the surviving route before the missing peer is rebound.
+- The actor-backed TCP peer connector partial-failure tests now also prove
+  surviving-route delivery while another peer is pending reconnect: cluster
+  membership joins, distributed-data read requests, and cluster-tools pubsub
+  publishes all cross the active connector route before retry.
 
 Not yet implemented:
 
@@ -3917,8 +3921,9 @@ Not yet implemented:
   runtime, actor-backed connector beyond current route-target shrinkage, and
   bootstrap beyond the current localhost two-node and sender-side three-node
   example smoke tests, three-node bootstrap route validation, and focused
-  peer-runtime, connector, and bootstrap sender-side route-reduction and
-  partial-failure retry coverage.
+  peer-runtime, connector, and bootstrap sender-side route-reduction,
+  connector/bootstrap partial-failure delivery, and partial-failure retry
+  coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level and multi-node
   discovery/shared-store first-delivery coverage.
@@ -3926,8 +3931,8 @@ Not yet implemented:
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
   `run_coordinated_shutdown` coverage, focused sender-side route-reduction
-  delivery coverage, focused bootstrap partial-failure delivery coverage,
-  focused peer-runtime, connector, and bootstrap
+  delivery coverage, focused connector and bootstrap partial-failure delivery
+  coverage, focused peer-runtime, connector, and bootstrap
   partial-failure retry coverage, and three-node full-mesh delivery coverage
   where applicable.
 - Multi-node cluster membership socket lifecycle orchestration still needs
@@ -4000,6 +4005,11 @@ cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
 cargo test bootstrap_preserves_successful_route_when_later_snapshot_dial_fails --workspace --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
+cargo test connector_preserves_successful_route_when_later_snapshot_dial_fails --workspace --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features

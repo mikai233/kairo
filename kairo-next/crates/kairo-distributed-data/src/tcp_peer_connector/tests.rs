@@ -332,6 +332,7 @@ fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
     let bound_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-partial-bound").unwrap();
     let missing_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-partial-missing").unwrap();
     let retry_interval = Duration::from_millis(25);
+    let registry = registry();
     let bound_port = unused_port();
     let missing_port = unused_port();
     let bound_node = node("partial-bound", bound_port, 2);
@@ -345,12 +346,14 @@ fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
     );
     let sender_cache = sender_runtime.association_cache().clone();
     let sender_node = sender_runtime.self_node().clone();
-    let bound_runtime = bind_association_runtime_on_port(
+    let bound_requests = Arc::new(RecordingRequests::default());
+    let bound_runtime = bind_association_runtime_on_port_with_requests(
         "partial-bound",
         ReplicaId::from(&bound_node),
         ReplicaId::from(&sender_node),
         22,
         bound_port,
+        bound_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
     );
     let publisher = spawn_publisher(&sender_kit, sender_node.clone());
     let cluster = Cluster::new(publisher.clone());
@@ -390,6 +393,32 @@ fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
     assert_eq!(snapshot.pending_reconnects[0].target.node(), &missing_node);
     assert!(snapshot.last_error.is_some());
     assert_eq!(sender_cache.route_count(), 1);
+
+    let sender_ref = replicator_ref(
+        sender_node.address.system(),
+        sender_node.address.port().unwrap(),
+    );
+    let bound_ref = replicator_ref("partial-bound", bound_port);
+    let read = ReplicatorRead {
+        key: "partial-active-route".to_string(),
+        from: Some(ReplicaId::from(&sender_node)),
+    };
+    sender_cache
+        .send_to_recipient(RemoteEnvelope::new(
+            bound_ref.clone(),
+            Some(sender_ref.clone()),
+            registry.serialize(&read).unwrap(),
+        ))
+        .unwrap();
+    let received = bound_requests.wait_for_len(1, Duration::from_secs(1));
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].0, ReplicaId::from(&sender_node));
+    assert_eq!(received[0].1.recipient, bound_ref);
+    assert_eq!(received[0].1.sender, Some(sender_ref));
+    let decoded = registry
+        .deserialize::<ReplicatorRead>(received[0].1.message.clone())
+        .unwrap();
+    assert_eq!(decoded, read);
 
     let missing_runtime = bind_association_runtime_on_port(
         "partial-missing",

@@ -3,21 +3,22 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
-use kairo_actor::{Address, Props};
+use kairo_actor::{ActorRef, Address, Props, Recipient};
 use kairo_cluster::{
     ClusterEventPublisher, ClusterEventPublisherMsg, CurrentClusterState, Gossip, Member,
     MemberStatus, Reachability, UniqueAddress,
 };
-use kairo_remote::RemoteSettings;
+use kairo_remote::{RemoteOutbound, RemoteSettings};
 use kairo_serialization::{MessageCodec, Registry, SerializationRegistry};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
 use super::*;
 use crate::{
     ClusterToolsSystemInbound, ClusterToolsTcpAssociationRuntime,
-    ClusterToolsTcpPeerReconnectSettings, DistributedPubSubMediatorMsg, PubSubGossipMsg,
-    PubSubGossipWireInbound, PubSubRemoteDeliveryInbound, SingletonManagerMsg,
-    SingletonManagerRemoteInbound, register_cluster_tools_protocol_codecs,
+    ClusterToolsTcpPeerReconnectSettings, DistributedPubSubMediatorMsg, LocalPubSubMsg,
+    PubSubGossipMsg, PubSubGossipWireInbound, PubSubRemoteDeliveryInbound,
+    PubSubRemoteDeliveryOutbound, SingletonManagerMsg, SingletonManagerRemoteInbound, TopicName,
+    TopicPublishMode, register_cluster_tools_protocol_codecs,
     test_support::cluster_tools_socket_test_lock,
 };
 
@@ -46,6 +47,10 @@ impl MessageCodec<TestMessage> for TestMessageCodec {
     fn decode(&self, payload: Bytes, _version: u16) -> kairo_serialization::Result<TestMessage> {
         Ok(TestMessage { value: payload[0] })
     }
+}
+
+struct ClusterToolsInboundProbes {
+    mediator: TestProbe<DistributedPubSubMediatorMsg<TestMessage>>,
 }
 
 fn registry() -> Arc<Registry> {
@@ -101,13 +106,48 @@ fn bind_association_runtime_on_port(
     kit: &ActorSystemTestKit,
     registry: Arc<Registry>,
 ) -> ClusterToolsTcpAssociationRuntime<TestMessage> {
+    bind_association_runtime_on_port_with_probes(name, uid, system_uid, port, kit, registry).0
+}
+
+fn bind_association_runtime_on_port_with_probes(
+    name: &str,
+    uid: u64,
+    system_uid: u64,
+    port: u16,
+    kit: &ActorSystemTestKit,
+    registry: Arc<Registry>,
+) -> (
+    ClusterToolsTcpAssociationRuntime<TestMessage>,
+    ClusterToolsInboundProbes,
+) {
+    let gossip = kit
+        .create_probe::<PubSubGossipMsg>(format!("{name}-gossip"))
+        .unwrap();
+    let mediator = kit
+        .create_probe::<DistributedPubSubMediatorMsg<TestMessage>>(format!("{name}-mediator"))
+        .unwrap();
+    let manager = kit
+        .create_probe::<SingletonManagerMsg>(format!("{name}-singleton-manager"))
+        .unwrap();
+    let gossip_ref = gossip.actor_ref();
+    let mediator_ref = mediator.actor_ref();
+    let manager_ref = manager.actor_ref();
     ClusterToolsTcpAssociationRuntime::bind(
         name,
         uid,
         system_uid,
         RemoteSettings::new("127.0.0.1", port),
-        move |self_node| inbound_for(name, kit, registry, self_node),
+        move |self_node| {
+            inbound_from_refs(
+                self_node,
+                registry.clone(),
+                gossip_ref.clone(),
+                mediator_ref.clone(),
+                manager_ref.clone(),
+            )
+        },
     )
+    .map(|runtime| (runtime, ClusterToolsInboundProbes { mediator }))
     .unwrap()
 }
 
@@ -126,22 +166,57 @@ fn inbound_for(
     let manager = kit
         .create_probe::<SingletonManagerMsg>(format!("{name}-singleton-manager"))
         .unwrap();
+    inbound_from_refs(
+        self_node,
+        registry,
+        gossip.actor_ref(),
+        mediator.actor_ref(),
+        manager.actor_ref(),
+    )
+}
+
+fn inbound_from_refs(
+    self_node: UniqueAddress,
+    registry: Arc<Registry>,
+    gossip: ActorRef<PubSubGossipMsg>,
+    mediator: ActorRef<DistributedPubSubMediatorMsg<TestMessage>>,
+    manager: ActorRef<SingletonManagerMsg>,
+) -> ClusterToolsSystemInbound<TestMessage> {
     ClusterToolsSystemInbound::new(self_node.clone())
         .with_pubsub_gossip(PubSubGossipWireInbound::new(
             self_node.clone(),
             registry.clone(),
-            gossip.actor_ref(),
+            gossip,
         ))
         .with_pubsub_delivery(PubSubRemoteDeliveryInbound::new(
             self_node.clone(),
             registry.clone(),
-            mediator.actor_ref(),
+            mediator,
         ))
         .with_singleton_manager(SingletonManagerRemoteInbound::new(
-            self_node,
-            registry,
-            manager.actor_ref(),
+            self_node, registry, manager,
         ))
+}
+
+fn assert_pubsub_publish(
+    probes: &ClusterToolsInboundProbes,
+    expected_topic: TopicName,
+    expected_message: TestMessage,
+) {
+    match probes.mediator.expect_msg(Duration::from_secs(1)).unwrap() {
+        DistributedPubSubMediatorMsg::LocalDelivery(LocalPubSubMsg::Publish {
+            topic,
+            message,
+            mode,
+            reply_to,
+        }) => {
+            assert_eq!(topic, expected_topic);
+            assert_eq!(message, expected_message);
+            assert_eq!(mode, TopicPublishMode::Broadcast);
+            assert!(reply_to.is_none());
+        }
+        _ => panic!("expected pubsub publish delivery"),
+    }
 }
 
 fn spawn_publisher(
@@ -318,7 +393,7 @@ fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
     let sender_node = sender_runtime.self_node().clone();
     let bound_node = node("partial-bound", bound_port, 2);
     let missing_node = node("partial-missing", missing_port, 3);
-    let bound_runtime = bind_association_runtime_on_port(
+    let (bound_runtime, bound_probes) = bind_association_runtime_on_port_with_probes(
         "partial-bound",
         2,
         22,
@@ -364,6 +439,25 @@ fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
     assert_eq!(snapshot.pending_reconnects[0].target.node(), &missing_node);
     assert!(snapshot.last_error.is_some());
     assert_eq!(sender_cache.route_count(), 1);
+
+    let outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        bound_node.clone(),
+        registry.clone(),
+        Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>,
+    );
+    outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("partial-active-route"),
+            message: TestMessage { value: 88 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &bound_probes,
+        TopicName::new("partial-active-route"),
+        TestMessage { value: 88 },
+    );
 
     let missing_runtime = bind_association_runtime_on_port(
         "partial-missing",

@@ -10,12 +10,17 @@ use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 use super::*;
 use crate::{
     ClusterEventPublisher, ClusterEventPublisherMsg, ClusterMembershipMsg,
-    ClusterMembershipWireInbound, ClusterSystemInbound, ClusterTcpAssociationRuntime,
+    ClusterMembershipRemoteEnvelopeOutbound, ClusterMembershipWireInbound,
+    ClusterMembershipWireOutbound, ClusterSystemInbound, ClusterTcpAssociationRuntime,
     ClusterTcpPeerReconnectSettings, CurrentClusterState, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
     DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, Gossip, HeartbeatRemoteReceiverInbound,
-    HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Member, MemberStatus, Reachability,
+    HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Join, Member, MemberStatus, Reachability,
     register_cluster_protocol_codecs, test_support::cluster_socket_test_lock,
 };
+
+struct ClusterInboundProbes {
+    membership: TestProbe<ClusterMembershipMsg>,
+}
 
 fn registry() -> Arc<Registry> {
     let mut registry = Registry::new();
@@ -71,13 +76,56 @@ fn bind_association_runtime_on_port(
     kit: &ActorSystemTestKit,
     registry: Arc<Registry>,
 ) -> ClusterTcpAssociationRuntime {
+    bind_association_runtime_on_port_with_probes(name, uid, system_uid, port, kit, registry).0
+}
+
+fn bind_association_runtime_on_port_with_probes(
+    name: &str,
+    uid: u64,
+    system_uid: u64,
+    port: u16,
+    kit: &ActorSystemTestKit,
+    registry: Arc<Registry>,
+) -> (ClusterTcpAssociationRuntime, ClusterInboundProbes) {
+    let membership = kit
+        .create_probe::<ClusterMembershipMsg>(format!("{name}-membership"))
+        .unwrap();
+    let heartbeat_sender = kit
+        .create_probe::<HeartbeatSenderMsg>(format!("{name}-heartbeat-sender"))
+        .unwrap();
+    let membership_ref = membership.actor_ref();
+    let heartbeat_sender_ref = heartbeat_sender.actor_ref();
     ClusterTcpAssociationRuntime::bind(
         name,
         uid,
         system_uid,
         RemoteSettings::new("127.0.0.1", port),
-        move |self_node, cache| inbound_for(name, kit, registry, self_node, cache),
+        move |self_node, cache| {
+            ClusterSystemInbound::new(self_node.clone())
+                .with_membership(ClusterMembershipWireInbound::new(
+                    self_node.clone(),
+                    registry.clone(),
+                    membership_ref.clone(),
+                ))
+                .with_heartbeat_receiver(
+                    HeartbeatRemoteReceiverInbound::from_arc(
+                        self_node.clone(),
+                        registry.clone(),
+                        Arc::new(cache.clone()) as Arc<dyn RemoteOutbound>,
+                    )
+                    .with_sender(Some(wire_for(
+                        &self_node,
+                        DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
+                    ))),
+                )
+                .with_heartbeat_response(HeartbeatRemoteResponseInbound::new(
+                    wire_for(&self_node, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH),
+                    registry.clone(),
+                    heartbeat_sender_ref.clone(),
+                ))
+        },
     )
+    .map(|runtime| (runtime, ClusterInboundProbes { membership }))
     .unwrap()
 }
 
@@ -289,7 +337,7 @@ fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
     let sender_node = sender_runtime.self_node().clone();
     let bound_node = node("partial-bound", bound_port, 2);
     let missing_node = node("partial-missing", missing_port, 3);
-    let bound_runtime = bind_association_runtime_on_port(
+    let (bound_runtime, bound_probes) = bind_association_runtime_on_port_with_probes(
         "partial-bound",
         2,
         22,
@@ -335,6 +383,35 @@ fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
     assert_eq!(snapshot.pending_reconnects[0].target.node(), &missing_node);
     assert!(snapshot.last_error.is_some());
     assert_eq!(sender_cache.route_count(), 1);
+
+    let membership_outbound = ClusterMembershipWireOutbound::new(
+        bound_node.clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(
+            Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>
+        ),
+    );
+    membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: sender_node.clone(),
+                roles: vec!["partial-active-route".to_string()],
+            },
+            reply_to: None,
+        })
+        .unwrap();
+    match bound_probes
+        .membership
+        .expect_msg(Duration::from_secs(1))
+        .unwrap()
+    {
+        ClusterMembershipMsg::Join { join, reply_to } => {
+            assert_eq!(join.node, sender_node.clone());
+            assert_eq!(join.roles, vec!["partial-active-route".to_string()]);
+            assert!(reply_to.is_none());
+        }
+        other => panic!("expected cluster join, got {other:?}"),
+    }
 
     let missing_runtime = bind_association_runtime_on_port(
         "partial-missing",
