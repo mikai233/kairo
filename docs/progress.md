@@ -3930,6 +3930,9 @@ Implemented:
   cleanup: all shard-home mappings owned by a stopped peer region are removed
   together, unrelated region homes remain intact, and later delivery to those
   shards buffers and requests fresh shard-home resolution.
+- `kairo-cluster-sharding` region actors now expose that stopped peer-region
+  cleanup through `ShardRegionMsg::MarkRegionStopped`, clearing remote shard
+  homes at the actor boundary while preserving unrelated region homes.
 
 Not yet implemented:
 
@@ -3985,6 +3988,11 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding region_actor_ignores_prior_remembered_local_shard_restart_timer_after_new_failure --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_mark_region_stopped_clears_remote_shard_homes --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding region_route_resolution --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster bootstrap_stops_connector_when_shutdown_registration_fails --all-targets --all-features -- --nocapture
 cargo test -p kairo-distributed-data bootstrap_stops_connector_when_shutdown_registration_fails --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-tools bootstrap_stops_connector_when_shutdown_registration_fails --all-targets --all-features -- --nocapture

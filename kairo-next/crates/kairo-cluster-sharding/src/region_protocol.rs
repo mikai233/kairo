@@ -119,6 +119,10 @@ pub enum ShardRegionMsg<M> {
         shard: ShardId,
         reply_to: Option<ActorRef<ShardRegionSnapshot>>,
     },
+    MarkRegionStopped {
+        region: RegionId,
+        reply_to: Option<ActorRef<ShardRegionSnapshot>>,
+    },
     RestartLocalShard {
         shard: ShardId,
         generation: u64,

@@ -533,6 +533,124 @@ fn region_actor_forwards_known_remote_home_to_region_target() {
 }
 
 #[test]
+fn region_actor_mark_region_stopped_clears_remote_shard_homes() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-stop-clears-homes").unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props("region-a", 10),
+        )
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<ShardHomePlan<String>, ShardingError>>("home")
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionRoutePlan<String>>("routes")
+        .unwrap();
+    let stopped = kit
+        .create_probe::<ShardRegionSnapshot>("stopped-region")
+        .unwrap();
+
+    for (shard, target_region) in [
+        ("shard-1", "region-b"),
+        ("shard-2", "region-b"),
+        ("shard-3", "region-c"),
+    ] {
+        region
+            .tell(ShardRegionMsg::RecordShardHome {
+                shard: shard.to_string(),
+                region: target_region.to_string(),
+                reply_to: home.actor_ref(),
+            })
+            .unwrap();
+        assert_eq!(
+            home.expect_msg(Duration::from_millis(500)).unwrap(),
+            Ok(ShardHomePlan::Forward {
+                shard: shard.to_string(),
+                region: target_region.to_string(),
+                buffered: Vec::new(),
+            })
+        );
+    }
+
+    region
+        .tell(ShardRegionMsg::Route {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: routes.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionRoutePlan::Forward {
+            shard: "shard-1".to_string(),
+            region: "region-b".to_string(),
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::MarkRegionStopped {
+            region: "region-b".to_string(),
+            reply_to: Some(stopped.actor_ref()),
+        })
+        .unwrap();
+    stopped.expect_msg(Duration::from_millis(500)).unwrap();
+
+    region
+        .tell(ShardRegionMsg::Route {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "second".to_string()),
+            reply_to: routes.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::Route {
+            shard: "shard-2".to_string(),
+            message: ShardingEnvelope::new("entity-2", "fresh".to_string()),
+            reply_to: routes.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionRoutePlan::Buffered {
+            shard: "shard-2".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-2".to_string(),
+            }),
+        }
+    );
+
+    region
+        .tell(ShardRegionMsg::Route {
+            shard: "shard-3".to_string(),
+            message: ShardingEnvelope::new("entity-3", "unchanged".to_string()),
+            reply_to: routes.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionRoutePlan::Forward {
+            shard: "shard-3".to_string(),
+            region: "region-c".to_string(),
+            message: ShardingEnvelope::new("entity-3", "unchanged".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_forwards_buffered_remote_home_after_resolution() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("region-forward-buffered-remote-home").unwrap();

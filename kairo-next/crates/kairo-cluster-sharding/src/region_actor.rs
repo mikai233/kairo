@@ -253,6 +253,10 @@ where
                 reply_optional(reply_to, self.snapshot());
                 self.try_complete_graceful_shutdown(ctx)?;
             }
+            ShardRegionMsg::MarkRegionStopped { region, reply_to } => {
+                self.runtime.mark_region_stopped(&region);
+                reply_optional(reply_to, self.snapshot());
+            }
             ShardRegionMsg::RestartLocalShard { shard, generation } => {
                 self.restart_local_shard(ctx, shard, generation)?;
             }
