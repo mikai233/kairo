@@ -272,6 +272,5 @@ fn event_stream_prunes_failed_dead_letter_subscribers() {
             .dead_letters()
             .wait_for_len(3, Duration::from_secs(1))
     );
-    thread::sleep(Duration::from_millis(50));
     assert_eq!(system.dead_letters().len(), 3);
 }
