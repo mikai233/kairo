@@ -241,19 +241,19 @@ fn bootstrap_two_nodes_install_peer_routes_from_cluster_membership() {
     assert_eq!(receiver_cache.route_count(), 1);
 
     run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
-    assert_eq!(sender_cache.route_count(), 0);
-    sender_publisher
-        .tell(ClusterEventPublisherMsg::PublishChanges(
-            Gossip::from_members([
-                Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up)
-            ]),
-        ))
-        .unwrap();
-    std::thread::sleep(Duration::from_millis(50));
+    await_cache_route_count(&sender_cache, 0);
+    publish_gossip_and_wait(
+        sender_kit,
+        &sender_publisher,
+        Gossip::from_members([
+            Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up)
+        ]),
+        "sender-after-shutdown-state",
+    );
     assert!(sender_kit.system().dead_letters().is_empty());
-    assert_eq!(sender_cache.route_count(), 0);
+    await_cache_route_count(&sender_cache, 0);
     run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
-    assert_eq!(receiver_cache.route_count(), 0);
+    await_cache_route_count(&receiver_cache, 0);
     nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
@@ -335,10 +335,10 @@ fn bootstrap_coordinated_shutdown_stops_connector_after_live_route() {
         .run_coordinated_shutdown("cluster bootstrap shutdown test", Duration::from_secs(1))
         .unwrap();
     assert!(sender_connector.wait_for_stop(Duration::from_secs(1)));
-    assert_eq!(sender_cache.route_count(), 0);
+    await_cache_route_count(&sender_cache, 0);
 
     run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
-    assert_eq!(receiver_cache.route_count(), 0);
+    await_cache_route_count(&receiver_cache, 0);
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
@@ -444,7 +444,7 @@ fn bootstrap_shutdown_clears_adopted_existing_peer_route() {
     );
 
     run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
-    assert_eq!(sender_cache.route_count(), 0);
+    await_cache_route_count(&sender_cache, 0);
 
     let removed_route_error = receiver_membership_outbound
         .send_membership(ClusterMembershipMsg::Join {
@@ -467,7 +467,7 @@ fn bootstrap_shutdown_clears_adopted_existing_peer_route() {
         .unwrap();
 
     run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
-    assert_eq!(receiver_cache.route_count(), 0);
+    await_cache_route_count(&receiver_cache, 0);
     nodes.shutdown(Duration::from_secs(1)).unwrap();
 }
 
@@ -783,12 +783,16 @@ fn bootstrap_coordinated_shutdown_stops_connector_with_pending_reconnect() {
     );
 
     run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
-    assert_eq!(sender_cache.route_count(), 0);
+    await_cache_route_count(&sender_cache, 0);
 
-    publish_gossip(&sender_publisher, up_gossip([sender_node, missing_node]));
-    std::thread::sleep(Duration::from_millis(50));
+    publish_gossip_and_wait(
+        &sender_kit,
+        &sender_publisher,
+        up_gossip([sender_node, missing_node]),
+        "sender-pending-after-shutdown-state",
+    );
     assert!(sender_kit.system().dead_letters().is_empty());
-    assert_eq!(sender_cache.route_count(), 0);
+    await_cache_route_count(&sender_cache, 0);
 
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -1030,7 +1034,7 @@ fn bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_remov
     );
 
     run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
-    assert_eq!(first_cache.route_count(), 0);
+    await_cache_route_count(&first_cache, 0);
     second_runtime.shutdown().unwrap();
     third_runtime.shutdown().unwrap();
     first_kit.shutdown(Duration::from_secs(1)).unwrap();
@@ -1318,11 +1322,11 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     );
 
     run_bootstrap_shutdown(&first_kit, first_bootstrap.connector());
-    assert_eq!(first_cache.route_count(), 0);
+    await_cache_route_count(&first_cache, 0);
     run_bootstrap_shutdown(&second_kit, second_bootstrap.connector());
-    assert_eq!(second_cache.route_count(), 0);
+    await_cache_route_count(&second_cache, 0);
     run_bootstrap_shutdown(&third_kit, third_bootstrap.connector());
-    assert_eq!(third_cache.route_count(), 0);
+    await_cache_route_count(&third_cache, 0);
     first_kit.shutdown(Duration::from_secs(1)).unwrap();
     second_kit.shutdown(Duration::from_secs(1)).unwrap();
     third_kit.shutdown(Duration::from_secs(1)).unwrap();

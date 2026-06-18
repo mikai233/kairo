@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use kairo_actor::{ActorRef, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
 use kairo_cluster::{
-    ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus, UniqueAddress,
+    ClusterEventPublisher, ClusterEventPublisherMsg, CurrentClusterState, Gossip, Member,
+    MemberStatus, UniqueAddress,
 };
 use kairo_remote::{RemoteAssociationCache, RemoteSettings};
 use kairo_serialization::{Registry, RemoteEnvelope};
@@ -257,6 +258,22 @@ pub(super) fn publish_gossip(publisher: &ActorRef<ClusterEventPublisherMsg>, gos
     publisher
         .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
         .unwrap();
+}
+
+pub(super) fn publish_gossip_and_wait(
+    kit: &ActorSystemTestKit,
+    publisher: &ActorRef<ClusterEventPublisherMsg>,
+    gossip: Gossip,
+    probe_name: &str,
+) {
+    publish_gossip(publisher, gossip);
+    let state = kit.create_probe::<CurrentClusterState>(probe_name).unwrap();
+    publisher
+        .tell(ClusterEventPublisherMsg::SendCurrentState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    state.expect_msg(Duration::from_secs(1)).unwrap();
 }
 
 pub(super) fn await_cache_route_count(cache: &RemoteAssociationCache, expected: usize) {

@@ -9,7 +9,7 @@ use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 use crate::{
     ClusterEventPublisher, ClusterEventPublisherMsg, ClusterMembershipMsg,
     ClusterMembershipWireInbound, ClusterSystemInbound, ClusterTcpPeerConnectorMsg,
-    ClusterTcpPeerConnectorSnapshot, ClusterTcpPeerRuntime,
+    ClusterTcpPeerConnectorSnapshot, ClusterTcpPeerRuntime, CurrentClusterState,
     DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, Gossip,
     HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Member,
     MemberStatus, UniqueAddress, register_cluster_protocol_codecs,
@@ -112,6 +112,22 @@ pub(super) fn publish_gossip(publisher: &ActorRef<ClusterEventPublisherMsg>, gos
     publisher
         .tell(ClusterEventPublisherMsg::PublishChanges(gossip))
         .unwrap();
+}
+
+pub(super) fn publish_gossip_and_wait(
+    kit: &ActorSystemTestKit,
+    publisher: &ActorRef<ClusterEventPublisherMsg>,
+    gossip: Gossip,
+    probe_name: &str,
+) {
+    publish_gossip(publisher, gossip);
+    let state = kit.create_probe::<CurrentClusterState>(probe_name).unwrap();
+    publisher
+        .tell(ClusterEventPublisherMsg::SendCurrentState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    state.expect_msg(Duration::from_secs(1)).unwrap();
 }
 
 pub(super) fn await_cache_route_count(cache: &RemoteAssociationCache, expected: usize) {
