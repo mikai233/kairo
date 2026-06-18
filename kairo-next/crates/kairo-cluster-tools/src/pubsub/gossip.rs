@@ -119,7 +119,7 @@ impl PubSubGossipActor {
     }
 
     fn add_peer(&mut self, peer: PubSubGossipPeer) {
-        if &peer.node == self.registry.self_node() {
+        if peer.node.address == self.registry.self_node().address {
             return;
         }
         self.peers.insert(node_key(&peer.node), peer);

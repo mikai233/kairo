@@ -3796,6 +3796,11 @@ Implemented:
   self-address rule at the route-table boundary: replacement unique-address
   incarnations at the local address are excluded from snapshots, ignored as
   remote `MemberUp` events, and not reported as peer removals.
+- `kairo-cluster-tools` distributed pubsub gossip now applies the same
+  self-address rule below the mediator: same-address replacement incarnations
+  are rejected as gossip peers, and replacement-self registry buckets are
+  ignored during delta merge so stale local-address topics cannot become remote
+  delivery targets.
 
 Not yet implemented:
 
@@ -3835,9 +3840,13 @@ cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-featur
 cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-distributed-data cluster_routes --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools pubsub_gossip --all-targets --all-features
+cargo test -p kairo-cluster-tools pubsub_registry --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```
 

@@ -258,3 +258,68 @@ fn pubsub_gossip_actor_ignores_delta_from_unknown_peer_and_removes_left_peer() {
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn pubsub_gossip_actor_ignores_same_address_replacement_self_peer() {
+    let kit = ActorSystemTestKit::new("pubsub-gossip-self-replacement").unwrap();
+    let self_node = node("self", 1);
+    let replacement_self = UniqueAddress::new(self_node.address.clone(), 2);
+    let replacement_peer = kit
+        .create_probe::<PubSubGossipMsg>("replacement-peer")
+        .unwrap();
+    let peers_probe = kit.create_probe::<Vec<UniqueAddress>>("peers").unwrap();
+    let registry_probe = kit.create_probe::<PubSubRegistryState>("registry").unwrap();
+    let actor_node = self_node;
+    let gossip = kit
+        .system()
+        .spawn(
+            "gossip",
+            Props::new(move || PubSubGossipActor::new(actor_node)),
+        )
+        .unwrap();
+    let stale_topic = TopicName::new("stale");
+    let mut replacement_registry = PubSubRegistryState::new(replacement_self.clone());
+    replacement_registry.register_local_topic(stale_topic.clone());
+
+    gossip
+        .tell(PubSubGossipMsg::AddPeer {
+            peer: PubSubGossipPeer::new(replacement_self.clone(), replacement_peer.actor_ref()),
+        })
+        .unwrap();
+    gossip.tell(PubSubGossipMsg::GossipTick).unwrap();
+    replacement_peer
+        .expect_no_msg(Duration::from_millis(30))
+        .unwrap();
+
+    gossip
+        .tell(PubSubGossipMsg::Delta {
+            from: replacement_self,
+            delta: replacement_registry.collect_delta(&BTreeMap::new(), 10),
+        })
+        .unwrap();
+    gossip
+        .tell(PubSubGossipMsg::GetPeers {
+            reply_to: peers_probe.actor_ref(),
+        })
+        .unwrap();
+    gossip
+        .tell(PubSubGossipMsg::GetRegistry {
+            reply_to: registry_probe.actor_ref(),
+        })
+        .unwrap();
+
+    assert!(
+        peers_probe
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        registry_probe
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .broadcast_targets(&stale_topic, true)
+            .is_empty()
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}

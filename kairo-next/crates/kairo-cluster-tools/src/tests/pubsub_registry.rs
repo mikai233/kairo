@@ -89,3 +89,23 @@ fn pubsub_registry_prunes_old_tombstones_without_dropping_present_entries() {
     );
     assert!(bucket.entries.contains_key(&PubSubRegistryKey::topic(jobs)));
 }
+
+#[test]
+fn pubsub_registry_ignores_same_address_replacement_self_delta() {
+    let self_node = node("self", 1);
+    let replacement_self = UniqueAddress::new(self_node.address.clone(), 2);
+    let local_topic = TopicName::new("local");
+    let stale_topic = TopicName::new("stale");
+    let mut registry = PubSubRegistryState::new(self_node.clone());
+    let mut replacement_registry = PubSubRegistryState::new(replacement_self);
+
+    registry.register_local_topic(local_topic.clone());
+    replacement_registry.register_local_topic(stale_topic.clone());
+    registry.merge_delta(replacement_registry.collect_delta(&BTreeMap::new(), 10));
+
+    assert_eq!(
+        registry.broadcast_targets(&local_topic, true),
+        vec![self_node]
+    );
+    assert!(registry.broadcast_targets(&stale_topic, true).is_empty());
+}

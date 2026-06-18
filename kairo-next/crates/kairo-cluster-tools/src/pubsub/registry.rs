@@ -209,6 +209,9 @@ impl PubSubRegistryState {
 
     pub fn merge_delta(&mut self, delta: PubSubRegistryDelta) {
         for incoming in delta.buckets {
+            if incoming.owner.address == self.self_node.address {
+                continue;
+            }
             self.buckets
                 .entry(node_key(&incoming.owner))
                 .or_insert_with(|| PubSubBucket::new(incoming.owner.clone()))
