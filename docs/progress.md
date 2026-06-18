@@ -1209,6 +1209,10 @@ Implemented:
   association route, including listener-installed reverse routes and active
   dialed lane pipelines, before joining reader threads so live route
   registrations cannot keep socket lanes open after shutdown begins.
+- Coordinated-shutdown coverage now also pins the user-facing stale-ref
+  boundary: a `RemoteActorRef` resolved before shutdown can deliver while the
+  route is live, but rejects later sends after coordinated shutdown clears the
+  route and does not deliver a message to the remote actor.
 - `kairo-remote` now has a focused TCP reader supervision state machine:
   inbound lane or association reader failures plan full inbound-stream
   restarts by default, finite restart limits can stop inbound streams, and
@@ -6319,5 +6323,10 @@ cargo test -p kairo-remote remote_watch_actor_notifies_remote_watchers_when_loca
 cargo test -p kairo-remote tcp_remote_actor_system_watch_remote_notifies_local_watcher --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-remote tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```

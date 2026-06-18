@@ -1591,6 +1591,15 @@ fn tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once() {
     let receiver = ActorSystem::builder("receiver").build().unwrap();
     let sender = ActorSystem::builder("sender").build().unwrap();
     let registry = registry();
+    let (received_tx, received_rx) = mpsc::channel();
+    let target = receiver
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
     let receiver_remote = TcpRemoteActorSystem::<Ping>::bind(
         receiver.clone(),
         registry.clone(),
@@ -1605,6 +1614,12 @@ fn tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once() {
         22,
     )
     .unwrap();
+    let remote_target = sender_remote
+        .resolve::<Ping>(remote_path_for(
+            target.path().as_str(),
+            receiver_remote.settings(),
+        ))
+        .unwrap();
     sender_remote
         .register_coordinated_shutdown(
             PHASE_SERVICE_UNBIND,
@@ -1621,6 +1636,11 @@ fn tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once() {
     .unwrap();
     let registration = sender_remote.dial(receiver_address).unwrap();
     assert_eq!(sender_remote.association_cache().route_count(), 1);
+    remote_target.tell(Ping { value: 17 }).unwrap();
+    assert_eq!(
+        received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        17
+    );
 
     sender
         .coordinated_shutdown()
@@ -1646,6 +1666,18 @@ fn tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once() {
         AssociationState::Closed { reason }
             if reason == "tcp remote actor system shutdown"
     ));
+    let error = remote_target
+        .tell(Ping { value: 18 })
+        .expect_err("remote ref should reject sends after coordinated shutdown clears routes");
+    assert!(
+        error.reason().contains("no remote association route"),
+        "{}",
+        error.reason()
+    );
+    assert!(
+        received_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+        "receiver should not get sends from a cloned remote ref after shutdown"
+    );
     let second_report = sender_remote.shutdown().unwrap();
     assert_eq!(second_report.accepted_associations, 0);
 
