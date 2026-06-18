@@ -97,24 +97,10 @@ fn backoff_supervisor_restarts_child_after_delay() {
     first_child.tell(BackoffChildMsg::Stop).unwrap();
     assert!(first_child.wait_for_stop(Duration::from_secs(1)));
 
-    let mut restart_count = None;
-    for _ in 0..100 {
-        supervisor
-            .tell(BackoffSupervisorMsg::GetRestartCount {
-                reply_to: count_probe.clone(),
-            })
-            .unwrap();
-        let count = count_rx
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap()
-            .count();
-        if count == 1 {
-            restart_count = Some(count);
-            break;
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(restart_count, Some(1));
+    assert_eq!(
+        wait_for_restart_count(&supervisor, &count_probe, &count_rx, 1),
+        1
+    );
 
     manual.advance(Duration::from_millis(49));
     assert!(started_rx.recv_timeout(Duration::from_millis(100)).is_err());
@@ -200,24 +186,10 @@ fn backoff_supervisor_stops_after_max_restarts() {
 
     first_child.tell(BackoffChildMsg::Stop).unwrap();
     assert!(first_child.wait_for_stop(Duration::from_secs(1)));
-    let mut restart_count = None;
-    for _ in 0..100 {
-        supervisor
-            .tell(BackoffSupervisorMsg::GetRestartCount {
-                reply_to: count_probe.clone(),
-            })
-            .unwrap();
-        let count = count_rx
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap()
-            .count();
-        if count == 1 {
-            restart_count = Some(count);
-            break;
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(restart_count, Some(1));
+    assert_eq!(
+        wait_for_restart_count(&supervisor, &count_probe, &count_rx, 1),
+        1
+    );
 
     manual.advance(Duration::from_millis(10));
     assert_eq!(started_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 2);
@@ -305,24 +277,10 @@ fn backoff_supervisor_dead_letters_messages_during_backoff() {
     first_child.tell(BackoffChildMsg::Stop).unwrap();
     assert!(first_child.wait_for_stop(Duration::from_secs(1)));
 
-    let mut restart_count = None;
-    for _ in 0..100 {
-        supervisor
-            .tell(BackoffSupervisorMsg::GetRestartCount {
-                reply_to: count_probe.clone(),
-            })
-            .unwrap();
-        let count = count_rx
-            .recv_timeout(Duration::from_secs(1))
-            .unwrap()
-            .count();
-        if count == 1 {
-            restart_count = Some(count);
-            break;
-        }
-        thread::sleep(Duration::from_millis(5));
-    }
-    assert_eq!(restart_count, Some(1));
+    assert_eq!(
+        wait_for_restart_count(&supervisor, &count_probe, &count_rx, 1),
+        1
+    );
 
     supervisor
         .tell(BackoffSupervisorMsg::Tell(BackoffChildMsg::Record(7)))
@@ -353,4 +311,36 @@ fn backoff_supervisor_dead_letters_messages_during_backoff() {
         received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         (2, 8)
     );
+}
+
+fn wait_for_restart_count(
+    supervisor: &ActorRef<BackoffSupervisorMsg<BackoffChildMsg>>,
+    count_probe: &ActorRef<RestartCount>,
+    count_rx: &mpsc::Receiver<RestartCount>,
+    expected: u32,
+) -> u32 {
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        assert!(
+            Instant::now() < deadline,
+            "expected restart count {expected} before timeout"
+        );
+        supervisor
+            .tell(BackoffSupervisorMsg::GetRestartCount {
+                reply_to: count_probe.clone(),
+            })
+            .unwrap();
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let count = count_rx
+            .recv_timeout(remaining.min(Duration::from_millis(50)))
+            .unwrap()
+            .count();
+        if count == expected {
+            return count;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "expected restart count {expected}; last observed {count}"
+        );
+    }
 }
