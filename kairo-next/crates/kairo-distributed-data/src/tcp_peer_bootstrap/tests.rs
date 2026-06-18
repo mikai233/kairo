@@ -1832,6 +1832,8 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         std::slice::from_ref(&first_node),
     );
     await_connector_no_routes(third_bootstrap.connector(), &third_snapshots);
+    await_cache_route_count(&first_cache, 1);
+    await_cache_route_count(&second_cache, 1);
     await_cache_route_count(&third_cache, 0);
 
     let removed_second_to_third_error = second_to_third

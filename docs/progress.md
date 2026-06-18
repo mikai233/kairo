@@ -4190,6 +4190,10 @@ Implemented:
   connector snapshots before asserting cache shrink and allows the accepted
   TCP reader cleanup window to drain, hardening the full workspace gate against
   removed-peer reverse-route races.
+- `kairo-distributed-data` and `kairo-cluster-tools` three-node TCP bootstrap
+  coverage now mirror the cluster route-cache shrink checks: after membership
+  removes a peer, both survivor caches must settle to one route and the removed
+  peer cache must clear before stale delivery is asserted to fail.
 - `kairo-cluster-sharding` coordinator death-watch coverage now waits for the
   coordinator actor to process a registered local region's termination before
   asserting allocations were removed, matching the asynchronous death-watch
