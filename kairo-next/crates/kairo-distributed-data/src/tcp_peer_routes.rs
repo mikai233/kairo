@@ -199,7 +199,7 @@ fn peer_key(target: &ClusterAssociationPeerTarget) -> String {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     use kairo_actor::Address;
     use kairo_cluster::{
@@ -208,6 +208,7 @@ mod tests {
     };
     use kairo_remote::RemoteSettings;
     use kairo_serialization::RemoteEnvelope;
+    use kairo_testkit::await_assert;
 
     use super::*;
     use crate::{
@@ -287,11 +288,13 @@ mod tests {
     }
 
     fn wait_for_reverse_route(runtime: &ReplicatorTcpAssociationRuntime) {
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while runtime.association_cache().route_count() == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(runtime.association_cache().route_count(), 1);
+        await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+            let actual = runtime.association_cache().route_count();
+            (actual == 1)
+                .then_some(())
+                .ok_or_else(|| format!("expected 1 route, got {actual}"))
+        })
+        .unwrap();
     }
 
     #[test]

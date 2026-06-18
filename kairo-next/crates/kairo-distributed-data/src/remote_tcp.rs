@@ -309,11 +309,12 @@ pub fn tcp_association_identity_for(
 #[cfg(test)]
 mod tests {
     use std::sync::{Condvar, Mutex};
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     use kairo_actor::Recipient;
     use kairo_remote::AssociationState;
     use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage};
+    use kairo_testkit::await_assert;
 
     use super::*;
     use crate::{
@@ -418,11 +419,13 @@ mod tests {
     }
 
     fn wait_for_route(runtime: &ReplicatorTcpAssociationRuntime) {
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while runtime.association_cache().route_count() == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(runtime.association_cache().route_count(), 1);
+        await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+            let actual = runtime.association_cache().route_count();
+            (actual == 1)
+                .then_some(())
+                .ok_or_else(|| format!("expected 1 route, got {actual}"))
+        })
+        .unwrap();
     }
 
     fn outbound(

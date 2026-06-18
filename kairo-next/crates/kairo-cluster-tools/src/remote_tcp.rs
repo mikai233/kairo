@@ -231,13 +231,13 @@ pub fn cluster_tools_association_identity_for(
 mod tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
-    use std::time::Instant;
+    use std::time::Duration;
 
     use bytes::Bytes;
     use kairo_actor::Recipient;
     use kairo_remote::{AssociationState, RemoteOutbound, RemoteStreamId};
     use kairo_serialization::{MessageCodec, Registry, RemoteMessage, SerializationRegistry};
-    use kairo_testkit::ActorSystemTestKit;
+    use kairo_testkit::{ActorSystemTestKit, await_assert};
 
     use super::*;
     use crate::{
@@ -292,11 +292,13 @@ mod tests {
     where
         M: RemoteMessage + Send + 'static,
     {
-        let deadline = Instant::now() + Duration::from_secs(1);
-        while runtime.association_cache().route_count() == 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(runtime.association_cache().route_count(), 1);
+        await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+            let actual = runtime.association_cache().route_count();
+            (actual == 1)
+                .then_some(())
+                .ok_or_else(|| format!("expected 1 route, got {actual}"))
+        })
+        .unwrap();
     }
 
     fn bind_runtime(

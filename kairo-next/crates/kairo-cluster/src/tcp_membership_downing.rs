@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use kairo_actor::{ActorRef, Address, Props};
 use kairo_remote::{RemoteOutbound, RemoteSettings};
@@ -539,11 +539,13 @@ fn assert_member_status(
 }
 
 fn wait_for_routes(runtime: &ClusterTcpAssociationRuntime, expected: usize) {
-    let deadline = Instant::now() + Duration::from_secs(1);
-    while runtime.association_cache().route_count() != expected && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(1));
-    }
-    assert_eq!(runtime.association_cache().route_count(), expected);
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        let actual = runtime.association_cache().route_count();
+        (actual == expected)
+            .then_some(())
+            .ok_or_else(|| format!("expected {expected} route(s), got {actual}"))
+    })
+    .unwrap();
 }
 
 fn wire_for(node: &UniqueAddress, path: &str) -> ActorRefWireData {
