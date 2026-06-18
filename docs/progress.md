@@ -3895,6 +3895,11 @@ Implemented:
   TCP peer connector partial snapshot failure for membership and
   pubsub/singleton routes, keeping the successful route active while retrying
   the later failed route.
+- `kairo-cluster`, `kairo-distributed-data`, and `kairo-cluster-tools` TCP
+  peer bootstrap coverage now drives the same partial snapshot failure through
+  the public bootstrap facade: one reachable peer route remains active, the
+  later failed peer stays pending reconnect, and binding the missing peer lets
+  the connector retry to full route coverage.
 
 Not yet implemented:
 
@@ -3908,8 +3913,8 @@ Not yet implemented:
   runtime, actor-backed connector beyond current route-target shrinkage, and
   bootstrap beyond the current localhost two-node and sender-side three-node
   example smoke tests, three-node bootstrap route validation, and focused
-  peer-runtime and connector sender-side route-reduction and partial-failure
-  retry coverage.
+  peer-runtime, connector, and bootstrap sender-side route-reduction and
+  partial-failure retry coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level and multi-node
   discovery/shared-store first-delivery coverage.
@@ -3917,8 +3922,9 @@ Not yet implemented:
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
   `run_coordinated_shutdown` coverage, focused sender-side route-reduction
-  delivery coverage, focused peer-runtime and connector partial-failure retry
-  coverage, and three-node full-mesh delivery coverage where applicable.
+  delivery coverage, focused peer-runtime, connector, and bootstrap
+  partial-failure retry coverage, and three-node full-mesh delivery coverage
+  where applicable.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation, focused three-node route-preservation
@@ -3983,6 +3989,15 @@ cargo test --workspace --all-targets --all-features
 cargo test --doc --workspace --all-features
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test bootstrap_preserves_successful_route_when_later_snapshot_dial_fails --workspace --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
+cargo test --workspace --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings

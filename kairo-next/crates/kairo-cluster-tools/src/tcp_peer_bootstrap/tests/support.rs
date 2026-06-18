@@ -12,7 +12,7 @@ use kairo_serialization::{MessageCodec, Registry, RemoteMessage, SerializationRe
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
 use crate::{
-    ClusterToolsSystemInbound, ClusterToolsTcpPeerConnectorMsg,
+    ClusterToolsSystemInbound, ClusterToolsTcpAssociationRuntime, ClusterToolsTcpPeerConnectorMsg,
     ClusterToolsTcpPeerConnectorSnapshot, ClusterToolsTcpPeerRuntime, DistributedPubSubMediatorMsg,
     PubSubGossipMsg, PubSubGossipWireInbound, PubSubRemoteDeliveryInbound, SingletonManagerMsg,
     SingletonManagerRemoteInbound, register_cluster_tools_protocol_codecs,
@@ -125,6 +125,24 @@ pub(super) fn bind_runtime_with_probes(
     )
     .unwrap();
     (runtime, ClusterToolsInboundProbes { mediator })
+}
+
+pub(super) fn bind_association_runtime_on_port(
+    system: &str,
+    node_uid: u64,
+    system_uid: u64,
+    port: u16,
+    kit: &ActorSystemTestKit,
+    registry: Arc<Registry>,
+) -> ClusterToolsTcpAssociationRuntime<TestMessage> {
+    ClusterToolsTcpAssociationRuntime::bind(
+        system,
+        node_uid,
+        system_uid,
+        RemoteSettings::new("127.0.0.1", port),
+        move |self_node| inbound_for(system, kit, registry.clone(), self_node),
+    )
+    .unwrap()
 }
 
 fn inbound_from_refs(
@@ -288,6 +306,47 @@ pub(super) fn await_connector_pending_reconnect(
                 .iter()
                 .any(|pending| pending.target.node() == expected_peer);
             if snapshot.route_count == 0 && has_expected_pending {
+                Ok(())
+            } else {
+                Err(format!("unexpected connector snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
+}
+
+pub(super) fn await_connector_routes_and_pending_reconnect(
+    connector: &ActorRef<ClusterToolsTcpPeerConnectorMsg>,
+    snapshots: &TestProbe<ClusterToolsTcpPeerConnectorSnapshot>,
+    expected_routes: &[UniqueAddress],
+    expected_pending: &UniqueAddress,
+) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            connector
+                .tell(ClusterToolsTcpPeerConnectorMsg::Snapshot {
+                    reply_to: snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            let has_all_expected_routes = expected_routes.iter().all(|expected_peer| {
+                snapshot
+                    .active_targets
+                    .iter()
+                    .any(|target| target.node() == expected_peer)
+            });
+            let has_expected_pending = snapshot
+                .pending_reconnects
+                .iter()
+                .any(|pending| pending.target.node() == expected_pending);
+            if snapshot.route_count == expected_routes.len()
+                && has_all_expected_routes
+                && has_expected_pending
+            {
                 Ok(())
             } else {
                 Err(format!("unexpected connector snapshot: {snapshot:?}"))

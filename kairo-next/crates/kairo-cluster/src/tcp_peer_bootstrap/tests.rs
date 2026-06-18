@@ -26,6 +26,13 @@ fn unused_port() -> u16 {
     listener.local_addr().unwrap().port()
 }
 
+fn node(system: &str, port: u16, uid: u64) -> UniqueAddress {
+    UniqueAddress::new(
+        Address::new("kairo", system, Some("127.0.0.1".to_string()), Some(port)),
+        uid,
+    )
+}
+
 fn send_join_until_received(
     outbound: &ClusterMembershipWireOutbound,
     probes: &ClusterInboundProbes,
@@ -729,6 +736,92 @@ fn bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry() {
 
     run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-bootstrap-partial-sender").unwrap();
+    let bound_kit = ActorSystemTestKit::new("cluster-bootstrap-partial-bound").unwrap();
+    let missing_kit = ActorSystemTestKit::new("cluster-bootstrap-partial-missing").unwrap();
+    let registry = registry();
+    let retry_interval = Duration::from_millis(25);
+    let sender_runtime = bind_runtime("cluster-bootstrap-partial-sender", 1, 11, &sender_kit);
+    let sender_cache = sender_runtime.association_cache().clone();
+    let bound_port = unused_port();
+    let missing_port = unused_port();
+    let sender_node = sender_runtime.self_node().clone();
+    let bound_node = node("cluster-bootstrap-partial-bound", bound_port, 2);
+    let missing_node = node("cluster-bootstrap-partial-missing", missing_port, 3);
+    let bound_runtime = bind_association_runtime_on_port(
+        "cluster-bootstrap-partial-bound",
+        2,
+        22,
+        bound_port,
+        &bound_kit,
+        registry.clone(),
+    );
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ClusterTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ClusterTcpPeerConnectorSettings::new(retry_interval)
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_connector_name("sender-cluster-peer");
+
+    let sender_bootstrap = ClusterTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([
+            sender_node.clone(),
+            bound_node.clone(),
+            missing_node.clone(),
+        ]),
+    );
+    await_connector_routes_and_pending_reconnect(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        std::slice::from_ref(&bound_node),
+        &missing_node,
+    );
+    await_cache_route_count(&sender_cache, 1);
+
+    let missing_runtime = bind_association_runtime_on_port(
+        "cluster-bootstrap-partial-missing",
+        3,
+        33,
+        missing_port,
+        &missing_kit,
+        registry,
+    );
+    await_connector_routes(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &[bound_node, missing_node],
+    );
+    await_cache_route_count(&sender_cache, 2);
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
+    bound_runtime.shutdown().unwrap();
+    missing_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    bound_kit.shutdown(Duration::from_secs(1)).unwrap();
+    missing_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]
