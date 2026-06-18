@@ -4072,6 +4072,11 @@ Implemented:
   the resolved registry packages in `Cargo.lock`, so the M13 external
   dependency/license table cannot drift from the active all-feature workspace
   lockfile.
+- The `kairo` facade test suite now also pins the user-facing module re-exports
+  for the cluster, distributed-data, and cluster-tools TCP peer bootstrap
+  facades, connector settings, connector message/snapshot types, and bootstrap
+  result/error surfaces, so the public facade stays aligned with the socket
+  lifecycle APIs hardened in M13.
 - `kairo-distributed-data` now covers TCP peer-runtime partial snapshot
   failure: if one peer route is installed and a later peer dial fails, the
   successful route remains active while only the failed peer is scheduled for
@@ -4256,6 +4261,17 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after facade TCP bootstrap API compatibility
+coverage:
+
+```bash
+cargo test -p kairo facade_ --all-targets --all-features -- --nocapture
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after mixed active-route and pending-reconnect
 bootstrap shutdown coverage:

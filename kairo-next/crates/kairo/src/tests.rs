@@ -1538,6 +1538,91 @@ fn diagnostic_text_sink_exports_remote_lines() {
 
 #[cfg(feature = "cluster")]
 #[test]
+fn facade_cluster_module_exposes_tcp_bootstrap_surface() {
+    use std::time::Duration;
+
+    let settings = crate::remote::RemoteSettings::new("127.0.0.1", 0);
+    let connector_settings =
+        crate::cluster::ClusterTcpPeerConnectorSettings::new(Duration::from_millis(25)).unwrap();
+    let bootstrap_settings = crate::cluster::ClusterTcpPeerBootstrapSettings::new(settings)
+        .with_connector_settings(connector_settings)
+        .with_connector_name("facade-cluster-peer");
+    let identity = crate::cluster::ClusterTcpPeerBootstrapIdentity::new(1, 11);
+
+    assert_eq!(bootstrap_settings.connector_name(), "facade-cluster-peer");
+    assert_eq!(identity.node_uid(), 1);
+    assert_eq!(identity.local_system_uid(), 11);
+    let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerBootstrap>>();
+    let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerBootstrapError>>();
+    let _ = std::mem::size_of::<crate::cluster::ClusterTcpPeerBootstrapResult<()>>();
+    let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerConnector>>();
+    let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerConnectorMsg>>();
+    let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerConnectorSnapshot>>();
+}
+
+#[cfg(feature = "distributed-data")]
+#[test]
+fn facade_distributed_data_module_exposes_tcp_bootstrap_surface() {
+    use std::time::Duration;
+
+    let settings = crate::remote::RemoteSettings::new("127.0.0.1", 0);
+    let connector_settings =
+        crate::distributed_data::ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap();
+    let bootstrap_settings =
+        crate::distributed_data::ReplicatorTcpPeerBootstrapSettings::new(settings)
+            .with_connector_settings(connector_settings)
+            .with_connector_name("facade-ddata-peer");
+    let identity = crate::distributed_data::ReplicatorTcpPeerBootstrapIdentity::new(
+        1,
+        11,
+        crate::distributed_data::ReplicaId::new("facade"),
+    );
+
+    assert_eq!(bootstrap_settings.connector_name(), "facade-ddata-peer");
+    assert_eq!(identity.node_uid(), 1);
+    assert_eq!(identity.local_system_uid(), 11);
+    assert_eq!(
+        identity.remote_replica(),
+        &crate::distributed_data::ReplicaId::new("facade")
+    );
+    let _ = std::mem::size_of::<Option<crate::distributed_data::ReplicatorTcpPeerBootstrap>>();
+    let _ = std::mem::size_of::<Option<crate::distributed_data::ReplicatorTcpPeerBootstrapError>>();
+    let _ = std::mem::size_of::<crate::distributed_data::ReplicatorTcpPeerBootstrapResult<()>>();
+    let _ = std::mem::size_of::<Option<crate::distributed_data::ReplicatorTcpPeerConnector>>();
+    let _ = std::mem::size_of::<Option<crate::distributed_data::ReplicatorTcpPeerConnectorMsg>>();
+    let _ =
+        std::mem::size_of::<Option<crate::distributed_data::ReplicatorTcpPeerConnectorSnapshot>>();
+}
+
+#[cfg(feature = "cluster-tools")]
+#[test]
+fn facade_cluster_tools_module_exposes_tcp_bootstrap_surface() {
+    use std::time::Duration;
+
+    let connector_settings =
+        crate::cluster_tools::ClusterToolsTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap();
+    let bootstrap_settings = crate::cluster_tools::ClusterToolsTcpPeerBootstrapSettings::new()
+        .with_connector_settings(connector_settings)
+        .with_connector_name("facade-tools-peer");
+
+    assert_eq!(bootstrap_settings.connector_name(), "facade-tools-peer");
+    let _ = std::mem::size_of::<
+        Option<crate::cluster_tools::ClusterToolsTcpPeerBootstrap<PreludeRemoteMsg>>,
+    >();
+    let _ = std::mem::size_of::<Option<crate::cluster_tools::ClusterToolsTcpPeerBootstrapError>>();
+    let _ = std::mem::size_of::<crate::cluster_tools::ClusterToolsTcpPeerBootstrapResult<()>>();
+    let _ = std::mem::size_of::<
+        Option<crate::cluster_tools::ClusterToolsTcpPeerConnector<PreludeRemoteMsg>>,
+    >();
+    let _ = std::mem::size_of::<Option<crate::cluster_tools::ClusterToolsTcpPeerConnectorMsg>>();
+    let _ =
+        std::mem::size_of::<Option<crate::cluster_tools::ClusterToolsTcpPeerConnectorSnapshot>>();
+}
+
+#[cfg(feature = "cluster")]
+#[test]
 fn diagnostic_counters_record_cluster_categories() {
     use crate::prelude::*;
 
