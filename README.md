@@ -27,8 +27,12 @@ new facade lives in [`docs/migration.md`](docs/migration.md).
 
 The normal workspace is under `kairo-next/crates/*` and includes:
 
+- `kairo`: facade crate for common users and feature-gated subsystem entry
+  points.
 - `kairo-actor`: typed local actor runtime, lifecycle, supervision, timers,
   adapters, ask, event stream, receptionist, and coordinated shutdown.
+- `kairo-actor-macros`: derive and attribute macros for stable remote-message
+  manifests and ergonomic protocol declarations.
 - `kairo-serialization`: stable remote message metadata and codec registry.
 - `kairo-remote`: remote actor refs, associations, TCP framing, and remote
   death watch.

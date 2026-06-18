@@ -450,6 +450,58 @@ fn public_docs_keep_facade_feature_map_aligned() -> Result<(), Box<dyn std::erro
 }
 
 #[test]
+fn public_readmes_list_current_workspace_crates() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let crate_names = active_workspace_crate_names(&repo_root.join("kairo-next/crates"))?;
+    assert!(
+        !crate_names.is_empty(),
+        "kairo-next/crates must contain active workspace crates"
+    );
+
+    let readmes = [
+        repo_root.join("README.md"),
+        repo_root.join("kairo-next/README.md"),
+    ];
+    for readme_path in readmes {
+        let readme = std::fs::read_to_string(&readme_path)?.replace("\r\n", "\n");
+        for crate_name in &crate_names {
+            let bullet = format!("- `{crate_name}`:");
+            assert!(
+                readme.contains(&bullet),
+                "{} must list active workspace crate `{crate_name}`",
+                readme_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn active_workspace_crate_names(
+    crates_dir: &std::path::Path,
+) -> Result<std::collections::BTreeSet<String>, Box<dyn std::error::Error>> {
+    let mut crate_names = std::collections::BTreeSet::new();
+
+    for entry in std::fs::read_dir(crates_dir)? {
+        let entry = entry?;
+        let manifest_path = entry.path().join("Cargo.toml");
+        if !manifest_path.is_file() {
+            continue;
+        }
+
+        let manifest = std::fs::read_to_string(&manifest_path)?;
+        let name = manifest
+            .lines()
+            .find_map(|line| line.strip_prefix("name = "))
+            .map(unquote_toml_string)
+            .ok_or_else(|| format!("{} must declare package name", manifest_path.display()))?;
+        crate_names.insert(name);
+    }
+
+    Ok(crate_names)
+}
+
+#[test]
 fn public_readmes_list_current_example_binaries() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let examples_dir = repo_root
