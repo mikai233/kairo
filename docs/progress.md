@@ -3882,6 +3882,9 @@ Implemented:
 - The same benchmark command parser now rejects extra positional arguments, so
   malformed release-gate invocations such as `all extra` fail with the pinned
   usage text instead of silently running a narrower command than requested.
+- The benchmark runner now also accepts `--help`, `-h`, and `help` as
+  success-path usage commands, making the M13 benchmark command surface
+  discoverable without treating help as a failed benchmark scenario.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -6088,6 +6091,7 @@ cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
 cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
 cargo test -p kairo-benchmarks --all-targets --all-features
+cargo run -p kairo-benchmarks -- --help
 KAIRO_BENCH_ITERS=1 cargo run -p kairo-benchmarks -- all
 cargo run -p kairo-benchmarks -- unknown-scenario
 KAIRO_BENCH_ITERS=1 cargo run -p kairo-benchmarks -- all extra

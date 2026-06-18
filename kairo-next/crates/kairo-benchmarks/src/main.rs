@@ -19,10 +19,11 @@ use kairo::serialization::{Manifest, RemoteEnvelope, SerializedMessage};
 
 const DEFAULT_ITERATIONS: usize = 100_000;
 const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
-const USAGE: &str = "usage: cargo run -p kairo-benchmarks --release -- [all|actor-tell|remote-send|gossip-merge|sharding-route]";
+const USAGE: &str = "usage: cargo run -p kairo-benchmarks --release -- [--help|all|actor-tell|remote-send|gossip-merge|sharding-route]";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BenchmarkCommand {
+    Help,
     All,
     ActorTell,
     RemoteSend,
@@ -33,6 +34,7 @@ enum BenchmarkCommand {
 impl BenchmarkCommand {
     fn parse(value: Option<&str>) -> Result<Self, String> {
         match value.unwrap_or("all") {
+            "--help" | "-h" | "help" => Ok(Self::Help),
             "all" => Ok(Self::All),
             "actor-tell" => Ok(Self::ActorTell),
             "remote-send" => Ok(Self::RemoteSend),
@@ -62,6 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(2);
         }
     };
+    if command == BenchmarkCommand::Help {
+        println!("{USAGE}");
+        return Ok(());
+    }
     let iterations_env = env::var("KAIRO_BENCH_ITERS").ok();
     let iterations = match parse_benchmark_iterations(iterations_env.as_deref()) {
         Ok(iterations) => iterations,
@@ -73,6 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut results = Vec::new();
     match command {
+        BenchmarkCommand::Help => unreachable!("help returns before running benchmarks"),
         BenchmarkCommand::All => {
             results.push(bench_actor_tell(iterations)?);
             results.push(bench_remote_send(iterations)?);
@@ -339,6 +346,18 @@ mod tests {
     #[test]
     fn benchmark_command_accepts_documented_scenarios() {
         assert_eq!(
+            parse_benchmark_command(&["--help".to_string()]),
+            Ok(BenchmarkCommand::Help)
+        );
+        assert_eq!(
+            parse_benchmark_command(&["-h".to_string()]),
+            Ok(BenchmarkCommand::Help)
+        );
+        assert_eq!(
+            parse_benchmark_command(&["help".to_string()]),
+            Ok(BenchmarkCommand::Help)
+        );
+        assert_eq!(
             parse_benchmark_command(&["all".to_string()]),
             Ok(BenchmarkCommand::All)
         );
@@ -365,6 +384,7 @@ mod tests {
         let error = parse_benchmark_command(&["everything".to_string()])
             .expect_err("unknown command must fail");
         assert!(error.contains("unknown benchmark scenario `everything`"));
+        assert!(error.contains("--help"));
         assert!(error.contains("actor-tell"));
         assert!(error.contains("sharding-route"));
     }
@@ -374,6 +394,7 @@ mod tests {
         let error = parse_benchmark_command(&["all".to_string(), "extra".to_string()])
             .expect_err("extra arguments must fail");
         assert!(error.contains("unexpected benchmark argument `extra`"));
+        assert!(error.contains("--help"));
         assert!(error.contains("actor-tell"));
         assert!(error.contains("sharding-route"));
     }

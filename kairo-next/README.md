@@ -208,6 +208,7 @@ Set `KAIRO_BENCH_ITERS` to a positive integer to override the default
 iteration count.
 
 ```bash
+cargo run -p kairo-benchmarks -- --help
 cargo run -p kairo-benchmarks --release -- all
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- actor-tell
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- remote-send
