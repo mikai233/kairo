@@ -3892,7 +3892,8 @@ Implemented:
   against the scenarios accepted by `kairo-benchmarks`, so the root README,
   `kairo-next` README, and migration notes must list the help command plus
   the `all`, `actor-tell`, `remote-send`, `gossip-merge`, and
-  `sharding-route` release-mode commands.
+  `sharding-route` release-mode commands, and cannot mention stale benchmark
+  scenarios that the runner no longer accepts.
 - `kairo-examples` TCP bootstrap smoke coverage now pins cluster bootstrap
   shutdown from a three-node mesh: a node with two live peer routes clears
   both association-cache routes and stops its connector during shutdown.

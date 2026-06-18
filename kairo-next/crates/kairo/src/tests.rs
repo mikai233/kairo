@@ -549,6 +549,19 @@ fn public_docs_list_current_benchmark_scenarios() -> Result<(), Box<dyn std::err
                 doc_path.display()
             );
         }
+        for line in doc.lines() {
+            let Some(scenario) = documented_benchmark_scenario(line) else {
+                continue;
+            };
+            if scenario == "--help" {
+                continue;
+            }
+            assert!(
+                benchmark_scenarios.contains(scenario),
+                "{} documents missing kairo-benchmarks scenario `{scenario}`",
+                doc_path.display()
+            );
+        }
     }
 
     Ok(())
@@ -578,6 +591,13 @@ fn benchmark_scenarios_from_source(
     }
 
     Ok(scenarios)
+}
+
+fn documented_benchmark_scenario(line: &str) -> Option<&str> {
+    let command_start = line.find("cargo run -p kairo-benchmarks")?;
+    let command = line[command_start..].trim();
+    let (_, scenario) = command.rsplit_once(" -- ")?;
+    scenario.split_whitespace().next()
 }
 
 #[test]
