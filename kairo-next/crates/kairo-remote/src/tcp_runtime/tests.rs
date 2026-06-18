@@ -178,23 +178,13 @@ fn wait_for_receiver_inbound_watch(
     reply_to: &ActorRef<RemoteDeathWatchStats>,
     stats_rx: &mpsc::Receiver<RemoteDeathWatchStats>,
 ) -> RemoteDeathWatchStats {
-    let deadline = Instant::now() + Duration::from_secs(1);
-    loop {
-        death_watch
-            .tell(RemoteDeathWatchCommand::GetStats {
-                reply_to: reply_to.clone(),
-            })
-            .unwrap();
-        if let Ok(stats) = stats_rx.recv_timeout(Duration::from_millis(20))
-            && stats.inbound_watching == 1
-        {
-            return stats;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for inbound remote-watch registration"
-        );
-    }
+    wait_for_watch_stats(
+        death_watch,
+        reply_to,
+        stats_rx,
+        |stats| stats.inbound_watching == 1,
+        "inbound remote-watch registration",
+    )
 }
 
 fn wait_for_watch_stats(
@@ -204,20 +194,26 @@ fn wait_for_watch_stats(
     predicate: impl Fn(&RemoteDeathWatchStats) -> bool,
     reason: &str,
 ) -> RemoteDeathWatchStats {
-    let deadline = Instant::now() + Duration::from_secs(1);
-    loop {
-        death_watch
-            .tell(RemoteDeathWatchCommand::GetStats {
-                reply_to: reply_to.clone(),
-            })
-            .unwrap();
-        if let Ok(stats) = stats_rx.recv_timeout(Duration::from_millis(20))
-            && predicate(&stats)
-        {
-            return stats;
-        }
-        assert!(Instant::now() < deadline, "timed out waiting for {reason}");
-    }
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(1),
+        || -> Result<RemoteDeathWatchStats, String> {
+            death_watch
+                .tell(RemoteDeathWatchCommand::GetStats {
+                    reply_to: reply_to.clone(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let stats = stats_rx
+                .recv_timeout(Duration::from_millis(20))
+                .map_err(|error| format!("waiting for {reason}: {error}"))?;
+            if predicate(&stats) {
+                Ok(stats)
+            } else {
+                Err(format!("waiting for {reason}: {stats:?}"))
+            }
+        },
+    )
+    .unwrap_or_else(|error| panic!("{error}"))
 }
 
 fn await_route_count(cache: &RemoteAssociationCache, expected: usize) {
