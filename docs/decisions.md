@@ -1815,10 +1815,11 @@ route ownership does not manipulate cache internals directly.
 Consequences:
 - Distributed-data gets the first multi-peer socket route ownership boundary
   while preserving gossip/reachability as the only membership source.
-- The route owner can be reused by later reconnect state, runtime lifecycle,
-  actor connector, and bootstrap modules.
-- Reconnect policy and actor-backed multi-peer runtime ownership remain future
-  work.
+- Later reconnect state, runtime lifecycle, actor connector, and bootstrap
+  modules reuse this route owner instead of manipulating association caches
+  directly.
+- Reconnect policy and actor-backed multi-peer runtime ownership are layered in
+  later accepted ADRs without changing this route ownership boundary.
 
 ## ADR-0064: Distributed-Data TCP Reconnect Policy Is Pure State
 
@@ -1840,10 +1841,10 @@ removed.
 
 Consequences:
 - Retry policy can be tested without sockets, actors, or sleeping.
-- Future runtime and connector layers can compose route ownership and retry
-  state without making retry state another source of cluster membership truth.
-- Actor-backed connector wiring and coordinated-shutdown ownership remain
-  future work.
+- Runtime and connector layers compose route ownership and retry state without
+  making retry state another source of cluster membership truth.
+- Actor-backed connector wiring and coordinated-shutdown ownership are layered
+  by later distributed-data TCP ADRs.
 
 ## ADR-0065: Distributed-Data TCP Peer Runtime Owns Route Lifecycle
 
@@ -1868,8 +1869,8 @@ Consequences:
   cluster-tools while staying in a separate module and crate surface.
 - Tests can cover success, failed dial retry, peer removal, and shutdown
   cleanup without actor connector wiring.
-- Actor-backed cluster subscription and coordinated-shutdown bootstrap remain
-  future work.
+- Actor-backed cluster subscription and coordinated-shutdown bootstrap are
+  layered by the connector and bootstrap ADRs that follow.
 
 ## ADR-0066: Distributed-Data TCP Peer Connector Is Actor-Driven
 
@@ -1897,7 +1898,8 @@ Consequences:
   of only direct method calls.
 - Membership and reachability remain cluster-derived; the connector does not
   invent a socket-backed membership source.
-- Runtime bootstrap and coordinated-shutdown registration remain future work.
+- Runtime bootstrap and coordinated-shutdown registration are layered by the
+  bootstrap ADR that follows.
 
 ## ADR-0067: Distributed-Data TCP Bootstrap Owns Shutdown Registration
 
@@ -1923,7 +1925,9 @@ Consequences:
   connector startup while keeping each responsibility in a focused module.
 - Coordinated shutdown uses the same connector stop path as explicit actor
   stop, so route cleanup and runtime shutdown remain centralized.
-- End-to-end examples and multi-node validation remain future work.
+- The runnable distributed-data TCP example and multi-node smoke tests exercise
+  this bootstrap path; remaining M13 work is broader release hardening rather
+  than missing lifecycle wiring.
 
 ## ADR-0068: Receive Timeout Uses Cloneable Typed Timeout Messages
 

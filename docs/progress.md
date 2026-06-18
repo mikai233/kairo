@@ -3728,6 +3728,10 @@ Implemented:
   `examples/kairo.toml` plus `examples/kairo.local.toml` layer pair through
   the reusable example helper, keeping the binary, docs, and sample config
   files coupled.
+- `docs/decisions.md` now reconciles the distributed-data TCP peer route,
+  reconnect, runtime, connector, and bootstrap ADR consequences with the
+  implemented successor layers and existing multi-node example smoke coverage,
+  removing stale future-work wording from that lifecycle path.
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
@@ -6244,5 +6248,10 @@ cargo test -p kairo-remote complete_handshake_does_not_index_terminal_associatio
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 ```
