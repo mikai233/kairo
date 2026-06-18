@@ -1704,8 +1704,9 @@ Consequences:
   dial/remove plans in a tested vertical slice.
 - Pubsub/singleton membership state, peer planning, and socket route ownership
   remain separate from the TCP runtime and association cache.
-- Reconnect policy and actor-backed multi-peer runtime ownership for
-  cluster-tools remain future work.
+- Reconnect policy and actor-backed multi-peer runtime ownership are layered in
+  later accepted cluster-tools TCP ADRs without changing this route ownership
+  boundary.
 
 ## ADR-0060: Cluster-Tools TCP Peer Runtime Owns Reconnectable Routes
 
@@ -1731,11 +1732,12 @@ peer routes before stopping the listener.
 
 Consequences:
 - Cluster-tools pubsub/singleton socket routes now have a reconnectable
-  lifecycle boundary that can be driven by future actor subscription wiring.
+  lifecycle boundary that is driven by the actor-backed connector layered in
+  the next ADR.
 - Reconnect timing remains deterministic and testable; no sleeping retry
   thread or central membership store is introduced.
-- Actor-backed automatic retry ticks and cluster subscription ownership for
-  cluster-tools remain separate follow-up work.
+- Actor-backed automatic retry ticks and cluster subscription ownership are
+  layered by `ClusterToolsTcpPeerConnector<M>`.
 
 ## ADR-0061: Cluster-Tools TCP Connector Owns Actor-Backed Subscription Ticks
 
@@ -1790,7 +1792,9 @@ Consequences:
   boundary without making transport associations membership authority.
 - Coordinated shutdown closes the connector-owned runtime through the actor
   stop path, preserving the same cleanup behavior as explicit actor stop.
-- End-to-end examples and multi-node tests remain future work.
+- The runnable cluster-tools TCP example and multi-node smoke tests exercise
+  this bootstrap path; remaining M13 work is broader release hardening rather
+  than missing lifecycle wiring.
 
 ## ADR-0063: Distributed-Data TCP Peer Routes Stay Membership-Derived
 

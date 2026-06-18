@@ -3732,6 +3732,9 @@ Implemented:
   reconnect, runtime, connector, and bootstrap ADR consequences with the
   implemented successor layers and existing multi-node example smoke coverage,
   removing stale future-work wording from that lifecycle path.
+- `docs/decisions.md` now also reconciles the cluster-tools TCP peer route,
+  reconnect, connector, and bootstrap ADR consequences with the implemented
+  pubsub/singleton socket lifecycle and multi-node example smoke coverage.
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
@@ -6248,6 +6251,11 @@ cargo test -p kairo-remote complete_handshake_does_not_index_terminal_associatio
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
