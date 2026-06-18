@@ -368,6 +368,16 @@ impl<M> ShardRegionRuntime<M> {
         self.unassign_shard(shard);
     }
 
+    pub fn mark_region_stopped(&mut self, region: &RegionId) -> Vec<ShardId> {
+        let Some(shards) = self.shards_by_region.remove(region) else {
+            return Vec::new();
+        };
+        for shard in &shards {
+            self.region_by_shard.remove(shard);
+        }
+        shards.into_iter().collect()
+    }
+
     fn buffer_message(
         &mut self,
         shard: ShardId,

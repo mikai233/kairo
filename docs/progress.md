@@ -3926,6 +3926,10 @@ Implemented:
   shard path: a plain local shard termination is observed by the region, the
   local route is removed, no restart is scheduled, and later delivery buffers
   for shard-home resolution.
+- `kairo-cluster-sharding` region runtime now has Pekko-style stopped-region
+  cleanup: all shard-home mappings owned by a stopped peer region are removed
+  together, unrelated region homes remain intact, and later delivery to those
+  shards buffers and requests fresh shard-home resolution.
 
 Not yet implemented:
 
@@ -5938,6 +5942,13 @@ cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnin
 git diff --check
 cargo test -p kairo-cluster-sharding region_actor_observes_plain_local_shard_stop_without_restart --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_runtime_region_stop_removes_remote_shard_homes --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding region_runtime_routes_to_unknown_after_remote_region_stop --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding region_runtime --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings

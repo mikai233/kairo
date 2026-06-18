@@ -62,6 +62,57 @@ fn region_runtime_records_remote_home_and_forwards_buffered_messages() {
 }
 
 #[test]
+fn region_runtime_region_stop_removes_remote_shard_homes() {
+    let mut runtime = ShardRegionRuntime::<&str>::new("region-a", 10);
+    runtime.record_shard_home("shard-1", "region-b").unwrap();
+    runtime.record_shard_home("shard-2", "region-b").unwrap();
+    runtime.record_shard_home("shard-3", "region-c").unwrap();
+
+    assert_eq!(
+        runtime.mark_region_stopped(&"region-b".to_string()),
+        vec!["shard-1".to_string(), "shard-2".to_string()]
+    );
+    assert_eq!(runtime.region_for_shard(&"shard-1".to_string()), None);
+    assert_eq!(runtime.region_for_shard(&"shard-2".to_string()), None);
+    assert_eq!(
+        runtime.region_for_shard(&"shard-3".to_string()),
+        Some(&"region-c".to_string())
+    );
+    assert_eq!(
+        runtime.mark_region_stopped(&"region-b".to_string()),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn region_runtime_routes_to_unknown_after_remote_region_stop() {
+    let mut runtime = ShardRegionRuntime::new("region-a", 10);
+    runtime.record_shard_home("shard-1", "region-b").unwrap();
+    assert_eq!(
+        runtime.route("shard-1", ShardingEnvelope::new("entity-1", "before-stop")),
+        RegionRoutePlan::Forward {
+            shard: "shard-1".to_string(),
+            region: "region-b".to_string(),
+            message: ShardingEnvelope::new("entity-1", "before-stop"),
+        }
+    );
+
+    assert_eq!(
+        runtime.mark_region_stopped(&"region-b".to_string()),
+        vec!["shard-1".to_string()]
+    );
+    assert_eq!(
+        runtime.route("shard-1", ShardingEnvelope::new("entity-1", "after-stop")),
+        RegionRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+}
+
+#[test]
 fn region_runtime_starts_local_shard_then_delivers_buffered_messages() {
     let mut runtime = ShardRegionRuntime::new("region-a", 10);
     assert!(matches!(
