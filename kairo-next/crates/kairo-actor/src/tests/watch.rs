@@ -231,11 +231,18 @@ impl Actor for WatchProbe {
 
 enum StoppingWatchWithMsg {
     Start(Box<StoppingWatchWithStart>),
+    StartWithWatchedChild(Box<StoppingWatchedChildStart>),
     SubjectTerminated,
 }
 
 struct StoppingWatchWithStart {
     subject: ActorRef<()>,
+    entered_child_stop: mpsc::Sender<()>,
+    release_child_stop: mpsc::Receiver<()>,
+    reply_to: mpsc::Sender<()>,
+}
+
+struct StoppingWatchedChildStart {
     entered_child_stop: mpsc::Sender<()>,
     release_child_stop: mpsc::Receiver<()>,
     reply_to: mpsc::Sender<()>,
@@ -288,6 +295,24 @@ impl Actor for StoppingWatchWithProbe {
                     }),
                 )?;
                 ctx.watch_with(&subject, StoppingWatchWithMsg::SubjectTerminated)?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            StoppingWatchWithMsg::StartWithWatchedChild(start) => {
+                let StoppingWatchedChildStart {
+                    entered_child_stop,
+                    release_child_stop,
+                    reply_to,
+                } = *start;
+                let child = ctx.spawn(
+                    "child",
+                    Props::new(move || BlockingStopChild {
+                        entered_stop: entered_child_stop,
+                        release_stop: Some(release_child_stop),
+                    }),
+                )?;
+                ctx.watch_with(&child, StoppingWatchWithMsg::SubjectTerminated)?;
                 reply_to
                     .send(())
                     .map_err(|error| ActorError::Message(error.to_string()))
@@ -1470,6 +1495,43 @@ fn stopping_watcher_is_removed_before_waiting_for_children() {
 
     release_child_stop_tx.send(()).unwrap();
     assert!(watcher.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn stopping_parent_unwatches_child_before_stopping_it() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| StoppingWatchWithProbe))
+        .unwrap();
+    let (entered_child_stop_tx, entered_child_stop_rx) = mpsc::channel();
+    let (release_child_stop_tx, release_child_stop_rx) = mpsc::channel();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    parent
+        .tell(StoppingWatchWithMsg::StartWithWatchedChild(Box::new(
+            StoppingWatchedChildStart {
+                entered_child_stop: entered_child_stop_tx,
+                release_child_stop: release_child_stop_rx,
+                reply_to: registered_tx,
+            },
+        )))
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&parent);
+    entered_child_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert!(
+        !system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_millis(100)),
+        "parent stop should remove child watch before the child termination can enqueue a stale custom message"
+    );
+    assert!(system.dead_letters().is_empty());
+
+    release_child_stop_tx.send(()).unwrap();
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
 }
 
 #[test]

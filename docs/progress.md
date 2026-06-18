@@ -212,6 +212,10 @@ Implemented:
   its subjects before child-stop waiting can block and preventing stale
   `watch_with` termination messages from reaching dead letters during that
   window.
+- Parent-stop death-watch cleanup now also has focused coverage for watched
+  children: a parent that uses `watch_with` on its own child removes that
+  registration before recursively stopping children, so the child's termination
+  cannot enqueue stale custom traffic or dead letters into the stopping parent.
 - Local death-watch restart coverage now pins that a `watch_with`
   registration survives an unrelated actor restart and still delivers the
   custom termination message to the rebuilt actor instance, matching Pekko's
@@ -5486,5 +5490,11 @@ cargo fmt --all
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor stopping_parent_unwatches_child_before_stopping_it --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```
