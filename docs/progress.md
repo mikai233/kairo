@@ -59,15 +59,15 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
-- A full workspace run of
-  `cargo test --workspace --all-targets --all-features` compiled the workspace
-  but hit one `kairo-cluster-sharding` failure in
-  `region_actor_ignores_stale_remembered_local_shard_restart_timer` with a
-  stopped-actor `SendError`.
-- The same sharding test passes when run directly, and
-  `cargo test -p kairo-cluster-sharding --all-targets --all-features` passes
-  the crate test suite. Treat the full-workspace failure as a nondeterministic
-  timing or test-isolation issue that must be fixed before M13 readiness.
+- A current full workspace run of
+  `cargo test --workspace --all-targets --all-features` passes as of
+  2026-06-18.
+- The previously flaky `kairo-cluster-sharding`
+  `region_actor_ignores_stale_remembered_local_shard_restart_timer` case also
+  passes when run directly on the current tree.
+- Continue treating repeated full-workspace validation as an M13 readiness
+  gate; one green run is useful evidence but does not remove the need for
+  ongoing hardening around multi-node and lifecycle timing.
 - No external blockers are recorded in `docs/blocked.md`.
 
 ## Detailed Implementation Log
@@ -3851,6 +3851,8 @@ cargo test -p kairo-actor default_terminated_signal_triggers_death_pact_stop --a
 cargo test -p kairo-actor default_child_failed_signal_triggers_death_pact_stop --all-targets --all-features
 cargo test -p kairo-actor watch --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features -- --nocapture
+cargo test --workspace --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
