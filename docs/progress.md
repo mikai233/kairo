@@ -3941,6 +3941,10 @@ Implemented:
   root, not `kairo-next`; the `kairo` facade test suite pins that
   `kairo-next` remains non-workspace documentation/contracts plus crates, while
   the active Cargo workspace manifest stays at the repository root.
+- The `kairo` facade test suite now pins `docs/dependency-audit.md` against
+  the resolved registry packages in `Cargo.lock`, so the M13 external
+  dependency/license table cannot drift from the active all-feature workspace
+  lockfile.
 - `kairo-distributed-data` now covers TCP peer-runtime partial snapshot
   failure: if one peer route is installed and a later peer dial fails, the
   successful route remains active while only the failed peer is scheduled for
@@ -6171,6 +6175,11 @@ cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo public_docs_use_repository_root_for_workspace_commands --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo dependency_audit_matches_resolved_external_lockfile_packages --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings

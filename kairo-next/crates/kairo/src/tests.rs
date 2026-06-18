@@ -673,6 +673,97 @@ fn resolved_workspace_lockfile_excludes_deferred_dependency_families()
 }
 
 #[test]
+fn dependency_audit_matches_resolved_external_lockfile_packages()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let lockfile = std::fs::read_to_string(repo_root.join("Cargo.lock"))?.replace("\r\n", "\n");
+    let audit_path = repo_root.join("docs").join("dependency-audit.md");
+    let audit = std::fs::read_to_string(&audit_path)?.replace("\r\n", "\n");
+    let lockfile_packages = resolved_external_lockfile_packages(&lockfile);
+    let audit_packages = dependency_audit_resolved_packages(&audit)?;
+
+    assert_eq!(
+        audit_packages,
+        lockfile_packages,
+        "{} resolved external package table must match current Cargo.lock registry packages",
+        audit_path.display()
+    );
+
+    Ok(())
+}
+
+fn resolved_external_lockfile_packages(
+    lockfile: &str,
+) -> std::collections::BTreeMap<String, String> {
+    let mut packages = std::collections::BTreeMap::new();
+    let mut name: Option<String> = None;
+    let mut version: Option<String> = None;
+    let mut source: Option<String> = None;
+
+    for line in lockfile.lines().chain(std::iter::once("[[package]]")) {
+        if line == "[[package]]" {
+            if source
+                .as_deref()
+                .is_some_and(|source| source.starts_with("registry+"))
+                && let (Some(name), Some(version)) = (name.take(), version.take())
+            {
+                packages.insert(name, version);
+            }
+            name = None;
+            version = None;
+            source = None;
+            continue;
+        }
+
+        if let Some(value) = line.strip_prefix("name = ") {
+            name = Some(unquote_toml_string(value));
+        } else if let Some(value) = line.strip_prefix("version = ") {
+            version = Some(unquote_toml_string(value));
+        } else if let Some(value) = line.strip_prefix("source = ") {
+            source = Some(unquote_toml_string(value));
+        }
+    }
+
+    packages
+}
+
+fn dependency_audit_resolved_packages(
+    audit: &str,
+) -> Result<std::collections::BTreeMap<String, String>, Box<dyn std::error::Error>> {
+    let mut packages = std::collections::BTreeMap::new();
+    let mut in_table = false;
+
+    for line in audit.lines() {
+        if line == "## Resolved External Licenses" {
+            in_table = true;
+            continue;
+        }
+        if in_table && line.starts_with("## ") {
+            break;
+        }
+        if !in_table || !line.starts_with("| `") {
+            continue;
+        }
+
+        let columns: Vec<_> = line.split('|').map(str::trim).collect();
+        if columns.len() < 4 {
+            return Err(format!("malformed dependency-audit row: {line}").into());
+        }
+        let name = columns[1]
+            .strip_prefix('`')
+            .and_then(|value| value.strip_suffix('`'))
+            .ok_or_else(|| format!("dependency-audit package name must be backticked: {line}"))?;
+        packages.insert(name.to_string(), columns[2].to_string());
+    }
+
+    Ok(packages)
+}
+
+fn unquote_toml_string(value: &str) -> String {
+    value.trim().trim_matches('"').to_string()
+}
+
+#[test]
 fn distributed_layers_do_not_introduce_authoritative_membership_store()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
