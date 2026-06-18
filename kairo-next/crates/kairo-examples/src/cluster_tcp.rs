@@ -192,16 +192,22 @@ impl ClusterTcpExampleNode {
     ) -> Result<ClusterTcpPeerConnectorSnapshot, Box<dyn Error>> {
         let deadline = Instant::now() + timeout;
         loop {
-            let snapshot = self.connector_snapshot(timeout)?;
+            let Some(remaining) = remaining_until(deadline) else {
+                return Err(format!(
+                    "timed out waiting for {route_count} cluster peer route(s): no snapshot observed"
+                )
+                .into());
+            };
+            let snapshot = self.connector_snapshot(remaining)?;
             if snapshot.route_count == route_count {
                 return Ok(snapshot);
             }
-            if Instant::now() >= deadline {
-                return Err(
-                    format!("timed out waiting for {route_count} cluster peer route(s)").into(),
-                );
+            if !sleep_until_next_poll(deadline) {
+                return Err(format!(
+                    "timed out waiting for {route_count} cluster peer route(s): {snapshot:?}"
+                )
+                .into());
             }
-            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -285,4 +291,17 @@ fn cluster_registry() -> Result<Arc<Registry>, Box<dyn Error>> {
     let mut registry = Registry::new();
     register_cluster_protocol_codecs(&mut registry)?;
     Ok(Arc::new(registry))
+}
+
+fn remaining_until(deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    (!remaining.is_zero()).then_some(remaining)
+}
+
+fn sleep_until_next_poll(deadline: Instant) -> bool {
+    let Some(remaining) = remaining_until(deadline) else {
+        return false;
+    };
+    thread::sleep(Duration::from_millis(10).min(remaining));
+    true
 }

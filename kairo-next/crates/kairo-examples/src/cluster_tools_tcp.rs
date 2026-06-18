@@ -216,17 +216,22 @@ impl ClusterToolsTcpExampleNode {
     ) -> Result<ClusterToolsTcpPeerConnectorSnapshot, Box<dyn Error>> {
         let deadline = Instant::now() + timeout;
         loop {
-            let snapshot = self.connector_snapshot(timeout)?;
+            let Some(remaining) = remaining_until(deadline) else {
+                return Err(format!(
+                    "timed out waiting for {route_count} cluster-tools peer route(s): no snapshot observed"
+                )
+                .into());
+            };
+            let snapshot = self.connector_snapshot(remaining)?;
             if snapshot.route_count == route_count {
                 return Ok(snapshot);
             }
-            if Instant::now() >= deadline {
+            if !sleep_until_next_poll(deadline) {
                 return Err(format!(
-                    "timed out waiting for {route_count} cluster-tools peer route(s)"
+                    "timed out waiting for {route_count} cluster-tools peer route(s): {snapshot:?}"
                 )
                 .into());
             }
-            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -442,4 +447,17 @@ fn register_path_recorder(
 
 fn up_member(node: UniqueAddress) -> Member {
     Member::new(node, vec![]).with_status(MemberStatus::Up)
+}
+
+fn remaining_until(deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    (!remaining.is_zero()).then_some(remaining)
+}
+
+fn sleep_until_next_poll(deadline: Instant) -> bool {
+    let Some(remaining) = remaining_until(deadline) else {
+        return false;
+    };
+    thread::sleep(Duration::from_millis(10).min(remaining));
+    true
 }
