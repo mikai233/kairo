@@ -638,6 +638,45 @@ fn preserving_restart_stops_children_from_failed_replacement_start() {
 }
 
 #[test]
+fn unbounded_preserving_restart_stops_all_children_when_replacement_start_fails() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let (survivor_stopped_tx, survivor_stopped_rx) = mpsc::channel();
+    let (failed_attempt_stopped_tx, failed_attempt_stopped_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "unbounded-restart-startup-child-cleanup",
+            Props::restartable({
+                let starts = Arc::clone(&starts);
+                move || FailedRestartChildCleanupProbe {
+                    starts: Arc::clone(&starts),
+                    survivor_stopped: survivor_stopped_tx.clone(),
+                    failed_attempt_stopped: failed_attempt_stopped_tx.clone(),
+                }
+            })
+            .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+
+    actor.tell(FailedRestartChildMsg::Fail).unwrap();
+
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(starts.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        failed_attempt_stopped_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        "failed-attempt"
+    );
+    assert_eq!(
+        survivor_stopped_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        "survivor"
+    );
+}
+
+#[test]
 fn default_supervision_stops_actor_on_failure() {
     let system = ActorSystem::builder("test").build().unwrap();
     let actor = system

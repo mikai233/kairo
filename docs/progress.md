@@ -666,6 +666,10 @@ Implemented:
   replacement actor's `started()` callback runs; if that replacement start
   fails, children created by the failed attempt are stopped before retry while
   pre-existing survivors remain live.
+- Unbounded child-preserving restart coverage now pins the replacement-start
+  failure stop path: when the rebuilt parent fails during `started()`, the
+  parent stops and the normal stop cascade terminates both the pre-existing
+  preserved child and the child created by the failed replacement attempt.
 - `BackoffSupervisor` provides a structured on-stop supervisor actor with
   explicit `BackoffSupervisorSettings`, exponential restart delays capped by
   `max_backoff`, optional Pekko-style random-factor jitter, manual or automatic
@@ -4221,6 +4225,18 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after unbounded child-preserving restart cleanup
+coverage:
+
+```bash
+cargo test -p kairo-actor unbounded_preserving_restart_stops_all_children_when_replacement_start_fails --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+cargo test -p kairo --all-targets --all-features
+git diff --check
+```
 
 Latest M13 validation refresh after coordinator-registered remember-store
 shard allocation coverage:
