@@ -303,9 +303,7 @@ impl MultiNodeTestKit {
                 return Err(error);
             }
         };
-        if entered.status.passed() {
-            self.barrier_changed.notify_all();
-        }
+        self.barrier_changed.notify_all();
         Ok(entered.status)
     }
 
@@ -344,6 +342,7 @@ impl MultiNodeTestKit {
             self.barrier_changed.notify_all();
             return Ok(entered.status);
         }
+        self.barrier_changed.notify_all();
 
         loop {
             if let Some(status) = barriers.completed_status(barrier_id) {
@@ -471,6 +470,49 @@ impl MultiNodeTestKit {
         F: FnOnce(&Self, &Within) -> Result<T, E>,
     {
         within(timeout, |scope| assertion(self, scope))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn wait_for_barrier_arrival_for_test(
+        &self,
+        name: &str,
+        node_name: &str,
+        timeout: Duration,
+    ) -> MultiNodeResult<()> {
+        let deadline = Instant::now() + timeout;
+        let mut barriers = self
+            .barriers
+            .lock()
+            .map_err(|_| MultiNodeError::PoisonedBarrier)?;
+
+        loop {
+            if barriers
+                .active_arrivals(name)
+                .is_some_and(|arrived| arrived.contains(node_name))
+            {
+                return Ok(());
+            }
+
+            let remaining_timeout = deadline.saturating_duration_since(Instant::now());
+            if remaining_timeout.is_zero() {
+                let (arrived, remaining) = barriers
+                    .active_snapshot_by_name(name)
+                    .unwrap_or_else(|| (BTreeSet::new(), self.expected_barrier_nodes()));
+                return Err(MultiNodeError::BarrierTimeout {
+                    name: name.to_string(),
+                    node: node_name.to_string(),
+                    timeout,
+                    arrived,
+                    remaining,
+                });
+            }
+
+            let (next_barriers, _) = self
+                .barrier_changed
+                .wait_timeout(barriers, remaining_timeout)
+                .map_err(|_| MultiNodeError::PoisonedBarrier)?;
+            barriers = next_barriers;
+        }
     }
 
     /// Creates a typed probe actor on a named node.
@@ -866,6 +908,25 @@ impl BarrierState {
             .cloned()
             .collect();
         (active.arrived.clone(), remaining)
+    }
+
+    #[cfg(test)]
+    fn active_arrivals(&self, name: &str) -> Option<&BTreeSet<String>> {
+        self.active
+            .as_ref()
+            .filter(|active| active.name == name)
+            .map(|active| &active.arrived)
+    }
+
+    #[cfg(test)]
+    fn active_snapshot_by_name(&self, name: &str) -> Option<(BTreeSet<String>, BTreeSet<String>)> {
+        let active = self.active.as_ref().filter(|active| active.name == name)?;
+        let remaining = active
+            .participants
+            .difference(&active.arrived)
+            .cloned()
+            .collect();
+        Some((active.arrived.clone(), remaining))
     }
 
     fn failed_snapshot(&self, id: u64) -> Option<(String, BTreeSet<String>, BTreeSet<String>)> {

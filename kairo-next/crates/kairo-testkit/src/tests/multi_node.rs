@@ -785,7 +785,6 @@ fn multi_node_testkit_await_barrier_blocks_until_all_nodes_arrive() {
         waiting_kit.await_barrier("ready", "await-a", Duration::from_secs(1))
     });
 
-    thread::sleep(Duration::from_millis(20));
     let main_status = kit
         .await_barrier("ready", "await-b", Duration::from_secs(1))
         .expect("second node should pass barrier");
@@ -818,7 +817,6 @@ fn multi_node_testkit_await_barrier_within_uses_shared_deadline() {
         waiting_kit.await_barrier("ready", "await-within-a", Duration::from_secs(1))
     });
 
-    thread::sleep(Duration::from_millis(20));
     let main_status = kit
         .within(Duration::from_secs(1), |kit, scope| {
             kit.await_barrier_within("ready", "await-within-b", scope)
@@ -906,7 +904,8 @@ fn multi_node_testkit_await_barrier_fails_waiter_after_wrong_barrier_order() {
         waiting_kit.await_barrier("phase-one", "await-fail-a", Duration::from_secs(1))
     });
 
-    thread::sleep(Duration::from_millis(20));
+    kit.wait_for_barrier_arrival_for_test("phase-one", "await-fail-a", Duration::from_secs(1))
+        .expect("waiting node should enter phase one");
     let wrong = kit
         .enter_barrier("phase-two", "await-fail-b")
         .expect_err("wrong barrier should fail the active sequence");
@@ -955,7 +954,6 @@ fn multi_node_testkit_await_barriers_runs_ordered_phases_under_one_timeout() {
         )
     });
 
-    thread::sleep(Duration::from_millis(20));
     let main_statuses = kit
         .await_barriers(
             ["phase-one", "phase-two"],
@@ -997,7 +995,6 @@ fn multi_node_testkit_await_barriers_within_runs_ordered_phases() {
         )
     });
 
-    thread::sleep(Duration::from_millis(20));
     let main_statuses = kit
         .within(Duration::from_secs(1), |kit, scope| {
             kit.await_barriers_within(["phase-one", "phase-two"], "sequence-within-b", scope)
