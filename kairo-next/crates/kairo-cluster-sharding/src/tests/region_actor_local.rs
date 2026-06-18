@@ -499,39 +499,13 @@ fn region_actor_with_shared_remember_store_ref_recovers_and_persists_entities() 
         }
     );
 
-    let mut remembered = BTreeSet::new();
-    let mut active_entities = Vec::new();
-    for _ in 0..20 {
-        remember_store
-            .tell(RememberShardStoreMsg::GetState {
-                reply_to: store_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
-        remembered = snapshot
-            .entities_by_key
-            .values()
-            .flat_map(|entities| entities.iter().cloned())
-            .collect();
-
-        shard
-            .tell(ShardMsg::GetState {
-                reply_to: shard_state.actor_ref(),
-            })
-            .unwrap();
-        active_entities = shard_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap()
-            .active_entities;
-
-        if remembered.contains("entity-1")
-            && remembered.contains("entity-2")
-            && active_entities.contains(&"entity-2".to_string())
-        {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let (remembered, active_entities) = wait_for_remembered_entities_and_shard_activation(
+        &remember_store,
+        &store_state,
+        &shard,
+        &shard_state,
+        "shared remember-store write should persist and activate entity-2",
+    );
     assert_eq!(
         remembered,
         BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()])
@@ -562,6 +536,60 @@ fn region_actor_with_shared_remember_store_ref_recovers_and_persists_entities() 
         }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+fn polling_timeout() -> Duration {
+    Duration::from_millis(10_200)
+}
+
+fn wait_for_remembered_entities_and_shard_activation(
+    remember_store: &ActorRef<RememberShardStoreMsg>,
+    store_state: &kairo_testkit::TestProbe<RememberShardStoreSnapshot>,
+    shard: &ActorRef<ShardMsg<String>>,
+    shard_state: &kairo_testkit::TestProbe<ShardSnapshot>,
+    description: &str,
+) -> (BTreeSet<String>, Vec<String>) {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<(BTreeSet<String>, Vec<String>), String> {
+            remember_store
+                .tell(RememberShardStoreMsg::GetState {
+                    reply_to: store_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let store_snapshot = store_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            let remembered = store_snapshot
+                .entities_by_key
+                .values()
+                .flat_map(|entities| entities.iter().cloned())
+                .collect::<BTreeSet<_>>();
+
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: shard_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let shard_snapshot = shard_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            let active_entities = shard_snapshot.active_entities;
+
+            if remembered.contains("entity-1")
+                && remembered.contains("entity-2")
+                && active_entities.contains(&"entity-2".to_string())
+            {
+                Ok((remembered, active_entities))
+            } else {
+                Err(format!(
+                    "{description}; remembered: {remembered:?}; active entities: {active_entities:?}",
+                ))
+            }
+        },
+    )
+    .unwrap()
 }
 
 #[test]
