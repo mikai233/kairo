@@ -50,6 +50,10 @@ impl RemoteAssociationRegistry {
             .state
             .write()
             .expect("remote association registry lock poisoned");
+        let mut association_guard = association
+            .lock()
+            .expect("remote association lock poisoned");
+        association_guard.ensure_send_allowed()?;
         match state.by_uid.get(&uid) {
             Some(existing) if existing == &address => {}
             Some(existing) => {
@@ -63,12 +67,9 @@ impl RemoteAssociationRegistry {
                 state.by_uid.insert(uid, address);
             }
         }
+        association_guard.activate(Some(uid));
+        drop(association_guard);
         drop(state);
-
-        association
-            .lock()
-            .expect("remote association lock poisoned")
-            .activate(Some(uid));
         Ok(association)
     }
 
@@ -196,6 +197,64 @@ mod tests {
                 .expect("remote association lock poisoned")
                 .remote_address(),
             first.to_string()
+        );
+    }
+
+    #[test]
+    fn complete_handshake_does_not_index_terminal_association() {
+        let registry = RemoteAssociationRegistry::new();
+        let closed = address("closed", 25520);
+        let quarantined = address("quarantined", 25521);
+
+        registry
+            .association(closed.clone())
+            .lock()
+            .expect("remote association lock poisoned")
+            .close("transport stopped");
+        let closed_error = registry.complete_handshake(closed.clone(), 42).unwrap_err();
+
+        assert!(matches!(
+            closed_error,
+            RemoteError::AssociationClosed { .. }
+        ));
+        assert!(registry.association_by_uid(42).is_none());
+
+        registry
+            .association(quarantined.clone())
+            .lock()
+            .expect("remote association lock poisoned")
+            .quarantine(Some(41), "uid mismatch");
+        let quarantined_error = registry
+            .complete_handshake(quarantined.clone(), 43)
+            .unwrap_err();
+
+        assert!(matches!(
+            quarantined_error,
+            RemoteError::AssociationQuarantined { .. }
+        ));
+        assert!(registry.association_by_uid(43).is_none());
+        assert_eq!(registry.association_count(), 2);
+        assert_eq!(registry.uid_count(), 0);
+        assert_eq!(
+            registry
+                .association(closed)
+                .lock()
+                .expect("remote association lock poisoned")
+                .state(),
+            &AssociationState::Closed {
+                reason: "transport stopped".to_string()
+            }
+        );
+        assert_eq!(
+            registry
+                .association(quarantined)
+                .lock()
+                .expect("remote association lock poisoned")
+                .state(),
+            &AssociationState::Quarantined {
+                remote_uid: Some(41),
+                reason: "uid mismatch".to_string()
+            }
         );
     }
 

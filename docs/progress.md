@@ -1181,6 +1181,10 @@ Implemented:
   can complete associations into the registry, repeated handshakes for the
   same address/UID are idempotent, and UID collisions across addresses are
   rejected explicitly.
+- `RemoteAssociationRegistry::complete_handshake` now checks terminal
+  association state before updating the UID index, so late handshakes for
+  closed or quarantined associations return the association error and do not
+  leave stale UID lookups behind.
 - TCP listeners can now install reverse outbound routes for accepted
   handshaken associations, so a concrete TCP actor-system runtime shares one
   route installer for dialed outbound lanes and inbound peer lanes instead of
@@ -6232,6 +6236,11 @@ cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-remote association_terminal_states_are_not_reopened_by_late_handshake_or_activation --all-targets --all-features
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-remote complete_handshake_does_not_index_terminal_association --all-targets --all-features
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
