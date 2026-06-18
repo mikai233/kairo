@@ -229,6 +229,49 @@ fn distributed_crates_keep_architecture_dependency_boundaries()
 }
 
 #[test]
+fn support_crates_remain_leaf_facade_consumers() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let next_crates = repo_root.join("kairo-next").join("crates");
+    let support_crates = ["kairo-examples", "kairo-benchmarks"];
+    let runtime_crates = [
+        "kairo",
+        "kairo-actor",
+        "kairo-actor-macros",
+        "kairo-serialization",
+        "kairo-remote",
+        "kairo-cluster",
+        "kairo-distributed-data",
+        "kairo-cluster-sharding",
+        "kairo-cluster-tools",
+        "kairo-testkit",
+    ];
+
+    for support_crate in support_crates {
+        let manifest_path = next_crates.join(support_crate).join("Cargo.toml");
+        let manifest = std::fs::read_to_string(&manifest_path)?;
+        assert!(
+            manifest.contains("kairo = { path = \"../kairo\""),
+            "{} must validate public workflows through the user-facing `kairo` facade",
+            manifest_path.display()
+        );
+    }
+
+    for runtime_crate in runtime_crates {
+        let manifest_path = next_crates.join(runtime_crate).join("Cargo.toml");
+        let manifest = std::fs::read_to_string(&manifest_path)?;
+        for support_crate in support_crates {
+            assert!(
+                !manifest.contains(support_crate),
+                "{} must not depend on leaf support crate `{support_crate}`",
+                manifest_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn distributed_layers_do_not_introduce_authoritative_membership_store()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;

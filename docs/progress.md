@@ -3842,6 +3842,10 @@ Implemented:
   surface: `kairo-examples` validates public facade workflows and
   `kairo-benchmarks` provides the dependency-light M13 benchmark runner, while
   remaining leaf crates outside the runtime dependency graph.
+- The `kairo` facade test suite now pins that `kairo-examples` and
+  `kairo-benchmarks` remain leaf support crates: both consume the public
+  `kairo` facade, and no runtime crate manifest may depend on either support
+  crate.
 
 Not yet implemented:
 
