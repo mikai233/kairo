@@ -172,27 +172,14 @@ fn coordinator_actor_spawns_worker_and_observes_handoff_completion() {
             if shards.len() == 1 && shards[0].shard == "shard-1"
     ));
 
-    let mut completed = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: snapshot.actor_ref(),
-            })
-            .unwrap();
-        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
-        completed = !state.rebalance_in_progress.contains_key("shard-1")
-            && state
-                .allocations
-                .get("region-b")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if completed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        completed,
-        "coordinator should clear rebalance and reallocate shard after worker completion"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &snapshot,
+        "coordinator should clear rebalance and reallocate shard after worker completion",
+        |state| {
+            !state.rebalance_in_progress.contains_key("shard-1")
+                && allocation_contains(state, "region-b", "shard-1")
+        },
     );
     region_b
         .tell(ShardRegionMsg::GetState {
@@ -298,31 +285,11 @@ fn coordinator_actor_graceful_shutdown_rebalances_region_shards() {
             if region == "region-a" && shards.len() == 1 && shards[0].shard == "shard-1"
     ));
 
-    let mut completed = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: snapshot.actor_ref(),
-            })
-            .unwrap();
-        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
-        completed = !state.rebalance_in_progress.contains_key("shard-1")
-            && !state
-                .allocations
-                .get("region-a")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
-            && state
-                .allocations
-                .get("region-b")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if completed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        completed,
-        "graceful shutdown should hand off and reallocate region-a shard"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &snapshot,
+        "graceful shutdown should hand off and reallocate region-a shard",
+        |state| shard_reallocated(state, "shard-1", "region-a", "region-b"),
     );
     region_b
         .tell(ShardRegionMsg::GetState {
@@ -499,31 +466,11 @@ fn multi_node_graceful_shutdown_rebalances_region_shard_across_nodes() {
             if region == "region-a" && shards.len() == 1 && shards[0].shard == "shard-1"
     ));
 
-    let mut completed = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: snapshot.actor_ref(),
-            })
-            .unwrap();
-        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
-        completed = !state.rebalance_in_progress.contains_key("shard-1")
-            && !state
-                .allocations
-                .get("region-a")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
-            && state
-                .allocations
-                .get("region-b")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if completed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        completed,
-        "multi-node graceful shutdown should hand off and reallocate region-a shard"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &snapshot,
+        "multi-node graceful shutdown should hand off and reallocate region-a shard",
+        |state| shard_reallocated(state, "shard-1", "region-a", "region-b"),
     );
     assert!(
         !nodes
@@ -747,23 +694,11 @@ fn multi_node_passivated_entity_is_not_recovered_after_rehost() {
         }
     );
 
-    let mut store_empty = false;
-    for _ in 0..20 {
-        remember_store
-            .tell(RememberShardStoreMsg::GetState {
-                reply_to: store_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
-        store_empty = snapshot.entities_by_key.values().all(BTreeSet::is_empty);
-        if store_empty {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        store_empty,
-        "passivated entity should be removed from shared remember store"
+    wait_for_remember_store_snapshot(
+        &remember_store,
+        &store_state,
+        "passivated entity should be removed from shared remember store",
+        |snapshot| snapshot.entities_by_key.values().all(BTreeSet::is_empty),
     );
 
     region_b
@@ -797,49 +732,13 @@ fn multi_node_passivated_entity_is_not_recovered_after_rehost() {
         }
     );
 
-    let mut reactivated = false;
-    for _ in 0..20 {
-        remember_store
-            .tell(RememberShardStoreMsg::GetState {
-                reply_to: store_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
-        let remembered_entities = snapshot
-            .entities_by_key
-            .values()
-            .flat_map(|entities| entities.iter().cloned())
-            .collect::<BTreeSet<_>>();
-
-        region_b
-            .tell(ShardRegionMsg::GetLocalShard {
-                shard: "shard-1".to_string(),
-                reply_to: shard_b_ref.actor_ref(),
-            })
-            .unwrap();
-        let shard = shard_b_ref.expect_msg(Duration::from_millis(500)).unwrap();
-        if let Some(shard) = shard {
-            shard
-                .tell(ShardMsg::GetState {
-                    reply_to: shard_b_state.actor_ref(),
-                })
-                .unwrap();
-            let snapshot = shard_b_state
-                .expect_msg(Duration::from_millis(500))
-                .unwrap();
-            reactivated = remembered_entities.contains("entity-1")
-                && snapshot.active_entities == vec!["entity-1".to_string()]
-                && snapshot.total_buffered == 0;
-        }
-
-        if reactivated {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        reactivated,
-        "rehosted first delivery should repopulate the shared remember store and activate entity-1"
+    wait_for_rehosted_entity_activation(
+        &remember_store,
+        &store_state,
+        &region_b,
+        &shard_b_ref,
+        &shard_b_state,
+        "rehosted first delivery should repopulate the shared remember store and activate entity-1",
     );
 
     region_b
@@ -1015,33 +914,11 @@ fn multi_node_remembered_entity_is_recovered_after_rehost() {
             if region == "region-a" && shards.len() == 1 && shards[0].shard == "shard-1"
     ));
 
-    let mut completed = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        completed = !snapshot.rebalance_in_progress.contains_key("shard-1")
-            && !snapshot
-                .allocations
-                .get("region-a")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
-            && snapshot
-                .allocations
-                .get("region-b")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if completed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        completed,
-        "remembered shard should be rehosted from region-a to region-b"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "remembered shard should be rehosted from region-a to region-b",
+        |snapshot| shard_reallocated(snapshot, "shard-1", "region-a", "region-b"),
     );
     region_a
         .tell(ShardRegionMsg::GetState {
@@ -1229,31 +1106,11 @@ fn coordinator_system_inbound_remote_graceful_shutdown_rebalances_to_local_regio
     let region_b_state = kit
         .create_probe::<ShardRegionSnapshot>("region-b-state")
         .unwrap();
-    let mut completed = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: snapshot.actor_ref(),
-            })
-            .unwrap();
-        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
-        completed = !state.rebalance_in_progress.contains_key("shard-1")
-            && !state
-                .allocations
-                .get(&remote_region_id)
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
-            && state
-                .allocations
-                .get("region-b")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if completed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        completed,
-        "remote graceful shutdown should hand off and reallocate shard to region-b"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &snapshot,
+        "remote graceful shutdown should hand off and reallocate shard to region-b",
+        |state| shard_reallocated(state, "shard-1", &remote_region_id, "region-b"),
     );
     region_b
         .tell(ShardRegionMsg::GetState {
@@ -1409,4 +1266,159 @@ fn region_actor_repeats_graceful_shutdown_when_host_shard_arrives_during_shutdow
         ShardCoordinatorMsg::GracefulShutdownReq { region, .. } if region == "region-a"
     ));
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+fn polling_timeout() -> Duration {
+    Duration::from_millis(10_200)
+}
+
+fn wait_for_coordinator_snapshot(
+    coordinator: &ActorRef<ShardCoordinatorMsg<String>>,
+    snapshot: &kairo_testkit::TestProbe<CoordinatorStateSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&CoordinatorStateSnapshot) -> bool,
+) -> CoordinatorStateSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<CoordinatorStateSnapshot, String> {
+            coordinator
+                .tell(ShardCoordinatorMsg::GetState {
+                    reply_to: snapshot.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let state = snapshot
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&state) {
+                Ok(state)
+            } else {
+                Err(format!("{description}; last coordinator state: {state:?}"))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_remember_store_snapshot(
+    store: &ActorRef<RememberShardStoreMsg>,
+    snapshot: &kairo_testkit::TestProbe<RememberShardStoreSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&RememberShardStoreSnapshot) -> bool,
+) -> RememberShardStoreSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<RememberShardStoreSnapshot, String> {
+            store
+                .tell(RememberShardStoreMsg::GetState {
+                    reply_to: snapshot.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let state = snapshot
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&state) {
+                Ok(state)
+            } else {
+                Err(format!(
+                    "{description}; last remember-store state: {state:?}"
+                ))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_rehosted_entity_activation(
+    remember_store: &ActorRef<RememberShardStoreMsg>,
+    store_state: &kairo_testkit::TestProbe<RememberShardStoreSnapshot>,
+    region: &ActorRef<ShardRegionMsg<String>>,
+    local_shard: &kairo_testkit::TestProbe<Option<ActorRef<ShardMsg<String>>>>,
+    shard_state: &kairo_testkit::TestProbe<ShardSnapshot>,
+    description: &str,
+) {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            let store_snapshot = remember_store_snapshot(remember_store, store_state)?;
+            let remembered_entities = remembered_entities(&store_snapshot);
+
+            region
+                .tell(ShardRegionMsg::GetLocalShard {
+                    shard: "shard-1".to_string(),
+                    reply_to: local_shard.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let Some(shard) = local_shard
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?
+            else {
+                return Err(format!(
+                    "{description}; remembered: {remembered_entities:?}; shard was not local",
+                ));
+            };
+
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: shard_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = shard_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if remembered_entities.contains("entity-1")
+                && snapshot.active_entities == vec!["entity-1".to_string()]
+                && snapshot.total_buffered == 0
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "{description}; remembered: {remembered_entities:?}; shard snapshot: {snapshot:?}",
+                ))
+            }
+        },
+    )
+    .unwrap();
+}
+
+fn remember_store_snapshot(
+    store: &ActorRef<RememberShardStoreMsg>,
+    snapshot: &kairo_testkit::TestProbe<RememberShardStoreSnapshot>,
+) -> Result<RememberShardStoreSnapshot, String> {
+    store
+        .tell(RememberShardStoreMsg::GetState {
+            reply_to: snapshot.actor_ref(),
+        })
+        .map_err(|error| error.to_string())?;
+    snapshot
+        .expect_msg(Duration::from_millis(500))
+        .map_err(|error| error.to_string())
+}
+
+fn remembered_entities(snapshot: &RememberShardStoreSnapshot) -> BTreeSet<String> {
+    snapshot
+        .entities_by_key
+        .values()
+        .flat_map(|entities| entities.iter().cloned())
+        .collect()
+}
+
+fn shard_reallocated(
+    snapshot: &CoordinatorStateSnapshot,
+    shard: &str,
+    from_region: &str,
+    to_region: &str,
+) -> bool {
+    !snapshot.rebalance_in_progress.contains_key(shard)
+        && !allocation_contains(snapshot, from_region, shard)
+        && allocation_contains(snapshot, to_region, shard)
+}
+
+fn allocation_contains(snapshot: &CoordinatorStateSnapshot, region: &str, shard: &str) -> bool {
+    snapshot
+        .allocations
+        .get(region)
+        .is_some_and(|shards| shards.contains(&shard.to_string()))
 }
