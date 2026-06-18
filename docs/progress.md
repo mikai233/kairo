@@ -2331,6 +2331,10 @@ Implemented:
   subscriber that owns the cluster subscription, requests an initial cluster
   snapshot, forwards snapshots/events into the region's coordinator-discovery
   messages, and unsubscribes during actor stop.
+- `kairo-cluster-sharding` now has `ShardRegionBootstrap`, a higher-level
+  helper that spawns a discovery-enabled local shard region together with its
+  cluster discovery subscriber, cleans up the region if subscriber startup
+  fails, and returns both actor refs for user control and tests.
 - Shard-region discovery subscriber coverage now validates coordinator
   movement: a region registers with the first discovered local coordinator and
   re-registers with a newly selected local coordinator after cluster membership
@@ -6337,5 +6341,10 @@ cargo test -p kairo-cluster peer_runtime_shutdown_clears_active_peer_routes_befo
 cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_bootstrap_ --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

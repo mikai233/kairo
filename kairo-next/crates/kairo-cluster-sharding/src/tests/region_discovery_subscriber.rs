@@ -99,6 +99,165 @@ fn region_discovery_subscriber_forwards_cluster_snapshot_to_region_registration(
 }
 
 #[test]
+fn region_bootstrap_spawns_region_and_discovery_subscriber() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-bootstrap-discovery").unwrap();
+    let self_node = remote_unique_node("region-bootstrap-discovery", "127.0.0.1", 2662, 13);
+    let coordinator_node = remote_unique_node("region-bootstrap-discovery", "127.0.0.1", 2663, 14);
+    let publisher = kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(self_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([cluster_member(
+                coordinator_node.clone(),
+                MemberStatus::Up,
+                ["backend"],
+                1,
+            )]),
+        ))
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    )
+    .with_local_coordinator(coordinator_node, coordinator.clone());
+
+    let bootstrap = ShardRegionBootstrap::spawn_local_shards_with_coordinator_discovery(
+        kit.system(),
+        ShardRegionBootstrapConfig::new(
+            "region-a",
+            "region-a-discovery",
+            cluster,
+            "region-a",
+            10,
+            10,
+            discovery,
+        ),
+    )
+    .unwrap();
+
+    wait_for_coordinator_registration(
+        &kit,
+        &coordinator,
+        "bootstrap-coordinator-state",
+        "region-a",
+    );
+    let subscriber_state = kit
+        .create_probe::<ShardRegionDiscoverySubscriberSnapshot>("bootstrap-subscriber-state")
+        .unwrap();
+    bootstrap
+        .discovery_subscriber()
+        .tell(ShardRegionDiscoverySubscriberMsg::Snapshot {
+            reply_to: subscriber_state.actor_ref(),
+        })
+        .unwrap();
+    let state = subscriber_state
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert!(state.subscribed);
+    assert_eq!(state.forwarded_snapshots, 1);
+    assert_eq!(state.last_error, None);
+
+    let region_state = kit
+        .create_probe::<ShardRegionSnapshot>("bootstrap-region-state")
+        .unwrap();
+    bootstrap
+        .region()
+        .tell(ShardRegionMsg::GetState {
+            reply_to: region_state.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        region_state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .registration_status,
+        RegionRegistrationStatus::Registered
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_bootstrap_stops_region_when_discovery_subscriber_spawn_fails() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-bootstrap-cleanup").unwrap();
+    let self_node = remote_unique_node("region-bootstrap-cleanup", "127.0.0.1", 2664, 15);
+    let publisher = kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(self_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher);
+    let _occupied_subscriber_name = kit
+        .system()
+        .spawn(
+            "region-a-discovery",
+            ShardRegionActor::<String>::props_with_local_shards("occupied", 10, 10),
+        )
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::<String>::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    );
+
+    let error = match ShardRegionBootstrap::spawn_local_shards_with_coordinator_discovery(
+        kit.system(),
+        ShardRegionBootstrapConfig::new(
+            "region-a",
+            "region-a-discovery",
+            cluster,
+            "region-a",
+            10,
+            10,
+            discovery,
+        ),
+    ) {
+        Ok(_) => panic!("duplicate subscriber name should fail region bootstrap"),
+        Err(error) => error,
+    };
+
+    assert!(
+        matches!(error, ActorError::DuplicateName(ref name) if name == "region-a-discovery"),
+        "unexpected bootstrap failure: {error:?}"
+    );
+    let replacement = kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ActorRef<ShardRegionMsg<String>>, String> {
+            kit.system()
+                .spawn(
+                    "region-a",
+                    ShardRegionActor::<String>::props_with_local_shards("region-a", 10, 10),
+                )
+                .map_err(|error| format!("region name is not reusable yet: {error}"))
+        },
+    )
+    .unwrap();
+    kit.system().stop(&replacement);
+    assert!(replacement.wait_for_stop(Duration::from_secs(1)));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_discovery_subscriber_reregisters_when_coordinator_moves() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-discovery-moves").unwrap();
     let self_node = remote_unique_node("region-discovery-moves", "127.0.0.1", 2670, 21);

@@ -85,6 +85,7 @@ mod handoff_worker;
 mod hashing;
 mod protocol;
 mod region_actor;
+mod region_bootstrap;
 mod region_coordinator_discovery;
 mod region_discovery_subscriber;
 mod region_home_requests;
@@ -174,6 +175,7 @@ pub use protocol::{
     ShardStopped,
 };
 pub use region_actor::ShardRegionActor;
+pub use region_bootstrap::{ShardRegionBootstrap, ShardRegionBootstrapConfig};
 pub use region_coordinator_discovery::{
     RegionCoordinatorDiscovery, RegionCoordinatorDiscoveryConfig, RegionCoordinatorDiscoveryPlan,
 };

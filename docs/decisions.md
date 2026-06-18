@@ -2252,9 +2252,9 @@ Consequences:
   that drives coordinator discovery.
 - Region actor logic stays structured around region messages rather than
   cluster facade lifecycle details.
-- Region construction can already combine this subscriber-driven discovery with
-  local coordinator refs or remote coordinator targets; a future higher-level
-  region bootstrap helper can own spawning the subscriber alongside the region.
+- `ShardRegionBootstrap` owns the higher-level construction path that spawns a
+  discovery-enabled region alongside its subscriber while keeping local and
+  remote coordinator target selection in the focused discovery bridge.
 
 ## ADR-0079: Remote Sharding Coordinator Targets Are Wire Recipients
 
