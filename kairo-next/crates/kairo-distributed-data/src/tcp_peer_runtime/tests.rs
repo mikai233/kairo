@@ -453,6 +453,137 @@ mod route_tests {
     }
 
     #[test]
+    fn peer_runtime_keeps_remaining_route_delivering_after_member_removed_event() {
+        let _guard = ddata_socket_test_lock();
+        let retry_interval = Duration::from_millis(25);
+        let registry = registry();
+        let second_port = unused_port();
+        let third_port = unused_port();
+        let second_node = node("event-remove-second", second_port, 2);
+        let third_node = node("event-remove-third", third_port, 3);
+        let second_requests = Arc::new(RecordingRequests::default());
+        let third_requests = Arc::new(RecordingRequests::default());
+        let mut sender = bind_peer_runtime(
+            "event-remove-sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&second_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+        let second = bind_association_runtime_on_port_with_requests(
+            "event-remove-second",
+            ReplicaId::from(&second_node),
+            ReplicaId::from(&sender_node),
+            22,
+            second_port,
+            second_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        );
+        let third = bind_association_runtime_on_port_with_requests(
+            "event-remove-third",
+            ReplicaId::from(&third_node),
+            ReplicaId::from(&sender_node),
+            33,
+            third_port,
+            third_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        );
+
+        let report = sender
+            .apply_snapshot(state(
+                vec![
+                    member(sender_node.clone()),
+                    member(second_node.clone()),
+                    member(third_node.clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        assert_eq!(report.dialed.len(), 2);
+        assert_eq!(sender.peer_route_count(), 2);
+        assert_eq!(sender.association_cache().route_count(), 2);
+        wait_for_reverse_route(&second);
+        wait_for_reverse_route(&third);
+
+        let report = sender
+            .apply_event(ClusterEvent::Member(MemberEvent::Removed {
+                member: member(third_node.clone()).with_status(MemberStatus::Removed),
+                previous_status: MemberStatus::Up,
+            }))
+            .unwrap();
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(report.removed[0].node(), &third_node);
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        assert!(
+            sender
+                .active_peer_targets()
+                .iter()
+                .any(|target| target.node() == &second_node)
+        );
+
+        let recipient = replicator_ref("event-remove-second", second_port);
+        let sender_ref = replicator_ref(
+            sender_node.address.system(),
+            sender_node.address.port().unwrap(),
+        );
+        let read = ReplicatorRead {
+            key: "counter-after-member-removed-event".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        };
+        sender
+            .association_cache()
+            .send_to_recipient(RemoteEnvelope::new(
+                recipient.clone(),
+                Some(sender_ref.clone()),
+                registry.serialize(&read).unwrap(),
+            ))
+            .unwrap();
+
+        let received = second_requests.wait_for_len(1, Duration::from_secs(1));
+        assert_eq!(received.len(), 1);
+        assert_eq!(received[0].0, ReplicaId::from(&sender_node));
+        assert_eq!(received[0].1.recipient, recipient);
+        assert_eq!(received[0].1.sender, Some(sender_ref.clone()));
+        let decoded = registry
+            .deserialize::<ReplicatorRead>(received[0].1.message.clone())
+            .unwrap();
+        assert_eq!(decoded, read);
+
+        let removed_read = ReplicatorRead {
+            key: "counter-after-removed-member-event".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        };
+        let removed_error = sender
+            .association_cache()
+            .send_to_recipient(RemoteEnvelope::new(
+                replicator_ref("event-remove-third", third_port),
+                Some(sender_ref),
+                registry.serialize(&removed_read).unwrap(),
+            ))
+            .expect_err("removed member route should reject later delivery");
+        assert!(matches!(
+            removed_error,
+            RemoteError::AssociationUnavailable { .. }
+        ));
+        assert!(
+            third_requests
+                .wait_for_len(1, Duration::from_millis(50))
+                .is_empty(),
+            "removed member must not receive a request after MemberRemoved"
+        );
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.peer_routes.removed.len(), 1);
+        assert!(sender_report.pending_reconnects.is_empty());
+        assert_eq!(sender_report.listener.accepted_associations, 0);
+        let second_report = second.shutdown().unwrap();
+        assert_eq!(second_report.accepted_associations, 1);
+        let third_report = third.shutdown().unwrap();
+        assert_eq!(third_report.accepted_associations, 1);
+    }
+
+    #[test]
     fn peer_runtime_clears_routes_when_self_member_is_removed() {
         let _guard = ddata_socket_test_lock();
         let retry_interval = Duration::from_millis(25);

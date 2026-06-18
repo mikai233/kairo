@@ -1614,6 +1614,11 @@ Implemented:
   ref, recipient ref, and decoded payload, while sends addressed to the removed
   peer reject through the association cache without another request reaching
   the removed receiver.
+- Distributed-data TCP peer runtime coverage now also pins the incremental
+  `MemberRemoved` event path: after two live replicator socket routes are
+  installed, a removed peer event clears only that peer's route, preserves the
+  remaining route for stable-manifest `ReplicatorRead` delivery, and rejects
+  later sends to the removed member without reaching its receiver.
 - Distributed-data TCP peer runtime coverage now directly pins local
   `MemberRemoved` handling for the runtime's own node: self removal clears all
   outbound peer routes and cached ddata routes, rejects later remote
@@ -5557,5 +5562,11 @@ cargo test -p kairo-actor watch --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
+cargo test -p kairo-distributed-data peer_runtime --all-targets --all-features
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```
