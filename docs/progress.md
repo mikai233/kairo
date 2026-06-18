@@ -2,10 +2,75 @@
 
 ## Current Milestone
 
-M2: Lifecycle, Supervision, Patterns, And Testkit is in progress. The M1 local
-actor runtime vertical slice is runnable and remains the foundation for M2
-work. The M3 serialization foundation has started with stable remote message
-metadata and codec registration.
+The rewrite is no longer in the early M2-only phase. As of 2026-06-18, the
+new `kairo-next` workspace has substantial implementation coverage through
+local actors, serialization, remoting, gossip-based cluster membership,
+distributed data, cluster sharding, and cluster tools. The active work is now
+an M12/M13-style convergence pass: keep the full workspace green, remove
+remaining nondeterminism, align user-facing documentation with the implemented
+API, and harden examples and multi-node scenarios before treating the rewrite
+as release-ready.
+
+Current active milestone: hardening, documentation convergence, and full
+workspace stabilization before M13 release readiness.
+
+## Milestone Snapshot
+
+- M0 workspace, contracts, and roadmap: complete. New implementation lives in
+  `kairo-next`, old `crates/` remains reference-only, the multi-crate boundary
+  is enforced, and the Pekko reference path is documented.
+- M1 local actor runtime core: complete for the intended vertical slice. Typed
+  local actors can be spawned, messaged, stopped, observed, and routed through
+  actor paths and providers.
+- M2 lifecycle, supervision, patterns, and testkit: mostly complete. Lifecycle,
+  supervision, death watch, timers, scheduler, ask, pipe-to-self, adapters,
+  stash, event stream, receptionist, coordinated shutdown, probes, and manual
+  time support are implemented with focused tests.
+- M3 serialization and message metadata: mostly complete. Stable
+  `RemoteMessage` metadata, derive support, codec registration, manifests,
+  remote envelopes, and actor-ref serialization boundaries exist.
+- M4 remoting: substantial implementation. Remote refs, provider composition,
+  associations, TCP runtime, inbound and outbound delivery, remote watch, and
+  remote examples/tests are present, but broader transport lifecycle hardening
+  is still part of the convergence pass.
+- M5 and M6 cluster membership: substantial implementation. Gossip, vector
+  clocks, reachability, convergence, membership actors, join/welcome flows,
+  heartbeat, downing hooks, and TCP peer bootstrap coverage exist. Additional
+  multi-node lifecycle coverage is still needed.
+- M7 distributed data: substantial implementation. Core CRDTs, replicator
+  state, delta/full gossip, read/write consistency flows, pruning, cluster
+  connectors, TCP peer runtime, and examples are present.
+- M8 and M9 cluster sharding: substantial implementation. `EntityRef`,
+  `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
+  actors, allocation, handoff, rebalancing, passivation, remember-entities
+  stores, remote routes, and many local and multi-node tests exist.
+- M10 cluster tools: substantial implementation. Singleton and pubsub logic,
+  remote delivery, TCP peer runtime, and examples are present.
+- M11 configuration and observability: partially complete. TOML-based settings,
+  builder conversion, diagnostics settings, and coordinated-shutdown surfaces
+  exist; broader observability and operator polish remain.
+- M12 examples, migration, and documentation: partially complete. Examples and
+  migration guidance exist, but public API documentation needs to be reviewed
+  against the current implementation surface.
+- M13 hardening and release readiness: not complete. Remaining work is focused
+  on full-workspace validation stability, multi-node hardening, performance and
+  failure-mode review, final documentation, and any cleanup needed before the
+  old implementation is unnecessary for normal builds.
+
+## Known Validation Status
+
+- A full workspace run of
+  `cargo test --workspace --all-targets --all-features` compiled the workspace
+  but hit one `kairo-cluster-sharding` failure in
+  `region_actor_ignores_stale_remembered_local_shard_restart_timer` with a
+  stopped-actor `SendError`.
+- The same sharding test passes when run directly, and
+  `cargo test -p kairo-cluster-sharding --all-targets --all-features` passes
+  the crate test suite. Treat the full-workspace failure as a nondeterministic
+  timing or test-isolation issue that must be fixed before M13 readiness.
+- No external blockers are recorded in `docs/blocked.md`.
+
+## Detailed Implementation Log
 
 Implemented:
 
@@ -3738,6 +3803,16 @@ Not yet implemented:
   coverage, and three-node bootstrap full-mesh membership delivery coverage.
 
 ## Last Validation
+
+Latest progress refresh validation:
+
+```bash
+git diff --check
+cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+```
+
+Previous implementation checkpoints:
 
 ```bash
 cargo fmt --all
