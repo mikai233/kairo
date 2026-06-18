@@ -67,6 +67,10 @@ where
         self.transport.insert_target(target);
     }
 
+    pub fn remove_region_target(&mut self, region: &RegionId) {
+        self.transport.remove_target(region);
+    }
+
     pub fn dispatch_host_shard(
         &self,
         ctx: &Context<ShardCoordinatorMsg<M>>,

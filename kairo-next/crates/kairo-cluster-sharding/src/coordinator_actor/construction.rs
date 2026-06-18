@@ -14,6 +14,7 @@ impl ShardCoordinatorActor<()> {
             waiting_for_remember_store_load: false,
             handoff: None,
             remote_regions: CoordinatorRemoteRegions::new(),
+            region_watch_by_path: HashMap::new(),
         }
     }
 
@@ -31,6 +32,7 @@ impl ShardCoordinatorActor<()> {
             waiting_for_remember_store_load: false,
             handoff: None,
             remote_regions: CoordinatorRemoteRegions::new(),
+            region_watch_by_path: HashMap::new(),
         }
     }
 
@@ -49,6 +51,7 @@ impl ShardCoordinatorActor<()> {
             waiting_for_remember_store_load: true,
             handoff: None,
             remote_regions: CoordinatorRemoteRegions::new(),
+            region_watch_by_path: HashMap::new(),
         }
     }
 
@@ -70,6 +73,7 @@ impl ShardCoordinatorActor<()> {
             waiting_for_remember_store_load: true,
             handoff: None,
             remote_regions: CoordinatorRemoteRegions::new(),
+            region_watch_by_path: HashMap::new(),
         }
     }
 
@@ -143,6 +147,7 @@ where
                 transport,
             )),
             remote_regions: CoordinatorRemoteRegions::new(),
+            region_watch_by_path: HashMap::new(),
         }
     }
 

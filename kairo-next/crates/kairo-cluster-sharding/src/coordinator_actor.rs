@@ -1,7 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, AskError, Context, Props};
+use kairo_actor::{
+    Actor, ActorError, ActorPath, ActorRef, ActorResult, AskError, Context, Props, Signal,
+};
 use kairo_serialization::ActorRefWireData;
 
 use crate::coordinator_handoff::CoordinatorHandoff;
@@ -32,6 +34,7 @@ where
     waiting_for_remember_store_load: bool,
     handoff: Option<CoordinatorHandoff<M>>,
     remote_regions: CoordinatorRemoteRegions,
+    region_watch_by_path: HashMap<ActorPath, RegionId>,
 }
 
 #[derive(Clone)]
@@ -299,6 +302,21 @@ where
         }
         Ok(())
     }
+
+    fn signal(&mut self, _ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::Terminated(actor) | Signal::ChildFailed { actor, .. } => {
+                if self.apply_watched_region_terminated(actor.path())? {
+                    Ok(())
+                } else {
+                    Err(ActorError::DeathPact {
+                        actor: actor.path().to_string(),
+                    })
+                }
+            }
+            Signal::PreRestart | Signal::PostStop => Ok(()),
+        }
+    }
 }
 
 impl<M> ShardCoordinatorActor<M>
@@ -335,10 +353,11 @@ where
 
     fn register_local_region(
         &mut self,
-        ctx: &Context<ShardCoordinatorMsg<M>>,
+        ctx: &mut Context<ShardCoordinatorMsg<M>>,
         target: HandoffRegionTarget<M>,
     ) -> Result<Result<CoordinatorStateSnapshot, ShardingError>, ActorError> {
         let region = target.region().clone();
+        self.watch_local_region(ctx, &target)?;
         if !self.runtime.state().allocations().contains_region(&region)
             && let Err(error) = self
                 .runtime
@@ -351,6 +370,36 @@ where
         }
         self.allocate_remembered_shard_homes(ctx)?;
         Ok(Ok(CoordinatorStateSnapshot::from(&self.runtime)))
+    }
+
+    fn watch_local_region(
+        &mut self,
+        ctx: &mut Context<ShardCoordinatorMsg<M>>,
+        target: &HandoffRegionTarget<M>,
+    ) -> ActorResult {
+        let Some(region_ref) = target.watch_ref() else {
+            return Ok(());
+        };
+        if region_ref.path() == ctx.myself().path() {
+            return Ok(());
+        }
+        if self.region_watch_by_path.get(region_ref.path()) == Some(target.region()) {
+            return Ok(());
+        }
+
+        ctx.watch(region_ref)?;
+        self.region_watch_by_path
+            .insert(region_ref.path().clone(), target.region().clone());
+        Ok(())
+    }
+
+    fn apply_watched_region_terminated(&mut self, path: &ActorPath) -> Result<bool, ActorError> {
+        let Some(region) = self.region_watch_by_path.remove(path) else {
+            return Ok(false);
+        };
+
+        self.apply_region_stopped(region)?;
+        Ok(true)
     }
 
     fn register_remote_region(
@@ -393,6 +442,9 @@ where
     fn apply_region_stopped(&mut self, region: RegionId) -> ActorResult {
         self.runtime.unmark_graceful_shutdown(&region);
         self.runtime.unmark_region_terminating(&region);
+        if let Some(handoff) = &mut self.handoff {
+            handoff.remove_region_target(&region);
+        }
         if !self.runtime.state().allocations().contains_region(&region) {
             return Ok(());
         }

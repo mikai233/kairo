@@ -3938,6 +3938,11 @@ Implemented:
   those targets, consume the resulting termination signal, clear that region's
   shard homes, and route later delivery back through shard-home resolution
   instead of death-pacting.
+- `kairo-cluster-sharding` handoff region targets can now carry a watchable
+  local region actor ref. Shard coordinators watch registered local regions,
+  consume the termination signal, apply `ShardRegionTerminated`, remove the
+  stale handoff target, and keep the coordinator alive after the watched region
+  stops.
 
 Not yet implemented:
 
@@ -3995,6 +4000,8 @@ cargo test -p kairo-cluster-sharding region_actor_ignores_prior_remembered_local
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_mark_region_stopped_clears_remote_shard_homes --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding region_actor_observes_watchable_remote_region_stop --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding coordinator_actor_observes_registered_local_region_stop --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_route_resolution --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check

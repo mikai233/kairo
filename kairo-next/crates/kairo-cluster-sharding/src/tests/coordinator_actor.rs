@@ -131,6 +131,79 @@ fn coordinator_actor_dispatches_host_shard_on_new_allocation() {
 }
 
 #[test]
+fn coordinator_actor_observes_registered_local_region_stop() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-region-watch").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .create_probe::<ShardRegionMsg<String>>("region-a")
+        .unwrap();
+    let register = kit
+        .create_probe::<Result<CoordinatorStateSnapshot, ShardingError>>("register")
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+    let state = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RegisterLocalRegion {
+            target: HandoffRegionTarget::from_actor_ref("region-a", region.actor_ref()),
+            reply_to: register.actor_ref(),
+        })
+        .unwrap();
+    register
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-a".to_string(),
+            shard: "shard-1".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+    match region.expect_msg(Duration::from_millis(500)).unwrap() {
+        ShardRegionMsg::HostShard { shard, .. } => assert_eq!(shard, "shard-1"),
+        _ => panic!("expected HostShard dispatch"),
+    }
+    assert!(matches!(
+        home.expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        GetShardHomePlan::Allocated { host_region, .. } if host_region == "region-a"
+    ));
+
+    region.stop();
+    region.expect_stopped(Duration::from_secs(1)).unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+    assert!(
+        !snapshot.allocations.contains_key("region-a"),
+        "coordinator should remove watched region allocation after region stop"
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_loads_remembered_shards_before_serving_requests() {
     let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-remember-load").unwrap();
     let coordinator = kit
