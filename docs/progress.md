@@ -3927,6 +3927,10 @@ Implemented:
 - The `kairo` facade test suite now pins that root README, `kairo-next`
   README, and migration notes keep that facade feature map aligned with the
   manifest, including the local/config-only default feature row.
+- The `kairo` facade test suite now also pins README example-command
+  convergence: root README and `kairo-next` README must list every current
+  `kairo-examples/examples/*.rs` binary, and public docs that mention example
+  commands must not point at missing binaries.
 - `kairo-distributed-data` now covers TCP peer-runtime partial snapshot
   failure: if one peer route is installed and a later peer dial fails, the
   successful route remains active while only the failed peer is scheduled for
@@ -6136,6 +6140,11 @@ cargo clippy -p kairo-benchmarks --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo public_docs_keep_facade_feature_map_aligned --all-targets --all-features
 cargo test -p kairo facade_feature_graph_keeps_distributed_layers_opt_in --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_readmes_list_current_example_binaries --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo --all-targets --all-features -- -D warnings

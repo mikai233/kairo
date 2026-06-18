@@ -411,6 +411,69 @@ fn public_docs_keep_facade_feature_map_aligned() -> Result<(), Box<dyn std::erro
 }
 
 #[test]
+fn public_readmes_list_current_example_binaries() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let examples_dir = repo_root
+        .join("kairo-next")
+        .join("crates")
+        .join("kairo-examples")
+        .join("examples");
+    let mut example_names = std::collections::BTreeSet::new();
+
+    for entry in std::fs::read_dir(&examples_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
+            continue;
+        }
+        let name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .ok_or_else(|| format!("example path has no UTF-8 stem: {}", path.display()))?
+            .to_string();
+        example_names.insert(name);
+    }
+
+    let required_docs = [
+        repo_root.join("README.md"),
+        repo_root.join("kairo-next/README.md"),
+    ];
+    for doc_path in required_docs {
+        let doc = std::fs::read_to_string(&doc_path)?.replace("\r\n", "\n");
+        for example_name in &example_names {
+            let command = format!("cargo run -p kairo-examples --example {example_name}");
+            assert!(
+                doc.contains(&command),
+                "{} must list runnable example command `{command}`",
+                doc_path.display()
+            );
+        }
+    }
+
+    let docs_with_example_commands = [
+        repo_root.join("README.md"),
+        repo_root.join("kairo-next/README.md"),
+        repo_root.join("docs/migration.md"),
+    ];
+    for doc_path in docs_with_example_commands {
+        let doc = std::fs::read_to_string(&doc_path)?.replace("\r\n", "\n");
+        for line in doc.lines() {
+            let Some(example_name) = line.strip_prefix("cargo run -p kairo-examples --example ")
+            else {
+                continue;
+            };
+            assert!(
+                example_names.contains(example_name),
+                "{} documents missing kairo-examples binary `{example_name}`",
+                doc_path.display()
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn rust_ci_keeps_m13_release_readiness_gates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let workflow_path = repo_root
