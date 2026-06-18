@@ -168,26 +168,11 @@ fn coordinator_actor_registers_local_regions_for_handoff_transport() {
             if shards.len() == 1 && shards[0].shard == "shard-1"
     ));
 
-    let mut completed = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: snapshot.actor_ref(),
-            })
-            .unwrap();
-        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
-        completed = state
-            .allocations
-            .get("region-b")
-            .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if completed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        completed,
-        "registered region targets should be available to handoff workers"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &snapshot,
+        "registered region targets should be available to handoff workers",
+        shard_reallocated_to_region_b,
     );
     region_b
         .tell(ShardRegionMsg::GetState {
@@ -267,26 +252,11 @@ fn region_actor_self_registers_with_local_coordinator_for_handoff() {
         .create_probe::<ShardRegionSnapshot>("region-b-state")
         .unwrap();
 
-    let mut registered = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let state = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        registered = state.allocations.contains_key("region-a")
-            && state.allocations.contains_key("region-b");
-        if registered {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        registered,
-        "regions should register themselves with coordinator"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "regions should register themselves with coordinator",
+        both_regions_registered,
     );
 
     region_a
@@ -333,28 +303,11 @@ fn region_actor_self_registers_with_local_coordinator_for_handoff() {
             if shards.len() == 1 && shards[0].shard == "shard-1"
     ));
 
-    let mut completed = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let state = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        completed = state
-            .allocations
-            .get("region-b")
-            .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if completed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        completed,
-        "self-registered region targets should be available to handoff workers"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "self-registered region targets should be available to handoff workers",
+        shard_reallocated_to_region_b,
     );
     region_b
         .tell(ShardRegionMsg::GetState {
@@ -445,26 +398,11 @@ fn region_actor_self_registers_with_shared_remember_store_refs_for_rehost() {
         .create_probe::<ShardDeliverPlan<String>>("deliveries")
         .unwrap();
 
-    let mut registered = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let state = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        registered = state.allocations.contains_key("region-a")
-            && state.allocations.contains_key("region-b");
-        if registered {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        registered,
-        "shared-store regions should self-register with coordinator"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "shared-store regions should self-register with coordinator",
+        both_regions_registered,
     );
 
     region_a
@@ -497,28 +435,11 @@ fn region_actor_self_registers_with_shared_remember_store_refs_for_rehost() {
             if shards.len() == 1 && shards[0].shard == "shard-1"
     ));
 
-    let mut completed = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let state = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        completed = state
-            .allocations
-            .get("region-b")
-            .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if completed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        completed,
-        "handoff should reallocate remembered shard to region-b"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "handoff should reallocate remembered shard to region-b",
+        shard_reallocated_to_region_b,
     );
 
     region_b
@@ -607,25 +528,11 @@ fn region_actor_registers_with_discovered_local_coordinator() {
         })
         .unwrap();
 
-    let mut registered = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let state = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        registered = state.allocations.contains_key("region-a");
-        if registered {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        registered,
-        "region should register after coordinator discovery snapshot"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "region should register after coordinator discovery snapshot",
+        |snapshot| snapshot.allocations.contains_key("region-a"),
     );
 
     region
@@ -641,4 +548,47 @@ fn region_actor_registers_with_discovered_local_coordinator() {
         RegionRegistrationStatus::Registered
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+fn polling_timeout() -> Duration {
+    Duration::from_millis(10_200)
+}
+
+fn both_regions_registered(snapshot: &CoordinatorStateSnapshot) -> bool {
+    snapshot.allocations.contains_key("region-a") && snapshot.allocations.contains_key("region-b")
+}
+
+fn shard_reallocated_to_region_b(snapshot: &CoordinatorStateSnapshot) -> bool {
+    snapshot
+        .allocations
+        .get("region-b")
+        .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
+}
+
+fn wait_for_coordinator_snapshot(
+    coordinator: &ActorRef<ShardCoordinatorMsg<String>>,
+    state: &kairo_testkit::TestProbe<CoordinatorStateSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&CoordinatorStateSnapshot) -> bool,
+) -> CoordinatorStateSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<CoordinatorStateSnapshot, String> {
+            coordinator
+                .tell(ShardCoordinatorMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
 }
