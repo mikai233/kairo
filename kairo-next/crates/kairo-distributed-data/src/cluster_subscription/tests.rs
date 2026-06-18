@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use kairo_actor::{ActorSystem, Address, ManualScheduler, Props};
 use kairo_cluster::{
@@ -160,6 +160,78 @@ fn connector_subscribes_to_cluster_events_and_updates_replicator_routes() {
                 .is_some_and(|report| report.recorded_removed.contains(&ReplicaId::from(&peer)))
     });
     assert_eq!(snapshot.remote_replicas, vec![ReplicaId::from(&weak)]);
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn connector_stops_when_self_member_is_removed() {
+    let system = ActorSystem::builder("ddata-cluster-connector-self-removed")
+        .build()
+        .unwrap();
+    let self_node = node("self-removed", 1);
+    let peer = node("peer", 2);
+    let publisher = system
+        .spawn(
+            "publisher",
+            Props::new({
+                let self_node = self_node.clone();
+                move || ClusterEventPublisher::new(self_node)
+            }),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                member(self_node.clone(), MemberStatus::Up, ["ddata"]),
+                member(peer.clone(), MemberStatus::Up, ["ddata"]),
+            ]),
+        ))
+        .unwrap();
+
+    let connector = system
+        .spawn(
+            "connector",
+            Props::new({
+                let cluster = cluster.clone();
+                let self_node = self_node.clone();
+                let replicator = replicator.clone();
+                move || {
+                    ReplicatorClusterConnector::with_required_roles(
+                        cluster,
+                        self_node,
+                        replicator,
+                        ["ddata"],
+                    )
+                }
+            }),
+        )
+        .unwrap();
+    let (snapshot_ref, snapshot_rx) =
+        forward_ref::<ReplicatorClusterConnectorSnapshot>(&system, "self-removed-snapshots");
+
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.remote_replicas == vec![ReplicaId::from(&peer)]
+    });
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::Member(MemberEvent::Removed {
+                member: member(self_node.clone(), MemberStatus::Removed, ["ddata"]),
+                previous_status: MemberStatus::Up,
+            }),
+        ))
+        .unwrap();
+
+    assert!(
+        connector.wait_for_stop(Duration::from_secs(1)),
+        "connector should stop when its own cluster member is removed"
+    );
 
     system.terminate(Duration::from_secs(1)).unwrap();
 }
@@ -417,7 +489,10 @@ fn eventually_snapshot(
     rx: &mpsc::Receiver<ReplicatorClusterConnectorSnapshot>,
     matches: impl Fn(&ReplicatorClusterConnectorSnapshot) -> bool,
 ) -> ReplicatorClusterConnectorSnapshot {
-    for _ in 0..20 {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut last_snapshot = None;
+
+    while Instant::now() < deadline {
         connector
             .tell(ReplicatorClusterConnectorMsg::Snapshot {
                 reply_to: reply_to.clone(),
@@ -427,9 +502,11 @@ fn eventually_snapshot(
         if matches(&snapshot) {
             return snapshot;
         }
+        last_snapshot = Some(snapshot);
+        std::thread::sleep(Duration::from_millis(10));
     }
 
-    panic!("snapshot condition was not met")
+    panic!("snapshot condition was not met; last snapshot: {last_snapshot:?}")
 }
 
 struct Forward<M> {

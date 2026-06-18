@@ -3782,6 +3782,9 @@ Implemented:
   remembered entities that move to another shard after shard-id extraction
   changes: the shard removes local runtime state, records a remember-store stop
   update, and the entity-backed shard stops the old child actor.
+- `kairo-distributed-data` cluster connector now stops itself when the local
+  cluster member is removed, matching Pekko Replicator `MemberRemoved(self)`
+  handling while preserving normal peer-removal route shrinkage.
 
 Not yet implemented:
 
@@ -3815,9 +3818,10 @@ Not yet implemented:
 Latest progress refresh validation:
 
 ```bash
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
-cargo test -p kairo-cluster-sharding region_actor_ignores_stale_remembered_local_shard_restart_timer --all-targets --all-features
-cargo test -p kairo-cluster-sharding --all-targets --all-features
 ```
 
 Previous implementation checkpoints:

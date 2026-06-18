@@ -128,9 +128,15 @@ where
         Ok(())
     }
 
-    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             ReplicatorClusterConnectorMsg::Cluster(event) => {
+                if let ClusterSubscriptionEvent::Event(event) = &event
+                    && self.is_self_removed_event(event)
+                {
+                    ctx.stop(ctx.myself())?;
+                    return Ok(());
+                }
                 let update = match event {
                     ClusterSubscriptionEvent::CurrentState(state) => self.apply_snapshot(&state),
                     ClusterSubscriptionEvent::Event(event) => self.routes.apply_event(&event),
@@ -166,6 +172,22 @@ where
             }
         }
         Ok(())
+    }
+}
+
+impl<D> ReplicatorClusterConnector<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    fn is_self_removed_event(&self, event: &kairo_cluster::ClusterEvent) -> bool {
+        matches!(
+            event,
+            kairo_cluster::ClusterEvent::Member(kairo_cluster::MemberEvent::Removed {
+                member,
+                ..
+            }) if member.unique_address.address == self.routes.self_node().address
+        )
     }
 }
 
