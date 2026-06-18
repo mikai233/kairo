@@ -631,12 +631,18 @@ impl MultiNodeTestKit {
 
     /// Terminates every node-owned actor system.
     ///
-    /// Shutdown continues across all nodes and returns the first termination
-    /// error observed, if any.
+    /// Shutdown continues across all nodes under one shared timeout budget and
+    /// returns the first termination error observed, if any.
     pub fn shutdown(self, timeout: Duration) -> MultiNodeResult<()> {
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .unwrap_or_else(|| Instant::now() + Duration::from_secs(60 * 60 * 24 * 365));
         let mut first_error = None;
         for node in self.nodes {
-            if let Err(error) = node.shutdown(timeout)
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .unwrap_or(Duration::ZERO);
+            if let Err(error) = node.shutdown(remaining)
                 && first_error.is_none()
             {
                 first_error = Some(error);

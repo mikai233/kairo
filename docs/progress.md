@@ -3856,6 +3856,9 @@ Implemented:
 - The `kairo-benchmarks` runner now validates `KAIRO_BENCH_ITERS` explicitly
   and rejects zero or non-numeric values so benchmark smoke runs cannot report
   meaningless zero-iteration throughput.
+- `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
+  node actor systems, so a slow first node cannot grant later nodes fresh
+  full shutdown windows during deterministic multi-node cleanup.
 
 Not yet implemented:
 

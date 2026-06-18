@@ -10,6 +10,23 @@ impl Actor for MultiNodeUnitActor {
     }
 }
 
+struct SlowStopActor {
+    delay: Duration,
+}
+
+impl Actor for SlowStopActor {
+    type Msg = ();
+
+    fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        thread::sleep(self.delay);
+        Ok(())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct MultiNodeTestEvent(&'static str);
 
@@ -312,6 +329,41 @@ fn multi_node_testkit_watches_node_local_actor_termination() {
 
     kit.shutdown(Duration::from_secs(1))
         .expect("nodes should terminate");
+}
+
+#[test]
+fn multi_node_testkit_shutdown_uses_one_shared_timeout_budget() {
+    let kit = MultiNodeTestKit::new(["shutdown-budget-a", "shutdown-budget-b"])
+        .expect("nodes should build");
+    let slow_stop = Duration::from_millis(250);
+    kit.spawn_on(
+        "shutdown-budget-a",
+        "slow-a",
+        Props::new(move || SlowStopActor { delay: slow_stop }),
+    )
+    .expect("slow actor on node a should spawn");
+    kit.spawn_on(
+        "shutdown-budget-b",
+        "slow-b",
+        Props::new(move || SlowStopActor { delay: slow_stop }),
+    )
+    .expect("slow actor on node b should spawn");
+
+    let timeout = Duration::from_millis(100);
+    let started = Instant::now();
+    let error = kit
+        .shutdown(timeout)
+        .expect_err("slow node shutdown should time out");
+    let elapsed = started.elapsed();
+
+    assert!(matches!(
+        error,
+        MultiNodeError::Actor(ActorError::TerminationTimeout)
+    ));
+    assert!(
+        elapsed < timeout * 2,
+        "multi-node shutdown should share one timeout budget; elapsed {elapsed:?}"
+    );
 }
 
 #[test]
