@@ -189,19 +189,11 @@ fn stop_prevents_later_user_message_delivery() {
         .unwrap();
 
     counter.tell(CounterMsg::Stop).unwrap();
+    assert!(counter.wait_for_stop(Duration::from_secs(1)));
 
-    let mut rejected = None;
-    for _ in 0..100 {
-        match counter.tell(CounterMsg::Increment) {
-            Ok(()) => thread::sleep(Duration::from_millis(5)),
-            Err(error) => {
-                rejected = Some(error);
-                break;
-            }
-        }
-    }
-
-    let error = rejected.expect("message sent after stop should be rejected");
+    let error = counter
+        .tell(CounterMsg::Increment)
+        .expect_err("message sent after stop should be rejected");
     assert_eq!(error.reason(), "actor is stopped");
     assert!(
         system
