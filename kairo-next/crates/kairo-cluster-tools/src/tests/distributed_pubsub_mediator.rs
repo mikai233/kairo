@@ -465,6 +465,40 @@ fn distributed_pubsub_mediator_removes_remote_route_on_cluster_member_left() {
 }
 
 #[test]
+fn distributed_pubsub_mediator_stops_when_self_member_is_removed_by_address() {
+    let self_node = node("pubsub-self-removed", 1);
+    let replacement_incarnation =
+        UniqueAddress::new(self_node.address.clone(), self_node.uid.saturating_add(1));
+    let kit = ActorSystemTestKit::new("distributed-pubsub-self-removed").unwrap();
+    let mediator = kit
+        .system()
+        .spawn(
+            "mediator",
+            Props::new({
+                let self_node = self_node.clone();
+                move || DistributedPubSubMediatorActor::<String>::new(self_node)
+            }),
+        )
+        .unwrap();
+
+    mediator
+        .tell(DistributedPubSubMediatorMsg::ApplyClusterEvent {
+            event: ClusterEvent::Member(MemberEvent::Removed {
+                member: member(replacement_incarnation, MemberStatus::Removed, 2),
+                previous_status: MemberStatus::Up,
+            }),
+        })
+        .unwrap();
+
+    assert!(
+        mediator.wait_for_stop(Duration::from_secs(1)),
+        "pubsub mediator should stop when its own cluster address is removed"
+    );
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn distributed_pubsub_mediator_routes_one_message_per_group_across_nodes() {
     let node_a = node("a", 1);
     let node_b = node("b", 2);

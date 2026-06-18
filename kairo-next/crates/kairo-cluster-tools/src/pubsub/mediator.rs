@@ -438,7 +438,7 @@ where
                 self.remove_remote_node(&member.unique_address);
             }
             ClusterEvent::Member(MemberEvent::Removed { member, .. }) => {
-                if &member.unique_address == self.registry.self_node() {
+                if member.unique_address.address == self.registry.self_node().address {
                     ctx.stop(ctx.myself())?;
                 } else {
                     self.remove_remote_node(&member.unique_address);

@@ -3785,6 +3785,9 @@ Implemented:
 - `kairo-distributed-data` cluster connector now stops itself when the local
   cluster member is removed, matching Pekko Replicator `MemberRemoved(self)`
   handling while preserving normal peer-removal route shrinkage.
+- `kairo-cluster-tools` distributed pubsub mediator now stops on local
+  `MemberRemoved` by cluster address, matching Pekko mediator semantics even
+  when the removed member has a replacement unique-address incarnation.
 
 Not yet implemented:
 
@@ -3818,9 +3821,9 @@ Not yet implemented:
 Latest progress refresh validation:
 
 ```bash
-cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
-cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
