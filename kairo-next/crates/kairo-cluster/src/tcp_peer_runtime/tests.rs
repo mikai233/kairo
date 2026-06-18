@@ -629,23 +629,60 @@ fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
     let receiver_kit = ActorSystemTestKit::new("cluster-peer-runtime-shutdown-receiver").unwrap();
     let registry = registry();
     let mut sender = bind_peer_runtime("sender", 1, 11, &sender_kit, registry.clone());
-    let receiver = bind_association_runtime("receiver", 2, 22, &receiver_kit, registry);
+    let (receiver, receiver_probes) =
+        bind_association_runtime_with_probes("receiver", 2, 22, &receiver_kit, registry.clone());
+    let sender_node = sender.self_node().clone();
+    let receiver_node = receiver.self_node().clone();
+    let membership_outbound = ClusterMembershipWireOutbound::new(
+        receiver_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(Arc::new(
+            sender.association_cache().clone(),
+        ) as Arc<dyn RemoteOutbound>),
+    );
 
     sender
         .apply_snapshot(state(
-            vec![
-                member(sender.self_node().clone()),
-                member(receiver.self_node().clone()),
-            ],
+            vec![member(sender_node.clone()), member(receiver_node.clone())],
             vec![],
         ))
         .unwrap();
+    assert_eq!(sender.peer_route_count(), 1);
+    assert_eq!(sender.association_cache().route_count(), 1);
     wait_for_reverse_route(&receiver);
+    send_join_until_received(
+        &membership_outbound,
+        &receiver_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["before-shutdown".to_string()],
+        },
+        Duration::from_secs(1),
+    );
 
     let sender_report = sender.shutdown().unwrap();
 
     assert_eq!(sender_report.peer_routes.removed.len(), 1);
     assert_eq!(sender_report.listener.accepted_associations, 0);
+    let shutdown_error = membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: sender_node,
+                roles: vec!["after-shutdown".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("stale cluster membership route should reject sends after shutdown");
+    assert!(
+        shutdown_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected shutdown send error: {shutdown_error:?}"
+    );
+    receiver_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
     let receiver_report = receiver.shutdown().unwrap();
     assert_eq!(receiver_report.accepted_associations, 1);
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();

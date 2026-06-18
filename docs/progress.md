@@ -2550,6 +2550,10 @@ Implemented:
 - Cluster TCP peer runtime shutdown now has focused lifecycle coverage proving
   that pending reconnects are cleared and reported after failed dials, and the
   runtime tests live in a sibling test module instead of the production file.
+- Cluster TCP peer runtime shutdown coverage now also pins the stale outbound
+  boundary: a membership sender built from the association cache delivers while
+  its route is live, but rejects stable-manifest `Join` sends after shutdown
+  clears the route and leaves the receiver's membership inbox empty.
 - `kairo-cluster` crate docs now explain gossip-based membership, vector-clock
   merge, observer-owned reachability/failure-detector observations, why
   discovery is contact-only, and why Kairo does not use etcd or another
@@ -6328,5 +6332,10 @@ cargo test -p kairo-remote tcp_remote_actor_system_coordinated_shutdown_stops_ru
 cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 git diff --check
 ```
