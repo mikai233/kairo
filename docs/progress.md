@@ -3747,6 +3747,9 @@ Implemented:
 - `docs/decisions.md` now reconciles the early cluster heartbeat typed-route
   ADR with the later remote heartbeat envelope adapters and TCP system inbound
   delivery path.
+- `docs/decisions.md` now reconciles the serialized remote envelope ADR
+  context with the implemented canonical `SerializedMessage` and
+  `RemoteEnvelope` wire helpers.
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
@@ -6299,5 +6302,12 @@ cargo test -p kairo-cluster remote_heartbeat_round_trip_updates_sender_failure_d
 cargo test -p kairo-cluster tcp_runtime_routes_membership_and_heartbeat_over_bidirectional_association --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo-serialization serialized_message_wire_round_trip_preserves_metadata_tuple --all-targets --all-features
+cargo test -p kairo-serialization remote_envelope_wire_round_trip_preserves_refs_and_message --all-targets --all-features
+cargo test -p kairo-remote remote_envelope_frame_uses_canonical_envelope_body --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo -p kairo-serialization -p kairo-remote --all-targets --all-features -- -D warnings
 git diff --check
 ```

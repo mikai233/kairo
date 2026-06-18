@@ -2901,8 +2901,9 @@ remoting, cluster, distributed-data, sharding, and cluster-tools system
 protocols depend on them. Pekko carries serializer id, manifest, and payload
 bytes explicitly, with sender and recipient metadata at the envelope boundary.
 Kairo already has `WireWriter` and `WireReader` helpers for hand-written
-system protocol bytes, but `SerializedMessage` and `RemoteEnvelope` did not yet
-own a canonical byte round-trip.
+system protocol bytes. The next serialization layer needed
+`SerializedMessage` and `RemoteEnvelope` to own the canonical byte round-trip
+that remoting and system protocols could share.
 
 Decision:
 `SerializedMessage::encode_wire` writes serializer id, manifest, version, and
