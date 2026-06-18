@@ -2394,7 +2394,9 @@ Implemented:
   remember-entity delivery across coordinator movement: a first delivery
   buffered while the old coordinator has not acknowledged registration is
   re-requested from the newly selected coordinator, persisted through the
-  shard remember store, and activated after the moved registration completes.
+  shard remember store, activated after the moved registration completes, and
+  subsequent traffic for that entity is delivered normally instead of issuing
+  another remember-start update.
 - Shard-region discovery subscriber coverage now also validates automatic
   remembered-shard orchestration with a shared remember store: a discovered
   coordinator allocates the remembered shard after region registration, the
@@ -4282,6 +4284,17 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after coordinator-move remembered-entity routing
+coverage:
+
+```bash
+cargo test -p kairo-cluster-sharding region_discovery_reissues_buffered_remembered_home_after_coordinator_moves --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after multi-child parent-stop watch-cleanup
 coverage:

@@ -603,6 +603,27 @@ fn region_discovery_reissues_buffered_remembered_home_after_coordinator_moves() 
         },
     )
     .unwrap();
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-coordinator-move".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        delivery.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-coordinator-move".to_string()),
+        }
+    );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
