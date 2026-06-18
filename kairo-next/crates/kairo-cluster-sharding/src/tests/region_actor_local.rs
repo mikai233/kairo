@@ -189,6 +189,95 @@ fn region_actor_with_local_shards_spawns_child_on_host_shard() {
 }
 
 #[test]
+fn region_actor_observes_plain_local_shard_stop_without_restart() {
+    let (kit, time) =
+        kairo_testkit::ActorSystemTestKit::with_manual_time("region-plain-shard-watch-stop")
+            .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_local_shards("region-a", 10, 10),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let local_shard = kit
+        .create_probe::<Option<kairo_actor::ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    kit.system().stop(&shard);
+    assert!(shard.wait_for_stop(Duration::from_secs(1)));
+    kairo_testkit::await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            region
+                .tell(ShardRegionMsg::GetLocalShard {
+                    shard: "shard-1".to_string(),
+                    reply_to: local_shard.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            if local_shard
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?
+                .is_none()
+            {
+                Ok(())
+            } else {
+                Err("plain local shard is still registered".to_string())
+            }
+        },
+    )
+    .unwrap();
+
+    time.advance(Duration::from_secs(10));
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-stop".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    deliveries.expect_no_msg(Duration::from_millis(50)).unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_spawns_store_backed_shard_and_recovers_entities() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("region-actor-local-remember-shard-child").unwrap();

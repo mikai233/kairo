@@ -3922,6 +3922,10 @@ Implemented:
   termination itself, removes the local route, schedules the remember-entity
   restart backoff, and restarts the shard without an explicit
   `MarkShardStopped` test command.
+- The same sharding region death-watch coverage now pins the non-remembered
+  shard path: a plain local shard termination is observed by the region, the
+  local route is removed, no restart is scheduled, and later delivery buffers
+  for shard-home resolution.
 
 Not yet implemented:
 
@@ -5927,6 +5931,12 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-cluster-sharding region_actor_observes_remembered_local_shard_stop_and_restarts_without_mark_message --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_actor_observes_plain_local_shard_stop_without_restart --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
