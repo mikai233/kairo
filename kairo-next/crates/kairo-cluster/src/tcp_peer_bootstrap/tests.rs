@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use kairo_actor::{ActorError, Address, Props};
 use kairo_remote::{RemoteOutbound, RemoteSettings};
-use kairo_testkit::{ActorSystemTestKit, MultiNodeTestKit, await_assert};
+use kairo_testkit::{ActorSystemTestKit, ManualTime, MultiNodeTestKit, await_assert};
 
 use super::{
     ClusterTcpPeerBootstrap, ClusterTcpPeerBootstrapError, ClusterTcpPeerBootstrapIdentity,
@@ -64,6 +64,42 @@ fn send_join_until_received(
                 Err(error) => Err(format!(
                     "cluster join was not delivered yet: {error}; last send error: {last_error:?}"
                 )),
+            }
+        },
+    )
+    .unwrap();
+}
+
+fn await_connector_route_without_manual_retry(
+    time: &ManualTime,
+    connector: &kairo_actor::ActorRef<crate::ClusterTcpPeerConnectorMsg>,
+    snapshots: &kairo_testkit::TestProbe<ClusterTcpPeerConnectorSnapshot>,
+    expected_peer: &UniqueAddress,
+) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            connector
+                .tell(crate::ClusterTcpPeerConnectorMsg::Snapshot {
+                    reply_to: snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            let has_expected_peer = snapshot
+                .active_targets
+                .iter()
+                .any(|target| target.node() == expected_peer);
+            if snapshot.route_count == 1
+                && has_expected_peer
+                && snapshot.pending_reconnects.is_empty()
+            {
+                Ok(())
+            } else {
+                time.advance_to_next();
+                Err(format!("unexpected connector snapshot: {snapshot:?}"))
             }
         },
     )
@@ -736,6 +772,76 @@ fn bootstrap_clears_pending_reconnect_when_peer_leaves_before_retry() {
 
     run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_automatic_retry_timer_installs_pending_peer_route() {
+    let _guard = bootstrap_socket_test_lock();
+    let (sender_kit, time) =
+        ActorSystemTestKit::with_manual_time("cluster-bootstrap-automatic-retry-sender").unwrap();
+    let missing_kit = ActorSystemTestKit::new("cluster-bootstrap-automatic-retry-missing").unwrap();
+    let registry = registry();
+    let retry_interval = Duration::from_millis(25);
+    let sender_runtime = bind_runtime(
+        "cluster-bootstrap-automatic-retry-sender",
+        1,
+        11,
+        &sender_kit,
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let missing_port = unused_port();
+    let sender_node = sender_runtime.self_node().clone();
+    let missing_node = node("cluster-bootstrap-automatic-retry-missing", missing_port, 2);
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ClusterTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(ClusterTcpPeerConnectorSettings::new(retry_interval).unwrap())
+    .with_connector_name("sender-cluster-peer");
+
+    let sender_bootstrap = ClusterTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), missing_node.clone()]),
+    );
+    await_connector_pending_reconnect(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &missing_node,
+    );
+
+    let missing_runtime = bind_association_runtime_on_port(
+        "cluster-bootstrap-automatic-retry-missing",
+        2,
+        22,
+        missing_port,
+        &missing_kit,
+        registry,
+    );
+    await_connector_route_without_manual_retry(
+        &time,
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &missing_node,
+    );
+    await_cache_route_count(&sender_cache, 1);
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
+    missing_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    missing_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

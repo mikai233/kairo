@@ -3912,6 +3912,11 @@ Implemented:
   coverage now matches distributed-data member-removal delivery behavior: after
   one peer leaves membership, the remaining membership/pubsub route still
   carries real protocol messages while the removed peer rejects delivery.
+- `kairo-cluster`, `kairo-distributed-data`, and `kairo-cluster-tools` TCP
+  peer bootstrap facades now cover automatic retry ticks under manual time:
+  an initially missing peer is left pending reconnect, then binding that peer
+  and advancing scheduled deadlines installs the route without sending direct
+  retry commands to the connector.
 
 Not yet implemented:
 
@@ -3926,8 +3931,8 @@ Not yet implemented:
   two-node and sender-side three-node example smoke tests, three-node
   bootstrap route validation, and focused peer-runtime, connector, and
   bootstrap sender-side route-reduction, connector/bootstrap partial-failure
-  delivery, connector member-removal delivery, and partial-failure retry
-  coverage.
+  delivery, connector member-removal delivery, bootstrap automatic retry, and
+  partial-failure retry coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level and multi-node
   discovery/shared-store first-delivery coverage.
@@ -3937,8 +3942,9 @@ Not yet implemented:
   `run_coordinated_shutdown` coverage, focused sender-side route-reduction
   delivery coverage, focused connector and bootstrap partial-failure delivery
   coverage, focused connector member-removal delivery coverage, focused
-  peer-runtime, connector, and bootstrap partial-failure retry coverage, and
-  three-node full-mesh delivery coverage where applicable.
+  bootstrap automatic retry coverage, focused peer-runtime, connector, and
+  bootstrap partial-failure retry coverage, and three-node full-mesh delivery
+  coverage where applicable.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation, focused three-node route-preservation
@@ -5899,6 +5905,16 @@ git diff --check
 cargo test connector_keeps_remaining --workspace --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster --all-targets --all-features
 cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo test --workspace --all-targets --all-features
+cargo test --doc --workspace --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+cargo test bootstrap_automatic_retry_timer_installs_pending_peer_route --workspace --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-distributed-data bootstrap_two_nodes_install_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo test --workspace --all-targets --all-features
 cargo test --doc --workspace --all-features
