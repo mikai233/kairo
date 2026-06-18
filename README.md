@@ -139,7 +139,20 @@ configuration loaders can project into the same runtime model.
 
 ## Validation
 
-Default full validation target:
+The GitHub Actions validation matrix is intentionally small and mirrors the
+normal next-workspace development surface:
+
+```text
+Format: cargo fmt --all -- --check
+Clippy: cargo clippy --workspace --all-targets --all-features -- -D warnings
+Test: cargo test --workspace --all-targets --all-features
+Examples and Multi-Node:
+  cargo test -p kairo-examples --all-targets --all-features
+  cargo test -p kairo-examples --doc --all-features
+  cargo test -p kairo-testkit multi_node --all-targets --all-features
+```
+
+Run the same default full validation target locally from `kairo-next`:
 
 ```bash
 cd kairo-next
@@ -159,5 +172,6 @@ Examples and local multi-node harness coverage can be validated directly:
 
 ```bash
 cargo test -p kairo-examples --all-targets --all-features
+cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 ```
