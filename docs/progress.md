@@ -4163,6 +4163,10 @@ Implemented:
   gossip to the removed peer as well as the survivors, then waits for the
   removed peer connector and association cache to clear before asserting stale
   routes reject delivery.
+- `kairo-cluster` three-node TCP bootstrap coverage now applies reduced gossip
+  to the removed peer as well as the survivors, then waits for the removed
+  peer connector and association cache to clear before asserting stale
+  membership routes reject delivery.
 
 Not yet implemented:
 
@@ -4198,8 +4202,9 @@ Not yet implemented:
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation, focused three-node route-preservation
-  coverage, three-node bootstrap full-mesh membership delivery coverage, and
-  focused peer-runtime partial-failure retry coverage.
+  coverage, three-node bootstrap full-mesh membership delivery coverage with
+  removed-peer route cleanup in the shrink path, and focused peer-runtime
+  partial-failure retry coverage.
 
 ## Last Validation
 
@@ -4232,6 +4237,15 @@ cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnin
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 git diff --check
+```
+
+Latest cluster bootstrap hardening validation:
+
+```bash
+cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-examples cluster_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks --all-targets --all-features -- --nocapture
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 ```
 
 Earlier focused progress refresh validation:
