@@ -2061,6 +2061,10 @@ Implemented:
   stop, the region schedules a remembered-shard restart, respawns the shard
   with the same shared store ref, reloads remembered entities, and delivers to
   the recovered entity after the backoff.
+- `kairo-cluster-sharding` region actor coverage now also pins the shared
+  remember-store handoff race: if an unexpectedly stopped remembered shard has
+  a restart timer pending, a later `BeginHandOff` suppresses the stale restart
+  and leaves the shard absent after the backoff fires.
 - `kairo-cluster-sharding` shard region actors can now explicitly route local
   sharding envelopes into spawned child shard actors while preserving the
   route outcome separately from the child `ShardDeliverPlan`, so remembered
@@ -5508,6 +5512,12 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor coordinated_shutdown_task_handle_cannot_cancel_running_task --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_suppresses_shared_store_remembered_shard_restart_after_handoff_begins --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
 cargo fmt --all
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
