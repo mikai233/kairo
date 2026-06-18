@@ -3897,6 +3897,9 @@ Implemented:
 - `kairo-cluster` peer-runtime shutdown coverage now pins the same cleanup
   invariant below the example layer: a runtime with two active peer routes
   removes both route-cache entries before its listener stops.
+- Distributed-data and cluster-tools peer-runtime shutdown coverage now pin the
+  matching multi-route cleanup invariant, so all TCP peer runtimes assert
+  shutdown removes two active route-cache entries before listener stop.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -6017,6 +6020,7 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-distributed-data peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
+cargo test -p kairo-distributed-data peer_runtime_shutdown_clears_multiple_active_peer_routes --all-targets --all-features -- --nocapture
 cargo test -p kairo-distributed-data peer_runtime --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
@@ -6025,6 +6029,7 @@ git diff --check
 cargo test -p kairo-cluster peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
 cargo test -p kairo-cluster peer_runtime_shutdown_clears_multiple_active_peer_routes --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-tools peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
+cargo test -p kairo-cluster-tools peer_runtime_shutdown_clears_multiple_active_peer_routes --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-cluster --all-targets --all-features

@@ -691,6 +691,77 @@ fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
 }
 
 #[test]
+fn peer_runtime_shutdown_clears_multiple_active_peer_routes() {
+    let _guard = cluster_tools_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("cluster-tools-peer-runtime-multi-shutdown-sender").unwrap();
+    let second_kit =
+        ActorSystemTestKit::new("cluster-tools-peer-runtime-multi-shutdown-second").unwrap();
+    let third_kit =
+        ActorSystemTestKit::new("cluster-tools-peer-runtime-multi-shutdown-third").unwrap();
+    let registry = registry();
+    let mut sender = bind_peer_runtime(
+        "multi-shutdown-sender",
+        1,
+        11,
+        &sender_kit,
+        registry.clone(),
+    );
+    let second = bind_association_runtime(
+        "multi-shutdown-second",
+        2,
+        22,
+        &second_kit,
+        registry.clone(),
+    );
+    let third = bind_association_runtime("multi-shutdown-third", 3, 33, &third_kit, registry);
+    let second_node = second.self_node().clone();
+    let third_node = third.self_node().clone();
+
+    sender
+        .apply_snapshot(state(
+            vec![
+                member(sender.self_node().clone()),
+                member(second_node.clone()),
+                member(third_node.clone()),
+            ],
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(sender.peer_route_count(), 2);
+    assert_eq!(sender.association_cache().route_count(), 2);
+    wait_for_route(&second);
+    wait_for_route(&third);
+
+    let sender_report = sender.shutdown().unwrap();
+
+    assert_eq!(sender_report.peer_routes.removed.len(), 2);
+    assert!(
+        sender_report
+            .peer_routes
+            .removed
+            .iter()
+            .any(|target| target.node() == &second_node)
+    );
+    assert!(
+        sender_report
+            .peer_routes
+            .removed
+            .iter()
+            .any(|target| target.node() == &third_node)
+    );
+    assert!(sender_report.pending_reconnects.is_empty());
+    assert_eq!(sender_report.listener.accepted_associations, 0);
+    let second_report = second.shutdown().unwrap();
+    assert_eq!(second_report.accepted_associations, 1);
+    let third_report = third.shutdown().unwrap();
+    assert_eq!(third_report.accepted_associations, 1);
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
     let _guard = cluster_tools_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-retry-sender").unwrap();
