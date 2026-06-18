@@ -12,6 +12,8 @@ use kairo::cluster_tools::{
 
 use crate::reply::spawn_one_shot_reply;
 
+const MANAGER_STATE_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterToolsSingletonObservation {
     pub first_node: String,
@@ -292,17 +294,31 @@ where
     let deadline = Instant::now() + timeout;
     let mut attempt = 0;
     loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
+        let Some(remaining) = remaining_until(deadline) else {
             return Err("timed out waiting for singleton manager state".into());
-        }
+        };
         let state = snapshot(system, &format!("{name}-{attempt}"), manager, remaining)?;
         if predicate(&state.state) {
             return Ok(state);
         }
         attempt += 1;
-        std::thread::sleep(Duration::from_millis(10).min(remaining));
+        if !sleep_until_next_poll(deadline) {
+            return Err("timed out waiting for singleton manager state".into());
+        }
     }
+}
+
+fn remaining_until(deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    (!remaining.is_zero()).then_some(remaining)
+}
+
+fn sleep_until_next_poll(deadline: Instant) -> bool {
+    let Some(remaining) = remaining_until(deadline) else {
+        return false;
+    };
+    std::thread::sleep(MANAGER_STATE_POLL_INTERVAL.min(remaining));
+    true
 }
 
 fn initial_observation(
