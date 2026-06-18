@@ -11,6 +11,49 @@ fn repo_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
         .to_path_buf())
 }
 
+const FACADE_FEATURE_EXPECTATIONS: [(&str, &str, &str); 8] = [
+    (
+        "default = [\"actor\", \"macros\", \"config\"]",
+        "| `default` | `actor`, `macros`, `config` |",
+        "the default facade must stay local/config-only",
+    ),
+    (
+        "remote = [\"actor\", \"serialization\", \"dep:kairo-remote\"]",
+        "| `remote` | `actor`, `serialization`, remote refs and associations |",
+        "remoting must opt into local actors and stable serialization metadata",
+    ),
+    (
+        "cluster = [\"remote\", \"dep:kairo-cluster\"]",
+        "| `cluster` | `remote`, gossip membership and downing hooks |",
+        "cluster must build on remoting instead of bypassing the layer boundary",
+    ),
+    (
+        "distributed-data = [\"cluster\", \"dep:kairo-distributed-data\"]",
+        "| `distributed-data` | `cluster`, CRDT replication |",
+        "distributed data must build on cluster membership",
+    ),
+    (
+        "cluster-sharding = [\"cluster\", \"distributed-data\", \"dep:kairo-cluster-sharding\"]",
+        "| `cluster-sharding` | `cluster`, `distributed-data`, entity routing |",
+        "cluster sharding must build on cluster and distributed-data support",
+    ),
+    (
+        "cluster-tools = [\"cluster\", \"distributed-data\", \"dep:kairo-cluster-tools\"]",
+        "| `cluster-tools` | `cluster`, `distributed-data`, singleton and pubsub |",
+        "cluster tools must build on cluster and distributed-data support",
+    ),
+    (
+        "testkit = [\"actor\", \"dep:kairo-testkit\"]",
+        "| `testkit` | local actor test utilities without distributed runtime layers |",
+        "testkit support should not pull in distributed runtime layers",
+    ),
+    (
+        "full = [\"actor\", \"macros\", \"config\", \"serialization\", \"remote\", \"cluster\", \"distributed-data\", \"cluster-sharding\", \"cluster-tools\", \"testkit\"]",
+        "| `full` | every public facade feature for integration checks |",
+        "the explicit full feature should remain the all-surface integration bundle",
+    ),
+];
+
 #[test]
 fn root_workspace_members_stay_on_kairo_next() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
@@ -326,47 +369,42 @@ fn facade_feature_graph_keeps_distributed_layers_opt_in() -> Result<(), Box<dyn 
         .join("kairo")
         .join("Cargo.toml");
     let manifest = std::fs::read_to_string(&manifest_path)?.replace("\r\n", "\n");
-    let expected_features = [
-        (
-            "default = [\"actor\", \"macros\", \"config\"]",
-            "the default facade must stay local/config-only",
-        ),
-        (
-            "remote = [\"actor\", \"serialization\", \"dep:kairo-remote\"]",
-            "remoting must opt into local actors and stable serialization metadata",
-        ),
-        (
-            "cluster = [\"remote\", \"dep:kairo-cluster\"]",
-            "cluster must build on remoting instead of bypassing the layer boundary",
-        ),
-        (
-            "distributed-data = [\"cluster\", \"dep:kairo-distributed-data\"]",
-            "distributed data must build on cluster membership",
-        ),
-        (
-            "cluster-sharding = [\"cluster\", \"distributed-data\", \"dep:kairo-cluster-sharding\"]",
-            "cluster sharding must build on cluster and distributed-data support",
-        ),
-        (
-            "cluster-tools = [\"cluster\", \"distributed-data\", \"dep:kairo-cluster-tools\"]",
-            "cluster tools must build on cluster and distributed-data support",
-        ),
-        (
-            "testkit = [\"actor\", \"dep:kairo-testkit\"]",
-            "testkit support should not pull in distributed runtime layers",
-        ),
-        (
-            "full = [\"actor\", \"macros\", \"config\", \"serialization\", \"remote\", \"cluster\", \"distributed-data\", \"cluster-sharding\", \"cluster-tools\", \"testkit\"]",
-            "the explicit full feature should remain the all-surface integration bundle",
-        ),
-    ];
 
-    for (feature_line, reason) in expected_features {
+    for (feature_line, _, reason) in FACADE_FEATURE_EXPECTATIONS {
         assert!(
             manifest.contains(feature_line),
             "{} must contain `{feature_line}`: {reason}",
             manifest_path.display()
         );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn public_docs_keep_facade_feature_map_aligned() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let docs = [
+        repo_root.join("README.md"),
+        repo_root.join("kairo-next").join("README.md"),
+        repo_root.join("docs").join("migration.md"),
+    ];
+
+    for doc_path in docs {
+        let doc = std::fs::read_to_string(&doc_path)?.replace("\r\n", "\n");
+        assert!(
+            doc.contains("The `kairo` facade"),
+            "{} must present the facade as the normal user entry point",
+            doc_path.display()
+        );
+
+        for (_, feature_row, reason) in FACADE_FEATURE_EXPECTATIONS {
+            assert!(
+                doc.contains(feature_row),
+                "{} must document facade feature row `{feature_row}`: {reason}",
+                doc_path.display()
+            );
+        }
     }
 
     Ok(())

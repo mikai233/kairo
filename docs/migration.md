@@ -7,7 +7,7 @@ material only; normal development, examples, and validation should use the
 
 ## Recommended Entry Point
 
-Prefer the facade crate:
+The `kairo` facade is the recommended migration entry point:
 
 ```rust
 use kairo::prelude::*;
@@ -22,6 +22,7 @@ configuration loading. Distributed layers are opt-in:
 
 | Feature | Enables |
 | --- | --- |
+| `default` | `actor`, `macros`, `config` |
 | `serialization` | stable remote-message metadata and codec registry |
 | `remote` | `actor`, `serialization`, remote refs and associations |
 | `cluster` | `remote`, gossip membership and downing hooks |
