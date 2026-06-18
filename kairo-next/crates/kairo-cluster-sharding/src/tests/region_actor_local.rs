@@ -774,6 +774,98 @@ fn region_actor_suppresses_shared_store_remembered_shard_restart_after_handoff_b
 }
 
 #[test]
+fn region_actor_suppresses_shared_store_remembered_shard_restart_after_graceful_shutdown_starts() {
+    let (kit, time) = kairo_testkit::ActorSystemTestKit::with_manual_time(
+        "region-shared-store-remember-shard-shutdown-race",
+    )
+    .unwrap();
+    let remember_store = kit
+        .system()
+        .spawn(
+            "remember-store",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            Props::new(move || {
+                ShardRegionActor::<String>::new_with_remember_store_shards(
+                    "region-a",
+                    10,
+                    10,
+                    BTreeMap::from([("shard-1".to_string(), remember_store.clone())]),
+                    Duration::from_millis(500),
+                )
+                .with_remember_shard_failure_backoff(Duration::from_secs(1))
+            }),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let local_shard = kit
+        .create_probe::<Option<kairo_actor::ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let state = kit.create_probe::<ShardRegionSnapshot>("state").unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    kit.system().stop(&shard);
+    assert!(shard.wait_for_stop(Duration::from_secs(1)));
+    region
+        .tell(ShardRegionMsg::MarkShardStopped {
+            shard: "shard-1".to_string(),
+            reply_to: Some(state.actor_ref()),
+        })
+        .unwrap();
+    assert!(
+        state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .local_shards
+            .is_empty()
+    );
+    region
+        .tell(ShardRegionMsg::SetGracefulShutdown { in_progress: true })
+        .unwrap();
+
+    time.advance(Duration::from_secs(1));
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        local_shard
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .is_none()
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_replays_buffered_routes_to_spawned_local_shard_child() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-actor-buffered-replay-child").unwrap();
     let region = kit

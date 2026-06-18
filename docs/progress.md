@@ -3701,6 +3701,10 @@ Implemented:
   that a `MemberRemoved` event removes only the departed peer route, keeps
   remaining live routes delivering, and rejects later sends to the removed
   route.
+- `kairo-cluster-sharding` shared remember-entity store coverage now pins that
+  a pending remembered-shard restart timer is suppressed once graceful
+  shutdown starts, matching the local-store shutdown race coverage for the
+  actor-backed region orchestration path.
 
 Not yet implemented:
 
@@ -5581,5 +5585,11 @@ cargo test -p kairo-cluster --all-targets --all-features
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_actor_suppresses_shared_store_remembered_shard_restart_after_graceful_shutdown_starts --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```
