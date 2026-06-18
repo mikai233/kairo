@@ -2386,9 +2386,10 @@ Implemented:
   heartbeat receiver and heartbeat response paths after recipient validation,
   and separately rejects unknown cluster system manifests before they can be
   routed into membership or failure-detector state.
-- The cluster TCP association runtime now explicitly closes active dialed
-  outbound lane pipelines during shutdown, with integration coverage retaining
-  a live route registration across shutdown to prove reader joins complete.
+- The cluster TCP association runtime now closes every cached association
+  route during shutdown, including listener-installed reverse routes and
+  dialed lane pipelines, before joining reader threads so membership and
+  heartbeat socket routes cannot keep lanes open after runtime stop.
 - `kairo-cluster` now has a focused cluster-derived association peer planner
   that consumes `CurrentClusterState` snapshots and cluster events, excludes
   self, follows Pekko's local-observer reachability rule for gossip peer
@@ -3690,6 +3691,13 @@ Not yet implemented:
 ## Last Validation
 
 ```bash
+cargo fmt --all
+cargo test -p kairo-cluster remote_tcp --all-targets --all-features
+cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
 cargo test -p kairo-cluster-tools tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally --all-targets --all-features
 cargo test -p kairo-cluster-tools remote_tcp --all-targets --all-features
 cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features

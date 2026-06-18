@@ -18,6 +18,7 @@ use crate::{
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+const CLUSTER_TCP_SHUTDOWN_REASON: &str = "cluster tcp association runtime shutdown";
 
 pub struct ClusterTcpAssociationRuntime {
     self_node: UniqueAddress,
@@ -162,17 +163,17 @@ impl ClusterTcpAssociationRuntime {
         self,
         _timeout: Duration,
     ) -> RemoteResult<TcpAssociationListenerReport> {
-        self.association_cache.clear_routes();
+        for result in self
+            .association_cache
+            .clear_routes_and_close(CLUSTER_TCP_SHUTDOWN_REASON)
+        {
+            result?;
+        }
         self.listener.stop();
-        let outbound_pipelines = self
-            .outbound_pipelines
+        self.outbound_pipelines
             .lock()
             .expect("cluster tcp outbound pipelines lock poisoned")
-            .drain(..)
-            .collect::<Vec<_>>();
-        for pipeline in outbound_pipelines {
-            let _ = pipeline.close("cluster tcp association runtime shutdown");
-        }
+            .clear();
         let outbound_readers = self
             .outbound_readers
             .lock()
@@ -214,7 +215,7 @@ pub fn cluster_association_identity_for(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use kairo_remote::RemoteOutbound;
@@ -247,6 +248,34 @@ mod tests {
 
     fn wire_for(node: &UniqueAddress, path: &str) -> ActorRefWireData {
         ActorRefWireData::new(format!("{}{}", node.address, path)).unwrap()
+    }
+
+    #[derive(Default)]
+    struct RecordingOutbound {
+        close_reasons: Mutex<Vec<String>>,
+    }
+
+    impl RecordingOutbound {
+        fn close_reasons(&self) -> Vec<String> {
+            self.close_reasons
+                .lock()
+                .expect("recording outbound lock poisoned")
+                .clone()
+        }
+    }
+
+    impl RemoteOutbound for RecordingOutbound {
+        fn send(&self, _envelope: RemoteEnvelope) -> RemoteResult<()> {
+            Ok(())
+        }
+
+        fn close(&self, reason: &str) -> RemoteResult<()> {
+            self.close_reasons
+                .lock()
+                .expect("recording outbound lock poisoned")
+                .push(reason.to_string());
+            Ok(())
+        }
     }
 
     fn bind_runtime(
@@ -387,6 +416,46 @@ mod tests {
             receiver_report.remote_identities,
             vec![expected_sender_identity]
         );
+        sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+        receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn tcp_runtime_shutdown_closes_cached_routes_with_live_reverse_route() {
+        let _guard = cluster_socket_test_lock();
+        let sender_kit = ActorSystemTestKit::new("cluster-tcp-shutdown-sender").unwrap();
+        let receiver_kit = ActorSystemTestKit::new("cluster-tcp-shutdown-receiver").unwrap();
+        let registry = registry();
+        let (sender, _sender_membership, _sender_heartbeat) =
+            bind_runtime("sender", 1, 11, &sender_kit, registry.clone());
+        let (receiver, _receiver_membership, _receiver_heartbeat) =
+            bind_runtime("receiver", 2, 22, &receiver_kit, registry);
+        let receiver_address = receiver.local_address().clone();
+        let registration = sender.dial(receiver_address.clone()).unwrap();
+        wait_for_route(&receiver);
+        assert!(
+            receiver
+                .association_registry()
+                .association_by_uid(11)
+                .is_some()
+        );
+        let recording_route = Arc::new(RecordingOutbound::default());
+        receiver.association_cache().insert_route(
+            RemoteAssociationAddress::new("kairo", "recorded", "127.0.0.1", Some(2552)).unwrap(),
+            recording_route.clone() as Arc<dyn RemoteOutbound>,
+        );
+        assert_eq!(receiver.association_cache().route_count(), 2);
+
+        let receiver_report = receiver.shutdown().unwrap();
+
+        assert_eq!(registration.address(), &receiver_address);
+        assert_eq!(receiver_report.accepted_associations, 1);
+        assert_eq!(
+            recording_route.close_reasons(),
+            vec![CLUSTER_TCP_SHUTDOWN_REASON.to_string()]
+        );
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.accepted_associations, 0);
         sender_kit.shutdown(Duration::from_secs(1)).unwrap();
         receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
     }
