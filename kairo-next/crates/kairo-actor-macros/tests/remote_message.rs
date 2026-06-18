@@ -22,6 +22,12 @@ enum EnumMessage {
 #[kairo(manifest = "wire.contract.not.rust.name", version = 1)]
 struct RenamedRustType;
 
+#[derive(KairoRemoteMessage)]
+#[kairo(manifest = "kairo.test.GenericMacroMessage", version = 5)]
+struct GenericMacroMessage<T> {
+    value: T,
+}
+
 #[kairo_message]
 #[derive(Debug, PartialEq, Eq)]
 struct LocalOnlyMessage {
@@ -66,6 +72,18 @@ fn derive_remote_message_does_not_infer_manifest_from_rust_type_name() {
         !RenamedRustType::MANIFEST.contains("RenamedRustType"),
         "wire manifest must stay stable if the Rust type is renamed"
     );
+}
+
+#[test]
+fn derive_remote_message_preserves_generic_message_metadata() {
+    let message = GenericMacroMessage { value: 7_u8 };
+
+    assert_eq!(
+        GenericMacroMessage::<u8>::MANIFEST,
+        "kairo.test.GenericMacroMessage"
+    );
+    assert_eq!(GenericMacroMessage::<u8>::VERSION, 5);
+    assert_eq!(message.value, 7);
 }
 
 #[test]

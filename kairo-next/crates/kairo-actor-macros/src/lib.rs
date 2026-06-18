@@ -27,7 +27,7 @@
 
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{DeriveInput, LitInt, LitStr, parse_macro_input};
+use syn::{DeriveInput, LitInt, LitStr, parse_macro_input, parse_quote};
 
 /// Marker attribute reserved for future actor protocol metadata.
 ///
@@ -55,20 +55,22 @@ pub fn derive_kairo_remote_message(item: TokenStream) -> TokenStream {
 }
 
 fn expand_remote_message(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
-    if !input.generics.params.is_empty() {
-        return Err(syn::Error::new_spanned(
-            input.generics,
-            "KairoRemoteMessage does not support generic message types yet",
-        ));
-    }
-
     let ident = input.ident;
+    let mut generics = input.generics;
     let metadata = RemoteMessageMetadata::parse(&input.attrs)?;
     let manifest = metadata.manifest;
     let version = metadata.version;
+    let self_type = {
+        let (_, ty_generics, _) = generics.split_for_impl();
+        parse_quote!(#ident #ty_generics: ::std::marker::Send + 'static)
+    };
+    generics.make_where_clause().predicates.push(self_type);
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     Ok(quote! {
-        impl ::kairo_serialization::RemoteMessage for #ident {
+        impl #impl_generics ::kairo_serialization::RemoteMessage for #ident #ty_generics
+        #where_clause
+        {
             const MANIFEST: &'static str = #manifest;
             const VERSION: u16 = #version;
         }
@@ -205,17 +207,24 @@ mod tests {
     }
 
     #[test]
-    fn remote_message_rejects_generic_message_types() {
-        let error = expand_error(
+    fn remote_message_preserves_generic_message_types() {
+        let input: DeriveInput = syn::parse_str(
             r#"
             #[kairo(manifest = "kairo.test.Generic", version = 1)]
             struct Generic<T>(T);
             "#,
-        );
+        )
+        .expect("test input should parse");
 
-        assert_eq!(
-            error,
-            "KairoRemoteMessage does not support generic message types yet"
+        let tokens = expand_remote_message(input).unwrap().to_string();
+
+        assert!(
+            tokens.contains("impl < T > :: kairo_serialization :: RemoteMessage for Generic < T >"),
+            "derive should preserve generic impl parameters: {tokens}"
+        );
+        assert!(
+            tokens.contains("Generic < T > : :: std :: marker :: Send + 'static"),
+            "derive should add the RemoteMessage supertrait bound to the concrete generic type: {tokens}"
         );
     }
 }

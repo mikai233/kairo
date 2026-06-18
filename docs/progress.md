@@ -924,9 +924,11 @@ Implemented:
   source for codec, registry, serializer-id, and concrete format references,
   keeping `KairoRemoteMessage` limited to stable manifest/version metadata.
 - `KairoRemoteMessage` parser coverage now rejects missing manifest/version
-  metadata, duplicate metadata keys, whitespace-only manifests, oversized
-  versions, and generic message types before a remote wire contract can be
-  generated.
+  metadata, duplicate metadata keys, whitespace-only manifests, and oversized
+  versions before a remote wire contract can be generated. The derive now
+  preserves generic message type parameters and adds the concrete
+  `Self: Send + 'static` bound needed by `RemoteMessage`, so generic Rust
+  protocols can still carry explicit stable manifest/version metadata.
 - `ActorRefWireData` stores serialized actor-ref paths with explicit protocol,
   system, host, and port metadata, and `ActorRefResolver` defines the provider
   boundary for formatting and resolving those refs later.
@@ -5506,5 +5508,12 @@ cargo fmt --all
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor-macros derive_remote_message_preserves_generic_message_metadata --test remote_message --all-features
+cargo test -p kairo-actor-macros --all-targets --all-features
+cargo test -p kairo-serialization --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor-macros -p kairo-serialization --all-targets --all-features -- -D warnings
 git diff --check
 ```
