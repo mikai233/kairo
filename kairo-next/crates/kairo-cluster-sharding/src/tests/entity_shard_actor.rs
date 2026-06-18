@@ -502,23 +502,26 @@ fn entity_shard_actor_handoff_sends_stop_to_entity_children() {
         ]
     );
 
-    let mut completed = false;
-    for _ in 0..20 {
-        shard
-            .tell(ShardMsg::HandOffStopperTerminated {
-                reply_to: stopper.actor_ref(),
-            })
-            .unwrap();
-        completed = stopper.expect_msg(Duration::from_millis(500)).unwrap();
-        if completed {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        completed,
-        "handoff should complete after entity children stop"
-    );
+    kairo_testkit::await_assert(
+        Duration::from_millis(10_200),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            shard
+                .tell(ShardMsg::HandOffStopperTerminated {
+                    reply_to: stopper.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let completed = stopper
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if completed {
+                Ok(())
+            } else {
+                Err("handoff should complete after entity children stop".to_string())
+            }
+        },
+    )
+    .unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

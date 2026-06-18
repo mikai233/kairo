@@ -72,25 +72,28 @@ fn entity_ref_routes_through_sharding_envelope_router_to_local_shard() {
 
     let shard_ref = wait_for_local_shard(&kit, &region, &shard);
     let snapshot = kit.create_probe::<ShardSnapshot>("shard-snapshot").unwrap();
-    let mut active = false;
-    for _ in 0..20 {
-        shard_ref
-            .tell(ShardMsg::GetState {
-                reply_to: snapshot.actor_ref(),
-            })
-            .unwrap();
-        let state = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
-        active = state.active_entities == vec!["entity-1".to_string()];
-        if active {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-
-    assert!(
-        active,
-        "router should deliver the entity envelope to a local shard"
-    );
+    kairo_testkit::await_assert(
+        Duration::from_millis(10_200),
+        Duration::from_millis(10),
+        || -> Result<ShardSnapshot, String> {
+            shard_ref
+                .tell(ShardMsg::GetState {
+                    reply_to: snapshot.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let state = snapshot
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if state.active_entities == vec!["entity-1".to_string()] {
+                Ok(state)
+            } else {
+                Err(format!(
+                    "router should deliver the entity envelope to a local shard; last snapshot: {state:?}"
+                ))
+            }
+        },
+    )
+    .unwrap();
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
