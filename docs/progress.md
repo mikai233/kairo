@@ -2013,6 +2013,11 @@ Implemented:
   runtime to the store, feed successful store replies back into the runtime,
   chain pending remembered updates, and stop themselves on store read, update,
   or timeout failure so a supervisor can restart the shard.
+- `kairo-cluster-sharding` shard actor coverage now pins queued
+  remember-start writes at the actor/store boundary: while one store ask is in
+  flight, a second first delivery buffers locally, the actor does not issue a
+  second write early, and the queued write is sent after the first
+  acknowledgement activates the first entity.
 - `kairo-cluster-sharding` shard actors can now spawn a local remember-entity
   shard store child during startup from explicit store state, load remembered
   entities from that child, and persist remembered start updates through the
@@ -5475,5 +5480,11 @@ cargo test -p kairo-remote --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding shard_actor_sends_next_remember_start_after_store_ack --all-targets --all-features
+cargo fmt --all
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

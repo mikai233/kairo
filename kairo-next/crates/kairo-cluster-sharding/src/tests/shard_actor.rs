@@ -430,6 +430,140 @@ fn shard_actor_spawns_local_remember_store_and_persists_start_updates() {
 }
 
 #[test]
+fn shard_actor_sends_next_remember_start_after_store_ack() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-store-queued-start").unwrap();
+    let (store_tx, store_rx) = mpsc::channel();
+    let store = kit
+        .system()
+        .spawn("store", ControlledRememberShardStore::props(store_tx))
+        .unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_store(
+                "shard-1",
+                10,
+                store,
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let state = kit.create_probe::<ShardSnapshot>("state").unwrap();
+    let first_update =
+        RememberShardUpdate::new(["entity-1".to_string()], std::iter::empty::<String>());
+    let second_update =
+        RememberShardUpdate::new(["entity-2".to_string()], std::iter::empty::<String>());
+
+    match store_rx.recv_timeout(Duration::from_millis(500)).unwrap() {
+        ControlledRememberShardStoreEvent::GetEntities { reply_to } => {
+            reply_to
+                .tell(RememberedEntities {
+                    entities: BTreeSet::new(),
+                })
+                .unwrap();
+        }
+        ControlledRememberShardStoreEvent::Update { .. } => {
+            panic!("store should load remembered entities before writing updates")
+        }
+    }
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: first_update.clone(),
+        }
+    );
+    let first_reply = match store_rx.recv_timeout(Duration::from_millis(500)).unwrap() {
+        ControlledRememberShardStoreEvent::Update { update, reply_to } => {
+            assert_eq!(update, first_update);
+            reply_to
+        }
+        ControlledRememberShardStoreEvent::GetEntities { .. } => {
+            panic!("store should not reload remembered entities")
+        }
+    };
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-2", "second".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Buffered {
+            entity_id: "entity-2".to_string(),
+        }
+    );
+    assert!(
+        store_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+        "second remember start should wait until the first store update is acknowledged"
+    );
+
+    first_reply
+        .tell(Ok(RememberShardUpdateDone {
+            started: BTreeSet::from(["entity-1".to_string()]),
+            stopped: BTreeSet::new(),
+        }))
+        .unwrap();
+
+    let second_reply = match store_rx.recv_timeout(Duration::from_millis(500)).unwrap() {
+        ControlledRememberShardStoreEvent::Update { update, reply_to } => {
+            assert_eq!(update, second_update);
+            reply_to
+        }
+        ControlledRememberShardStoreEvent::GetEntities { .. } => {
+            panic!("store should not reload remembered entities")
+        }
+    };
+    second_reply
+        .tell(Ok(RememberShardUpdateDone {
+            started: BTreeSet::from(["entity-2".to_string()]),
+            stopped: BTreeSet::new(),
+        }))
+        .unwrap();
+
+    let mut snapshot = None;
+    for _ in 0..20 {
+        shard
+            .tell(ShardMsg::GetState {
+                reply_to: state.actor_ref(),
+            })
+            .unwrap();
+        let current = state.expect_msg(Duration::from_millis(500)).unwrap();
+        if current.active_entities == vec!["entity-1".to_string(), "entity-2".to_string()]
+            && current.total_buffered == 0
+        {
+            snapshot = Some(current);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    assert_eq!(
+        snapshot,
+        Some(ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: vec!["entity-1".to_string(), "entity-2".to_string()],
+            entity_count: 2,
+            total_buffered: 0,
+            handoff_in_progress: false,
+        })
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_actor_completes_remember_update_before_buffered_delivery() {
     let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-remember-update").unwrap();
     let shard = kit
@@ -474,6 +608,52 @@ fn shard_actor_completes_remember_update_before_buffered_delivery() {
         }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+struct ControlledRememberShardStore {
+    events: mpsc::Sender<ControlledRememberShardStoreEvent>,
+}
+
+impl ControlledRememberShardStore {
+    fn props(events: mpsc::Sender<ControlledRememberShardStoreEvent>) -> Props<Self> {
+        Props::new(move || Self {
+            events: events.clone(),
+        })
+    }
+}
+
+enum ControlledRememberShardStoreEvent {
+    GetEntities {
+        reply_to: ActorRef<RememberedEntities>,
+    },
+    Update {
+        update: RememberShardUpdate,
+        reply_to: ActorRef<Result<RememberShardUpdateDone, ShardingError>>,
+    },
+}
+
+impl Actor for ControlledRememberShardStore {
+    type Msg = RememberShardStoreMsg;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RememberShardStoreMsg::GetEntities { reply_to } => self
+                .events
+                .send(ControlledRememberShardStoreEvent::GetEntities { reply_to })
+                .map_err(|err| ActorError::Message(err.to_string()))?,
+            RememberShardStoreMsg::Update { update, reply_to } => self
+                .events
+                .send(ControlledRememberShardStoreEvent::Update { update, reply_to })
+                .map_err(|err| ActorError::Message(err.to_string()))?,
+            RememberShardStoreMsg::GetState { .. } => {
+                return Err(ActorError::Message(
+                    "controlled remember store does not expose state".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[test]
