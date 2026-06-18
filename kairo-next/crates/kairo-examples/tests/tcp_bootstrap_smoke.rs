@@ -472,6 +472,43 @@ fn ddata_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks() -> Te
 }
 
 #[test]
+fn ddata_tcp_peer_bootstrap_shutdown_clears_three_node_mesh_routes() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b, node_c) = ddata_tcp::bind_three_nodes()?;
+    let setup = (|| -> TestResult {
+        node_a.publish_up_members(vec![
+            node_a.self_node().clone(),
+            node_b.self_node().clone(),
+            node_c.self_node().clone(),
+        ])?;
+        let routes = node_a.wait_for_route_count(2, Duration::from_secs(2))?;
+        assert_eq!(routes.route_count, 2);
+        Ok(())
+    })();
+    if let Err(error) = setup {
+        let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+        let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+        let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+        shutdown_a?;
+        shutdown_b?;
+        shutdown_c?;
+        return Err(error);
+    }
+
+    let observation_a = node_a.shutdown_with_observation(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+    let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+
+    let observation = observation_a?;
+    assert_eq!(observation.route_count_before_shutdown, 2);
+    assert_eq!(observation.route_count_after_shutdown, 0);
+    assert!(observation.connector_stopped);
+    shutdown_b?;
+    shutdown_c?;
+    Ok(())
+}
+
+#[test]
 fn ddata_tcp_peer_bootstrap_delivers_reads_to_three_node_mesh() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b, node_c) = ddata_tcp::bind_three_nodes()?;
@@ -809,6 +846,43 @@ fn cluster_tools_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks
 
     result?;
     shutdown_a?;
+    shutdown_b?;
+    shutdown_c?;
+    Ok(())
+}
+
+#[test]
+fn cluster_tools_tcp_peer_bootstrap_shutdown_clears_three_node_mesh_routes() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let (node_a, node_b, node_c) = cluster_tools_tcp::bind_three_nodes()?;
+    let setup = (|| -> TestResult {
+        node_a.publish_up_members(vec![
+            node_a.self_node().clone(),
+            node_b.self_node().clone(),
+            node_c.self_node().clone(),
+        ])?;
+        let routes = node_a.wait_for_route_count(2, Duration::from_secs(2))?;
+        assert_eq!(routes.route_count, 2);
+        Ok(())
+    })();
+    if let Err(error) = setup {
+        let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+        let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+        let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+        shutdown_a?;
+        shutdown_b?;
+        shutdown_c?;
+        return Err(error);
+    }
+
+    let observation_a = node_a.shutdown_with_observation(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+    let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+
+    let observation = observation_a?;
+    assert_eq!(observation.route_count_before_shutdown, 2);
+    assert_eq!(observation.route_count_after_shutdown, 0);
+    assert!(observation.connector_stopped);
     shutdown_b?;
     shutdown_c?;
     Ok(())

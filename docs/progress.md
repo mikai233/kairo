@@ -3891,6 +3891,9 @@ Implemented:
 - `kairo-examples` TCP bootstrap smoke coverage now pins cluster bootstrap
   shutdown from a three-node mesh: a node with two live peer routes clears
   both association-cache routes and stops its connector during shutdown.
+- Matching distributed-data and cluster-tools TCP bootstrap smoke coverage now
+  pins the same three-node shutdown cleanup behavior, so all three public TCP
+  bootstrap facades assert two live peer routes are cleared during shutdown.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -5037,6 +5040,8 @@ git diff --check
 cargo test -p kairo-examples ddata_tcp_peer_bootstrap_delivers_read_to_replacement_peer --all-targets --all-features
 cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
 cargo test -p kairo-examples cluster_tcp_peer_bootstrap_shutdown_clears_three_node_mesh_routes --test tcp_bootstrap_smoke --all-features -- --nocapture
+cargo test -p kairo-examples ddata_tcp_peer_bootstrap_shutdown_clears_three_node_mesh_routes --test tcp_bootstrap_smoke --all-features -- --nocapture
+cargo test -p kairo-examples cluster_tools_tcp_peer_bootstrap_shutdown_clears_three_node_mesh_routes --test tcp_bootstrap_smoke --all-features -- --nocapture
 cargo test -p kairo-examples --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
