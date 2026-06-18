@@ -3887,6 +3887,10 @@ Implemented:
   for pubsub/singleton routes, matching the cluster and distributed-data
   route-owner behavior when one peer dials successfully and a later peer is
   retried.
+- `kairo-distributed-data` now also covers actor-backed TCP peer connector
+  partial snapshot failure: a successful route remains visible in connector
+  snapshots while a later failed peer is pending reconnect, and a manual retry
+  installs the missing route without dropping the first one.
 
 Not yet implemented:
 
@@ -3900,7 +3904,8 @@ Not yet implemented:
   runtime, actor-backed connector beyond current route-target shrinkage, and
   bootstrap beyond the current localhost two-node and sender-side three-node
   example smoke tests, three-node bootstrap route validation, and focused
-  peer-runtime sender-side route-reduction and partial-failure retry coverage.
+  peer-runtime and connector sender-side route-reduction and partial-failure
+  retry coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level and multi-node
   discovery/shared-store first-delivery coverage.
@@ -3960,6 +3965,10 @@ cargo test -p kairo-cluster-tools peer_runtime_preserves_successful_routes_when_
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+cargo test -p kairo-distributed-data connector_preserves_successful_route_when_later_snapshot_dial_fails --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
