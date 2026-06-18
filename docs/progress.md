@@ -3741,6 +3741,9 @@ Implemented:
 - `docs/decisions.md` now reconciles the cluster TCP configured-peer runtime
   ADR with the later implemented membership-derived peer planning,
   reconnect/backoff, actor connector, timer, and bootstrap lifecycle layers.
+- `docs/decisions.md` now also reconciles the earlier cluster TCP route/runtime
+  ADRs and the cluster-tools configured-peer runtime ADR with their later
+  reconnectable peer runtime, actor connector, timer, and bootstrap layers.
 - The README files, migration notes, and architecture configuration section
   now also document `[cluster.sharding.least_shard_allocation]` as the
   TOML-first facade path for runtime least-shard allocation limits.
@@ -6279,5 +6282,13 @@ cargo test -p kairo-cluster peer_runtime_retries_failed_peer_dial_after_retry_in
 cargo test -p kairo-cluster bootstrap_two_nodes_install_peer_routes_from_cluster_membership --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo-cluster peer_runtime_retries_failed_peer_dial_after_retry_interval --all-targets --all-features
+cargo test -p kairo-cluster bootstrap_automatic_retry_timer_installs_pending_peer_route --all-targets --all-features
+cargo test -p kairo-cluster-tools peer_runtime_retries_failed_peer_dial_after_retry_interval --all-targets --all-features
+cargo test -p kairo-cluster-tools bootstrap_two_nodes_install_peer_routes_from_cluster_membership --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo -p kairo-cluster -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 git diff --check
 ```

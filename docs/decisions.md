@@ -1459,8 +1459,10 @@ and singleton handover traffic in both directions.
 Consequences:
 - Cluster tools now have a runnable socket-backed vertical slice for one
   configured peer.
-- Peer discovery and multi-peer ownership remain cluster-driven future work;
-  the runtime does not read or mutate cluster membership.
+- Membership-derived peer planning, reconnectable multi-peer actor ownership,
+  timer ticks, and bootstrap lifecycle wiring are layered by later accepted
+  cluster-tools TCP ADRs; this configured-peer runtime itself still does not
+  read or mutate cluster membership.
 - The TCP integration reuses `kairo-remote` association primitives instead of
   adding tool-specific socket code.
 
@@ -1564,7 +1566,9 @@ Consequences:
   tested vertical slice.
 - Membership state, peer planning, and socket route ownership remain separate
   modules.
-- Reconnect/backoff policy and long-lived actor ownership remain future work.
+- Reconnect/backoff policy and long-lived actor ownership are layered by the
+  later accepted cluster TCP runtime, connector, timer, and bootstrap ADRs
+  without changing this route-ownership boundary.
 
 ## ADR-0055: Cluster TCP Peer Runtime Owns The Route Lifecycle
 
@@ -1593,7 +1597,8 @@ Consequences:
 - Membership state, peer planning, socket routing, and socket transport remain
   structured modules rather than being concentrated in the crate root.
 - Reconnect/backoff policy, long-lived actor ownership, and actor-system
-  lifecycle integration remain future work.
+  lifecycle integration are layered by the later accepted cluster TCP
+  reconnect, connector, timer, and bootstrap ADRs.
 
 ## ADR-0056: Cluster TCP Peer Reconnects Are Deterministic Retry State
 
