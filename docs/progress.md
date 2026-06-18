@@ -3943,6 +3943,11 @@ Implemented:
   consume the termination signal, apply `ShardRegionTerminated`, remove the
   stale handoff target, and keep the coordinator alive after the watched region
   stops.
+- `kairo-cluster-sharding` shard coordinators now re-run remembered-shard home
+  allocation after a region termination, matching Pekko's coordinator
+  termination flow: shards made unallocated by `ShardRegionTerminated` are
+  allocated to surviving regions and `HostShard` is dispatched through the
+  registered handoff target.
 
 Not yet implemented:
 
@@ -4001,6 +4006,7 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_actor_mark_region_stopped_clears_remote_shard_homes --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding region_actor_observes_watchable_remote_region_stop --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding coordinator_actor_observes_registered_local_region_stop --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding coordinator_actor_reallocates_remembered_shards_after_watched_region_stop --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_route_resolution --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features

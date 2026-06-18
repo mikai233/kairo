@@ -233,11 +233,11 @@ where
                 self.apply_remote_graceful_shutdown(ctx, region)?;
             }
             ShardCoordinatorMsg::RegionStopped { region } => {
-                self.apply_region_stopped(region)?;
+                self.apply_region_stopped(ctx, region)?;
             }
             ShardCoordinatorMsg::RemoteRegionStopped { region } => {
                 let region_id = self.remote_regions.register(region);
-                self.apply_region_stopped(region_id)?;
+                self.apply_region_stopped(ctx, region_id)?;
             }
             ShardCoordinatorMsg::RequestRemoteShardHome {
                 requester,
@@ -303,10 +303,10 @@ where
         Ok(())
     }
 
-    fn signal(&mut self, _ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
         match signal {
             Signal::Terminated(actor) | Signal::ChildFailed { actor, .. } => {
-                if self.apply_watched_region_terminated(actor.path())? {
+                if self.apply_watched_region_terminated(ctx, actor.path())? {
                     Ok(())
                 } else {
                     Err(ActorError::DeathPact {
@@ -393,12 +393,16 @@ where
         Ok(())
     }
 
-    fn apply_watched_region_terminated(&mut self, path: &ActorPath) -> Result<bool, ActorError> {
+    fn apply_watched_region_terminated(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
+        path: &ActorPath,
+    ) -> Result<bool, ActorError> {
         let Some(region) = self.region_watch_by_path.remove(path) else {
             return Ok(false);
         };
 
-        self.apply_region_stopped(region)?;
+        self.apply_region_stopped(ctx, region)?;
         Ok(true)
     }
 
@@ -439,7 +443,11 @@ where
         self.spawn_shutdown_workers(ctx, &plan)
     }
 
-    fn apply_region_stopped(&mut self, region: RegionId) -> ActorResult {
+    fn apply_region_stopped(
+        &mut self,
+        ctx: &Context<ShardCoordinatorMsg<M>>,
+        region: RegionId,
+    ) -> ActorResult {
         self.runtime.unmark_graceful_shutdown(&region);
         self.runtime.unmark_region_terminating(&region);
         if let Some(handoff) = &mut self.handoff {
@@ -450,7 +458,8 @@ where
         }
         self.runtime
             .apply_event(CoordinatorEvent::ShardRegionTerminated { region })
-            .map_err(|error| ActorError::Message(error.to_string()))
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        self.allocate_remembered_shard_homes(ctx)
     }
 
     fn request_remote_shard_home(

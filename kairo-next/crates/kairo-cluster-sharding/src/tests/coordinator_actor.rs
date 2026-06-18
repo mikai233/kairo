@@ -204,6 +204,94 @@ fn coordinator_actor_observes_registered_local_region_stop() {
 }
 
 #[test]
+fn coordinator_actor_reallocates_remembered_shards_after_watched_region_stop() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-remembered-region-stop").unwrap();
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state.merge_remembered_shards(["shard-1".to_string()]);
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region_a = kit
+        .create_probe::<ShardRegionMsg<String>>("region-a")
+        .unwrap();
+    let region_b = kit
+        .create_probe::<ShardRegionMsg<String>>("region-b")
+        .unwrap();
+    let register_a = kit
+        .create_probe::<Result<CoordinatorStateSnapshot, ShardingError>>("register-a")
+        .unwrap();
+    let register_b = kit
+        .create_probe::<Result<CoordinatorStateSnapshot, ShardingError>>("register-b")
+        .unwrap();
+    let state_probe = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RegisterLocalRegion {
+            target: HandoffRegionTarget::from_actor_ref("region-a", region_a.actor_ref()),
+            reply_to: register_a.actor_ref(),
+        })
+        .unwrap();
+    register_a
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+    match region_a.expect_msg(Duration::from_millis(500)).unwrap() {
+        ShardRegionMsg::HostShard { shard, .. } => assert_eq!(shard, "shard-1"),
+        _ => panic!("expected initial HostShard dispatch"),
+    }
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RegisterLocalRegion {
+            target: HandoffRegionTarget::from_actor_ref("region-b", region_b.actor_ref()),
+            reply_to: register_b.actor_ref(),
+        })
+        .unwrap();
+    register_b
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    region_a.stop();
+    region_a.expect_stopped(Duration::from_secs(1)).unwrap();
+    match region_b.expect_msg(Duration::from_millis(500)).unwrap() {
+        ShardRegionMsg::HostShard { shard, .. } => assert_eq!(shard, "shard-1"),
+        _ => panic!("expected reallocated HostShard dispatch"),
+    }
+
+    coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: state_probe.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state_probe.expect_msg(Duration::from_millis(500)).unwrap();
+    assert!(
+        snapshot.unallocated_shards.is_empty(),
+        "remembered shard should be allocated after watched region stop"
+    );
+    assert!(
+        !snapshot.allocations.contains_key("region-a"),
+        "stopped region should be removed"
+    );
+    assert_eq!(
+        snapshot.allocations.get("region-b"),
+        Some(&vec!["shard-1".to_string()])
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_loads_remembered_shards_before_serving_requests() {
     let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-remember-load").unwrap();
     let coordinator = kit
