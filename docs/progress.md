@@ -3894,6 +3894,9 @@ Implemented:
 - Matching distributed-data and cluster-tools TCP bootstrap smoke coverage now
   pins the same three-node shutdown cleanup behavior, so all three public TCP
   bootstrap facades assert two live peer routes are cleared during shutdown.
+- `kairo-cluster` peer-runtime shutdown coverage now pins the same cleanup
+  invariant below the example layer: a runtime with two active peer routes
+  removes both route-cache entries before its listener stops.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -6020,6 +6023,7 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-cluster peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
+cargo test -p kairo-cluster peer_runtime_shutdown_clears_multiple_active_peer_routes --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-tools peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
 cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
