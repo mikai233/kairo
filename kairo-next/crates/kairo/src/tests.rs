@@ -472,6 +472,16 @@ fn public_readmes_list_current_workspace_crates() -> Result<(), Box<dyn std::err
                 readme_path.display()
             );
         }
+        for line in readme.lines() {
+            let Some(crate_name) = documented_workspace_crate_name(line) else {
+                continue;
+            };
+            assert!(
+                crate_names.contains(crate_name),
+                "{} documents missing workspace crate `{crate_name}`",
+                readme_path.display()
+            );
+        }
     }
 
     Ok(())
@@ -499,6 +509,11 @@ fn active_workspace_crate_names(
     }
 
     Ok(crate_names)
+}
+
+fn documented_workspace_crate_name(line: &str) -> Option<&str> {
+    let crate_name = line.trim_start().strip_prefix("- `")?.split_once("`:")?.0;
+    crate_name.starts_with("kairo").then_some(crate_name)
 }
 
 #[test]
