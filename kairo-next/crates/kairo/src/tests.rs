@@ -1166,6 +1166,24 @@ fn dependency_audit_matches_resolved_external_lockfile_packages()
     Ok(())
 }
 
+#[test]
+fn dependency_audit_lists_current_workspace_members() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let audit_path = repo_root.join("docs").join("dependency-audit.md");
+    let audit = std::fs::read_to_string(&audit_path)?.replace("\r\n", "\n");
+    let crate_names = active_workspace_crate_names(&repo_root.join("kairo-next/crates"))?;
+    let audit_members = dependency_audit_workspace_members(&audit)?;
+
+    assert_eq!(
+        audit_members,
+        crate_names,
+        "{} active workspace member list must match current kairo-next package manifests",
+        audit_path.display()
+    );
+
+    Ok(())
+}
+
 fn resolved_external_lockfile_packages(
     lockfile: &str,
 ) -> std::collections::BTreeMap<String, String> {
@@ -1231,6 +1249,37 @@ fn dependency_audit_resolved_packages(
     }
 
     Ok(packages)
+}
+
+fn dependency_audit_workspace_members(
+    audit: &str,
+) -> Result<std::collections::BTreeSet<String>, Box<dyn std::error::Error>> {
+    let mut members = std::collections::BTreeSet::new();
+    let mut after_heading = false;
+    let mut in_block = false;
+
+    for line in audit.lines() {
+        if line == "Active workspace members:" {
+            after_heading = true;
+            continue;
+        }
+        if after_heading && line == "```text" {
+            in_block = true;
+            continue;
+        }
+        if in_block && line == "```" {
+            break;
+        }
+        if in_block && !line.trim().is_empty() {
+            members.insert(line.trim().to_string());
+        }
+    }
+
+    if members.is_empty() {
+        return Err("dependency-audit.md must list active workspace members".into());
+    }
+
+    Ok(members)
 }
 
 fn unquote_toml_string(value: &str) -> String {

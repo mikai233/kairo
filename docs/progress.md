@@ -4076,6 +4076,10 @@ Implemented:
   the resolved registry packages in `Cargo.lock`, so the M13 external
   dependency/license table cannot drift from the active all-feature workspace
   lockfile.
+- The `kairo` facade test suite now also pins the `docs/dependency-audit.md`
+  active workspace member list against `kairo-next/crates/*/Cargo.toml`, so the
+  release audit cannot omit or retain stale active crates while the old
+  `crates/` implementation remains reference-only.
 - The `kairo` facade test suite now also pins the user-facing module re-exports
   for the cluster, distributed-data, and cluster-tools TCP peer bootstrap
   facades, connector settings, connector message/snapshot types, and bootstrap
@@ -4265,6 +4269,17 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after dependency-audit workspace member
+convergence coverage:
+
+```bash
+cargo test -p kairo dependency_audit_lists_current_workspace_members --all-targets --all-features -- --nocapture
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after live duplicate `watch_with` lifecycle
 coverage:
