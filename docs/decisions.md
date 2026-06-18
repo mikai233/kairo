@@ -1497,8 +1497,10 @@ Consequences:
   one configured peer.
 - Membership state is still owned by the gossip membership actor; remote
   association routes are delivery paths, not cluster membership evidence.
-- Reconnect/backoff policy, multi-peer actor ownership, and actor-system
-  lifecycle wiring remain future work.
+- Membership-derived peer planning, reconnect/backoff policy, actor-backed
+  multi-peer ownership, timer ticks, and bootstrap lifecycle wiring are layered
+  by the later accepted cluster TCP peer ADRs without changing this inbound
+  routing boundary.
 
 ## ADR-0053: Cluster Association Peers Are Planned From Membership Events
 
