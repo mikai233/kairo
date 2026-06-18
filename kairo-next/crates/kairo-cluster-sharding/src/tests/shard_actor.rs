@@ -301,39 +301,18 @@ fn shard_actor_with_remember_store_persists_start_updates() {
         ShardDeliverPlan::RememberUpdate { update }
     );
 
-    let mut persisted = false;
-    let mut activated = false;
-    for _ in 0..20 {
-        store
-            .tell(RememberShardStoreMsg::GetState {
-                reply_to: store_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
-        let remembered = snapshot
-            .entities_by_key
-            .values()
-            .flat_map(|entities| entities.iter().cloned())
-            .collect::<BTreeSet<_>>();
-        persisted = remembered.contains("entity-1");
-
-        shard
-            .tell(ShardMsg::GetState {
-                reply_to: shard_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
-        activated = snapshot.active_entities == vec!["entity-1".to_string()]
-            && snapshot.total_buffered == 0;
-
-        if persisted && activated {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-
-    assert!(persisted, "remember store should contain entity-1");
-    assert!(activated, "shard runtime should mark entity-1 active");
+    wait_for_remember_store_and_shard_snapshot(
+        &store,
+        &store_state,
+        &shard,
+        &shard_state,
+        "remember store should contain entity-1 and shard runtime should mark it active",
+        |remembered, snapshot| {
+            remembered.contains("entity-1")
+                && snapshot.active_entities == vec!["entity-1".to_string()]
+                && snapshot.total_buffered == 0
+        },
+    );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
@@ -405,43 +384,17 @@ fn shard_actor_with_remember_store_removes_moved_entities() {
         }
     );
 
-    let mut removed_from_store = false;
-    let mut removed_from_runtime = false;
-    for _ in 0..20 {
-        store
-            .tell(RememberShardStoreMsg::GetState {
-                reply_to: store_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = store_state.expect_msg(Duration::from_millis(500)).unwrap();
-        let remembered = snapshot
-            .entities_by_key
-            .values()
-            .flat_map(|entities| entities.iter().cloned())
-            .collect::<BTreeSet<_>>();
-        removed_from_store = !remembered.contains("entity-1");
-
-        shard
-            .tell(ShardMsg::GetState {
-                reply_to: shard_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
-        removed_from_runtime = snapshot.active_entities.is_empty() && snapshot.entity_count == 0;
-
-        if removed_from_store && removed_from_runtime {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-
-    assert!(
-        removed_from_store,
-        "moved remembered entity should be removed from the shared store"
-    );
-    assert!(
-        removed_from_runtime,
-        "moved remembered entity should be removed from the shard runtime"
+    wait_for_remember_store_and_shard_snapshot(
+        &store,
+        &store_state,
+        &shard,
+        &shard_state,
+        "moved remembered entity should be removed from the shared store and shard runtime",
+        |remembered, snapshot| {
+            !remembered.contains("entity-1")
+                && snapshot.active_entities.is_empty()
+                && snapshot.entity_count == 0
+        },
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -515,25 +468,13 @@ fn shard_actor_spawns_local_remember_store_and_persists_start_updates() {
         ShardDeliverPlan::RememberUpdate { update }
     );
 
-    let mut activated = false;
-    for _ in 0..20 {
-        shard
-            .tell(ShardMsg::GetState {
-                reply_to: shard_state.actor_ref(),
-            })
-            .unwrap();
-        let snapshot = shard_state.expect_msg(Duration::from_millis(500)).unwrap();
-        activated = snapshot.active_entities == vec!["entity-1".to_string()]
-            && snapshot.total_buffered == 0;
-        if activated {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-
-    assert!(
-        activated,
-        "local remember store reply should activate entity-1"
+    wait_for_shard_snapshot(
+        &shard,
+        &shard_state,
+        "local remember store reply should activate entity-1",
+        |snapshot| {
+            snapshot.active_entities == vec!["entity-1".to_string()] && snapshot.total_buffered == 0
+        },
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -642,32 +583,25 @@ fn shard_actor_sends_next_remember_start_after_store_ack() {
         }))
         .unwrap();
 
-    let mut snapshot = None;
-    for _ in 0..20 {
-        shard
-            .tell(ShardMsg::GetState {
-                reply_to: state.actor_ref(),
-            })
-            .unwrap();
-        let current = state.expect_msg(Duration::from_millis(500)).unwrap();
-        if current.active_entities == vec!["entity-1".to_string(), "entity-2".to_string()]
-            && current.total_buffered == 0
-        {
-            snapshot = Some(current);
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    let snapshot = wait_for_shard_snapshot(
+        &shard,
+        &state,
+        "both queued remember starts should be active after store acknowledgements",
+        |snapshot| {
+            snapshot.active_entities == vec!["entity-1".to_string(), "entity-2".to_string()]
+                && snapshot.total_buffered == 0
+        },
+    );
 
     assert_eq!(
         snapshot,
-        Some(ShardSnapshot {
+        ShardSnapshot {
             shard_id: "shard-1".to_string(),
             active_entities: vec!["entity-1".to_string(), "entity-2".to_string()],
             entity_count: 2,
             total_buffered: 0,
             handoff_in_progress: false,
-        })
+        }
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -1198,4 +1132,87 @@ fn shard_actor_handoff_tracks_stopper_and_completion() {
             .handoff_in_progress
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+fn polling_timeout() -> Duration {
+    Duration::from_millis(10_200)
+}
+
+fn wait_for_remember_store_and_shard_snapshot(
+    store: &ActorRef<RememberShardStoreMsg>,
+    store_state: &kairo_testkit::TestProbe<RememberShardStoreSnapshot>,
+    shard: &ActorRef<ShardMsg<String>>,
+    shard_state: &kairo_testkit::TestProbe<ShardSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&BTreeSet<String>, &ShardSnapshot) -> bool,
+) -> (RememberShardStoreSnapshot, ShardSnapshot) {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<(RememberShardStoreSnapshot, ShardSnapshot), String> {
+            store
+                .tell(RememberShardStoreMsg::GetState {
+                    reply_to: store_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let store_snapshot = store_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            let remembered = remembered_entities(&store_snapshot);
+
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: shard_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let shard_snapshot = shard_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+
+            if matches(&remembered, &shard_snapshot) {
+                Ok((store_snapshot, shard_snapshot))
+            } else {
+                Err(format!(
+                    "{description}; remembered: {remembered:?}; shard snapshot: {shard_snapshot:?}",
+                ))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_shard_snapshot(
+    shard: &ActorRef<ShardMsg<String>>,
+    state: &kairo_testkit::TestProbe<ShardSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&ShardSnapshot) -> bool,
+) -> ShardSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ShardSnapshot, String> {
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn remembered_entities(snapshot: &RememberShardStoreSnapshot) -> BTreeSet<String> {
+    snapshot
+        .entities_by_key
+        .values()
+        .flat_map(|entities| entities.iter().cloned())
+        .collect()
 }
