@@ -41,6 +41,22 @@ mod tests {
     }
 
     #[derive(Clone)]
+    struct AcceptingBeginAndHandOffRegion;
+
+    impl Recipient<ShardRegionMsg<String>> for AcceptingBeginAndHandOffRegion {
+        fn tell(
+            &self,
+            message: ShardRegionMsg<String>,
+        ) -> Result<(), SendError<ShardRegionMsg<String>>> {
+            match message {
+                ShardRegionMsg::BeginHandOff { .. }
+                | ShardRegionMsg::HandOffToLocalShard { .. } => Ok(()),
+                other => Err(SendError::new(other, "unexpected region message")),
+            }
+        }
+    }
+
+    #[derive(Clone)]
     struct CompletingRegion;
 
     impl Recipient<ShardRegionMsg<String>> for CompletingRegion {
@@ -220,6 +236,110 @@ mod tests {
         );
         kit.shutdown(Duration::from_secs(1)).unwrap();
     }
+
+    #[test]
+    fn handoff_worker_treats_participant_termination_as_begin_ack() {
+        let kit = ActorSystemTestKit::new("handoff-worker-participant-terminated").unwrap();
+        let mut transport = HandoffTransport::new();
+        transport.insert_target(HandoffRegionTarget::new(
+            "owner-region",
+            AcceptingBeginAndHandOffRegion,
+        ));
+        transport.insert_target(HandoffRegionTarget::new(
+            "participant-region",
+            AcceptingBeginAndHandOffRegion,
+        ));
+        let worker = kit
+            .system()
+            .spawn(
+                "worker",
+                HandoffWorkerActor::props(
+                    ShardRebalancePlan {
+                        shard: "12".to_string(),
+                        from_region: "owner-region".to_string(),
+                        participants: BTreeSet::from(["participant-region".to_string()]),
+                        begin_handoff: crate::BeginHandOff {
+                            shard_id: "12".to_string(),
+                        },
+                    },
+                    "stop".to_string(),
+                    Duration::from_secs(1),
+                    transport,
+                ),
+            )
+            .unwrap();
+        let done = kit.create_probe::<HandoffWorkerDone>("done").unwrap();
+        let state = kit.create_probe::<HandoffWorkerSnapshot>("state").unwrap();
+
+        worker
+            .tell(HandoffWorkerMsg::Start {
+                reply_to: done.actor_ref(),
+            })
+            .unwrap();
+        worker
+            .tell(HandoffWorkerMsg::RegionTerminated {
+                region: "participant-region".to_string(),
+            })
+            .unwrap();
+        worker
+            .tell(HandoffWorkerMsg::GetState {
+                reply_to: state.actor_ref(),
+            })
+            .unwrap();
+
+        let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+        assert_eq!(snapshot.phase, HandoffWorkerPhase::AwaitingShardStopped);
+        assert!(snapshot.remaining.is_empty());
+        done.expect_no_msg(Duration::from_millis(50)).unwrap();
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn handoff_worker_completes_when_owner_terminates_while_waiting_for_stop() {
+        let kit = ActorSystemTestKit::new("handoff-worker-owner-terminated").unwrap();
+        let mut transport = HandoffTransport::new();
+        transport.insert_target(HandoffRegionTarget::new("owner-region", AcceptingRegion));
+        let worker = kit
+            .system()
+            .spawn(
+                "worker",
+                HandoffWorkerActor::props(
+                    ShardRebalancePlan {
+                        shard: "12".to_string(),
+                        from_region: "owner-region".to_string(),
+                        participants: Default::default(),
+                        begin_handoff: crate::BeginHandOff {
+                            shard_id: "12".to_string(),
+                        },
+                    },
+                    "stop".to_string(),
+                    Duration::from_secs(1),
+                    transport,
+                ),
+            )
+            .unwrap();
+        let done = kit.create_probe::<HandoffWorkerDone>("done").unwrap();
+
+        worker
+            .tell(HandoffWorkerMsg::Start {
+                reply_to: done.actor_ref(),
+            })
+            .unwrap();
+        worker
+            .tell(HandoffWorkerMsg::RegionTerminated {
+                region: "owner-region".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(
+            done.expect_msg(Duration::from_millis(500)).unwrap(),
+            HandoffWorkerDone {
+                shard: "12".to_string(),
+                ok: true,
+            }
+        );
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -257,6 +377,9 @@ pub enum HandoffWorkerMsg<M> {
     RemoteShardStopped {
         region: RegionId,
         stopped: ShardStopped,
+    },
+    RegionTerminated {
+        region: RegionId,
     },
     Timeout,
     GetState {
@@ -336,6 +459,9 @@ where
             }
             HandoffWorkerMsg::RemoteShardStopped { region, stopped } => {
                 self.apply_remote_shard_stopped(ctx, region, stopped)?;
+            }
+            HandoffWorkerMsg::RegionTerminated { region } => {
+                self.apply_region_terminated(ctx, region)?;
             }
             HandoffWorkerMsg::Timeout => self.finish(ctx, false)?,
             HandoffWorkerMsg::GetState { reply_to } => {
@@ -528,6 +654,26 @@ where
             return self.finish(ctx, true);
         }
         self.finish(ctx, false)
+    }
+
+    fn apply_region_terminated(
+        &mut self,
+        ctx: &mut Context<HandoffWorkerMsg<M>>,
+        region: RegionId,
+    ) -> Result<(), ActorError> {
+        match self.phase {
+            HandoffWorkerPhase::AwaitingBeginAcks => {
+                self.remaining.remove(&region);
+                if self.remaining.is_empty() {
+                    self.send_local_handoff(ctx)?;
+                }
+            }
+            HandoffWorkerPhase::AwaitingShardStopped if region == self.plan.from_region => {
+                self.finish(ctx, true)?;
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn finish(

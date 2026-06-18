@@ -3948,6 +3948,11 @@ Implemented:
   termination flow: shards made unallocated by `ShardRegionTerminated` are
   allocated to surviving regions and `HostShard` is dispatched through the
   registered handoff target.
+- `kairo-cluster-sharding` handoff workers now consume coordinator
+  region-termination notifications: a terminated participant counts as a
+  begin-handoff acknowledgement, and a terminated source region completes the
+  shard-stop phase successfully, matching Pekko
+  `RebalanceWorker.ShardRegionTerminated` behavior.
 
 Not yet implemented:
 
@@ -4009,6 +4014,13 @@ cargo test -p kairo-cluster-sharding coordinator_actor_observes_registered_local
 cargo test -p kairo-cluster-sharding coordinator_actor_reallocates_remembered_shards_after_watched_region_stop --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding region_route_resolution --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-sharding handoff_worker_treats_participant_termination_as_begin_ack --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding handoff_worker_completes_when_owner_terminates_while_waiting_for_stop --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding handoff_worker --all-targets --all-features
+cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings

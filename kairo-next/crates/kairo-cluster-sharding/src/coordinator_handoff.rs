@@ -136,6 +136,17 @@ where
             .map_err(|error| ActorError::Message(error.reason().to_string()))
     }
 
+    pub fn forward_region_terminated(&self, region: &RegionId) -> Result<(), ActorError> {
+        for worker in self.active_workers.values() {
+            worker
+                .tell(HandoffWorkerMsg::RegionTerminated {
+                    region: region.clone(),
+                })
+                .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+        }
+        Ok(())
+    }
+
     pub fn transport_mut(&mut self) -> &mut HandoffTransport<M> {
         &mut self.transport
     }

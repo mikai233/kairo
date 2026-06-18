@@ -451,6 +451,7 @@ where
         self.runtime.unmark_graceful_shutdown(&region);
         self.runtime.unmark_region_terminating(&region);
         if let Some(handoff) = &mut self.handoff {
+            handoff.forward_region_terminated(&region)?;
             handoff.remove_region_target(&region);
         }
         if !self.runtime.state().allocations().contains_region(&region) {
