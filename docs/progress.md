@@ -3182,6 +3182,10 @@ Implemented:
   subscribes through the cluster facade, observes the initial snapshot,
   publishes a peer `Up` gossip change, publishes member removal, and requests
   the final current state through reusable helper code with smoke coverage.
+- Cluster membership example smoke coverage now also pins operator-visible
+  current-state query contents: after peer removal the queried state lists the
+  surviving local member, excludes the removed peer, and reports the local node
+  as leader.
 - `kairo-examples` now includes a runnable `cluster_tools_local` example that
   exercises local pubsub subscribe/publish/current-topics behavior and local
   singleton manager startup with typed access to the running singleton child.

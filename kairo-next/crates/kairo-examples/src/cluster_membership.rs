@@ -20,6 +20,8 @@ pub struct ClusterMembershipObservation {
     pub removed_member: String,
     pub previous_status: MemberStatus,
     pub final_member_count: usize,
+    pub final_members: Vec<String>,
+    pub final_leader: Option<String>,
 }
 
 struct ClusterEventCollector {
@@ -136,7 +138,14 @@ impl ClusterMembershipExample {
         let (reply_to, replies) =
             spawn_one_shot_reply::<CurrentClusterState>(&self.system, "cluster-current-state")?;
         self.cluster.send_current_state(reply_to)?;
-        let final_member_count = replies.recv_timeout(timeout)?.members.len();
+        let final_state = replies.recv_timeout(timeout)?;
+        let final_member_count = final_state.members.len();
+        let final_members = final_state
+            .members
+            .iter()
+            .map(|member| member.unique_address.ordering_key())
+            .collect();
+        let final_leader = final_state.leader.as_ref().map(UniqueAddress::ordering_key);
 
         Ok(ClusterMembershipObservation {
             initial_member_count,
@@ -144,6 +153,8 @@ impl ClusterMembershipExample {
             removed_member,
             previous_status,
             final_member_count,
+            final_members,
+            final_leader,
         })
     }
 

@@ -4,12 +4,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let observation = run_cluster_membership("cluster-membership")?;
 
     println!(
-        "initial={} up={} removed={} previous={:?} final={}",
+        "initial={} up={} removed={} previous={:?} final={} final_members={:?} leader={:?}",
         observation.initial_member_count,
         observation.up_member,
         observation.removed_member,
         observation.previous_status,
-        observation.final_member_count
+        observation.final_member_count,
+        observation.final_members,
+        observation.final_leader
     );
 
     Ok(())

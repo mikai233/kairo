@@ -275,6 +275,14 @@ fn cluster_membership_example_smoke() -> Result<(), Box<dyn std::error::Error>> 
     assert_eq!(observation.up_member, observation.removed_member);
     assert_eq!(observation.previous_status, MemberStatus::Up);
     assert_eq!(observation.final_member_count, 1);
+    assert_eq!(
+        observation.final_members,
+        vec!["kairo://example-smoke-cluster-membership#1".to_string()]
+    );
+    assert_eq!(
+        observation.final_leader,
+        Some("kairo://example-smoke-cluster-membership#1".to_string())
+    );
     Ok(())
 }
 
