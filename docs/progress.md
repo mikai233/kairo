@@ -3903,6 +3903,9 @@ Implemented:
 - `kairo-cluster` actor-backed TCP peer connector coverage now pins explicit
   `ClearRoutes` cleanup with two active peer routes, including the clear
   report and empty association cache after the command.
+- Distributed-data and cluster-tools actor-backed TCP peer connector coverage
+  now pins the same explicit multi-route `ClearRoutes` behavior, so all TCP
+  peer connectors assert two active routes are removed by the command.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -6024,6 +6027,7 @@ cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-distributed-data peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
 cargo test -p kairo-distributed-data peer_runtime_shutdown_clears_multiple_active_peer_routes --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data connector_clear_routes_removes_multiple_active_peer_routes --all-targets --all-features -- --nocapture
 cargo test -p kairo-distributed-data peer_runtime --all-targets --all-features
 cargo test -p kairo-distributed-data --all-targets --all-features
 cargo fmt --all -- --check
@@ -6034,6 +6038,7 @@ cargo test -p kairo-cluster peer_runtime_shutdown_clears_multiple_active_peer_ro
 cargo test -p kairo-cluster connector_clear_routes_removes_multiple_active_peer_routes --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-tools peer_runtime_keeps_remaining_route_delivering_after_member_removed_event --all-targets --all-features
 cargo test -p kairo-cluster-tools peer_runtime_shutdown_clears_multiple_active_peer_routes --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools connector_clear_routes_removes_multiple_active_peer_routes --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features
 cargo test -p kairo-cluster --all-targets --all-features

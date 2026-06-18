@@ -779,6 +779,132 @@ fn connector_clear_routes_removes_active_peer_routes() {
 }
 
 #[test]
+fn connector_clear_routes_removes_multiple_active_peer_routes() {
+    let _guard = ddata_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("ddata-tcp-peer-connector-clear-multi-sender").unwrap();
+    let second_kit =
+        ActorSystemTestKit::new("ddata-tcp-peer-connector-clear-multi-second").unwrap();
+    let third_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-clear-multi-third").unwrap();
+    let retry_interval = Duration::from_millis(25);
+    let second_port = unused_port();
+    let third_port = unused_port();
+    let second_node = node("clear-multi-second", second_port, 2);
+    let third_node = node("clear-multi-third", third_port, 3);
+    let sender_runtime = bind_peer_runtime(
+        "clear-multi-sender",
+        1,
+        11,
+        ReplicaId::from(&second_node),
+        retry_interval,
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+    let cluster = Cluster::new(publisher.clone());
+    let snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("clear-multi-snapshots")
+        .unwrap();
+
+    let second_runtime = bind_association_runtime_on_port(
+        "clear-multi-second",
+        ReplicaId::from(&second_node),
+        ReplicaId::from(&sender_node),
+        22,
+        second_port,
+    );
+    let third_runtime = bind_association_runtime_on_port(
+        "clear-multi-third",
+        ReplicaId::from(&third_node),
+        ReplicaId::from(&sender_node),
+        33,
+        third_port,
+    );
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                member(sender_node.clone()),
+                member(second_node.clone()),
+                member(third_node.clone()),
+            ]),
+        ))
+        .unwrap();
+    let connector = sender_kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ReplicatorTcpPeerConnector::with_settings(
+                    cluster,
+                    sender_runtime,
+                    ReplicatorTcpPeerConnectorSettings::new(retry_interval)
+                        .unwrap()
+                        .with_automatic_retry_ticks(false),
+                )
+            }),
+        )
+        .unwrap();
+    let snapshot =
+        eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 2);
+    assert!(
+        snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == &second_node)
+    );
+    assert!(
+        snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == &third_node)
+    );
+    assert_eq!(sender_cache.route_count(), 2);
+
+    connector
+        .tell(ReplicatorTcpPeerConnectorMsg::ClearRoutes)
+        .unwrap();
+    let snapshot =
+        eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 0);
+
+    assert!(snapshot.active_targets.is_empty());
+    let report = snapshot
+        .last_report
+        .expect("clear routes should record a report");
+    assert_eq!(report.removed.len(), 2);
+    assert!(
+        report
+            .removed
+            .iter()
+            .any(|target| target.node() == &second_node)
+    );
+    assert!(
+        report
+            .removed
+            .iter()
+            .any(|target| target.node() == &third_node)
+    );
+    assert!(report.dialed.is_empty());
+    assert!(report.skipped.is_empty());
+    assert!(snapshot.last_error.is_none());
+    assert_eq!(sender_cache.route_count(), 0);
+
+    sender_kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+    publish_changes_and_wait(
+        &sender_kit,
+        &publisher,
+        Gossip::from_members([member(sender_node)]),
+        "clear-multi-after-stop-state",
+    );
+    assert!(sender_kit.system().dead_letters().is_empty());
+    second_runtime.shutdown().unwrap();
+    third_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn connector_stop_clears_pending_reconnect_and_unsubscribes_from_cluster() {
     let _guard = ddata_socket_test_lock();
     let sender_kit =
