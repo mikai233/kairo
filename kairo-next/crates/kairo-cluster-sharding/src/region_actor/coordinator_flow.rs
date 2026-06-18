@@ -145,7 +145,7 @@ where
 
     pub(super) fn apply_coordinator_shard_home_result(
         &mut self,
-        ctx: &Context<ShardRegionMsg<M>>,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         requested_shard: ShardId,
         result: Result<GetShardHomePlan, ShardingError>,
     ) -> ActorResult {
@@ -174,7 +174,7 @@ where
 
     pub(super) fn apply_remote_coordinator_shard_home(
         &mut self,
-        ctx: &Context<ShardRegionMsg<M>>,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         home: ShardCoordinatorRemoteHome,
     ) -> ActorResult {
         let plan = shard_home_plan_from_remote(home);
@@ -189,7 +189,7 @@ where
 
     fn apply_coordinator_shard_home_plan(
         &mut self,
-        ctx: &Context<ShardRegionMsg<M>>,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         plan: ShardHomePlan<M>,
         delivery_reply_to: Vec<ActorRef<ShardDeliverPlan<M>>>,
     ) -> ActorResult {

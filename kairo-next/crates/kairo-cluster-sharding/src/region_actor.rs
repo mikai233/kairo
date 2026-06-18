@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
+use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props, Signal};
 
 use crate::region_home_requests::RegionHomeRequests;
 use crate::region_protocol::{
@@ -64,6 +64,21 @@ where
 
     fn stopped(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
         self.send_region_stopped_to_coordinator()
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::Terminated(actor) | Signal::ChildFailed { actor, .. } => {
+                if self.apply_local_shard_terminated(ctx, actor.path())? {
+                    Ok(())
+                } else {
+                    Err(ActorError::DeathPact {
+                        actor: actor.path().to_string(),
+                    })
+                }
+            }
+            Signal::PreRestart | Signal::PostStop => self.stopped(ctx),
+        }
     }
 
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
@@ -234,19 +249,7 @@ where
             }
             ShardRegionMsg::ForwardedBufferedRouteResult { result: _ } => {}
             ShardRegionMsg::MarkShardStopped { shard, reply_to } => {
-                let restart_backoff = self.remembered_shard_restart_backoff(&shard);
-                self.runtime.mark_shard_stopped(&shard);
-                self.local_shards.remove(&shard);
-                if let Some(backoff) = restart_backoff {
-                    let generation = self.schedule_pending_local_restart(&shard);
-                    ctx.schedule_once_self(
-                        backoff,
-                        ShardRegionMsg::RestartLocalShard {
-                            shard: shard.clone(),
-                            generation,
-                        },
-                    );
-                }
+                self.mark_local_shard_stopped(ctx, &shard);
                 reply_optional(reply_to, self.snapshot());
                 self.try_complete_graceful_shutdown(ctx)?;
             }
@@ -274,6 +277,42 @@ impl<M> ShardRegionActor<M>
 where
     M: Send + 'static,
 {
+    fn apply_local_shard_terminated(
+        &mut self,
+        ctx: &mut Context<ShardRegionMsg<M>>,
+        path: &kairo_actor::ActorPath,
+    ) -> Result<bool, ActorError> {
+        let shard = self
+            .local_shards
+            .iter()
+            .find_map(|(shard, shard_ref)| (shard_ref.path() == path).then(|| shard.clone()));
+
+        if let Some(shard) = shard {
+            self.mark_local_shard_stopped(ctx, &shard);
+            self.try_complete_graceful_shutdown(ctx)?;
+            return Ok(true);
+        }
+
+        Ok(path.parent().as_ref() == Some(ctx.myself().path())
+            && path.name().is_some_and(|name| name.starts_with("shard-")))
+    }
+
+    fn mark_local_shard_stopped(&mut self, ctx: &mut Context<ShardRegionMsg<M>>, shard: &ShardId) {
+        let restart_backoff = self.remembered_shard_restart_backoff(shard);
+        self.runtime.mark_shard_stopped(shard);
+        self.local_shards.remove(shard);
+        if let Some(backoff) = restart_backoff {
+            let generation = self.schedule_pending_local_restart(shard);
+            ctx.schedule_once_self(
+                backoff,
+                ShardRegionMsg::RestartLocalShard {
+                    shard: shard.clone(),
+                    generation,
+                },
+            );
+        }
+    }
+
     fn suppress_pending_local_restart(&mut self, shard: &ShardId) {
         if let Some(generation) = self.pending_local_restarts.get(shard).copied() {
             self.suppressed_local_restarts

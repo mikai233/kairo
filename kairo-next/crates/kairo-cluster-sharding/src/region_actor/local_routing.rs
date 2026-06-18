@@ -6,7 +6,7 @@ where
 {
     pub(super) fn maybe_start_local_shard_from_host_plan(
         &mut self,
-        ctx: &Context<ShardRegionMsg<M>>,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         plan: HostShardPlan<M>,
     ) -> Result<HostShardPlan<M>, kairo_actor::ActorError> {
         let HostShardPlan::StartLocalShard { shard, command } = plan else {
@@ -111,7 +111,7 @@ where
 
     pub(super) fn host_shard_and_replay_buffered(
         &mut self,
-        ctx: &Context<ShardRegionMsg<M>>,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         shard: ShardId,
         delivery_reply_to: ActorRef<ShardDeliverPlan<M>>,
     ) -> Result<RegionBufferedReplayPlan, ActorError> {
@@ -155,7 +155,7 @@ where
 
     pub(super) fn restart_local_shard(
         &mut self,
-        ctx: &Context<ShardRegionMsg<M>>,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         shard: ShardId,
         generation: u64,
     ) -> Result<(), ActorError> {
@@ -371,7 +371,7 @@ where
 
     pub(super) fn maybe_start_local_shard_from_home_plan(
         &mut self,
-        ctx: &Context<ShardRegionMsg<M>>,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         plan: ShardHomePlan<M>,
     ) -> Result<ShardHomePlan<M>, kairo_actor::ActorError> {
         let ShardHomePlan::StartLocalShard { shard, command } = plan else {
@@ -391,7 +391,7 @@ where
 
     fn spawn_local_shard(
         &mut self,
-        ctx: &Context<ShardRegionMsg<M>>,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         shard: &ShardId,
     ) -> Result<(), kairo_actor::ActorError> {
         if self.local_shards.contains_key(shard) {
@@ -401,6 +401,7 @@ where
             return Ok(());
         };
         let shard_ref = spawner.spawn(ctx, shard)?;
+        ctx.watch(&shard_ref)?;
         self.local_shards.insert(shard.clone(), shard_ref);
         Ok(())
     }

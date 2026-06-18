@@ -3917,6 +3917,11 @@ Implemented:
   an initially missing peer is left pending reconnect, then binding that peer
   and advancing scheduled deadlines installs the route without sending direct
   retry commands to the connector.
+- `kairo-cluster-sharding` regions now death-watch spawned local shard actors:
+  when a remembered shard child stops unexpectedly, the region observes the
+  termination itself, removes the local route, schedules the remember-entity
+  restart backoff, and restarts the shard without an explicit
+  `MarkShardStopped` test command.
 
 Not yet implemented:
 
@@ -3934,8 +3939,8 @@ Not yet implemented:
   delivery, connector member-removal delivery, bootstrap automatic retry, and
   partial-failure retry coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
-  orchestration beyond the current focused actor-level and multi-node
-  discovery/shared-store first-delivery coverage.
+  orchestration beyond the current focused actor-level, region death-watch
+  restart, and multi-node discovery/shared-store first-delivery coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
@@ -5920,5 +5925,11 @@ cargo test --workspace --all-targets --all-features
 cargo test --doc --workspace --all-features
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-cluster-sharding region_actor_observes_remembered_local_shard_stop_and_restarts_without_mark_message --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding region_actor_local --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 git diff --check
 ```

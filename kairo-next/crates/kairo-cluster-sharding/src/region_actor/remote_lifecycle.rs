@@ -6,7 +6,7 @@ where
 {
     pub(super) fn apply_remote_host_shard(
         &mut self,
-        ctx: &Context<ShardRegionMsg<M>>,
+        ctx: &mut Context<ShardRegionMsg<M>>,
         shard: ShardId,
         reply: crate::ShardRegionRemoteControlReplyTarget,
     ) -> ActorResult {

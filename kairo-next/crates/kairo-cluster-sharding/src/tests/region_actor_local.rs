@@ -1065,6 +1065,101 @@ fn region_actor_restarts_remembered_local_shard_after_unexpected_stop() {
 }
 
 #[test]
+fn region_actor_observes_remembered_local_shard_stop_and_restarts_without_mark_message() {
+    let (kit, time) =
+        kairo_testkit::ActorSystemTestKit::with_manual_time("region-remember-shard-watch-restart")
+            .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            Props::new(|| {
+                ShardRegionActor::<String>::new_with_local_remember_store_shards(
+                    "region-a",
+                    "orders",
+                    10,
+                    10,
+                    BTreeMap::from([(
+                        "shard-1".to_string(),
+                        BTreeSet::from(["entity-1".to_string()]),
+                    )]),
+                    Duration::from_millis(500),
+                )
+                .with_remember_shard_failure_backoff(Duration::from_secs(1))
+            }),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let local_shard = kit
+        .create_probe::<Option<kairo_actor::ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let first_shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    kit.system().stop(&first_shard);
+    assert!(first_shard.wait_for_stop(Duration::from_secs(1)));
+
+    let restarted_shard = kairo_testkit::await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<kairo_actor::ActorRef<ShardMsg<String>>, String> {
+            time.advance_to_next();
+            region
+                .tell(ShardRegionMsg::GetLocalShard {
+                    shard: "shard-1".to_string(),
+                    reply_to: local_shard.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let Some(shard) = local_shard
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?
+            else {
+                return Err("remembered shard has not restarted yet".to_string());
+            };
+            if shard.path() == first_shard.path() {
+                Err("remembered shard still points at stopped ref".to_string())
+            } else {
+                Ok(shard)
+            }
+        },
+    )
+    .unwrap();
+
+    restarted_shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-watch-restart".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "after-watch-restart".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_ignores_stale_remembered_local_shard_restart_timer() {
     let (kit, time) =
         kairo_testkit::ActorSystemTestKit::with_manual_time("region-remember-shard-stale-restart")
