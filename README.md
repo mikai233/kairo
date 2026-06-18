@@ -122,6 +122,10 @@ one-message-per-group routing across local and remote groups.
 The `cluster_tools_tcp_peer_bootstrap` example demonstrates loopback TCP routes
 for cluster-tools system traffic, including distributed pubsub publish and
 registered-path `Send`/`SendToAll` delivery through stable remote envelopes.
+The cluster, distributed-data, and cluster-tools TCP bootstrap binaries also
+print their coordinated-shutdown observation, including the before/after route
+counts that prove bootstrap-owned association routes are cleared before
+shutdown reports success.
 
 The `cluster_sharding_local` example demonstrates:
 

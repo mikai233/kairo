@@ -25,7 +25,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         node_b.local_address()
     );
 
-    node_a.shutdown(Duration::from_secs(1))?;
+    let shutdown_a = node_a.shutdown_with_observation(Duration::from_secs(1))?;
+    println!(
+        "cluster-tools TCP shutdown cleared routes: {} -> {}, connector stopped: {}",
+        shutdown_a.route_count_before_shutdown,
+        shutdown_a.route_count_after_shutdown,
+        shutdown_a.connector_stopped
+    );
     node_b.shutdown(Duration::from_secs(1))?;
     Ok(())
 }

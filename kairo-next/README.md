@@ -157,7 +157,10 @@ The TCP peer bootstrap examples demonstrate the current cluster,
 distributed-data, and cluster-tools route setup around the shared remote
 association primitives. The cluster-tools TCP example covers distributed
 pubsub publish delivery plus registered-path `Send` and `SendToAll` delivery
-over stable remote envelopes.
+over stable remote envelopes. Each TCP bootstrap binary also prints a
+coordinated-shutdown observation with before/after route counts so the runnable
+example surface shows that bootstrap-owned association routes are cleared
+before shutdown reports success.
 
 ## Validation
 

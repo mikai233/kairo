@@ -3193,6 +3193,10 @@ Implemented:
   association-cache route count after coordinated shutdown, and the localhost
   smoke suite pins that cluster, distributed-data, and cluster-tools example
   nodes clear their live route before reporting shutdown success.
+- The runnable cluster, distributed-data, and cluster-tools TCP bootstrap
+  binaries now use those shutdown observations directly and print the
+  before/after route counts, so the documented example output exposes route
+  cleanup through the same public example path users run manually.
 - The TCP bootstrap example modules now expose reusable three-node binding
   helpers, and the localhost smoke suite validates cluster, distributed-data,
   and cluster-tools full-mesh route installation followed by a membership
@@ -6073,4 +6077,7 @@ cargo test -p kairo-examples --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 git diff --check
+cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
+cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
+cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
 ```
