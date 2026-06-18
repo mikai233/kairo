@@ -59,9 +59,11 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
-- A current full workspace run of
-  `cargo test --workspace --all-targets --all-features` passes as of
-  2026-06-18.
+- The current full M13 validation gate passes on this tree:
+  `cargo test --workspace --all-targets --all-features`,
+  `cargo test --doc --workspace --all-features`,
+  `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
+  `cargo fmt --all -- --check`, and `git diff --check`.
 - The previously flaky `kairo-cluster-sharding`
   `region_actor_ignores_stale_remembered_local_shard_restart_timer` case also
   passes when run directly on the current tree.
@@ -3931,7 +3933,9 @@ cargo test -p kairo-distributed-data --all-targets --all-features
 cargo test -p kairo-cluster-tools tcp_peer_bootstrap --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo test --workspace --all-targets --all-features
+cargo test --doc --workspace --all-features
 cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
