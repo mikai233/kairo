@@ -19,9 +19,39 @@ use kairo::serialization::{Manifest, RemoteEnvelope, SerializedMessage};
 
 const DEFAULT_ITERATIONS: usize = 100_000;
 const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const USAGE: &str = "usage: cargo run -p kairo-benchmarks --release -- [all|actor-tell|remote-send|gossip-merge|sharding-route]";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BenchmarkCommand {
+    All,
+    ActorTell,
+    RemoteSend,
+    GossipMerge,
+    ShardingRoute,
+}
+
+impl BenchmarkCommand {
+    fn parse(value: Option<&str>) -> Result<Self, String> {
+        match value.unwrap_or("all") {
+            "all" => Ok(Self::All),
+            "actor-tell" => Ok(Self::ActorTell),
+            "remote-send" => Ok(Self::RemoteSend),
+            "gossip-merge" => Ok(Self::GossipMerge),
+            "sharding-route" => Ok(Self::ShardingRoute),
+            other => Err(format!("unknown benchmark scenario `{other}`\n{USAGE}")),
+        }
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let command = env::args().nth(1).unwrap_or_else(|| "all".to_string());
+    let command_arg = env::args().nth(1);
+    let command = match BenchmarkCommand::parse(command_arg.as_deref()) {
+        Ok(command) => command,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
+    };
     let iterations_env = env::var("KAIRO_BENCH_ITERS").ok();
     let iterations = match parse_benchmark_iterations(iterations_env.as_deref()) {
         Ok(iterations) => iterations,
@@ -32,23 +62,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut results = Vec::new();
-    match command.as_str() {
-        "all" => {
+    match command {
+        BenchmarkCommand::All => {
             results.push(bench_actor_tell(iterations)?);
             results.push(bench_remote_send(iterations)?);
             results.push(bench_gossip_merge(iterations));
             results.push(bench_sharding_route(iterations)?);
         }
-        "actor-tell" => results.push(bench_actor_tell(iterations)?),
-        "remote-send" => results.push(bench_remote_send(iterations)?),
-        "gossip-merge" => results.push(bench_gossip_merge(iterations)),
-        "sharding-route" => results.push(bench_sharding_route(iterations)?),
-        _ => {
-            eprintln!(
-                "usage: cargo run -p kairo-benchmarks --release -- [all|actor-tell|remote-send|gossip-merge|sharding-route]"
-            );
-            std::process::exit(2);
-        }
+        BenchmarkCommand::ActorTell => results.push(bench_actor_tell(iterations)?),
+        BenchmarkCommand::RemoteSend => results.push(bench_remote_send(iterations)?),
+        BenchmarkCommand::GossipMerge => results.push(bench_gossip_merge(iterations)),
+        BenchmarkCommand::ShardingRoute => results.push(bench_sharding_route(iterations)?),
     }
 
     for result in results {
@@ -293,7 +317,45 @@ fn wait_for_count(
 
 #[cfg(test)]
 mod tests {
-    use super::{DEFAULT_ITERATIONS, parse_benchmark_iterations};
+    use super::{BenchmarkCommand, DEFAULT_ITERATIONS, parse_benchmark_iterations};
+
+    #[test]
+    fn benchmark_command_defaults_to_all() {
+        assert_eq!(BenchmarkCommand::parse(None), Ok(BenchmarkCommand::All));
+    }
+
+    #[test]
+    fn benchmark_command_accepts_documented_scenarios() {
+        assert_eq!(
+            BenchmarkCommand::parse(Some("all")),
+            Ok(BenchmarkCommand::All)
+        );
+        assert_eq!(
+            BenchmarkCommand::parse(Some("actor-tell")),
+            Ok(BenchmarkCommand::ActorTell)
+        );
+        assert_eq!(
+            BenchmarkCommand::parse(Some("remote-send")),
+            Ok(BenchmarkCommand::RemoteSend)
+        );
+        assert_eq!(
+            BenchmarkCommand::parse(Some("gossip-merge")),
+            Ok(BenchmarkCommand::GossipMerge)
+        );
+        assert_eq!(
+            BenchmarkCommand::parse(Some("sharding-route")),
+            Ok(BenchmarkCommand::ShardingRoute)
+        );
+    }
+
+    #[test]
+    fn benchmark_command_rejects_unknown_scenario_with_usage() {
+        let error =
+            BenchmarkCommand::parse(Some("everything")).expect_err("unknown command must fail");
+        assert!(error.contains("unknown benchmark scenario `everything`"));
+        assert!(error.contains("actor-tell"));
+        assert!(error.contains("sharding-route"));
+    }
 
     #[test]
     fn benchmark_iterations_default_when_unset() {

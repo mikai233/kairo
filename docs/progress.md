@@ -3875,6 +3875,10 @@ Implemented:
 - The `kairo-benchmarks` runner now validates `KAIRO_BENCH_ITERS` explicitly
   and rejects zero or non-numeric values so benchmark smoke runs cannot report
   meaningless zero-iteration throughput.
+- The `kairo-benchmarks` runner now also uses a focused, test-covered command
+  parser for the documented `all`, `actor-tell`, `remote-send`,
+  `gossip-merge`, and `sharding-route` scenarios, and unknown scenarios return
+  the pinned usage text with an error status before any benchmark runs.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -6080,4 +6084,10 @@ git diff --check
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
 cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
+cargo test -p kairo-benchmarks --all-targets --all-features
+KAIRO_BENCH_ITERS=1 cargo run -p kairo-benchmarks -- all
+cargo run -p kairo-benchmarks -- unknown-scenario
+cargo fmt --all -- --check
+cargo clippy -p kairo-benchmarks --all-targets --all-features -- -D warnings
+git diff --check
 ```
