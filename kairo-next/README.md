@@ -181,6 +181,8 @@ KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
 `kairo-benchmarks` is the initial M13 benchmark suite. It uses the standard
 library plus Kairo's public APIs to measure actor tell throughput, remote
 outbound send overhead, gossip merge cost, and sharding route throughput.
+Set `KAIRO_BENCH_ITERS` to a positive integer to override the default
+iteration count.
 
 ```bash
 cargo run -p kairo-benchmarks --release -- all

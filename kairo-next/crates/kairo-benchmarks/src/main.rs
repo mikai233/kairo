@@ -22,10 +22,14 @@ const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command = env::args().nth(1).unwrap_or_else(|| "all".to_string());
-    let iterations = env::var("KAIRO_BENCH_ITERS")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(DEFAULT_ITERATIONS);
+    let iterations_env = env::var("KAIRO_BENCH_ITERS").ok();
+    let iterations = match parse_benchmark_iterations(iterations_env.as_deref()) {
+        Ok(iterations) => iterations,
+        Err(error) => {
+            eprintln!("{error}");
+            std::process::exit(2);
+        }
+    };
 
     let mut results = Vec::new();
     match command.as_str() {
@@ -58,6 +62,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn parse_benchmark_iterations(value: Option<&str>) -> Result<usize, String> {
+    let Some(value) = value else {
+        return Ok(DEFAULT_ITERATIONS);
+    };
+    let iterations = value.parse::<usize>().map_err(|error| {
+        format!("KAIRO_BENCH_ITERS must be a positive integer, got `{value}`: {error}")
+    })?;
+    if iterations == 0 {
+        return Err("KAIRO_BENCH_ITERS must be greater than zero".to_string());
+    }
+    Ok(iterations)
 }
 
 struct BenchResult {
@@ -272,4 +289,32 @@ fn wait_for_count(
         last = observed_rx.recv_timeout(remaining)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DEFAULT_ITERATIONS, parse_benchmark_iterations};
+
+    #[test]
+    fn benchmark_iterations_default_when_unset() {
+        assert_eq!(parse_benchmark_iterations(None), Ok(DEFAULT_ITERATIONS));
+    }
+
+    #[test]
+    fn benchmark_iterations_accept_positive_values() {
+        assert_eq!(parse_benchmark_iterations(Some("100")), Ok(100));
+    }
+
+    #[test]
+    fn benchmark_iterations_reject_zero() {
+        let error = parse_benchmark_iterations(Some("0")).expect_err("zero must be rejected");
+        assert!(error.contains("greater than zero"));
+    }
+
+    #[test]
+    fn benchmark_iterations_reject_invalid_values() {
+        let error =
+            parse_benchmark_iterations(Some("many")).expect_err("non-numeric input must fail");
+        assert!(error.contains("positive integer"));
+    }
 }

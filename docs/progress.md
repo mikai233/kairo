@@ -3853,6 +3853,9 @@ Implemented:
 - The `kairo` facade test suite now pins the M13 license/private-surface audit
   by requiring active crates to inherit the workspace MIT license metadata and
   keeping `kairo-examples` and `kairo-benchmarks` unpublished support crates.
+- The `kairo-benchmarks` runner now validates `KAIRO_BENCH_ITERS` explicitly
+  and rejects zero or non-numeric values so benchmark smoke runs cannot report
+  meaningless zero-iteration throughput.
 
 Not yet implemented:
 
