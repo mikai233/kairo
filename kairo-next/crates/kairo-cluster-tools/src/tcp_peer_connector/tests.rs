@@ -570,6 +570,166 @@ fn connector_clears_pending_reconnect_when_peer_leaves_membership() {
 }
 
 #[test]
+fn connector_keeps_remaining_pubsub_route_delivering_after_member_removed_event() {
+    let _guard = connector_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("cluster-tools-tcp-peer-connector-event-remove-sender").unwrap();
+    let second_kit =
+        ActorSystemTestKit::new("cluster-tools-tcp-peer-connector-event-remove-second").unwrap();
+    let third_kit =
+        ActorSystemTestKit::new("cluster-tools-tcp-peer-connector-event-remove-third").unwrap();
+    let registry = registry();
+    let retry_interval = Duration::from_millis(25);
+    let sender_runtime = bind_peer_runtime(
+        "event-remove-sender",
+        1,
+        11,
+        RemoteSettings::new("127.0.0.1", 0),
+        retry_interval,
+        &sender_kit,
+        registry.clone(),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let second_port = unused_port();
+    let third_port = unused_port();
+    let sender_node = sender_runtime.self_node().clone();
+    let second_node = node("event-remove-second", second_port, 2);
+    let third_node = node("event-remove-third", third_port, 3);
+    let (second_runtime, second_probes) = bind_association_runtime_on_port_with_probes(
+        "event-remove-second",
+        2,
+        22,
+        second_port,
+        &second_kit,
+        registry.clone(),
+    );
+    let (third_runtime, third_probes) = bind_association_runtime_on_port_with_probes(
+        "event-remove-third",
+        3,
+        33,
+        third_port,
+        &third_kit,
+        registry.clone(),
+    );
+    let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+    let cluster = Cluster::new(publisher.clone());
+    let snapshots = sender_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("event-remove-snapshots")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                member(sender_node.clone()),
+                member(second_node.clone()),
+                member(third_node.clone()),
+            ]),
+        ))
+        .unwrap();
+    let connector = sender_kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ClusterToolsTcpPeerConnector::with_settings(
+                    cluster,
+                    sender_runtime,
+                    ClusterToolsTcpPeerConnectorSettings::new(retry_interval)
+                        .unwrap()
+                        .with_automatic_retry_ticks(false),
+                )
+            }),
+        )
+        .unwrap();
+
+    let snapshot =
+        eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 2);
+    assert!(
+        snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == &second_node)
+    );
+    assert!(
+        snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == &third_node)
+    );
+    assert_eq!(sender_cache.route_count(), 2);
+
+    let sender_outbound = Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>;
+    let second_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        second_node.clone(),
+        registry.clone(),
+        sender_outbound.clone(),
+    );
+    let third_outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        third_node.clone(),
+        registry,
+        sender_outbound,
+    );
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(sender_node.clone()), member(second_node.clone())]),
+        ))
+        .unwrap();
+    let snapshot =
+        eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 1);
+    assert_eq!(snapshot.active_targets.len(), 1);
+    assert_eq!(snapshot.active_targets[0].node(), &second_node);
+    assert_eq!(sender_cache.route_count(), 1);
+    let report = snapshot
+        .last_report
+        .expect("member removal should record a route report");
+    assert_eq!(report.removed.len(), 1);
+    assert_eq!(report.removed[0].node(), &third_node);
+
+    second_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders-after-connector-member-removed"),
+            message: TestMessage { value: 91 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &second_probes,
+        TopicName::new("orders-after-connector-member-removed"),
+        TestMessage { value: 91 },
+    );
+
+    let removed_error = third_outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders-after-connector-removed-member"),
+            message: TestMessage { value: 92 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("removed member route should reject delivery");
+    assert!(
+        removed_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected removed-peer send error: {removed_error:?}"
+    );
+    third_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    sender_kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(sender_cache.route_count(), 0);
+    second_runtime.shutdown().unwrap();
+    third_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
+    third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn connector_clear_routes_removes_active_peer_routes() {
     let _guard = connector_socket_test_lock();
     let sender_kit =
