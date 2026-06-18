@@ -4173,6 +4173,11 @@ Implemented:
   to the removed peer as well as the survivors, then waits for the removed
   peer connector and association cache to clear before asserting stale
   membership routes reject delivery.
+- `kairo-examples` TCP bootstrap smoke support now publishes reduced
+  membership to removed peers as well as surviving peers during two-node and
+  three-node shrink scenarios, then waits for the removed node's route cache to
+  clear. The shared helper hardens the public cluster, distributed-data, and
+  cluster-tools TCP bootstrap smoke tests against stale removed-peer routes.
 
 Not yet implemented:
 
@@ -4204,8 +4209,10 @@ Not yet implemented:
   coverage, focused connector member-removal delivery coverage, focused
   bootstrap automatic retry coverage, focused peer-runtime, connector, and
   bootstrap partial-failure retry coverage, three-node full-mesh delivery
-  coverage where applicable, and public example smoke coverage that
-  coordinated shutdown clears two live routes in each TCP bootstrap facade.
+  coverage where applicable, public example smoke coverage that coordinated
+  shutdown clears two live routes in each TCP bootstrap facade, and public
+  example smoke coverage that two-node and three-node membership shrink clears
+  removed-node routes.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation, focused three-node route-preservation
@@ -4225,6 +4232,18 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+```
+
+Latest M13 validation refresh after TCP bootstrap public smoke shrink cleanup:
+
+```bash
+cargo test -p kairo-examples tcp_peer_bootstrap_removes_route_when_membership_shrinks --test tcp_bootstrap_smoke --all-features -- --nocapture
+cargo test -p kairo-examples tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks --test tcp_bootstrap_smoke --all-features -- --nocapture
+cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+cargo test -p kairo --all-targets --all-features
 git diff --check
 ```
 

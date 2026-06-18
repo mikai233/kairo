@@ -149,8 +149,8 @@ pub fn assert_two_node_membership_shrink<N: TcpSmokeNode>(node_a: &N, node_b: &N
     publish_current_membership(&[node_a, node_b])?;
     wait_for_route_count(&[node_a, node_b], 1, Duration::from_secs(2))?;
 
-    node_a.publish_up_members(vec![node_a.self_node().clone()])?;
-    node_a.wait_for_route_count(0, Duration::from_secs(2))?;
+    publish_membership(&[node_a, node_b], vec![node_a.self_node().clone()])?;
+    wait_for_route_count(&[node_a, node_b], 0, Duration::from_secs(2))?;
     Ok(())
 }
 
@@ -163,10 +163,11 @@ pub fn assert_three_node_full_mesh_then_shrink<N: TcpSmokeNode>(
     wait_for_route_count(&[node_a, node_b, node_c], 2, Duration::from_secs(2))?;
 
     publish_membership(
-        &[node_a, node_b],
+        &[node_a, node_b, node_c],
         vec![node_a.self_node().clone(), node_b.self_node().clone()],
     )?;
     wait_for_route_count(&[node_a, node_b], 1, Duration::from_secs(2))?;
+    node_c.wait_for_route_count(0, Duration::from_secs(2))?;
     Ok(())
 }
 
