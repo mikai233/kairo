@@ -3826,6 +3826,11 @@ Implemented:
   benchmarking dependency. The runner covers actor tell throughput, remote
   outbound send overhead, gossip merge cost, and sharding route throughput, and
   exposes per-scenario commands plus an `all` run for release-hardening checks.
+- `docs/dependency-audit.md` now records the M13 dependency and license audit
+  for the active all-feature `kairo-next` workspace, including direct external
+  dependency rationale, resolved license metadata, and policy checks that no
+  HOCON parser, central membership store client, async runtime, public wire
+  serializer framework, or benchmark framework has entered the build surface.
 
 Not yet implemented:
 

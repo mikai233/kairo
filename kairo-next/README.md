@@ -178,3 +178,6 @@ KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- remote-send
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- gossip-merge
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
 ```
+
+The M13 dependency and license audit lives in
+[`../docs/dependency-audit.md`](../docs/dependency-audit.md).

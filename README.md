@@ -187,3 +187,6 @@ cd kairo-next
 cargo run -p kairo-benchmarks --release -- all
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
 ```
+
+The current M13 dependency and license audit is tracked in
+[docs/dependency-audit.md](docs/dependency-audit.md).
