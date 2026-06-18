@@ -254,26 +254,11 @@ fn coordinator_actor_persists_allocated_shards_to_remember_store() {
         GetShardHomePlan::Allocated { .. }
     ));
 
-    let mut persisted = false;
-    for _ in 0..20 {
-        store
-            .tell(RememberCoordinatorStoreMsg::GetState {
-                reply_to: store_state.actor_ref(),
-            })
-            .unwrap();
-        persisted = store_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap()
-            .shards
-            .contains("new-shard");
-        if persisted {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        persisted,
-        "remember coordinator store should include new-shard"
+    wait_for_remembered_coordinator_shard(
+        &store,
+        &store_state,
+        "new-shard",
+        "remember coordinator store should include new-shard",
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
@@ -541,51 +526,114 @@ fn coordinator_actor_allocates_remembered_shards_after_local_region_registration
         .create_probe::<ShardRegionSnapshot>("region-state")
         .unwrap();
 
-    let mut allocated = false;
-    for _ in 0..20 {
-        coordinator
-            .tell(ShardCoordinatorMsg::GetState {
-                reply_to: coordinator_state.actor_ref(),
-            })
-            .unwrap();
-        let state = coordinator_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap();
-        allocated = state.unallocated_shards.is_empty()
-            && state
-                .allocations
-                .get("region-a")
-                .is_some_and(|shards| shards.contains(&"shard-1".to_string()));
-        if allocated {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        allocated,
-        "remembered shard should be allocated when region registers"
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "remembered shard should be allocated when region registers",
+        remembered_shard_allocated,
     );
 
-    let mut hosted = false;
-    for _ in 0..20 {
-        region
-            .tell(ShardRegionMsg::GetState {
-                reply_to: region_state.actor_ref(),
-            })
-            .unwrap();
-        hosted = region_state
-            .expect_msg(Duration::from_millis(500))
-            .unwrap()
-            .local_shards
-            .contains("shard-1");
-        if hosted {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(
-        hosted,
-        "allocated remembered shard should be hosted on registered local region"
+    wait_for_region_snapshot(
+        &region,
+        &region_state,
+        "allocated remembered shard should be hosted on registered local region",
+        |snapshot| snapshot.local_shards.contains("shard-1"),
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+fn polling_timeout() -> Duration {
+    Duration::from_millis(10_200)
+}
+
+fn remembered_shard_allocated(snapshot: &CoordinatorStateSnapshot) -> bool {
+    snapshot.unallocated_shards.is_empty()
+        && snapshot
+            .allocations
+            .get("region-a")
+            .is_some_and(|shards| shards.contains(&"shard-1".to_string()))
+}
+
+fn wait_for_remembered_coordinator_shard(
+    store: &ActorRef<RememberCoordinatorStoreMsg>,
+    state: &kairo_testkit::TestProbe<RememberCoordinatorStoreSnapshot>,
+    shard: &str,
+    description: &str,
+) -> RememberCoordinatorStoreSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<RememberCoordinatorStoreSnapshot, String> {
+            store
+                .tell(RememberCoordinatorStoreMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if snapshot.shards.contains(shard) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_coordinator_snapshot(
+    coordinator: &ActorRef<ShardCoordinatorMsg<String>>,
+    state: &kairo_testkit::TestProbe<CoordinatorStateSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&CoordinatorStateSnapshot) -> bool,
+) -> CoordinatorStateSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<CoordinatorStateSnapshot, String> {
+            coordinator
+                .tell(ShardCoordinatorMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_region_snapshot(
+    region: &ActorRef<ShardRegionMsg<String>>,
+    state: &kairo_testkit::TestProbe<ShardRegionSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&ShardRegionSnapshot) -> bool,
+) -> ShardRegionSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ShardRegionSnapshot, String> {
+            region
+                .tell(ShardRegionMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
 }
