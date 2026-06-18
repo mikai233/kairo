@@ -293,6 +293,120 @@ fn connector_subscribes_to_cluster_and_applies_tcp_peer_routes() {
 }
 
 #[test]
+fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
+    let _guard = connector_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("cluster-tools-tcp-peer-connector-partial-sender").unwrap();
+    let bound_kit =
+        ActorSystemTestKit::new("cluster-tools-tcp-peer-connector-partial-bound").unwrap();
+    let missing_kit =
+        ActorSystemTestKit::new("cluster-tools-tcp-peer-connector-partial-missing").unwrap();
+    let registry = registry();
+    let retry_interval = Duration::from_millis(25);
+    let sender_runtime = bind_peer_runtime(
+        "partial-sender",
+        1,
+        11,
+        RemoteSettings::new("127.0.0.1", 0),
+        retry_interval,
+        &sender_kit,
+        registry.clone(),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let bound_port = unused_port();
+    let missing_port = unused_port();
+    let sender_node = sender_runtime.self_node().clone();
+    let bound_node = node("partial-bound", bound_port, 2);
+    let missing_node = node("partial-missing", missing_port, 3);
+    let bound_runtime = bind_association_runtime_on_port(
+        "partial-bound",
+        2,
+        22,
+        bound_port,
+        &bound_kit,
+        registry.clone(),
+    );
+    let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+    let cluster = Cluster::new(publisher.clone());
+    let snapshots = sender_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("partial-snapshots")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                member(sender_node.clone()),
+                member(bound_node.clone()),
+                member(missing_node.clone()),
+            ]),
+        ))
+        .unwrap();
+    let connector = sender_kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ClusterToolsTcpPeerConnector::with_settings(
+                    cluster,
+                    sender_runtime,
+                    ClusterToolsTcpPeerConnectorSettings::new(retry_interval)
+                        .unwrap()
+                        .with_automatic_retry_ticks(false),
+                )
+            }),
+        )
+        .unwrap();
+
+    let snapshot = eventually_snapshot(&connector, &snapshots, |snapshot| {
+        snapshot.route_count == 1 && snapshot.pending_reconnects.len() == 1
+    });
+    assert_eq!(snapshot.active_targets[0].node(), &bound_node);
+    assert_eq!(snapshot.pending_reconnects[0].target.node(), &missing_node);
+    assert!(snapshot.last_error.is_some());
+    assert_eq!(sender_cache.route_count(), 1);
+
+    let missing_runtime = bind_association_runtime_on_port(
+        "partial-missing",
+        3,
+        33,
+        missing_port,
+        &missing_kit,
+        registry,
+    );
+    connector
+        .tell(ClusterToolsTcpPeerConnectorMsg::RetryDuePeerRoutes {
+            now: retry_interval,
+        })
+        .unwrap();
+    let snapshot =
+        eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 2);
+    assert!(
+        snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == &bound_node)
+    );
+    assert!(
+        snapshot
+            .active_targets
+            .iter()
+            .any(|target| target.node() == &missing_node)
+    );
+    assert!(snapshot.pending_reconnects.is_empty());
+    assert!(snapshot.last_error.is_none());
+    assert_eq!(sender_cache.route_count(), 2);
+
+    sender_kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(sender_cache.route_count(), 0);
+    bound_runtime.shutdown().unwrap();
+    missing_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    bound_kit.shutdown(Duration::from_secs(1)).unwrap();
+    missing_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn connector_clears_pending_reconnect_when_peer_leaves_membership() {
     let _guard = connector_socket_test_lock();
     let sender_kit =
