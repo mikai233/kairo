@@ -4159,6 +4159,10 @@ Implemented:
   resolved `observability::` paths, keeping the M13 rustdoc
   warnings-denied gate green for `DiagnosticCounters`, `DiagnosticTextSink`,
   and `DiagnosticCounterSnapshot`.
+- `kairo-distributed-data` three-node TCP bootstrap coverage now feeds reduced
+  gossip to the removed peer as well as the survivors, then waits for the
+  removed peer connector and association cache to clear before asserting stale
+  routes reject delivery.
 
 Not yet implemented:
 
@@ -4175,7 +4179,8 @@ Not yet implemented:
   bootstrap sender-side route-reduction, connector/bootstrap partial-failure
   delivery, connector member-removal delivery, bootstrap automatic retry,
   partial-failure retry coverage, and three-node example shutdown route
-  cleanup coverage.
+  cleanup coverage, including removed-peer route cleanup in the three-node
+  bootstrap shrink path.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
   region death-watch restart, and multi-node discovery/shared-store
@@ -4212,6 +4217,18 @@ cargo test -p kairo-testkit multi_node --all-targets --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
 KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+git diff --check
+```
+
+Latest distributed-data bootstrap hardening validation:
+
+```bash
+cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-examples ddata_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks --all-targets --all-features -- --nocapture
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 git diff --check
