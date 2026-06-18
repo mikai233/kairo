@@ -995,7 +995,13 @@ fn wait_for_cluster_pending_reconnect(
 ) -> TestResult {
     let deadline = Instant::now() + timeout;
     loop {
-        let snapshot = node.connector_snapshot(timeout)?;
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(format!(
+                "timed out waiting for pending cluster reconnect to {expected:?}: no snapshot observed"
+            )
+            .into());
+        };
+        let snapshot = node.connector_snapshot(remaining)?;
         let has_pending = snapshot
             .pending_reconnects
             .iter()
@@ -1003,13 +1009,12 @@ fn wait_for_cluster_pending_reconnect(
         if snapshot.route_count == 0 && has_pending {
             return Ok(());
         }
-        if Instant::now() >= deadline {
+        if !sleep_until_next_poll(deadline) {
             return Err(format!(
                 "timed out waiting for pending cluster reconnect to {expected:?}: {snapshot:?}"
             )
             .into());
         }
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -1019,17 +1024,22 @@ fn wait_for_cluster_no_routes_or_pending(
 ) -> TestResult {
     let deadline = Instant::now() + timeout;
     loop {
-        let snapshot = node.connector_snapshot(timeout)?;
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(
+                "timed out waiting for cluster routes and pending reconnects to clear: no snapshot observed"
+                    .into(),
+            );
+        };
+        let snapshot = node.connector_snapshot(remaining)?;
         if snapshot.route_count == 0 && snapshot.pending_reconnects.is_empty() {
             return Ok(());
         }
-        if Instant::now() >= deadline {
+        if !sleep_until_next_poll(deadline) {
             return Err(format!(
                 "timed out waiting for cluster routes and pending reconnects to clear: {snapshot:?}"
             )
             .into());
         }
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -1040,7 +1050,13 @@ fn wait_for_ddata_pending_reconnect(
 ) -> TestResult {
     let deadline = Instant::now() + timeout;
     loop {
-        let snapshot = node.connector_snapshot(timeout)?;
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(format!(
+                "timed out waiting for pending distributed-data reconnect to {expected:?}: no snapshot observed"
+            )
+            .into());
+        };
+        let snapshot = node.connector_snapshot(remaining)?;
         let has_pending = snapshot
             .pending_reconnects
             .iter()
@@ -1048,13 +1064,12 @@ fn wait_for_ddata_pending_reconnect(
         if snapshot.route_count == 0 && has_pending {
             return Ok(());
         }
-        if Instant::now() >= deadline {
+        if !sleep_until_next_poll(deadline) {
             return Err(format!(
                 "timed out waiting for pending distributed-data reconnect to {expected:?}: {snapshot:?}"
             )
             .into());
         }
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -1064,17 +1079,22 @@ fn wait_for_ddata_no_routes_or_pending(
 ) -> TestResult {
     let deadline = Instant::now() + timeout;
     loop {
-        let snapshot = node.connector_snapshot(timeout)?;
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(
+                "timed out waiting for distributed-data routes and pending reconnects to clear: no snapshot observed"
+                    .into(),
+            );
+        };
+        let snapshot = node.connector_snapshot(remaining)?;
         if snapshot.route_count == 0 && snapshot.pending_reconnects.is_empty() {
             return Ok(());
         }
-        if Instant::now() >= deadline {
+        if !sleep_until_next_poll(deadline) {
             return Err(format!(
                 "timed out waiting for distributed-data routes and pending reconnects to clear: {snapshot:?}"
             )
             .into());
         }
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -1085,7 +1105,13 @@ fn wait_for_tools_pending_reconnect(
 ) -> TestResult {
     let deadline = Instant::now() + timeout;
     loop {
-        let snapshot = node.connector_snapshot(timeout)?;
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(format!(
+                "timed out waiting for pending cluster-tools reconnect to {expected:?}: no snapshot observed"
+            )
+            .into());
+        };
+        let snapshot = node.connector_snapshot(remaining)?;
         let has_pending = snapshot
             .pending_reconnects
             .iter()
@@ -1093,13 +1119,12 @@ fn wait_for_tools_pending_reconnect(
         if snapshot.route_count == 0 && has_pending {
             return Ok(());
         }
-        if Instant::now() >= deadline {
+        if !sleep_until_next_poll(deadline) {
             return Err(format!(
                 "timed out waiting for pending cluster-tools reconnect to {expected:?}: {snapshot:?}"
             )
             .into());
         }
-        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -1109,16 +1134,34 @@ fn wait_for_tools_no_routes_or_pending(
 ) -> TestResult {
     let deadline = Instant::now() + timeout;
     loop {
-        let snapshot = node.connector_snapshot(timeout)?;
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(
+                "timed out waiting for cluster-tools routes and pending reconnects to clear: no snapshot observed"
+                    .into(),
+            );
+        };
+        let snapshot = node.connector_snapshot(remaining)?;
         if snapshot.route_count == 0 && snapshot.pending_reconnects.is_empty() {
             return Ok(());
         }
-        if Instant::now() >= deadline {
+        if !sleep_until_next_poll(deadline) {
             return Err(format!(
                 "timed out waiting for cluster-tools routes and pending reconnects to clear: {snapshot:?}"
             )
             .into());
         }
-        thread::sleep(Duration::from_millis(10));
     }
+}
+
+fn remaining_until(deadline: Instant) -> Option<Duration> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    (!remaining.is_zero()).then_some(remaining)
+}
+
+fn sleep_until_next_poll(deadline: Instant) -> bool {
+    let Some(remaining) = remaining_until(deadline) else {
+        return false;
+    };
+    thread::sleep(Duration::from_millis(10).min(remaining));
+    true
 }
