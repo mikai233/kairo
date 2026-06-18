@@ -62,6 +62,10 @@ enum WatchProbeMsg {
         observed: mpsc::Sender<ActorPath>,
     },
     Observed(ActorPath),
+    Block {
+        entered: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+    },
     Unwatch {
         subject: ActorRef<()>,
         reply_to: mpsc::Sender<()>,
@@ -207,6 +211,14 @@ impl Actor for WatchProbe {
                         .send(path)
                         .map_err(|error| ActorError::Message(error.to_string()))?;
                 }
+            }
+            WatchProbeMsg::Block { entered, release } => {
+                entered
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                release
+                    .recv()
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             WatchProbeMsg::Unwatch { subject, reply_to } => {
                 ctx.watch(&subject)?;
@@ -1074,6 +1086,49 @@ fn watch_path_delivers_terminated_for_each_subject_on_terminated_address() {
     assert_eq!(
         terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         other
+    );
+}
+
+#[test]
+fn unwatch_path_discards_queued_address_terminated_signal_for_one_subject() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let first = ActorPath::new("kairo://remote@127.0.0.1:25520/user/first#1");
+    let second = ActorPath::new("kairo://remote@127.0.0.1:25520/user/second#2");
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+
+    system.watch_path(watcher.clone(), first.clone()).unwrap();
+    system.watch_path(watcher.clone(), second.clone()).unwrap();
+    watcher
+        .tell(WatchProbeMsg::Block {
+            entered: entered_tx,
+            release: release_rx,
+        })
+        .unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.notify_watched_address_terminated("kairo://remote@127.0.0.1:25520");
+    system.unwatch_path(watcher.path(), &first);
+    release_tx.send(()).unwrap();
+
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        second
+    );
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
     );
 }
 

@@ -1284,6 +1284,11 @@ Implemented:
   a stable `AddressTerminated` control message routed through remote
   death-watch becomes a normal local `Signal::Terminated` for actors using
   `watch_remote`.
+- Actor-system path death-watch coverage now also pins Pekko-style queued
+  address-termination cleanup: if a remote address termination queues
+  `Terminated` signals for multiple watched paths, `unwatch_path` for one path
+  before mailbox delivery suppresses only that path's signal and leaves the
+  remaining watched path to deliver normally.
 - Remote death-watch state now clears watched refs, watched address tracking,
   and cached remote UID metadata when an address terminates, emits an explicit
   heartbeat-stop effect, and keeps the unreachable observation so a later watch
@@ -5542,6 +5547,12 @@ cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-actor watch_can_requeue_already_stopped_notification_after_delivery --all-targets --all-features
 cargo test -p kairo-actor watch_with_can_requeue_already_stopped_custom_message_after_delivery --all-targets --all-features
+cargo test -p kairo-actor watch --all-targets --all-features
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor unwatch_path_discards_queued_address_terminated_signal_for_one_subject --all-targets --all-features
 cargo test -p kairo-actor watch --all-targets --all-features
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
