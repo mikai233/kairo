@@ -3883,6 +3883,10 @@ Implemented:
 - `kairo-cluster` now covers the same TCP peer-runtime partial snapshot
   failure for membership routes, preserving the successfully installed route
   while retrying the later failed peer route.
+- `kairo-cluster-tools` now covers TCP peer-runtime partial snapshot failure
+  for pubsub/singleton routes, matching the cluster and distributed-data
+  route-owner behavior when one peer dials successfully and a later peer is
+  retried.
 
 Not yet implemented:
 
@@ -3904,8 +3908,8 @@ Not yet implemented:
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
   `run_coordinated_shutdown` coverage, focused sender-side route-reduction
-  delivery coverage, and three-node full-mesh delivery coverage where
-  applicable.
+  delivery coverage, focused peer-runtime partial-failure retry coverage, and
+  three-node full-mesh delivery coverage where applicable.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation, focused three-node route-preservation
@@ -3952,6 +3956,10 @@ cargo test -p kairo-cluster peer_runtime_preserves_successful_routes_when_later_
 cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-tools peer_runtime_preserves_successful_routes_when_later_snapshot_dial_fails --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
