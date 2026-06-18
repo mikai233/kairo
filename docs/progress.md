@@ -3879,6 +3879,9 @@ Implemented:
   parser for the documented `all`, `actor-tell`, `remote-send`,
   `gossip-merge`, and `sharding-route` scenarios, and unknown scenarios return
   the pinned usage text with an error status before any benchmark runs.
+- The same benchmark command parser now rejects extra positional arguments, so
+  malformed release-gate invocations such as `all extra` fail with the pinned
+  usage text instead of silently running a narrower command than requested.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -6087,6 +6090,7 @@ cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
 cargo test -p kairo-benchmarks --all-targets --all-features
 KAIRO_BENCH_ITERS=1 cargo run -p kairo-benchmarks -- all
 cargo run -p kairo-benchmarks -- unknown-scenario
+KAIRO_BENCH_ITERS=1 cargo run -p kairo-benchmarks -- all extra
 cargo fmt --all -- --check
 cargo clippy -p kairo-benchmarks --all-targets --all-features -- -D warnings
 git diff --check

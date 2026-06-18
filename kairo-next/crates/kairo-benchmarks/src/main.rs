@@ -43,9 +43,19 @@ impl BenchmarkCommand {
     }
 }
 
+fn parse_benchmark_command(args: &[String]) -> Result<BenchmarkCommand, String> {
+    if args.len() > 1 {
+        return Err(format!(
+            "unexpected benchmark argument `{}`\n{USAGE}",
+            args[1]
+        ));
+    }
+    BenchmarkCommand::parse(args.first().map(String::as_str))
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let command_arg = env::args().nth(1);
-    let command = match BenchmarkCommand::parse(command_arg.as_deref()) {
+    let command_args: Vec<String> = env::args().skip(1).collect();
+    let command = match parse_benchmark_command(&command_args) {
         Ok(command) => command,
         Err(error) => {
             eprintln!("{error}");
@@ -317,42 +327,53 @@ fn wait_for_count(
 
 #[cfg(test)]
 mod tests {
-    use super::{BenchmarkCommand, DEFAULT_ITERATIONS, parse_benchmark_iterations};
+    use super::{
+        BenchmarkCommand, DEFAULT_ITERATIONS, parse_benchmark_command, parse_benchmark_iterations,
+    };
 
     #[test]
     fn benchmark_command_defaults_to_all() {
-        assert_eq!(BenchmarkCommand::parse(None), Ok(BenchmarkCommand::All));
+        assert_eq!(parse_benchmark_command(&[]), Ok(BenchmarkCommand::All));
     }
 
     #[test]
     fn benchmark_command_accepts_documented_scenarios() {
         assert_eq!(
-            BenchmarkCommand::parse(Some("all")),
+            parse_benchmark_command(&["all".to_string()]),
             Ok(BenchmarkCommand::All)
         );
         assert_eq!(
-            BenchmarkCommand::parse(Some("actor-tell")),
+            parse_benchmark_command(&["actor-tell".to_string()]),
             Ok(BenchmarkCommand::ActorTell)
         );
         assert_eq!(
-            BenchmarkCommand::parse(Some("remote-send")),
+            parse_benchmark_command(&["remote-send".to_string()]),
             Ok(BenchmarkCommand::RemoteSend)
         );
         assert_eq!(
-            BenchmarkCommand::parse(Some("gossip-merge")),
+            parse_benchmark_command(&["gossip-merge".to_string()]),
             Ok(BenchmarkCommand::GossipMerge)
         );
         assert_eq!(
-            BenchmarkCommand::parse(Some("sharding-route")),
+            parse_benchmark_command(&["sharding-route".to_string()]),
             Ok(BenchmarkCommand::ShardingRoute)
         );
     }
 
     #[test]
     fn benchmark_command_rejects_unknown_scenario_with_usage() {
-        let error =
-            BenchmarkCommand::parse(Some("everything")).expect_err("unknown command must fail");
+        let error = parse_benchmark_command(&["everything".to_string()])
+            .expect_err("unknown command must fail");
         assert!(error.contains("unknown benchmark scenario `everything`"));
+        assert!(error.contains("actor-tell"));
+        assert!(error.contains("sharding-route"));
+    }
+
+    #[test]
+    fn benchmark_command_rejects_extra_arguments_with_usage() {
+        let error = parse_benchmark_command(&["all".to_string(), "extra".to_string()])
+            .expect_err("extra arguments must fail");
+        assert!(error.contains("unexpected benchmark argument `extra`"));
         assert!(error.contains("actor-tell"));
         assert!(error.contains("sharding-route"));
     }
