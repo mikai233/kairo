@@ -3865,6 +3865,9 @@ Implemented:
 - The `kairo` facade test suite now pins the root Rust CI M13 release gates:
   formatting, full workspace clippy/tests, example and doc tests, multi-node
   testkit coverage, rustdoc warnings, and benchmark smoke execution.
+- The root Rust CI matrix now runs workspace doctests with all features so
+  public API examples across the facade and focused crates stay
+  compile-tested, not only the `kairo-examples` crate docs.
 
 Not yet implemented:
 

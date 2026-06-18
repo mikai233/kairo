@@ -52,6 +52,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Run example integration tests
         run: cargo test -p kairo-examples --all-targets --all-features
+      - name: Run workspace docs
+        run: cargo test --doc --workspace --all-features
       - name: Run example docs
         run: cargo test -p kairo-examples --doc --all-features
       - name: Run local multi-node harness tests

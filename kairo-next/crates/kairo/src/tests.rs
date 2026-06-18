@@ -342,6 +342,10 @@ fn rust_ci_keeps_m13_release_readiness_gates() -> Result<(), Box<dyn std::error:
             "public example workflows must remain in CI",
         ),
         (
+            "cargo test --doc --workspace --all-features",
+            "public API doctests must remain compile-tested across the workspace",
+        ),
+        (
             "cargo test -p kairo-examples --doc --all-features",
             "example rustdoc snippets must remain checked",
         ),

@@ -392,6 +392,7 @@ Run focused validation for the area you touch first, then widen as needed:
 cd kairo-next
 cargo fmt --all -- --check
 cargo test -p kairo-examples --all-targets --all-features
+cargo test --doc --workspace --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings

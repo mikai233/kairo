@@ -152,6 +152,7 @@ Clippy: cargo clippy --workspace --all-targets --all-features -- -D warnings
 Test: cargo test --workspace --all-targets --all-features
 Examples and Multi-Node:
   cargo test -p kairo-examples --all-targets --all-features
+  cargo test --doc --workspace --all-features
   cargo test -p kairo-examples --doc --all-features
   cargo test -p kairo-testkit multi_node --all-targets --all-features
 Rustdoc: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
@@ -178,6 +179,7 @@ Examples and local multi-node harness coverage can be validated directly:
 
 ```bash
 cargo test -p kairo-examples --all-targets --all-features
+cargo test --doc --workspace --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
