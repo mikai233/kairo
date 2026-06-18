@@ -2269,6 +2269,12 @@ Implemented:
   behavior. Allocated remembered shards are persisted idempotently and, when a
   typed local handoff transport is available, dispatched back to the selected
   region as `HostShard` so the region starts hosting the remembered shard.
+- `kairo-cluster-sharding` now also validates that coordinator-allocated
+  remembered shards work with self-registering, local remember-store-backed
+  regions: the coordinator starts with a remembered unallocated shard, the
+  region registers with a local remember store that already contains the
+  shard's entity ID, the coordinator dispatches `HostShard`, and the hosted
+  shard reloads the remembered entity before reporting active entity state.
 - `kairo-cluster-sharding` now validates the remembered-shard allocation path
   through the multi-node region-discovery harness: a coordinator node starts
   with remembered unallocated shard state, a separate region node discovers and
@@ -4187,8 +4193,9 @@ Not yet implemented:
   bootstrap shrink path.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
-  region death-watch restart, and multi-node discovery/shared-store
-  first-delivery coverage.
+  coordinator-registered local remember-store allocation/recovery, region
+  death-watch restart, and multi-node discovery/shared-store first-delivery
+  coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
@@ -4207,6 +4214,19 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after coordinator-registered remember-store
+shard allocation coverage:
+
+```bash
+cargo test -p kairo-cluster-sharding coordinator_actor_allocates_remembered_shard_to_remember_store_region --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after the facade rustdoc link fix:
 

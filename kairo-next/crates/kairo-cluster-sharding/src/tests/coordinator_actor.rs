@@ -1002,6 +1002,73 @@ fn coordinator_actor_allocates_remembered_shards_after_local_region_registration
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn coordinator_actor_allocates_remembered_shard_to_remember_store_region() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("remembered-store-registration").unwrap();
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state.merge_remembered_shards(["shard-1".to_string()]);
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards_and_registration(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+                RegionRegistrationConfig::new(coordinator.clone(), Duration::from_millis(20)),
+            ),
+        )
+        .unwrap();
+    let coordinator_state = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+    let region_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-state")
+        .unwrap();
+
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "remembered shard should be allocated to remember-store region",
+        remembered_shard_allocated,
+    );
+
+    wait_for_region_snapshot(
+        &region,
+        &region_state,
+        "remember-store region should host allocated remembered shard",
+        |snapshot| snapshot.local_shards.contains("shard-1"),
+    );
+    let local_shard = wait_for_local_shard(&kit, &region, "shard-1");
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+    wait_for_shard_snapshot(
+        &local_shard,
+        &shard_state,
+        "remember-store shard should load remembered entity after coordinator allocation",
+        |snapshot| snapshot.active_entities == vec!["entity-1".to_string()],
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 struct RequesterAllocationStrategy {
     rebalance_shards: BTreeSet<String>,
 }
@@ -1116,6 +1183,64 @@ fn wait_for_region_snapshot(
         || -> Result<ShardRegionSnapshot, String> {
             region
                 .tell(ShardRegionMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            if matches(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("{description}; last snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_local_shard(
+    kit: &kairo_testkit::ActorSystemTestKit,
+    region: &ActorRef<ShardRegionMsg<String>>,
+    shard: &str,
+) -> ActorRef<ShardMsg<String>> {
+    let reply = kit
+        .create_probe::<Option<ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ActorRef<ShardMsg<String>>, String> {
+            region
+                .tell(ShardRegionMsg::GetLocalShard {
+                    shard: shard.to_string(),
+                    reply_to: reply.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            match reply.expect_msg(Duration::from_millis(500)) {
+                Ok(Some(shard_ref)) => Ok(shard_ref),
+                Ok(None) => Err(format!("local shard `{shard}` is not available yet")),
+                Err(error) => Err(format!(
+                    "timed out waiting for local shard `{shard}` response: {error}"
+                )),
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_shard_snapshot(
+    shard: &ActorRef<ShardMsg<String>>,
+    state: &kairo_testkit::TestProbe<ShardSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&ShardSnapshot) -> bool,
+) -> ShardSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ShardSnapshot, String> {
+            shard
+                .tell(ShardMsg::GetState {
                     reply_to: state.actor_ref(),
                 })
                 .map_err(|error| error.to_string())?;
