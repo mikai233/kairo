@@ -1,6 +1,6 @@
 use std::net::TcpListener;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bytes::Bytes;
 use kairo_actor::{Address, Props};
@@ -10,7 +10,7 @@ use kairo_cluster::{
 };
 use kairo_remote::RemoteSettings;
 use kairo_serialization::{MessageCodec, Registry, SerializationRegistry};
-use kairo_testkit::{ActorSystemTestKit, TestProbe};
+use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
 use super::*;
 use crate::{
@@ -173,15 +173,19 @@ fn eventually_snapshot(
     probe: &TestProbe<ClusterToolsTcpPeerConnectorSnapshot>,
     predicate: impl Fn(&ClusterToolsTcpPeerConnectorSnapshot) -> bool,
 ) -> ClusterToolsTcpPeerConnectorSnapshot {
-    let deadline = Instant::now() + Duration::from_secs(1);
-    loop {
-        let snapshot = expect_snapshot(connector, probe);
-        if predicate(&snapshot) {
-            return snapshot;
-        }
-        assert!(Instant::now() < deadline, "timed out waiting for snapshot");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(5),
+        || -> Result<ClusterToolsTcpPeerConnectorSnapshot, String> {
+            let snapshot = expect_snapshot(connector, probe);
+            if predicate(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("unexpected connector snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
 }
 
 fn publish_changes_and_wait(

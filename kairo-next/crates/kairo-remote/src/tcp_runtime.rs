@@ -377,6 +377,9 @@ fn shutdown_runtime(
         let _ = reader.join_after_stop_until(Instant::now());
     }
     let listener_report = listener.join();
+    for result in association_cache.clear_routes_and_close(TCP_REMOTE_SHUTDOWN_REASON) {
+        result?;
+    }
 
     if !death_watch_stopped {
         return Err(RemoteError::Inbound(

@@ -10,7 +10,7 @@ use kairo_cluster::{
 use kairo_remote::{RemoteError, RemoteSettings};
 use kairo_serialization::RemoteEnvelope;
 use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
-use kairo_testkit::{ActorSystemTestKit, TestProbe};
+use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
 use super::*;
 use crate::{
@@ -205,15 +205,19 @@ fn eventually_snapshot(
     probe: &TestProbe<ReplicatorTcpPeerConnectorSnapshot>,
     predicate: impl Fn(&ReplicatorTcpPeerConnectorSnapshot) -> bool,
 ) -> ReplicatorTcpPeerConnectorSnapshot {
-    let deadline = Instant::now() + Duration::from_secs(1);
-    loop {
-        let snapshot = expect_snapshot(connector, probe);
-        if predicate(&snapshot) {
-            return snapshot;
-        }
-        assert!(Instant::now() < deadline, "timed out waiting for snapshot");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(5),
+        || -> Result<ReplicatorTcpPeerConnectorSnapshot, String> {
+            let snapshot = expect_snapshot(connector, probe);
+            if predicate(&snapshot) {
+                Ok(snapshot)
+            } else {
+                Err(format!("unexpected connector snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap()
 }
 
 fn publish_changes_and_wait(
