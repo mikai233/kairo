@@ -4023,8 +4023,9 @@ Not yet implemented:
   two-node and sender-side three-node example smoke tests, three-node
   bootstrap route validation, and focused peer-runtime, connector, and
   bootstrap sender-side route-reduction, connector/bootstrap partial-failure
-  delivery, connector member-removal delivery, bootstrap automatic retry, and
-  partial-failure retry coverage.
+  delivery, connector member-removal delivery, bootstrap automatic retry,
+  partial-failure retry coverage, and three-node example shutdown route
+  cleanup coverage.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
   region death-watch restart, and multi-node discovery/shared-store
@@ -4036,8 +4037,9 @@ Not yet implemented:
   delivery coverage, focused connector and bootstrap partial-failure delivery
   coverage, focused connector member-removal delivery coverage, focused
   bootstrap automatic retry coverage, focused peer-runtime, connector, and
-  bootstrap partial-failure retry coverage, and three-node full-mesh delivery
-  coverage where applicable.
+  bootstrap partial-failure retry coverage, three-node full-mesh delivery
+  coverage where applicable, and public example smoke coverage that
+  coordinated shutdown clears two live routes in each TCP bootstrap facade.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation, focused three-node route-preservation
