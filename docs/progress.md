@@ -292,6 +292,10 @@ Implemented:
   children: a parent that uses `watch_with` on its own child removes that
   registration before recursively stopping children, so the child's termination
   cannot enqueue stale custom traffic or dead letters into the stopping parent.
+- Parent-stop death-watch cleanup now also pins the same boundary across
+  multiple watched children: a stopping parent removes every owned child watch
+  before child termination begins, and no stale custom watch messages are
+  emitted while child stops are blocked or after the parent finishes stopping.
 - Local death-watch restart coverage now pins that a `watch_with`
   registration survives an unrelated actor restart and still delivers the
   custom termination message to the rebuilt actor instance, matching Pekko's
@@ -4278,6 +4282,17 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after multi-child parent-stop watch-cleanup
+coverage:
+
+```bash
+cargo test -p kairo-actor stopping_parent_unwatches_all_children_before_stopping_them --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after multi-child restart watch-cleanup coverage:
 
