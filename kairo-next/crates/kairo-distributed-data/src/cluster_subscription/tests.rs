@@ -13,9 +13,9 @@ use kairo_testkit::await_assert;
 
 use super::*;
 use crate::{
-    DeltaPropagationLog, DeltaPropagationTransport, DeltaTransportFailure, GCounter, GCounterCodec,
-    ReplicatorActor, ReplicatorClusterConnectorClock, ReplicatorKey, ReplicatorRemoteEnvelope,
-    register_ddata_protocol_codecs,
+    DataEnvelope, DeltaPropagationLog, DeltaPropagationTransport, DeltaTransportFailure, GCounter,
+    GCounterCodec, ReplicatorActor, ReplicatorClusterConnectorClock, ReplicatorKey,
+    ReplicatorRemoteEnvelope, register_ddata_protocol_codecs,
 };
 
 #[test]
@@ -233,6 +233,169 @@ fn connector_stops_when_self_member_is_removed() {
         connector.wait_for_stop(Duration::from_secs(1)),
         "connector should stop when its own cluster member is removed"
     );
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn connector_gates_removed_node_pruning_until_all_replicas_reachable() {
+    let system = ActorSystem::builder("ddata-cluster-connector-pruning-gate")
+        .build()
+        .unwrap();
+    let self_node = node("self", 1);
+    let blocked = node("blocked", 2);
+    let removed = node("removed", 3);
+    let publisher = system
+        .spawn(
+            "publisher",
+            Props::new({
+                let self_node = self_node.clone();
+                move || ClusterEventPublisher::new(self_node)
+            }),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                member(self_node.clone(), MemberStatus::Up, ["ddata"]),
+                member(blocked.clone(), MemberStatus::Up, ["ddata"]),
+                member(removed.clone(), MemberStatus::Up, ["ddata"]),
+            ])
+            .with_reachability(Reachability::new().unreachable(self_node.clone(), blocked.clone())),
+        ))
+        .unwrap();
+
+    let connector = system
+        .spawn(
+            "connector",
+            Props::new({
+                let cluster = cluster.clone();
+                let self_node = self_node.clone();
+                let replicator = replicator.clone();
+                move || {
+                    ReplicatorClusterConnector::with_required_roles(
+                        cluster,
+                        self_node,
+                        replicator,
+                        ["ddata"],
+                    )
+                    .with_pruning_settings(ReplicatorClusterPruningSettings::new(10, 100))
+                }
+            }),
+        )
+        .unwrap();
+    let (snapshot_ref, snapshot_rx) =
+        forward_ref::<ReplicatorClusterConnectorSnapshot>(&system, "pruning-gate-snapshots");
+    let key = ReplicatorKey::new("removed-owned-counter");
+    let removed_replica = ReplicaId::from(&removed);
+    let blocked_replica = ReplicaId::from(&blocked);
+
+    let initial = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.remote_replicas.len() == 2
+            && snapshot.unreachable_replicas.contains(&blocked_replica)
+    });
+    assert_eq!(
+        initial.unreachable_replicas,
+        BTreeSet::from([blocked_replica.clone()])
+    );
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::LeaderChanged {
+                leader: Some(self_node.clone()),
+            },
+        ))
+        .unwrap();
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.is_leader
+    });
+
+    replicator
+        .tell(ReplicatorActorMsg::WriteFull {
+            key: key.clone(),
+            envelope: DataEnvelope::new(
+                GCounter::new()
+                    .increment(ReplicaId::from(&self_node), 1)
+                    .unwrap()
+                    .increment(removed_replica.clone(), 4)
+                    .unwrap()
+                    .reset_delta(),
+            ),
+        })
+        .unwrap();
+    connector
+        .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 100 })
+        .unwrap();
+    connector
+        .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 130 })
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::Member(MemberEvent::Removed {
+                member: member(removed.clone(), MemberStatus::Removed, ["ddata"]),
+                previous_status: MemberStatus::Up,
+            }),
+        ))
+        .unwrap();
+    let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.remote_replicas == vec![blocked_replica.clone()]
+            && snapshot
+                .last_report
+                .as_ref()
+                .is_some_and(|report| report.recorded_removed.contains(&removed_replica))
+    });
+    assert_eq!(
+        snapshot.unreachable_replicas,
+        BTreeSet::from([blocked_replica.clone()])
+    );
+
+    connector
+        .tell(ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis: 1_000 })
+        .unwrap();
+    let skipped = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot
+            .last_pruning_report
+            .as_ref()
+            .is_some_and(|report| report.skipped_unreachable)
+    });
+    assert_eq!(skipped.all_reachable_time_nanos, 0);
+    assert!(skipped.last_pruning_report.unwrap().initialized.is_empty());
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::Reachability(ReachabilityEvent::Reachable(member(
+                blocked.clone(),
+                MemberStatus::Up,
+                ["ddata"],
+            ))),
+        ))
+        .unwrap();
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.unreachable_replicas.is_empty()
+    });
+
+    connector
+        .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 200 })
+        .unwrap();
+    connector
+        .tell(ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis: 1_100 })
+        .unwrap();
+    let initialized = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.all_reachable_time_nanos == 70
+            && snapshot
+                .last_pruning_report
+                .as_ref()
+                .is_some_and(|report| report.initialized.contains(&key))
+    });
+    let report = initialized.last_pruning_report.unwrap();
+    assert!(!report.skipped_unreachable);
+    assert_eq!(report.initialized, BTreeSet::from([key]));
 
     system.terminate(Duration::from_secs(1)).unwrap();
 }

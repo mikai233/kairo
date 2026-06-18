@@ -1617,6 +1617,11 @@ Implemented:
   that pauses while matching replicas are unreachable, builds
   `RemovedNodePruningTick` values from current route/leader state and explicit
   pruning settings, and records typed pruning reports from the replicator.
+- Distributed-data cluster connector coverage now pins the Pekko-style
+  removed-node pruning gate: a removed replica is recorded while another
+  replica is unreachable, pruning ticks skip until reachability heals, and the
+  removed replica's data initializes pruning only after the all-reachable clock
+  advances past the dissemination window.
 - The distributed-data cluster connector now has focused timing settings and
   an injectable clock, schedules Pekko-style fixed-delay clock/pruning timer
   messages on actor startup, uses monotonic time for all-reachable elapsed
