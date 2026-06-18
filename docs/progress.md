@@ -3868,6 +3868,9 @@ Implemented:
 - The root Rust CI matrix now runs workspace doctests with all features so
   public API examples across the facade and focused crates stay
   compile-tested, not only the `kairo-examples` crate docs.
+- The `kairo` facade test suite now pins the public feature graph: defaults
+  remain local actor/config focused, distributed layers stay opt-in, and the
+  `full` feature remains the explicit all-surface bundle.
 
 Not yet implemented:
 

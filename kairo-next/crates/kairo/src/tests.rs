@@ -317,6 +317,62 @@ fn support_crates_remain_leaf_facade_consumers() -> Result<(), Box<dyn std::erro
 }
 
 #[test]
+fn facade_feature_graph_keeps_distributed_layers_opt_in() -> Result<(), Box<dyn std::error::Error>>
+{
+    let repo_root = repo_root()?;
+    let manifest_path = repo_root
+        .join("kairo-next")
+        .join("crates")
+        .join("kairo")
+        .join("Cargo.toml");
+    let manifest = std::fs::read_to_string(&manifest_path)?.replace("\r\n", "\n");
+    let expected_features = [
+        (
+            "default = [\"actor\", \"macros\", \"config\"]",
+            "the default facade must stay local/config-only",
+        ),
+        (
+            "remote = [\"actor\", \"serialization\", \"dep:kairo-remote\"]",
+            "remoting must opt into local actors and stable serialization metadata",
+        ),
+        (
+            "cluster = [\"remote\", \"dep:kairo-cluster\"]",
+            "cluster must build on remoting instead of bypassing the layer boundary",
+        ),
+        (
+            "distributed-data = [\"cluster\", \"dep:kairo-distributed-data\"]",
+            "distributed data must build on cluster membership",
+        ),
+        (
+            "cluster-sharding = [\"cluster\", \"distributed-data\", \"dep:kairo-cluster-sharding\"]",
+            "cluster sharding must build on cluster and distributed-data support",
+        ),
+        (
+            "cluster-tools = [\"cluster\", \"distributed-data\", \"dep:kairo-cluster-tools\"]",
+            "cluster tools must build on cluster and distributed-data support",
+        ),
+        (
+            "testkit = [\"actor\", \"dep:kairo-testkit\"]",
+            "testkit support should not pull in distributed runtime layers",
+        ),
+        (
+            "full = [\"actor\", \"macros\", \"config\", \"serialization\", \"remote\", \"cluster\", \"distributed-data\", \"cluster-sharding\", \"cluster-tools\", \"testkit\"]",
+            "the explicit full feature should remain the all-surface integration bundle",
+        ),
+    ];
+
+    for (feature_line, reason) in expected_features {
+        assert!(
+            manifest.contains(feature_line),
+            "{} must contain `{feature_line}`: {reason}",
+            manifest_path.display()
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn rust_ci_keeps_m13_release_readiness_gates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let workflow_path = repo_root
