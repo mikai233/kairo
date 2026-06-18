@@ -1534,6 +1534,89 @@ fn actor_system_terminate_waits_for_descendant_children_before_terminated() {
     assert!(system.is_terminated());
 }
 
+#[test]
+fn actor_system_terminate_requests_user_and_system_roots_before_waiting() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let user_parent = system
+        .spawn(
+            "user-parent",
+            Props::new(|| ChildStoppingParent { child: None }),
+        )
+        .unwrap();
+    let system_parent = system
+        .spawn_system(
+            "system-parent",
+            Props::new(|| ChildStoppingParent { child: None }),
+        )
+        .unwrap();
+    let (user_entered_tx, user_entered_rx) = mpsc::channel();
+    let (user_release_tx, user_release_rx) = mpsc::channel();
+    let (user_spawn_tx, user_spawn_rx) = mpsc::channel();
+    let (system_entered_tx, system_entered_rx) = mpsc::channel();
+    let (system_release_tx, system_release_rx) = mpsc::channel();
+    let (system_spawn_tx, system_spawn_rx) = mpsc::channel();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+
+    user_parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: user_entered_tx,
+            release_stop: user_release_rx,
+            reply_to: user_spawn_tx,
+        })
+        .unwrap();
+    let user_child_path = user_spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let user_child = system
+        .resolve_local::<()>(user_child_path.as_str())
+        .unwrap();
+    system_parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: system_entered_tx,
+            release_stop: system_release_rx,
+            reply_to: system_spawn_tx,
+        })
+        .unwrap();
+    let system_child_path = system_spawn_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    let system_child = system
+        .resolve_local::<()>(system_child_path.as_str())
+        .unwrap();
+
+    let terminating_system = system.clone();
+    let terminate_thread = std::thread::spawn(move || {
+        terminated_tx
+            .send(terminating_system.terminate(Duration::from_secs(1)))
+            .unwrap();
+    });
+    user_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    system_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "system termination must request both root children before completing"
+    );
+
+    user_release_tx.send(()).unwrap();
+    system_release_tx.send(()).unwrap();
+    terminated_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    terminate_thread.join().unwrap();
+
+    assert!(user_child.wait_for_stop(Duration::from_secs(1)));
+    assert!(system_child.wait_for_stop(Duration::from_secs(1)));
+    assert!(user_parent.wait_for_stop(Duration::from_secs(1)));
+    assert!(system_parent.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
 #[derive(Debug)]
 struct PostStopSpawnResults {
     named: Result<(), String>,

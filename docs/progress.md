@@ -3774,6 +3774,10 @@ Implemented:
   that a cluster `MemberRemoved` event removes only the departed route, keeps
   the remaining route delivering real replicator requests, and rejects later
   delivery to the removed replica.
+- `kairo-actor` tree-lifecycle coverage now pins that `ActorSystem::terminate`
+  requests stops for both `/user` and `/system` guardian children before
+  waiting on either blocked subtree, preserving cross-root shutdown ordering
+  for framework-owned system actors.
 
 Not yet implemented:
 
