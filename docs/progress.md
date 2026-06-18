@@ -3960,6 +3960,9 @@ Implemented:
 - The same coordinator retry path now replays every pending shard-home
   requester, not just the first one, so a stale requester from a terminated
   region cannot block allocation to a surviving requester.
+- Timed-out rebalance completions now also replay pending shard-home
+  requesters after clearing the rebalance marker, covering the Pekko timeout
+  branch that also calls `clearRebalanceInProgress`.
 
 Not yet implemented:
 
@@ -4037,6 +4040,11 @@ cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo test -p kairo-cluster-sharding coordinator_actor_retries_all_pending_homes_after_cleared_rebalance --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-sharding coordinator_actor_retries_pending_home_after_timed_out_rebalance --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding coordinator_actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo test -p kairo-cluster-sharding --all-targets --all-features

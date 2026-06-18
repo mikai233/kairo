@@ -572,7 +572,15 @@ where
                 }
                 self.retry_completed_rebalance_homes(ctx, shard, pending_requesters)
             }
-            RebalanceCompletionPlan::TimedOut { .. } => Ok(()),
+            RebalanceCompletionPlan::TimedOut {
+                shard,
+                pending_requesters,
+            } => {
+                if pending_requesters.is_empty() {
+                    return Ok(());
+                }
+                self.retry_completed_rebalance_homes(ctx, shard, pending_requesters)
+            }
         }
     }
 
