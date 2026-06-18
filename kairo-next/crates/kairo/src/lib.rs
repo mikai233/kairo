@@ -101,9 +101,11 @@
 //! `DiagnosticsConfig::remote_association_diagnostics` and
 //! `DiagnosticsConfig::cluster_diagnostics`.
 //! When a dependency-free observability bridge is enough,
-//! [`DiagnosticCounters`] and [`DiagnosticTextSink`] implement the enabled
+//! [`observability::DiagnosticCounters`] and
+//! [`observability::DiagnosticTextSink`] implement the enabled
 //! remote and cluster diagnostic observer traits, exposing point-in-time
-//! [`DiagnosticCounterSnapshot`] values or stable text lines for export.
+//! [`observability::DiagnosticCounterSnapshot`] values or stable text lines for
+//! export.
 //!
 //! `kairo::prelude` exports the common typed actor API plus enabled facade
 //! features. For subsystem-specific protocols and lower-level test fixtures,

@@ -63,10 +63,16 @@ workspace stabilization before M13 release readiness.
 ## Known Validation Status
 
 - The current full M13 validation gate passes on this tree:
-  `cargo test --workspace --all-targets --all-features`,
-  `cargo test --doc --workspace --all-features`,
+  `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
-  `cargo fmt --all -- --check`, and `git diff --check`.
+  `cargo test --workspace --all-targets --all-features`,
+  `cargo test -p kairo-examples --all-targets --all-features`,
+  `cargo test --doc --workspace --all-features`,
+  `cargo test -p kairo-examples --doc --all-features`,
+  `cargo test -p kairo-testkit multi_node --all-targets --all-features`,
+  `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps`,
+  `KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all`, and
+  `git diff --check`.
 - The previously flaky `kairo-cluster-sharding`
   `region_actor_ignores_stale_remembered_local_shard_restart_timer` case also
   passes when run directly on the current tree.
@@ -4149,6 +4155,10 @@ Implemented:
   reverses an indirect decision: indirectly connected and still-reachable
   downable members are targeted, while already down or exiting members remain
   excluded.
+- `kairo` facade crate docs now link observability helper types through their
+  resolved `observability::` paths, keeping the M13 rustdoc
+  warnings-denied gate green for `DiagnosticCounters`, `DiagnosticTextSink`,
+  and `DiagnosticCounterSnapshot`.
 
 Not yet implemented:
 
@@ -4188,7 +4198,26 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest progress refresh validation:
+Latest M13 validation refresh after the facade rustdoc link fix:
+
+```bash
+cargo test -p kairo public_docs_document_m13_validation_gates --all-targets --all-features
+cargo test -p kairo rust_ci_keeps_m13_release_readiness_gates --all-targets --all-features
+cargo fmt --all -- --check
+cargo test --workspace --all-targets --all-features
+cargo test --doc --workspace --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo test -p kairo-examples --doc --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+git diff --check
+```
+
+Earlier focused progress refresh validation:
 
 ```bash
 cargo test -p kairo-cluster association_peers --all-targets --all-features
