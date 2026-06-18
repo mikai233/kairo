@@ -337,6 +337,10 @@ Implemented:
 - Death-watch registrations reject switching between plain `watch` and
   `watch_with` for the same watched actor without an intervening `unwatch`,
   preserving the Pekko rule that termination-message changes must be explicit.
+- Local death-watch coverage now also pins the live `watch_with` duplicate
+  registration boundary: a second custom registration for the same still-live
+  subject returns `AlreadyWatching`, so callers must `unwatch` before changing
+  or re-registering a custom notification.
 - Death-watch registrations now apply the same plain/custom switch rejection
   to queued already-stopped notifications, so a pending immediate `watch` or
   `watch_with` delivery still requires `unwatch` before changing notification
@@ -4262,12 +4266,12 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest M13 validation refresh after facade TCP bootstrap API compatibility
+Latest M13 validation refresh after live duplicate `watch_with` lifecycle
 coverage:
 
 ```bash
-cargo test -p kairo facade_ --all-targets --all-features -- --nocapture
-cargo test -p kairo --all-targets --all-features
+cargo test -p kairo-actor live_watch_with_twice_requires_unwatch_first --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 git diff --check

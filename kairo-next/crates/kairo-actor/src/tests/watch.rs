@@ -1335,6 +1335,48 @@ fn watch_with_then_watch_requires_unwatch_first() {
 }
 
 #[test]
+fn live_watch_with_twice_requires_unwatch_first() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (subject_stopped_tx, _subject_stopped_rx) = mpsc::channel();
+    let subject = system
+        .spawn(
+            "subject",
+            Props::new(move || StopProbe {
+                stopped: subject_stopped_tx,
+            }),
+        )
+        .unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (reply_tx, reply_rx) = mpsc::channel();
+    let (observed_tx, _observed_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWithTwice {
+            subject: subject.clone(),
+            reply_to: reply_tx,
+            observed: observed_tx,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        reply_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Err(ActorError::AlreadyWatching { actor, watcher: current_watcher })
+            if actor == subject.path().to_string()
+                && current_watcher == watcher.path().to_string()
+    ));
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
 fn signal_failure_stops_actor_by_default() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (subject_stopped_tx, _subject_stopped_rx) = mpsc::channel();
