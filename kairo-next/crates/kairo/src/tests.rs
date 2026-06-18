@@ -513,20 +513,21 @@ fn public_readmes_list_current_example_binaries() -> Result<(), Box<dyn std::err
 }
 
 #[test]
-fn public_readmes_document_m13_validation_gates() -> Result<(), Box<dyn std::error::Error>> {
+fn public_docs_document_m13_validation_gates() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
-    let readmes = [
+    let public_docs = [
         repo_root.join("README.md"),
         repo_root.join("kairo-next/README.md"),
+        repo_root.join("docs/migration.md"),
     ];
 
-    for readme_path in readmes {
-        let readme = std::fs::read_to_string(&readme_path)?.replace("\r\n", "\n");
+    for doc_path in public_docs {
+        let doc = std::fs::read_to_string(&doc_path)?.replace("\r\n", "\n");
         for (command, reason) in M13_VALIDATION_GATE_EXPECTATIONS {
             assert!(
-                readme.contains(command),
+                doc.contains(command),
                 "{} must document validation command `{command}`: {reason}",
-                readme_path.display()
+                doc_path.display()
             );
         }
     }
