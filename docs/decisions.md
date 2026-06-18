@@ -2893,6 +2893,12 @@ state. `RemoteAssociationDiagnosticFilter` and
 `quarantine_events` flag onto caller-provided observers, returning no observer
 when quarantine diagnostics are disabled.
 
+`DiagnosticCounters` in the `kairo` facade provides a dependency-free adapter
+for the enabled remote inbound, remote association, and cluster diagnostic
+observer traits. It records per-category atomic counts and exposes
+`DiagnosticCounterSnapshot` for applications that want to export metrics to
+their own backend without Kairo selecting a logging, tracing, or metrics crate.
+
 ## ADR-0100: Serialized Remote Envelopes Use Explicit Wire Helpers
 
 Status: Accepted

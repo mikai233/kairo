@@ -48,9 +48,9 @@ workspace stabilization before M13 release readiness.
   remote delivery, TCP peer runtime, and examples are present.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
-  helpers, dead-letter publication controls, and coordinated-shutdown surfaces
-  exist; concrete logging/metrics adapters and operator polish remain release
-  hardening.
+  helpers, dependency-free diagnostic counters, dead-letter publication
+  controls, and coordinated-shutdown surfaces exist; concrete logging exporters
+  and broader operator polish remain release hardening.
 - M12 examples, migration, and documentation: substantial implementation.
   Examples, migration guidance, README feature maps, workspace doctests,
   rustdoc warning gates, and compile-tested public API snippets exist; final

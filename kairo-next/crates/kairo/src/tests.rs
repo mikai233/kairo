@@ -551,10 +551,15 @@ fn implementation_status_docs_do_not_mark_observability_facade_wiring_as_future_
         !progress.contains("M11 configuration and observability: partially complete"),
         "progress must not mark implemented M11 observability helpers as only partially complete"
     );
+    assert!(
+        !progress.contains("concrete logging/metrics adapters and operator polish remain"),
+        "progress must not describe implemented diagnostic counters as missing metrics adapters"
+    );
     for helper in [
         "DiagnosticsConfig::remote_inbound_diagnostics",
         "DiagnosticsConfig::remote_association_diagnostics",
         "DiagnosticsConfig::cluster_diagnostics",
+        "DiagnosticCounters",
     ] {
         assert!(
             decisions.contains(helper) && progress.contains(helper),
