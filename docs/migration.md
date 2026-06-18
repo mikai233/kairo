@@ -417,6 +417,8 @@ run when changing actor dispatch, remote outbound delivery, gossip merge, or
 sharding route behavior:
 
 ```bash
+cargo run -p kairo-benchmarks -- --help
+KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
 cargo run -p kairo-benchmarks --release -- all
 ```
 

@@ -3885,6 +3885,9 @@ Implemented:
 - The benchmark runner now also accepts `--help`, `-h`, and `help` as
   success-path usage commands, making the M13 benchmark command surface
   discoverable without treating help as a failed benchmark scenario.
+- `docs/migration.md` now mirrors the benchmark help command and the
+  `KAIRO_BENCH_ITERS=100` smoke run, keeping M12 migration guidance aligned
+  with the M13 benchmark runner and README.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
@@ -6092,6 +6095,7 @@ cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
 cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
 cargo test -p kairo-benchmarks --all-targets --all-features
 cargo run -p kairo-benchmarks -- --help
+KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
 KAIRO_BENCH_ITERS=1 cargo run -p kairo-benchmarks -- all
 cargo run -p kairo-benchmarks -- unknown-scenario
 KAIRO_BENCH_ITERS=1 cargo run -p kairo-benchmarks -- all extra
