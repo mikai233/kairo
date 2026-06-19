@@ -86,6 +86,31 @@ fn coordinated_shutdown_run_from_rejects_unknown_phase() {
 }
 
 #[test]
+fn coordinated_shutdown_rejects_task_registration_for_unknown_phase() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+
+    let result = shutdown.add_task("missing-phase", "task", || Ok(()));
+
+    assert!(matches!(
+        result,
+        Err(ActorError::UnknownShutdownPhase(phase)) if phase == "missing-phase"
+    ));
+    shutdown.run("test").unwrap();
+}
+
+#[test]
+fn coordinated_shutdown_rejects_empty_task_names() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+
+    let result = shutdown.add_task(PHASE_SERVICE_STOP, "", || Ok(()));
+
+    assert!(matches!(result, Err(ActorError::InvalidShutdownTaskName)));
+    shutdown.run("test").unwrap();
+}
+
+#[test]
 fn coordinated_shutdown_runs_same_phase_tasks_in_parallel_before_next_phase() {
     let system = ActorSystem::builder("test").build().unwrap();
     let shutdown = system.coordinated_shutdown();

@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after coordinated-shutdown task registration
+  validation coverage:
+
+  ```bash
+  cargo test -p kairo-actor coordinated_shutdown_rejects_ --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after coordinated-shutdown recoverable phase
   coverage:
 
@@ -1201,6 +1212,9 @@ Implemented:
 - Coordinated shutdown phase-runner coverage now also pins recoverable phase
   behavior: task failures and phase timeouts complete successfully when a phase
   is marked recoverable.
+- Coordinated shutdown task registration coverage now pins Pekko-style
+  validation: unknown phases and empty task names are rejected before shutdown
+  starts.
 - Coordinated shutdown actor termination task coverage now pins both `/user`
   and `/system` actor refs, including explicit stop-message delivery,
   wait-only timeout without implicit stopping, and already-stopped wait-only
