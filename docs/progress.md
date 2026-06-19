@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after distributed-data TCP peer runtime
+  reachability-replacement route coverage:
+
+  ```bash
+  cargo test -p kairo-distributed-data peer_runtime_replaces_routes_on_reachability_changed_self_observer_set --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after cluster TCP peer runtime
   reachability-replacement route coverage:
 
@@ -2427,6 +2438,12 @@ Implemented:
   installed, a removed peer event clears only that peer's route, preserves the
   remaining route for stable-manifest `ReplicatorRead` delivery, and rejects
   later sends to the removed member without reaching its receiver.
+- Distributed-data TCP peer runtime coverage now also validates
+  `ReachabilityChanged` replacement against live ddata socket routes: changing
+  the self-observer unreachable set removes the newly unreachable peer route,
+  redials the peer that became self-reachable, keeps stable-manifest
+  `ReplicatorRead` delivery on the active route, and rejects sends to whichever
+  replica is currently self-unreachable.
 - Distributed-data TCP peer runtime coverage now directly pins local
   `MemberRemoved` handling for the runtime's own node: self removal clears all
   outbound peer routes and cached ddata routes, rejects later remote

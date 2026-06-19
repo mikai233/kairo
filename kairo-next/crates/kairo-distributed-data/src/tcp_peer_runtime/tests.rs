@@ -7,7 +7,8 @@ mod route_tests {
 
     use kairo_actor::Address;
     use kairo_cluster::{
-        CurrentClusterState, Member, MemberEvent, MemberStatus, ReachabilityEvent, UniqueAddress,
+        CurrentClusterState, Member, MemberEvent, MemberStatus, Reachability, ReachabilityEvent,
+        UniqueAddress,
     };
     use kairo_remote::{
         RemoteAssociationAddress, RemoteAssociationCache, RemoteError, RemoteOutbound,
@@ -488,6 +489,194 @@ mod route_tests {
         assert_eq!(second_report.accepted_associations, 1);
         let third_report = third.shutdown().unwrap();
         assert_eq!(third_report.accepted_associations, 1);
+    }
+
+    #[test]
+    fn peer_runtime_replaces_routes_on_reachability_changed_self_observer_set() {
+        let _guard = ddata_socket_test_lock();
+        let retry_interval = Duration::from_millis(25);
+        let registry = registry();
+        let first_port = unused_port();
+        let second_port = unused_port();
+        let first_node = node("reachability-first", first_port, 2);
+        let second_node = node("reachability-second", second_port, 3);
+        let observer = node("reachability-observer", 2661, 4);
+        let first_requests = Arc::new(RecordingRequests::default());
+        let second_requests = Arc::new(RecordingRequests::default());
+        let mut sender = bind_peer_runtime(
+            "reachability-sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&first_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+        let first = bind_association_runtime_on_port_with_requests(
+            "reachability-first",
+            ReplicaId::from(&first_node),
+            ReplicaId::from(&sender_node),
+            22,
+            first_port,
+            first_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        );
+        let second = bind_association_runtime_on_port_with_requests(
+            "reachability-second",
+            ReplicaId::from(&second_node),
+            ReplicaId::from(&sender_node),
+            33,
+            second_port,
+            second_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+        );
+
+        let report = sender
+            .apply_snapshot(state(
+                vec![
+                    member(sender_node.clone()),
+                    member(first_node.clone()),
+                    member(second_node.clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        assert_eq!(report.dialed.len(), 2);
+        assert_eq!(sender.peer_route_count(), 2);
+        assert_eq!(sender.association_cache().route_count(), 2);
+        wait_for_reverse_route(&first);
+        wait_for_reverse_route(&second);
+
+        let report = sender
+            .apply_event(ClusterEvent::ReachabilityChanged {
+                reachability: Reachability::new()
+                    .unreachable(sender_node.clone(), first_node.clone())
+                    .unreachable(observer, second_node.clone()),
+            })
+            .unwrap();
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(report.removed[0].node(), &first_node);
+        assert!(report.dialed.is_empty());
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let sender_ref = replicator_ref(
+            sender_node.address.system(),
+            sender_node.address.port().unwrap(),
+        );
+        let second_recipient = replicator_ref("reachability-second", second_port);
+        let second_read = ReplicatorRead {
+            key: "after-first-unreachable".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        };
+        sender
+            .association_cache()
+            .send_to_recipient(RemoteEnvelope::new(
+                second_recipient.clone(),
+                Some(sender_ref.clone()),
+                registry.serialize(&second_read).unwrap(),
+            ))
+            .unwrap();
+        let second_received = second_requests.wait_for_len(1, Duration::from_secs(1));
+        assert_eq!(second_received.len(), 1);
+        assert_eq!(second_received[0].0, ReplicaId::from(&sender_node));
+        assert_eq!(second_received[0].1.recipient, second_recipient);
+        let decoded = registry
+            .deserialize::<ReplicatorRead>(second_received[0].1.message.clone())
+            .unwrap();
+        assert_eq!(decoded, second_read);
+
+        let first_error = sender
+            .association_cache()
+            .send_to_recipient(RemoteEnvelope::new(
+                replicator_ref("reachability-first", first_port),
+                Some(sender_ref.clone()),
+                registry
+                    .serialize(&ReplicatorRead {
+                        key: "after-first-unreachable-first".to_string(),
+                        from: Some(ReplicaId::from(&sender_node)),
+                    })
+                    .unwrap(),
+            ))
+            .expect_err("self-unreachable peer route should reject sends");
+        assert!(matches!(
+            first_error,
+            RemoteError::AssociationUnavailable { .. }
+        ));
+        assert!(
+            first_requests
+                .wait_for_len(1, Duration::from_millis(50))
+                .is_empty(),
+            "self-unreachable first peer must not receive a request"
+        );
+
+        let report = sender
+            .apply_event(ClusterEvent::ReachabilityChanged {
+                reachability: Reachability::new()
+                    .unreachable(sender_node.clone(), second_node.clone())
+                    .unreachable(first_node.clone(), second_node.clone()),
+            })
+            .unwrap();
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(report.removed[0].node(), &second_node);
+        assert_eq!(report.dialed.len(), 1);
+        assert_eq!(report.dialed[0].node(), &first_node);
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let first_recipient = replicator_ref("reachability-first", first_port);
+        let first_read = ReplicatorRead {
+            key: "after-first-redial".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        };
+        sender
+            .association_cache()
+            .send_to_recipient(RemoteEnvelope::new(
+                first_recipient.clone(),
+                Some(sender_ref.clone()),
+                registry.serialize(&first_read).unwrap(),
+            ))
+            .unwrap();
+        let first_received = first_requests.wait_for_len(1, Duration::from_secs(1));
+        assert_eq!(first_received.len(), 1);
+        assert_eq!(first_received[0].0, ReplicaId::from(&sender_node));
+        assert_eq!(first_received[0].1.recipient, first_recipient);
+        let decoded = registry
+            .deserialize::<ReplicatorRead>(first_received[0].1.message.clone())
+            .unwrap();
+        assert_eq!(decoded, first_read);
+
+        let second_error = sender
+            .association_cache()
+            .send_to_recipient(RemoteEnvelope::new(
+                replicator_ref("reachability-second", second_port),
+                Some(sender_ref),
+                registry
+                    .serialize(&ReplicatorRead {
+                        key: "after-second-unreachable-second".to_string(),
+                        from: Some(ReplicaId::from(&sender_node)),
+                    })
+                    .unwrap(),
+            ))
+            .expect_err("new self-unreachable peer route should reject sends");
+        assert!(matches!(
+            second_error,
+            RemoteError::AssociationUnavailable { .. }
+        ));
+        assert_eq!(
+            second_requests
+                .wait_for_len(2, Duration::from_millis(50))
+                .len(),
+            1,
+            "self-unreachable second peer must not receive another request"
+        );
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.peer_routes.removed.len(), 1);
+        assert!(sender_report.pending_reconnects.is_empty());
+        assert_eq!(sender_report.listener.accepted_associations, 0);
+        let first_report = first.shutdown().unwrap();
+        assert_eq!(first_report.accepted_associations, 2);
+        let second_report = second.shutdown().unwrap();
+        assert_eq!(second_report.accepted_associations, 1);
     }
 
     #[test]
