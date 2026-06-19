@@ -544,3 +544,58 @@ fn actor_stop_cancels_active_timers() {
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
     assert!(fired_rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
+
+#[test]
+fn actor_system_terminate_cancels_user_actor_timers() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test-user-timer-system-stop")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let actor = system.spawn("timer", Props::new(|| TimerProbe)).unwrap();
+
+    assert_actor_system_terminate_cancels_active_timers(system, scheduler, actor);
+}
+
+#[test]
+fn actor_system_terminate_cancels_system_actor_timers() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test-system-timer-system-stop")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn_system("system-timer", Props::new(|| TimerProbe))
+        .unwrap();
+
+    assert_actor_system_terminate_cancels_active_timers(system, scheduler, actor);
+}
+
+fn assert_actor_system_terminate_cancels_active_timers(
+    system: ActorSystem,
+    scheduler: ManualScheduler,
+    actor: ActorRef<TimerProbeMsg>,
+) {
+    let (fired_tx, fired_rx) = mpsc::channel();
+    let (ack_tx, ack_rx) = mpsc::channel();
+
+    actor
+        .tell(TimerProbeMsg::StartSingleWithAck {
+            fired: fired_tx,
+            ack: ack_tx,
+        })
+        .unwrap();
+    assert!(ack_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+    assert!(actor.is_stopped());
+    assert!(system.is_terminated());
+
+    scheduler.advance(Duration::from_secs(1));
+    assert!(fired_rx.recv_timeout(Duration::from_millis(20)).is_err());
+    assert!(
+        system.dead_letters().is_empty(),
+        "cancelled owner timers must not publish late dead letters: {:?}",
+        system.dead_letters().records()
+    );
+}

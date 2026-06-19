@@ -261,3 +261,64 @@ fn cancel_receive_timeout_suppresses_later_delivery() {
     scheduler.advance(Duration::from_secs(1));
     assert!(observed_rx.recv_timeout(Duration::from_millis(20)).is_err());
 }
+
+#[test]
+fn actor_system_terminate_cancels_user_actor_receive_timeout() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test-user-receive-timeout-system-stop")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn("receive-timeout", Props::new(|| ReceiveTimeoutProbe))
+        .unwrap();
+
+    assert_actor_system_terminate_cancels_receive_timeout(system, scheduler, actor);
+}
+
+#[test]
+fn actor_system_terminate_cancels_system_actor_receive_timeout() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test-system-receive-timeout-system-stop")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn_system("system-receive-timeout", Props::new(|| ReceiveTimeoutProbe))
+        .unwrap();
+
+    assert_actor_system_terminate_cancels_receive_timeout(system, scheduler, actor);
+}
+
+fn assert_actor_system_terminate_cancels_receive_timeout(
+    system: ActorSystem,
+    scheduler: ManualScheduler,
+    actor: ActorRef<ReceiveTimeoutProbeMsg>,
+) {
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let (arm_tx, arm_rx) = mpsc::channel();
+
+    actor
+        .tell(ReceiveTimeoutProbeMsg::Arm {
+            observed: observed_tx,
+            ack: arm_tx,
+        })
+        .unwrap();
+    assert_eq!(
+        arm_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Some(Duration::from_secs(1))
+    );
+    wait_for_manual_deadline(&scheduler, Duration::from_secs(1));
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+    assert!(actor.is_stopped());
+    assert!(system.is_terminated());
+
+    scheduler.advance(Duration::from_secs(1));
+    assert!(observed_rx.recv_timeout(Duration::from_millis(20)).is_err());
+    assert!(
+        system.dead_letters().is_empty(),
+        "cancelled receive timeouts must not publish late dead letters: {:?}",
+        system.dead_letters().records()
+    );
+}

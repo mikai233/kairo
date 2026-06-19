@@ -4831,6 +4831,10 @@ Implemented:
   recovered entity after loading remembered state, persists a new entity's
   first delivery to the shared store, and then routes directly after the
   remember-start update activates that entity.
+- `kairo-actor` actor-system termination coverage now pins actor-owned timer
+  and receive-timeout cleanup for both `/user` and `/system` actors: after
+  full system termination, advancing manual time does not deliver the owner
+  callback or publish late dead letters from cancelled scheduled work.
 
 Not yet implemented:
 
@@ -4839,7 +4843,8 @@ Not yet implemented:
   cleanup, terminating-child name reservation coverage, and terminating-parent
   queued child-spawn drain coverage for direct parent and actor-system stop,
   actor-system recursive child mailbox drain coverage, and actor-system
-  stashed-message/message-adapter/async-helper/ask-temp-ref drain coverage.
+  stashed-message/message-adapter/async-helper/ask-temp-ref/timer and
+  receive-timeout drain coverage.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and broader cross-crate compatibility
   fixtures.
@@ -4886,6 +4891,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after actor-system timer and receive-timeout
+cleanup coverage:
+
+```bash
+cargo test -p kairo-actor actor_system_terminate_cancels_ --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after actor-system ask temp-ref cleanup
 coverage:
