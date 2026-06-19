@@ -838,6 +838,30 @@ fn peer_runtime_shutdown_clears_multiple_active_peer_routes() {
 }
 
 #[test]
+fn peer_runtime_rejects_non_remote_peer_snapshot_without_dialing() {
+    let _guard = cluster_tools_socket_test_lock();
+    let kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-local-only").unwrap();
+    let registry = registry();
+    let mut runtime = bind_peer_runtime("local", 1, 11, &kit, registry);
+    let local_only = UniqueAddress::new(Address::local("local-only"), 2);
+
+    let error = runtime
+        .apply_snapshot(state(vec![member(local_only)], vec![]))
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        ClusterToolsTcpPeerRuntimeError::Peer(
+            kairo_cluster::ClusterAssociationPeerError::MissingRemoteHost { .. }
+        )
+    ));
+    assert_eq!(runtime.peer_route_count(), 0);
+    assert_eq!(runtime.association_cache().route_count(), 0);
+    runtime.shutdown().unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn peer_runtime_retries_failed_peer_dial_after_retry_interval() {
     let _guard = cluster_tools_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-tools-peer-runtime-retry-sender").unwrap();

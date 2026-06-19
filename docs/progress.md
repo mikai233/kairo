@@ -4849,6 +4849,10 @@ Implemented:
   boundary for cluster snapshots: a local-only member address is rejected with
   `MissingRemoteHost`, does not dial, and leaves both peer-route and
   association-cache state empty.
+- `kairo-cluster-tools` TCP peer-runtime coverage now pins the same remote
+  boundary for cluster-tools routes: local-only member snapshots are rejected
+  before dialing and leave route/cache state empty, matching the shared cluster
+  and distributed-data TCP behavior.
 
 Not yet implemented:
 
@@ -4894,6 +4898,8 @@ Not yet implemented:
   cluster, distributed-data, and cluster-tools bootstrap self-removal route
   cleanup coverage, focused bootstrap automatic retry coverage, focused
   peer-runtime, connector, and bootstrap partial-failure retry coverage,
+  distributed-data and cluster-tools peer-runtime local-only snapshot
+  rejection coverage,
   three-node full-mesh delivery coverage where applicable, public example
   smoke coverage that coordinated shutdown clears two live routes in each TCP
   bootstrap facade, and public example smoke coverage that two-node and
@@ -4907,6 +4913,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after cluster-tools non-remote peer rejection
+coverage:
+
+```bash
+cargo test -p kairo-cluster-tools peer_runtime_rejects_non_remote_peer_snapshot_without_dialing --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after distributed-data non-remote peer rejection
 coverage:
