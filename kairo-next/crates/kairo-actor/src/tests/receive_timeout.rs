@@ -263,6 +263,43 @@ fn cancel_receive_timeout_suppresses_later_delivery() {
 }
 
 #[test]
+fn actor_stop_cancels_active_receive_timeout() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test-receive-timeout-direct-stop")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn("receive-timeout", Props::new(|| ReceiveTimeoutProbe))
+        .unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let (arm_tx, arm_rx) = mpsc::channel();
+
+    actor
+        .tell(ReceiveTimeoutProbeMsg::Arm {
+            observed: observed_tx,
+            ack: arm_tx,
+        })
+        .unwrap();
+    assert_eq!(
+        arm_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        Some(Duration::from_secs(1))
+    );
+    wait_for_manual_deadline(&scheduler, Duration::from_secs(1));
+
+    system.stop(&actor);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+
+    scheduler.advance(Duration::from_secs(1));
+    assert!(observed_rx.recv_timeout(Duration::from_millis(20)).is_err());
+    assert!(
+        system.dead_letters().is_empty(),
+        "cancelled receive timeout after actor stop must not publish late dead letters: {:?}",
+        system.dead_letters().records()
+    );
+}
+
+#[test]
 fn actor_system_terminate_cancels_user_actor_receive_timeout() {
     let scheduler = ManualScheduler::new();
     let system = ActorSystem::builder("test-user-receive-timeout-system-stop")

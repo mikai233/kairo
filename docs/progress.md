@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after direct actor-stop receive-timeout
+  cleanup coverage:
+
+  ```bash
+  cargo test -p kairo-actor actor_stop_cancels_active_receive_timeout --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after cluster membership same-address
   incarnation retry coverage:
 
@@ -4907,6 +4918,10 @@ Implemented:
   and receive-timeout cleanup for both `/user` and `/system` actors: after
   full system termination, advancing manual time does not deliver the owner
   callback or publish late dead letters from cancelled scheduled work.
+- `kairo-actor` direct actor-stop receive-timeout coverage now pins the same
+  Pekko-style cleanup at the actor boundary: stopping an actor with an armed
+  receive timeout cancels the scheduled timeout, so advancing manual time does
+  not deliver the timeout or publish late dead letters.
 - `kairo-actor` actor-system termination coverage now also pins Pekko-style
   death-watch cleanup for stopping `/user` and `/system` actors: terminating
   watchers remove watched subjects before blocking on their own children, so a
