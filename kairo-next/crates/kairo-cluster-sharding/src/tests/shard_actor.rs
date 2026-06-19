@@ -260,6 +260,73 @@ fn shard_actor_with_remember_store_loads_entities_on_start() {
 }
 
 #[test]
+fn shard_actor_with_remember_store_replays_stashed_deliveries_after_load_in_order() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-store-load-replay").unwrap();
+    let (store_tx, store_rx) = mpsc::channel();
+    let store = kit
+        .system()
+        .spawn("store", ControlledRememberShardStore::props(store_tx))
+        .unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_store(
+                "shard-1",
+                10,
+                store,
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    let load_reply = match store_rx.recv_timeout(Duration::from_millis(500)).unwrap() {
+        ControlledRememberShardStoreEvent::GetEntities { reply_to } => reply_to,
+        ControlledRememberShardStoreEvent::Update { .. } => {
+            panic!("store should load remembered entities before writing updates")
+        }
+    };
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-2", "second".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    deliveries.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    load_reply
+        .tell(RememberedEntities {
+            entities: BTreeSet::from(["entity-1".to_string(), "entity-2".to_string()]),
+        })
+        .unwrap();
+
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "first".to_string()),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-2", "second".to_string()),
+        }
+    );
+    deliveries.expect_no_msg(Duration::from_millis(50)).unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_actor_with_remember_store_restarts_loaded_entity_without_duplicate_store_update() {
     let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-store-restart-loaded").unwrap();
     let (store_tx, store_rx) = mpsc::channel();

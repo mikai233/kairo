@@ -4349,6 +4349,10 @@ Implemented:
   if the discovery subscriber name collides after the region actor is spawned,
   bootstrap returns the duplicate-name error, stops the half-created region,
   and leaves the region name reusable.
+- `kairo-cluster-sharding` shard remember-store loading now verifies
+  store-backed shards stash multiple deliveries while remembered entities are
+  loading, then replay those deliveries in FIFO order once the store replies
+  with the remembered entity set.
 
 Not yet implemented:
 
@@ -4372,6 +4376,7 @@ Not yet implemented:
   route-cache cleanup before stale route rejection.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
+  store-backed shard load stashed-delivery replay ordering,
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned region load-before-first-delivery coverage, region death-watch
   restart, multi-node discovery/shared-store first-delivery coverage, and
@@ -4397,6 +4402,18 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after shard remember-store load replay ordering
+coverage:
+
+```bash
+cargo test -p kairo-cluster-sharding shard_actor_with_remember_store_replays_stashed_deliveries_after_load_in_order --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after cluster-tools TCP bootstrap mixed-shrink
 cleanup:
