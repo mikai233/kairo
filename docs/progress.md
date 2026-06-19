@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after distributed-data TCP connector
+  clear-routes pending-reconnect coverage:
+
+  ```bash
+  cargo test -p kairo-distributed-data connector_clear_routes_preserves_pending_reconnects --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data tcp_peer_connector --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after remote region-control inbound
   documentation convergence guard:
 
@@ -4918,6 +4930,10 @@ Implemented:
 - Distributed-data and cluster-tools actor-backed TCP peer connector coverage
   now pins the same explicit multi-route `ClearRoutes` behavior, so all TCP
   peer connectors assert two active routes are removed by the command.
+- `kairo-distributed-data` actor-backed TCP peer connector coverage now also
+  pins the explicit `ClearRoutes` pending-reconnect boundary: clearing active
+  routes records an empty active-route report but preserves failed-dial
+  pending reconnect diagnostics for later retry or connector shutdown.
 - Distributed-data TCP peer bootstrap coverage now pins the same late-route
   shutdown invariant through the public coordinated-shutdown facade: a
   bootstrap-registered connector stop clears a close-hook-created association
