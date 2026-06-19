@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after distributed-data TCP late-route shutdown
+  cleanup:
+
+  ```bash
+  cargo test -p kairo-distributed-data tcp_runtime_shutdown_clears_late_routes_registered_during_shutdown --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
@@ -1734,6 +1746,10 @@ Implemented:
   association route during shutdown, including accepted reverse routes and
   dialed lane pipelines, before joining reader threads so ddata socket routes
   cannot keep lanes open after runtime stop.
+- Distributed-data TCP association runtime shutdown coverage now also pins late
+  route cleanup: if closing one cached route registers another route during
+  shutdown, the second shutdown clear removes that late route before the runtime
+  reports stopped.
 - `kairo-distributed-data` now has a focused TCP peer-route owner that consumes
   cluster membership-derived dial/remove plans, applies them to
   `ReplicatorTcpAssociationRuntime`, keeps route registrations separate from
