@@ -146,6 +146,17 @@ workspace stabilization before M13 release readiness.
   git diff --check
   ```
 
+- Latest M13 validation refresh after cluster TCP connector late-route shutdown
+  cleanup:
+
+  ```bash
+  cargo test -p kairo-cluster connector_stop_clears_late_routes_registered_during_shutdown --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+  ```
+
 - Latest M13 validation refresh after distributed-data TCP peer-runtime
   late-route shutdown cleanup:
 
@@ -4245,6 +4256,11 @@ Implemented:
 - `kairo-cluster` actor-backed TCP peer connector coverage now pins explicit
   `ClearRoutes` cleanup with two active peer routes, including the clear
   report and empty association cache after the command.
+- `kairo-cluster` actor-backed TCP peer connector coverage now also pins the
+  late-route shutdown invariant at the actor-owned runtime boundary: when
+  stopping the connector closes a cached route whose close hook registers
+  another association route, connector stop still returns with an empty
+  association cache.
 - Distributed-data and cluster-tools actor-backed TCP peer connector coverage
   now pins the same explicit multi-route `ClearRoutes` behavior, so all TCP
   peer connectors assert two active routes are removed by the command.
