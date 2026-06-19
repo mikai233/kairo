@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after direct actor-stop death-watch cleanup
+  parity coverage:
+
+  ```bash
+  cargo test -p kairo-actor stopping_ --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after direct actor-stop stashed-message drain
   parity coverage:
 
@@ -731,7 +742,8 @@ Implemented:
   child termination, matching Pekko's rule that a terminating actor unwatches
   its subjects before child-stop waiting can block and preventing stale
   `watch_with` termination messages from reaching dead letters during that
-  window.
+  window. The direct actor-stop coverage now pins this boundary for both
+  `/user` and `/system` watchers.
 - Parent-stop death-watch cleanup now also has focused coverage for watched
   children: a parent that uses `watch_with` on its own child removes that
   registration before recursively stopping children, so the child's termination

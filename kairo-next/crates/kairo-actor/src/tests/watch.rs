@@ -2070,6 +2070,26 @@ fn stopping_watcher_is_removed_before_waiting_for_children() {
     let watcher = system
         .spawn("watcher", Props::new(|| StoppingWatchWithProbe))
         .unwrap();
+
+    assert_actor_stop_unwatches_actor_before_waiting_for_children(&system, watcher, subject);
+}
+
+#[test]
+fn stopping_system_watcher_is_removed_before_waiting_for_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let watcher = system
+        .spawn_system("system-watcher", Props::new(|| StoppingWatchWithProbe))
+        .unwrap();
+
+    assert_actor_stop_unwatches_actor_before_waiting_for_children(&system, watcher, subject);
+}
+
+fn assert_actor_stop_unwatches_actor_before_waiting_for_children(
+    system: &ActorSystem,
+    watcher: ActorRef<StoppingWatchWithMsg>,
+    subject: ActorRef<()>,
+) {
     let (entered_child_stop_tx, entered_child_stop_rx) = mpsc::channel();
     let (release_child_stop_tx, release_child_stop_rx) = mpsc::channel();
     let (registered_tx, registered_rx) = mpsc::channel();
