@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after direct system-actor async helper stop
+  cleanup coverage:
+
+  ```bash
+  cargo test -p kairo-actor completion_after_system_owner_stop_is_rejected --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after direct actor-stop ask temp-ref cleanup
   coverage:
 
@@ -4973,6 +4984,10 @@ Implemented:
   ref cleanup for both `/user` and `/system` actors: an externally stopped
   actor unregisters pending ask reply refs, rejects late replies as completed,
   and does not map those replies back into the stopped owner mailbox.
+- `kairo-actor` direct system-actor stop coverage now pins async helper cleanup
+  parity with user actors: externally stopping a `/system` actor with pending
+  `spawn_task` or `pipe_to_self` work rejects late completions and dead-letters
+  them with the stopped-owner reason.
 - `kairo-distributed-data` TCP peer-runtime coverage now pins the remote
   boundary for cluster snapshots: a local-only member address is rejected with
   `MissingRemoteHost`, does not dial, and leaves both peer-route and
