@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after cluster-tools pubsub limited-delta
+  version-ordering coverage:
+
+  ```bash
+  cargo test -p kairo-cluster-tools pubsub_registry_limited_delta_sends_lowest_versions_first --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools pubsub_registry --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after shard remember-store moved-entity
   multi-stop batching coverage:
 
@@ -5488,6 +5500,10 @@ Implemented:
   multi-entity moved-shard stop batching: moving more than one remembered
   entity issues one immediate remember-stop store update, queues the remaining
   stop, and drains the follow-up update after the first write completes.
+- `kairo-cluster-tools` pubsub registry coverage now pins Pekko-style limited
+  delta chunking: when a peer can only receive part of a bucket, entries are
+  selected by lowest entry version before key order so the peer can advance its
+  seen bucket version without permanently missing older unsent registrations.
 
 Not yet implemented:
 

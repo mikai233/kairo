@@ -49,6 +49,41 @@ fn pubsub_registry_collect_delta_respects_peer_versions_and_entry_limit() {
 }
 
 #[test]
+fn pubsub_registry_limited_delta_sends_lowest_versions_first() {
+    let node_a = node("a", 1);
+    let node_b = node("b", 2);
+    let mut source = PubSubRegistryState::new(node_a.clone());
+    let mut target = PubSubRegistryState::new(node_b);
+
+    source.register_local_path("z-first");
+    source.register_local_path("a-second");
+
+    let first_delta = source.collect_delta(&target.versions(), 1);
+    assert_eq!(first_delta.buckets.len(), 1);
+    assert_eq!(first_delta.buckets[0].version, 1);
+    assert!(
+        first_delta.buckets[0]
+            .entries
+            .contains_key(&PubSubRegistryKey::path("z-first"))
+    );
+    target.merge_delta(first_delta);
+    assert_eq!(target.path_targets("z-first", true), vec![node_a.clone()]);
+    assert!(target.path_targets("a-second", true).is_empty());
+
+    let second_delta = source.collect_delta(&target.versions(), 1);
+    assert_eq!(second_delta.buckets.len(), 1);
+    assert_eq!(second_delta.buckets[0].version, 2);
+    assert!(
+        second_delta.buckets[0]
+            .entries
+            .contains_key(&PubSubRegistryKey::path("a-second"))
+    );
+    target.merge_delta(second_delta);
+    assert_eq!(target.path_targets("z-first", true), vec![node_a.clone()]);
+    assert_eq!(target.path_targets("a-second", true), vec![node_a]);
+}
+
+#[test]
 fn pubsub_registry_plans_one_remote_target_per_group_deterministically() {
     let node_a = node("a", 1);
     let node_b = node("b", 2);

@@ -106,10 +106,19 @@ impl PubSubBucket {
         if self.version <= seen_version || remaining_entries == 0 {
             return None;
         }
-        let entries: BTreeMap<_, _> = self
+        let mut eligible: Vec<_> = self
             .entries
             .iter()
             .filter(|(_, entry)| entry.version > seen_version)
+            .collect();
+        eligible.sort_by(|(left_key, left_entry), (right_key, right_entry)| {
+            left_entry
+                .version
+                .cmp(&right_entry.version)
+                .then_with(|| left_key.cmp(right_key))
+        });
+        let entries: BTreeMap<_, _> = eligible
+            .into_iter()
             .take(remaining_entries)
             .map(|(key, entry)| (key.clone(), entry.clone()))
             .collect();
