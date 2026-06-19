@@ -98,6 +98,13 @@ workspace stabilization before M13 release readiness.
   git diff --check
   ```
 
+- Latest M13 validation refresh after actor-system termination stopped-hook
+  child ordering coverage:
+
+  ```bash
+  cargo test -p kairo-actor actor_system_terminate_waits_for_children_before_parent_stopped_hook --all-targets --all-features -- --nocapture
+  ```
+
 - Latest M13 validation refresh after base remote TCP late-route shutdown
   cleanup:
 
@@ -383,6 +390,10 @@ Implemented:
 - Actor-system termination now has focused coverage that top-level actor stop
   waits recursively for descendant child termination before the system reports
   `terminated`.
+- Actor-system termination coverage now also pins the local lifecycle hook
+  boundary from Pekko `finishTerminate`: a top-level parent's `stopped` hook is
+  invoked only after its child has completed `stopped`, matching the explicit
+  parent-stop hook ordering already covered for direct `ActorSystem::stop`.
 - Actor-system termination retries now keep timed-out child handles visible,
   so a later `terminate` attempt cannot report `terminated` while a
   previously requested child stop is still blocked.

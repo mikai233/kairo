@@ -1685,6 +1685,32 @@ fn parent_stop_waits_for_children_before_stopped_hook() {
 }
 
 #[test]
+fn actor_system_terminate_waits_for_children_before_parent_stopped_hook() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (events_tx, events_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(move || LifecycleParent {
+                ready: ready_tx,
+                events: events_tx,
+            }),
+        )
+        .unwrap();
+    ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+
+    let first = events_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let second = events_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(first, StopEvent::Child);
+    assert_eq!(second, StopEvent::Parent);
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
+#[test]
 fn parent_stop_waits_for_descendant_grandchild_before_notifying_watchers() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (child_path_tx, child_path_rx) = mpsc::channel();
