@@ -600,6 +600,69 @@ fn coordinator_actor_skips_rebalance_until_unavailable_region_heals() {
 }
 
 #[test]
+fn coordinator_actor_reports_unavailable_regions_in_state_snapshot() {
+    let mut state = CoordinatorState::new();
+    for region in ["region-a", "region-b"] {
+        state
+            .apply(CoordinatorEvent::ShardRegionRegistered {
+                region: region.to_string(),
+            })
+            .unwrap();
+    }
+
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("coordinator-unavailable-state-snapshot").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props(state, LeastShardAllocationStrategy::default()),
+        )
+        .unwrap();
+    let snapshot = kit
+        .create_probe::<CoordinatorStateSnapshot>("snapshot")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::MarkRegionUnavailable {
+            region: "region-b".to_string(),
+        })
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: snapshot.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        snapshot
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unavailable_regions,
+        BTreeSet::from(["region-b".to_string()])
+    );
+
+    coordinator
+        .tell(ShardCoordinatorMsg::UnmarkRegionUnavailable {
+            region: "region-b".to_string(),
+        })
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: snapshot.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        snapshot
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unavailable_regions
+            .is_empty()
+    );
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_retries_pending_home_after_cleared_rebalance() {
     let mut state = CoordinatorState::new();
     for region in ["region-a", "region-b"] {

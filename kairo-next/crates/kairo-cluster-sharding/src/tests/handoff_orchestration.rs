@@ -1156,6 +1156,7 @@ fn region_actor_graceful_shutdown_notifies_registered_coordinator() {
             proxies: BTreeSet::new(),
             unallocated_shards: BTreeSet::new(),
             rebalance_in_progress: BTreeMap::new(),
+            unavailable_regions: BTreeSet::new(),
             remember_entities: false,
         }))
         .unwrap();
@@ -1202,6 +1203,7 @@ fn region_actor_repeats_graceful_shutdown_when_host_shard_arrives_during_shutdow
             proxies: BTreeSet::new(),
             unallocated_shards: BTreeSet::new(),
             rebalance_in_progress: BTreeMap::new(),
+            unavailable_regions: BTreeSet::new(),
             remember_entities: false,
         }))
         .unwrap();

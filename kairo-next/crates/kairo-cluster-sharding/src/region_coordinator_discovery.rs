@@ -377,6 +377,7 @@ mod tests {
                     proxies: Default::default(),
                     unallocated_shards: Default::default(),
                     rebalance_in_progress: Default::default(),
+                    unavailable_regions: Default::default(),
                     remember_entities: false,
                 }));
             }

@@ -63,11 +63,10 @@ workspace stabilization before M13 release readiness.
 ## Known Validation Status
 
 - Latest M13 validation refresh after sharding coordinator unavailable-region
-  rebalance gating:
+  snapshot observability:
 
   ```bash
-  cargo test -p kairo-cluster-sharding unavailable_region --all-targets --all-features -- --nocapture
-  cargo test -p kairo-cluster-sharding coordinator_runtime_skips_rebalance_when_regions_are_unavailable --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding coordinator_actor_reports_unavailable_regions_in_state_snapshot --all-targets --all-features -- --nocapture
   cargo test -p kairo-cluster-sharding --all-targets --all-features
   cargo fmt --all -- --check
   cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
@@ -2788,6 +2787,10 @@ Implemented:
   unavailable skips rebalance planning, healing that region allows rebalance
   selection again, and known shard homes still reply while the region is not
   terminating.
+- `kairo-cluster-sharding` coordinator state snapshots now report the current
+  unavailable-region set, so actor tests and diagnostics can observe the
+  reachability-derived rebalance gate directly instead of inferring it only
+  from skipped rebalance plans.
 - `kairo-cluster-sharding` now has an actor-backed shard coordinator boundary
   that wraps the focused coordinator runtime in synchronous actor turns,
   accepts explicit registration, shutdown marker, shard-home request,

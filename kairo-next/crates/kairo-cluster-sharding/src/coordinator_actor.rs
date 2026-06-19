@@ -151,6 +151,7 @@ pub struct CoordinatorStateSnapshot {
     pub proxies: BTreeSet<RegionId>,
     pub unallocated_shards: BTreeSet<ShardId>,
     pub rebalance_in_progress: BTreeMap<ShardId, Vec<RegionId>>,
+    pub unavailable_regions: BTreeSet<RegionId>,
     pub remember_entities: bool,
 }
 
@@ -624,6 +625,7 @@ impl From<&CoordinatorRuntime> for CoordinatorStateSnapshot {
             .iter()
             .map(|(shard, requesters)| (shard.clone(), requesters.iter().cloned().collect()))
             .collect();
+        snapshot.unavailable_regions = runtime.unavailable_regions().clone();
         snapshot
     }
 }
@@ -648,6 +650,7 @@ impl From<&CoordinatorState> for CoordinatorStateSnapshot {
             proxies: state.proxies().clone(),
             unallocated_shards: state.unallocated_shards().clone(),
             rebalance_in_progress: BTreeMap::new(),
+            unavailable_regions: BTreeSet::new(),
             remember_entities: state.remember_entities(),
         }
     }

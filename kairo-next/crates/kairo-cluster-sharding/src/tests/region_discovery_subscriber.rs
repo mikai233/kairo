@@ -1804,6 +1804,7 @@ impl Actor for CoordinatorMoveProbeCoordinator {
                         proxies: BTreeSet::new(),
                         unallocated_shards: BTreeSet::new(),
                         rebalance_in_progress: BTreeMap::new(),
+                        unavailable_regions: BTreeSet::new(),
                         remember_entities: true,
                     }));
                 }
