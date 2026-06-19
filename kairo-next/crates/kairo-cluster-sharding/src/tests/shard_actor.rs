@@ -776,6 +776,163 @@ fn shard_actor_sends_next_remember_start_after_store_ack() {
 }
 
 #[test]
+fn shard_actor_with_remember_store_restarts_buffered_after_stop_ack() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-store-stop-restart").unwrap();
+    let (store_tx, store_rx) = mpsc::channel();
+    let store = kit
+        .system()
+        .spawn("store", ControlledRememberShardStore::props(store_tx))
+        .unwrap();
+    let shard = kit
+        .system()
+        .spawn(
+            "shard",
+            ShardActor::<String>::props_with_remember_store(
+                "shard-1",
+                10,
+                store,
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let passivation = kit
+        .create_probe::<crate::PassivatePlan<String>>("passivation")
+        .unwrap();
+    let termination = kit
+        .create_probe::<crate::EntityTerminatedPlan<String>>("termination")
+        .unwrap();
+    let state = kit.create_probe::<ShardSnapshot>("state").unwrap();
+    let stop_update =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
+    let start_update =
+        RememberShardUpdate::new(["entity-1".to_string()], std::iter::empty::<String>());
+
+    match store_rx.recv_timeout(Duration::from_millis(500)).unwrap() {
+        ControlledRememberShardStoreEvent::GetEntities { reply_to } => {
+            reply_to
+                .tell(RememberedEntities {
+                    entities: BTreeSet::from(["entity-1".to_string()]),
+                })
+                .unwrap();
+        }
+        ControlledRememberShardStoreEvent::Update { .. } => {
+            panic!("store should load remembered entities before writing updates")
+        }
+    }
+
+    shard
+        .tell(ShardMsg::Passivate {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+            reply_to: passivation.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        passivation.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::PassivatePlan::SendStop {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+        }
+    );
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-passivation".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Buffered {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::EntityTerminated {
+            entity_id: "entity-1".to_string(),
+            reply_to: termination.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        termination.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::EntityTerminatedPlan::RememberUpdate {
+            update: stop_update.clone(),
+        }
+    );
+    let stop_reply = match store_rx.recv_timeout(Duration::from_millis(500)).unwrap() {
+        ControlledRememberShardStoreEvent::Update { update, reply_to } => {
+            assert_eq!(update, stop_update);
+            reply_to
+        }
+        ControlledRememberShardStoreEvent::GetEntities { .. } => {
+            panic!("store should not reload remembered entities")
+        }
+    };
+    deliveries.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    stop_reply
+        .tell(Ok(RememberShardUpdateDone {
+            started: BTreeSet::new(),
+            stopped: BTreeSet::from(["entity-1".to_string()]),
+        }))
+        .unwrap();
+    let start_reply = match store_rx.recv_timeout(Duration::from_millis(500)).unwrap() {
+        ControlledRememberShardStoreEvent::Update { update, reply_to } => {
+            assert_eq!(update, start_update);
+            reply_to
+        }
+        ControlledRememberShardStoreEvent::GetEntities { .. } => {
+            panic!("store should not reload remembered entities")
+        }
+    };
+    deliveries.expect_no_msg(Duration::from_millis(50)).unwrap();
+
+    start_reply
+        .tell(Ok(RememberShardUpdateDone {
+            started: BTreeSet::from(["entity-1".to_string()]),
+            stopped: BTreeSet::new(),
+        }))
+        .unwrap();
+    let snapshot = wait_for_shard_snapshot(
+        &shard,
+        &state,
+        "buffered passivation delivery should become active after stop and start store acknowledgements",
+        |snapshot| {
+            snapshot.active_entities == vec!["entity-1".to_string()]
+                && snapshot.entity_count == 1
+                && snapshot.total_buffered == 0
+        },
+    );
+    assert_eq!(
+        snapshot,
+        ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: vec!["entity-1".to_string()],
+            entity_count: 1,
+            total_buffered: 0,
+            handoff_in_progress: false,
+        }
+    );
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-reactivation".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "after-reactivation".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn shard_actor_completes_remember_update_before_buffered_delivery() {
     let kit = kairo_testkit::ActorSystemTestKit::new("shard-actor-remember-update").unwrap();
     let shard = kit

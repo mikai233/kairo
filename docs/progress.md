@@ -219,6 +219,18 @@ workspace stabilization before M13 release readiness.
   git diff --check
   ```
 
+- Latest M13 validation refresh after sharding remember-store passivation
+  reactivation coverage:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding shard_actor_with_remember_store_restarts_buffered_after_stop_ack --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
@@ -4640,6 +4652,11 @@ Implemented:
   the explicit handoff-stop path: once a remembered shard is handed off and the
   local shard stop is observed, a pending remembered-shard restart timer does
   not rehost the shard.
+- `kairo-cluster-sharding` store-backed `ShardActor` coverage now pins
+  passivation reactivation ordering: a buffered message during passivation does
+  not reactivate the entity until the remember-stop update is acknowledged, the
+  queued remember-start update is persisted, and the shard becomes active
+  again.
 
 Not yet implemented:
 
@@ -4665,6 +4682,7 @@ Not yet implemented:
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
   store-backed shard load stashed-delivery replay ordering,
+  store-backed shard passivation stop-to-start acknowledgement ordering,
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned local/shared-store region load-before-first-delivery coverage,
   region death-watch restart, multi-node discovery/shared-store first-delivery
