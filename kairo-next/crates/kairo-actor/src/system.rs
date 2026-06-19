@@ -356,19 +356,49 @@ impl ActorSystem {
         let subject_ref = subject.as_any();
         let subject_parent = subject.path().parent();
         let watcher_path = watcher.path().clone();
+        let watcher_mailbox = watcher.target.mailbox.clone();
+        let inner = Arc::clone(&self.inner);
         let registration = DeathWatchRegistration::new(
             watcher_path.clone(),
             DeathWatchKind::Signal,
             move |cause| {
-                if let TerminationCause::Failed(reason) = cause
-                    && subject_parent.as_ref() == Some(&watcher_path)
+                let subject_path = subject_ref.path().clone();
+                let Some(mailbox) = watcher_mailbox else {
+                    inner
+                        .death_watch
+                        .take_queued_signal(&subject_path, &watcher_path);
+                    return;
+                };
+                let watcher_for_delivery = watcher.clone();
+                let subject_path_for_delivery = subject_path.clone();
+                let watcher_path_for_delivery = watcher_path.clone();
+                let inner_for_delivery = Arc::clone(&inner);
+                if mailbox
+                    .enqueue_adapted((), move |()| {
+                        if !inner_for_delivery.death_watch.take_queued_signal(
+                            &subject_path_for_delivery,
+                            &watcher_path_for_delivery,
+                        ) {
+                            return None;
+                        }
+                        if let TerminationCause::Failed(reason) = cause
+                            && subject_parent.as_ref() == Some(&watcher_path_for_delivery)
+                        {
+                            watcher_for_delivery.send_gated_system_signal(Signal::ChildFailed {
+                                actor: subject_ref.clone(),
+                                reason,
+                            });
+                        } else {
+                            watcher_for_delivery
+                                .send_gated_system_signal(Signal::Terminated(subject_ref));
+                        }
+                        None
+                    })
+                    .is_err()
                 {
-                    watcher.send_system_signal(Signal::ChildFailed {
-                        actor: subject_ref.clone(),
-                        reason,
-                    });
-                } else {
-                    watcher.send_system_signal(Signal::Terminated(subject_ref));
+                    inner
+                        .death_watch
+                        .take_queued_signal(&subject_path, &watcher_path);
                 }
             },
         );

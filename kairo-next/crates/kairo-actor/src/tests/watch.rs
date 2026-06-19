@@ -70,6 +70,10 @@ enum WatchProbeMsg {
         subject: ActorRef<()>,
         reply_to: mpsc::Sender<()>,
     },
+    UnwatchOnly {
+        subject: ActorRef<()>,
+        reply_to: mpsc::Sender<()>,
+    },
 }
 
 struct WatchProbe {
@@ -222,6 +226,12 @@ impl Actor for WatchProbe {
             }
             WatchProbeMsg::Unwatch { subject, reply_to } => {
                 ctx.watch(&subject)?;
+                ctx.unwatch(&subject);
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            WatchProbeMsg::UnwatchOnly { subject, reply_to } => {
                 ctx.unwatch(&subject);
                 reply_to
                     .send(())
@@ -1119,6 +1129,116 @@ fn unwatch_discards_queued_watch_with_message_for_already_stopped_subject() {
             .recv_timeout(Duration::from_millis(100))
             .is_err(),
         "unwatch must remove the queued already-dead watch_with message before delivery"
+    );
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
+fn queued_unwatch_discards_live_terminated_signal_before_delivery() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (unwatched_tx, unwatched_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchTwice {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    watcher
+        .tell(WatchProbeMsg::Block {
+            entered: entered_tx,
+            release: release_rx,
+        })
+        .unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    watcher
+        .tell(WatchProbeMsg::UnwatchOnly {
+            subject: subject.clone(),
+            reply_to: unwatched_tx,
+        })
+        .unwrap();
+
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+    release_tx.send(()).unwrap();
+    unwatched_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "queued unwatch must clear a live-subject Terminated signal before delivery"
+    );
+    assert!(!watcher.is_stopped());
+}
+
+#[test]
+fn queued_unwatch_discards_live_watch_with_message_before_delivery() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (unwatched_tx, unwatched_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWith {
+            subject: subject.clone(),
+            registered: registered_tx,
+            observed: observed_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    watcher
+        .tell(WatchProbeMsg::Block {
+            entered: entered_tx,
+            release: release_rx,
+        })
+        .unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    watcher
+        .tell(WatchProbeMsg::UnwatchOnly {
+            subject: subject.clone(),
+            reply_to: unwatched_tx,
+        })
+        .unwrap();
+
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+    release_tx.send(()).unwrap();
+    unwatched_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "queued unwatch must clear a live-subject watch_with message before delivery"
     );
     assert!(!watcher.is_stopped());
 }

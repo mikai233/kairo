@@ -12,6 +12,7 @@ pub(crate) enum SystemMessage {
     Stop,
     Restart,
     Signal(Signal),
+    GatedSignal(Signal),
     SupervisionFailure(SupervisionFailure),
 }
 

@@ -263,6 +263,14 @@ impl<M: Send + 'static> ActorRef<M> {
         }
     }
 
+    pub(crate) fn send_gated_system_signal(&self, signal: Signal) {
+        if !self.target.stopped.load(Ordering::Acquire)
+            && let Some(mailbox) = &self.target.mailbox
+        {
+            mailbox.enqueue_system(SystemMessage::GatedSignal(signal));
+        }
+    }
+
     pub(crate) fn send_timer(&self, timer: TimerEnvelope<M>) {
         if self.target.stopped.load(Ordering::Acquire) {
             self.dead_letters

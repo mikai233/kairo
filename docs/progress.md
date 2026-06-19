@@ -361,6 +361,10 @@ Implemented:
   path: after `unwatch`, actors can switch from `watch` to `watch_with` or
   from `watch_with` back to `watch` without receiving stale notifications from
   the old registration.
+- Local death-watch delivery now mirrors Pekko's queued `unwatch` semantics
+  for live subjects: if a watcher is blocked while a subject terminates and an
+  earlier queued user turn unwatches that subject, both plain `Terminated`
+  signals and `watch_with` custom messages are discarded before delivery.
 - Death-watch registration and notification state lives in a focused
   `death_watch` module.
 - `ActorSystem::schedule_once`, `Context::schedule_once`, and
@@ -4442,6 +4446,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after queued death-watch unwatch delivery:
+
+```bash
+cargo test -p kairo-actor queued_unwatch_discards_live --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after remembered remote-region stop recovery:
 
