@@ -219,11 +219,11 @@ workspace stabilization before M13 release readiness.
   git diff --check
   ```
 
-- Latest M13 validation refresh after sharding remember-store passivation
+- Latest M13 validation refresh after sharding shared-store region passivation
   reactivation coverage:
 
   ```bash
-  cargo test -p kairo-cluster-sharding shard_actor_with_remember_store_restarts_buffered_after_stop_ack --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding region_actor_with_shared_remember_store_ref_reactivates_passivated_entity --all-targets --all-features -- --nocapture
   cargo test -p kairo-cluster-sharding --all-targets --all-features
   cargo fmt --all
   cargo fmt --all -- --check
@@ -4657,6 +4657,11 @@ Implemented:
   not reactivate the entity until the remember-stop update is acknowledged, the
   queued remember-start update is persisted, and the shard becomes active
   again.
+- `kairo-cluster-sharding` shared remember-store region coverage now also pins
+  same-region passivation reactivation: a region-hosted remembered entity is
+  removed from the shared shard store after passivation, a later region-routed
+  delivery writes a new remember-start update, and subsequent region routes
+  deliver directly to the reactivated entity.
 
 Not yet implemented:
 
@@ -4685,9 +4690,9 @@ Not yet implemented:
   store-backed shard passivation stop-to-start acknowledgement ordering,
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned local/shared-store region load-before-first-delivery coverage,
-  region death-watch restart, multi-node discovery/shared-store first-delivery
-  coverage, and local/shared remember-store bootstrap helper success and
-  cleanup coverage.
+  shared-store region passivation reactivation coverage, region death-watch
+  restart, multi-node discovery/shared-store first-delivery coverage, and
+  local/shared remember-store bootstrap helper success and cleanup coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful

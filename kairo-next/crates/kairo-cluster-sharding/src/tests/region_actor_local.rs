@@ -627,6 +627,199 @@ fn region_actor_with_shared_remember_store_ref_recovers_and_persists_entities() 
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn region_actor_with_shared_remember_store_ref_reactivates_passivated_entity() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("region-shared-store-passivate-reactivate").unwrap();
+    let remember_store = kit
+        .system()
+        .spawn(
+            "remember-store",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region",
+            ShardRegionActor::<String>::props_with_remember_store_shards(
+                "region-a",
+                10,
+                10,
+                BTreeMap::from([("shard-1".to_string(), remember_store.clone())]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let host = kit.create_probe::<HostShardPlan<String>>("host").unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("routes")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let local_shard = kit
+        .create_probe::<Option<ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let passivation = kit
+        .create_probe::<crate::PassivatePlan<String>>("passivation")
+        .unwrap();
+    let termination = kit
+        .create_probe::<crate::EntityTerminatedPlan<String>>("termination")
+        .unwrap();
+    let store_state = kit
+        .create_probe::<RememberShardStoreSnapshot>("store-state")
+        .unwrap();
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+
+    region
+        .tell(ShardRegionMsg::HostShard {
+            shard: "shard-1".to_string(),
+            reply_to: host.actor_ref(),
+        })
+        .unwrap();
+    host.expect_msg(Duration::from_millis(500)).unwrap();
+    region
+        .tell(ShardRegionMsg::GetLocalShard {
+            shard: "shard-1".to_string(),
+            reply_to: local_shard.actor_ref(),
+        })
+        .unwrap();
+    let shard = local_shard
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .expect("region should host shard-1");
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "before-passivation".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "before-passivation".to_string()),
+        }
+    );
+
+    shard
+        .tell(ShardMsg::Passivate {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+            reply_to: passivation.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        passivation.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::PassivatePlan::SendStop {
+            entity_id: "entity-1".to_string(),
+            stop_message: "stop".to_string(),
+        }
+    );
+    shard
+        .tell(ShardMsg::EntityTerminated {
+            entity_id: "entity-1".to_string(),
+            reply_to: termination.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        termination.expect_msg(Duration::from_millis(500)).unwrap(),
+        crate::EntityTerminatedPlan::RememberUpdate {
+            update: RememberShardUpdate::new(
+                std::iter::empty::<String>(),
+                ["entity-1".to_string()],
+            ),
+        }
+    );
+
+    wait_for_shared_remember_store_and_shard_snapshot(
+        &remember_store,
+        &store_state,
+        &shard,
+        &shard_state,
+        "passivated entity should be removed from shared store before region reactivation",
+        |remembered, snapshot| {
+            !remembered.contains("entity-1")
+                && snapshot.active_entities.is_empty()
+                && snapshot.entity_count == 0
+                && snapshot.total_buffered == 0
+        },
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-passivation".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: RememberShardUpdate::new(
+                ["entity-1".to_string()],
+                std::iter::empty::<String>(),
+            ),
+        }
+    );
+
+    wait_for_shared_remember_store_and_shard_snapshot(
+        &remember_store,
+        &store_state,
+        &shard,
+        &shard_state,
+        "region-routed delivery should repopulate the shared store and reactivate the entity",
+        |remembered, snapshot| {
+            remembered.contains("entity-1")
+                && snapshot.active_entities == vec!["entity-1".to_string()]
+                && snapshot.entity_count == 1
+                && snapshot.total_buffered == 0
+        },
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-reactivation".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string(),
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: crate::EntityDelivery::new("entity-1", "after-reactivation".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 fn polling_timeout() -> Duration {
     Duration::from_millis(10_200)
 }
@@ -674,6 +867,53 @@ fn wait_for_remembered_entities_and_shard_activation(
             } else {
                 Err(format!(
                     "{description}; remembered: {remembered:?}; active entities: {active_entities:?}",
+                ))
+            }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_shared_remember_store_and_shard_snapshot(
+    remember_store: &ActorRef<RememberShardStoreMsg>,
+    store_state: &kairo_testkit::TestProbe<RememberShardStoreSnapshot>,
+    shard: &ActorRef<ShardMsg<String>>,
+    shard_state: &kairo_testkit::TestProbe<ShardSnapshot>,
+    description: &str,
+    mut matches: impl FnMut(&BTreeSet<String>, &ShardSnapshot) -> bool,
+) -> (BTreeSet<String>, ShardSnapshot) {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<(BTreeSet<String>, ShardSnapshot), String> {
+            remember_store
+                .tell(RememberShardStoreMsg::GetState {
+                    reply_to: store_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let store_snapshot = store_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            let remembered = store_snapshot
+                .entities_by_key
+                .values()
+                .flat_map(|entities| entities.iter().cloned())
+                .collect::<BTreeSet<_>>();
+
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: shard_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let shard_snapshot = shard_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+
+            if matches(&remembered, &shard_snapshot) {
+                Ok((remembered, shard_snapshot))
+            } else {
+                Err(format!(
+                    "{description}; remembered: {remembered:?}; shard snapshot: {shard_snapshot:?}",
                 ))
             }
         },
