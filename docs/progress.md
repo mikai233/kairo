@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after coordinated-shutdown recoverable phase
+  coverage:
+
+  ```bash
+  cargo test -p kairo-actor recovering_phase_ --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after coordinated-shutdown phase timeout
   coverage:
 
@@ -1187,6 +1198,9 @@ Implemented:
 - Coordinated shutdown phase-runner coverage now pins non-recovering phase
   timeout errors, including the phase name and configured timeout carried by
   `ActorError::ShutdownPhaseTimeout`.
+- Coordinated shutdown phase-runner coverage now also pins recoverable phase
+  behavior: task failures and phase timeouts complete successfully when a phase
+  is marked recoverable.
 - Coordinated shutdown actor termination task coverage now pins both `/user`
   and `/system` actor refs, including explicit stop-message delivery,
   wait-only timeout without implicit stopping, and already-stopped wait-only

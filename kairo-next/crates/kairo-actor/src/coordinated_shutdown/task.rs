@@ -181,4 +181,46 @@ mod tests {
         ));
         release_tx.send(()).unwrap();
     }
+
+    #[test]
+    fn recovering_phase_ignores_task_failure() {
+        let phase = PhaseDefinition {
+            name: "recovering-phase".to_string(),
+            timeout: Duration::from_secs(1),
+            recover: true,
+        };
+        let task = TaskEntry::new("failing".to_string(), || {
+            Err(ActorError::Message("boom".to_string()))
+        });
+
+        let result = run_phase(&phase, vec![task]);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn recovering_phase_timeout_completes_ok() {
+        let phase = PhaseDefinition {
+            name: "recovering-phase".to_string(),
+            timeout: Duration::from_millis(20),
+            recover: true,
+        };
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let task = TaskEntry::new("blocked".to_string(), move || {
+            started_tx
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+            release_rx
+                .recv()
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+            Ok(())
+        });
+
+        let result = run_phase(&phase, vec![task]);
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(result.is_ok());
+        release_tx.send(()).unwrap();
+    }
 }
