@@ -272,6 +272,29 @@ fn actor_stop_cancels_active_receive_timeout() {
     let actor = system
         .spawn("receive-timeout", Props::new(|| ReceiveTimeoutProbe))
         .unwrap();
+
+    assert_actor_stop_cancels_receive_timeout(&system, &scheduler, actor);
+}
+
+#[test]
+fn system_actor_stop_cancels_active_receive_timeout() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test-system-receive-timeout-direct-stop")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn_system("system-receive-timeout", Props::new(|| ReceiveTimeoutProbe))
+        .unwrap();
+
+    assert_actor_stop_cancels_receive_timeout(&system, &scheduler, actor);
+}
+
+fn assert_actor_stop_cancels_receive_timeout(
+    system: &ActorSystem,
+    scheduler: &ManualScheduler,
+    actor: ActorRef<ReceiveTimeoutProbeMsg>,
+) {
     let (observed_tx, observed_rx) = mpsc::channel();
     let (arm_tx, arm_rx) = mpsc::channel();
 
@@ -285,7 +308,7 @@ fn actor_stop_cancels_active_receive_timeout() {
         arm_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         Some(Duration::from_secs(1))
     );
-    wait_for_manual_deadline(&scheduler, Duration::from_secs(1));
+    wait_for_manual_deadline(scheduler, Duration::from_secs(1));
 
     system.stop(&actor);
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
