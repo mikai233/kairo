@@ -1694,6 +1694,100 @@ fn parent_stop_drains_queued_user_messages_before_waiting_for_children() {
 }
 
 #[test]
+fn actor_system_terminate_drains_queued_user_messages_before_waiting_for_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (child_entered_stop_tx, child_entered_stop_rx) = mpsc::channel();
+    let (child_release_stop_tx, child_release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (block_entered_tx, block_entered_rx) = mpsc::channel();
+    let (block_release_tx, block_release_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    let (after_stop_tx, _after_stop_rx) = mpsc::channel();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: child_entered_stop_tx,
+            release_stop: child_release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+
+    parent
+        .tell(ChildStopMsg::Block {
+            entered: block_entered_tx,
+            release: block_release_rx,
+        })
+        .unwrap();
+    block_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    parent.tell(ChildStopMsg::Ping(ping_tx)).unwrap();
+
+    let terminating_system = system.clone();
+    let terminate_thread = std::thread::spawn(move || {
+        terminated_tx
+            .send(terminating_system.terminate(Duration::from_secs(2)))
+            .unwrap();
+    });
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while parent
+        .tell(ChildStopMsg::Ping(after_stop_tx.clone()))
+        .is_ok()
+    {
+        assert!(
+            Instant::now() < deadline,
+            "parent should reject new sends once system termination requests stop"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    block_release_tx.send(()).unwrap();
+    child_entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    assert!(
+        ping_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "queued user message must not be delivered after system termination starts"
+    );
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(2, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert!(
+        records
+            .iter()
+            .filter(|record| record.recipient() == parent.path()
+                && record.reason() == "actor is stopped")
+            .count()
+            >= 2
+    );
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "system termination must still wait for child termination after draining queued messages"
+    );
+
+    child_release_stop_tx.send(()).unwrap();
+    terminated_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    terminate_thread.join().unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
+#[test]
 fn actor_system_terminate_waits_for_descendant_children_before_terminated() {
     let system = ActorSystem::builder("test").build().unwrap();
     let parent = system
