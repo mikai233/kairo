@@ -2202,9 +2202,10 @@ Pekko shard regions send registration to actor selections for the likely
 coordinator singleton locations computed from cluster membership. Kairo has
 typed actor refs and stable remote envelopes; the first wiring layer makes
 coordinator targets explicit so local refs and remote wire recipients can share
-the same discovery state. The region actor still needs to react to cluster
-snapshots/events without embedding discovery logic into its routing and
-buffering code.
+the same discovery state. The region actor reacts to cluster snapshots/events
+through focused discovery messages, keeping membership selection outside its
+routing and buffering code while still refreshing the normal registration
+boundary when the selected coordinator appears or moves.
 
 Decision:
 Kairo adds a focused `RegionCoordinatorDiscovery` bridge in

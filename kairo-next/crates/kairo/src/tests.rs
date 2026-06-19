@@ -489,6 +489,41 @@ fn implementation_status_docs_do_not_mark_region_bootstrap_as_future_work()
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_region_discovery_wiring_as_future_work()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let decisions =
+        std::fs::read_to_string(repo_root.join("docs").join("decisions.md"))?.replace("\r\n", "\n");
+    let progress =
+        std::fs::read_to_string(repo_root.join("docs").join("progress.md"))?.replace("\r\n", "\n");
+
+    assert!(
+        !decisions.contains("The region actor still needs to react to cluster\nsnapshots/events"),
+        "decisions must not describe implemented region discovery message wiring as future work"
+    );
+    for phrase in [
+        "The region actor reacts to cluster snapshots/events\nthrough focused discovery messages",
+        "The\nregion actor accepts discovery snapshots/events and refreshes its existing\nregistration boundary from that bridge.",
+    ] {
+        assert!(
+            decisions.contains(phrase),
+            "decisions must describe implemented region discovery wiring: {phrase}"
+        );
+    }
+    for phrase in [
+        "`kairo-cluster-sharding` shard region actors can now accept coordinator\n  discovery snapshots/events",
+        "Shard-region discovery subscriber coverage now validates coordinator\n  movement",
+    ] {
+        assert!(
+            progress.contains(phrase),
+            "progress must mention implemented region discovery coverage: {phrase}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn implementation_status_docs_do_not_mark_actor_tree_lifecycle_coverage_as_future_work()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;

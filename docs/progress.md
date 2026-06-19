@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after sharding region-discovery ADR
+  convergence guard:
+
+  ```bash
+  cargo test -p kairo implementation_status_docs_do_not_mark_region_discovery_wiring_as_future_work --all-targets --all-features -- --nocapture
+  cargo test -p kairo --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after sharding coordinator unavailable-region
   snapshot observability:
 
@@ -4618,6 +4629,11 @@ Implemented:
   with the implemented remote coordinator target, transport path, and
   `ShardRegionBootstrap` helper that spawns a discovery-enabled region
   alongside its cluster discovery subscriber.
+- The `kairo` facade test suite now also pins the sharding region-discovery
+  ADR against the implemented `ShardRegionMsg::CoordinatorDiscoverySnapshot`
+  and `CoordinatorDiscoveryEvent` wiring, so decisions and progress docs
+  cannot regress to describing region actor discovery reactions as future
+  work.
 - `docs/decisions.md` now reconciles the cluster TCP configured-peer runtime
   ADR with the later implemented membership-derived peer planning,
   reconnect/backoff, actor connector, timer, and bootstrap lifecycle layers.
