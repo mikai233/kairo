@@ -62,6 +62,23 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after TCP peer-runtime pending-reconnect
+  clearing active-route preservation coverage:
+
+  ```bash
+  cargo test -p kairo-cluster peer_runtime_clear_pending_reconnects_preserves_active_routes --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data peer_runtime_clear_pending_reconnects_preserves_active_routes --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools peer_runtime_clear_pending_reconnects_preserves_active_routes --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features -- --nocapture
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+  cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+  cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after TCP peer-runtime clear-routes
   pending-reconnect boundary coverage:
 
@@ -1209,6 +1226,11 @@ Implemented:
   pins the lower-level `clear_peer_routes` pending-reconnect boundary:
   explicit active-route clearing leaves failed-dial retry diagnostics intact,
   while runtime shutdown still clears and reports pending reconnects.
+- Cluster, distributed-data, and cluster-tools TCP peer runtime coverage now
+  also pins the complementary `clear_pending_peer_reconnects` boundary:
+  explicit retry-state clearing reports the failed peer without disturbing
+  already installed association routes, which remain live until route cleanup
+  or runtime shutdown.
 - Cluster TCP peer connector lifecycle coverage now publishes a follow-up
   membership change after the routeful connector has stopped, proving the
   stopped connector unsubscribed from cluster events, does not emit stale

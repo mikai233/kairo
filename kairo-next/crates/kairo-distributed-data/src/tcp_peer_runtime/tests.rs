@@ -1301,6 +1301,68 @@ mod route_tests {
     }
 
     #[test]
+    fn peer_runtime_clear_pending_reconnects_preserves_active_routes() {
+        let _guard = ddata_socket_test_lock();
+        let bound_port = unused_port();
+        let missing_port = unused_port();
+        let bound_node = node("clear-pending-bound", bound_port, 2);
+        let missing_node = node("clear-pending-missing", missing_port, 3);
+        let retry_interval = Duration::from_millis(25);
+        let mut sender = bind_peer_runtime(
+            "clear-pending-sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&bound_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+        let bound = bind_association_runtime_on_port(
+            "clear-pending-bound",
+            ReplicaId::from(&bound_node),
+            ReplicaId::from(&sender_node),
+            22,
+            bound_port,
+        );
+
+        sender
+            .apply_snapshot_at(
+                state(
+                    vec![
+                        member(sender_node),
+                        member(bound_node.clone()),
+                        member(missing_node.clone()),
+                    ],
+                    vec![],
+                ),
+                Duration::ZERO,
+            )
+            .unwrap_err();
+
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        wait_for_reverse_route(&bound);
+        let pending = sender.pending_peer_reconnects();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].target.node(), &missing_node);
+
+        let report = sender.clear_pending_peer_reconnects();
+
+        assert_eq!(report.cleared.len(), 1);
+        assert_eq!(report.cleared[0].node(), &missing_node);
+        assert!(report.scheduled.is_empty());
+        assert_eq!(sender.pending_peer_reconnect_count(), 0);
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.peer_routes.removed.len(), 1);
+        assert!(sender_report.pending_reconnects.is_empty());
+        let bound_report = bound.shutdown().unwrap();
+        assert_eq!(bound_report.accepted_associations, 1);
+    }
+
+    #[test]
     fn peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial() {
         let _guard = ddata_socket_test_lock();
         let receiver_port = unused_port();
