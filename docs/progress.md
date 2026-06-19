@@ -3741,6 +3741,11 @@ Implemented:
   route from membership, deliver a stable-manifest `ReplicatorRead`, and
   coordinated shutdown clears the adopted route so later sends reject without
   another remote request delivery.
+- `kairo-examples` distributed-data TCP bootstrap smoke coverage now exercises
+  the actor-backed CRDT path: one example node hosts a real
+  `/system/ddata` `ReplicatorActor<GCounter>`, a second node sends a
+  stable-codec `ReplicatorWrite` over the membership-derived TCP route, and
+  the receiver observes the updated counter through a local read.
 - `kairo-distributed-data` live TCP tests now share a crate-level socket-test
   guard across route-owner, peer-runtime, connector, bootstrap, and direct
   association runtime modules, preventing parallel cargo test runs from racing
@@ -4322,6 +4327,18 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after distributed-data example actor-backed TCP
+write coverage:
+
+```bash
+cargo test -p kairo-examples ddata_tcp_peer_bootstrap_delivers_write_to_remote_replicator_actor --all-targets --all-features -- --nocapture
+cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after coordinator remember-store load to real
 remember-store region orchestration:

@@ -10,12 +10,15 @@ use kairo::cluster::{
     UniqueAddress,
 };
 use kairo::distributed_data::{
-    ReplicaId, ReplicatorRead, ReplicatorRemoteAssociationCacheOutbound,
-    ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver,
-    ReplicatorRemoteRequestError, ReplicatorRemoteRequestReceiver, ReplicatorRemoteTarget,
+    DataEnvelope, DeltaReplicatedData, GCounter, GCounterCodec, GetResponse, ReadConsistency,
+    ReplicaId, ReplicatorActor, ReplicatorActorMsg, ReplicatorKey, ReplicatorRead,
+    ReplicatorRemoteAssociationCacheOutbound, ReplicatorRemoteEnvelopeOutbound,
+    ReplicatorRemoteReplyError, ReplicatorRemoteReplyReceiver, ReplicatorRemoteRequestError,
+    ReplicatorRemoteRequestInbound, ReplicatorRemoteRequestReceiver, ReplicatorRemoteTarget,
     ReplicatorTcpPeerBootstrap, ReplicatorTcpPeerBootstrapSettings, ReplicatorTcpPeerConnectorMsg,
     ReplicatorTcpPeerConnectorSettings, ReplicatorTcpPeerConnectorSnapshot,
-    ReplicatorTcpPeerRuntime, register_ddata_protocol_codecs, replicator_actor_ref_for,
+    ReplicatorTcpPeerRuntime, ReplicatorWireCodecs, encode_write, register_ddata_protocol_codecs,
+    replicator_actor_ref_for,
 };
 use kairo::remote::{RemoteAssociationCache, RemoteSettings};
 use kairo::serialization::Registry;
@@ -93,6 +96,38 @@ impl ReplicatorRemoteRequestReceiver for RecordingReplicatorRequests {
     }
 }
 
+#[derive(Default)]
+struct DeferredReplicatorRequests {
+    inner: Mutex<Option<Arc<dyn ReplicatorRemoteRequestReceiver>>>,
+}
+
+impl DeferredReplicatorRequests {
+    fn set(&self, receiver: Arc<dyn ReplicatorRemoteRequestReceiver>) {
+        *self.inner.lock().expect("deferred requests poisoned") = Some(receiver);
+    }
+}
+
+impl ReplicatorRemoteRequestReceiver for DeferredReplicatorRequests {
+    fn receive_request_from(
+        &self,
+        from: ReplicaId,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ReplicatorRemoteRequestError> {
+        let receiver = self
+            .inner
+            .lock()
+            .expect("deferred requests poisoned")
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| {
+                ReplicatorRemoteRequestError::Send(
+                    "deferred remote request receiver is not initialized".to_string(),
+                )
+            })?;
+        receiver.receive_request_from(from, envelope)
+    }
+}
+
 pub struct DDataTcpExampleNode {
     system: ActorSystem,
     publisher: ActorRef<ClusterEventPublisherMsg>,
@@ -101,6 +136,7 @@ pub struct DDataTcpExampleNode {
     association_cache: RemoteAssociationCache,
     remote_settings: RemoteSettings,
     request_recorder: Arc<RecordingReplicatorRequests>,
+    replicator: Option<ActorRef<ReplicatorActorMsg<GCounter>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,6 +224,69 @@ impl DDataTcpExampleNode {
             association_cache,
             remote_settings,
             request_recorder,
+            replicator: None,
+        })
+    }
+
+    pub fn bind_with_replicator(
+        system_name: &str,
+        node_uid: u64,
+        system_uid: u64,
+        connector_name: &str,
+        remote_replica: ReplicaId,
+    ) -> Result<Self, Box<dyn Error>> {
+        let system = ActorSystem::builder(system_name).build()?;
+        let publisher_node = UniqueAddress::new(Address::local(system_name), node_uid);
+        let publisher = system.spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(publisher_node.clone())),
+        )?;
+        let cluster = Cluster::new(publisher.clone());
+        let registry = ddata_registry()?;
+        let settings = ReplicatorTcpPeerBootstrapSettings::new(RemoteSettings::new("127.0.0.1", 0))
+            .with_connector_name(connector_name)
+            .with_connector_settings(
+                ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(100))?
+                    .with_automatic_retry_ticks(false),
+            )
+            .with_shutdown_timeout(Duration::from_secs(1));
+        let deferred_requests = Arc::new(DeferredReplicatorRequests::default());
+        let runtime = ReplicatorTcpPeerRuntime::bind(
+            system_name,
+            node_uid,
+            system_uid,
+            remote_replica,
+            settings.runtime_settings().remote().clone(),
+            deferred_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+            Arc::new(IgnoreReplicatorReplies) as Arc<dyn ReplicatorRemoteReplyReceiver>,
+        )?;
+        let association_cache = runtime.association_cache().clone();
+        let remote_settings = runtime.runtime().settings().clone();
+        let receiver_ref = replicator_actor_ref_for(system_name, &remote_settings)?;
+        let replicator =
+            system.spawn_system("ddata", Props::new(ReplicatorActor::<GCounter>::new))?;
+        let inbound = ReplicatorRemoteRequestInbound::new(
+            system.clone(),
+            receiver_ref.clone(),
+            Some(receiver_ref),
+            registry.clone(),
+            replicator.clone(),
+            ReplicatorWireCodecs::new(Arc::new(GCounterCodec), Arc::new(GCounterCodec)),
+            ReplicatorRemoteAssociationCacheOutbound::new(association_cache.clone()),
+        );
+        deferred_requests.set(Arc::new(inbound) as Arc<dyn ReplicatorRemoteRequestReceiver>);
+        let bootstrap =
+            ReplicatorTcpPeerBootstrap::spawn_with_runtime(&system, cluster, runtime, settings)?;
+
+        Ok(Self {
+            system,
+            publisher,
+            bootstrap,
+            registry,
+            association_cache,
+            remote_settings,
+            request_recorder: Arc::new(RecordingReplicatorRequests::default()),
+            replicator: Some(replicator),
         })
     }
 
@@ -267,6 +366,75 @@ impl DDataTcpExampleNode {
             from: Some(ReplicaId::from(self.self_node())),
         })?;
         Ok(())
+    }
+
+    pub fn send_counter_write_to(
+        &self,
+        target: &DDataTcpExampleNode,
+        key: impl Into<String>,
+        amount: u128,
+    ) -> Result<(), Box<dyn Error>> {
+        let sender_ref = replicator_actor_ref_for(self.system.name(), &self.remote_settings)?;
+        let target_ref = replicator_actor_ref_for(target.system.name(), &target.remote_settings)?;
+        let outbound = ReplicatorRemoteEnvelopeOutbound::new(
+            ReplicatorRemoteTarget::new(ReplicaId::from(target.self_node()), target_ref),
+            Some(sender_ref),
+            self.registry.clone(),
+            ReplicatorRemoteAssociationCacheOutbound::new(self.association_cache.clone()),
+        );
+        let key = ReplicatorKey::new(key);
+        let counter = GCounter::new()
+            .increment(ReplicaId::from(self.self_node()), amount)?
+            .reset_delta();
+        outbound.send(&encode_write(
+            &key,
+            Some(ReplicaId::from(self.self_node())),
+            &DataEnvelope::new(counter),
+            &GCounterCodec,
+        )?)?;
+        Ok(())
+    }
+
+    pub fn wait_for_counter_value(
+        &self,
+        key: impl AsRef<str>,
+        expected: u128,
+        timeout: Duration,
+    ) -> Result<(), Box<dyn Error>> {
+        let replicator = self
+            .replicator
+            .as_ref()
+            .ok_or("node was not bound with a local ReplicatorActor")?;
+        let key = ReplicatorKey::new(key.as_ref());
+        let deadline = Instant::now() + timeout;
+        loop {
+            let Some(remaining) = remaining_until(deadline) else {
+                return Err(format!(
+                    "timed out waiting for distributed-data counter `{}` to reach {expected}",
+                    key.as_str()
+                )
+                .into());
+            };
+            let id = SNAPSHOT_ID.fetch_add(1, Ordering::Relaxed);
+            let (reply_to, replies) =
+                spawn_one_shot_reply(&self.system, format!("ddata-counter-read-{id}"))?;
+            replicator.tell(ReplicatorActorMsg::Get {
+                key: key.clone(),
+                consistency: ReadConsistency::local(),
+                reply_to,
+            })?;
+            match replies.recv_timeout(remaining.min(Duration::from_millis(100))) {
+                Ok(GetResponse::Success { data, .. }) if data.value()? == expected => return Ok(()),
+                Ok(_) | Err(_) => {}
+            }
+            if !sleep_until_next_poll(deadline) {
+                return Err(format!(
+                    "timed out waiting for distributed-data counter `{}` to reach {expected}",
+                    key.as_str()
+                )
+                .into());
+            }
+        }
     }
 
     pub fn wait_for_request_count(

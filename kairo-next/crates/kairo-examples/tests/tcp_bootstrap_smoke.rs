@@ -414,6 +414,47 @@ fn ddata_tcp_peer_bootstrap_delivers_remote_read_request() -> TestResult {
 }
 
 #[test]
+fn ddata_tcp_peer_bootstrap_delivers_write_to_remote_replicator_actor() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let node_a = ddata_tcp::DDataTcpExampleNode::bind_with_remote_replica(
+        "ddata-actor-node-a",
+        1,
+        11,
+        "ddata-actor-node-a-peers",
+        ReplicaId::new("ddata-actor-node-b"),
+    )?;
+    let node_b = ddata_tcp::DDataTcpExampleNode::bind_with_replicator(
+        "ddata-actor-node-b",
+        2,
+        22,
+        "ddata-actor-node-b-peers",
+        ReplicaId::from(node_a.self_node()),
+    )?;
+    let result = (|| -> TestResult {
+        node_a.publish_up_members(vec![node_a.self_node().clone(), node_b.self_node().clone()])?;
+        node_b.publish_up_members(vec![node_a.self_node().clone(), node_b.self_node().clone()])?;
+        node_a.wait_for_route_count(1, Duration::from_secs(2))?;
+        node_b.wait_for_route_count(1, Duration::from_secs(2))?;
+
+        node_a.send_counter_write_to(&node_b, "example-actor-backed-counter", 13)?;
+        node_b.wait_for_counter_value(
+            "example-actor-backed-counter",
+            13,
+            Duration::from_secs(2),
+        )?;
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    Ok(())
+}
+
+#[test]
 fn ddata_tcp_peer_bootstrap_removes_route_when_membership_shrinks() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b) = ddata_tcp::bind_two_nodes()?;
