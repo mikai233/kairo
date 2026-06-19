@@ -4403,6 +4403,10 @@ Implemented:
   buffer the first delivery, auto-host a shard backed by an external remember
   store, load the remembered entity, and replay the buffered delivery without a
   duplicate remember-start update.
+- `kairo-cluster-sharding` shared remember-store region coverage now also pins
+  the explicit handoff-stop path: once a remembered shard is handed off and the
+  local shard stop is observed, a pending remembered-shard restart timer does
+  not rehost the shard.
 
 Not yet implemented:
 
@@ -4456,6 +4460,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after shared remember-store handoff-stop restart
+suppression coverage:
+
+```bash
+cargo test -p kairo-cluster-sharding region_actor_suppresses_shared_store_remembered_shard_restart_after_handoff_stop --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after remote death-watch same-address actor
 coverage:
