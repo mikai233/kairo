@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after shard remember-store moved-entity
+  multi-stop batching coverage:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding shard_runtime_batches_multiple_moved_remembered_entity_stops --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding shard_remember_runtime --all-targets --all-features -- --nocapture
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after TCP peer-runtime pending-reconnect
   clearing active-route preservation coverage:
 
@@ -5473,6 +5484,10 @@ Implemented:
   Welcome retry path from Pekko `ClusterDaemon.joining`: a repeated join from
   the same `UniqueAddress` receives the current Welcome without duplicating the
   member in gossip or publishing another membership change.
+- `kairo-cluster-sharding` shard remember-runtime coverage now also pins
+  multi-entity moved-shard stop batching: moving more than one remembered
+  entity issues one immediate remember-stop store update, queues the remaining
+  stop, and drains the follow-up update after the first write completes.
 
 Not yet implemented:
 
@@ -5505,6 +5520,7 @@ Not yet implemented:
   stress beyond the current focused actor-level load/update/restart,
   store-backed shard load stashed-delivery replay ordering, passivation
   stop/removal and stop-to-start acknowledgement ordering,
+  moved-shard multi-entity remember-stop batching,
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned local/shared-store region load-before-first-delivery coverage,
   and shared-store/local-store region passivation reactivation coverage.

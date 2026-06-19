@@ -331,6 +331,50 @@ fn shard_runtime_removes_moved_remembered_entities_from_store() {
 }
 
 #[test]
+fn shard_runtime_batches_multiple_moved_remembered_entity_stops() {
+    let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
+    runtime.recover_remembered_entities(["entity-1".to_string(), "entity-2".to_string()]);
+    let first_stop =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-1".to_string()]);
+    let second_stop =
+        RememberShardUpdate::new(std::iter::empty::<String>(), ["entity-2".to_string()]);
+
+    assert_eq!(
+        runtime.remembered_entities_moved_to_other_shard([
+            "entity-2".to_string(),
+            "entity-1".to_string(),
+        ]),
+        MovedRememberedEntitiesPlan {
+            removed: vec!["entity-1".to_string(), "entity-2".to_string()],
+            ignored: Vec::new(),
+            update: Some(first_stop.clone()),
+        }
+    );
+    assert_eq!(runtime.entity_state(&"entity-1".to_string()), None);
+    assert_eq!(runtime.entity_state(&"entity-2".to_string()), None);
+    assert!(runtime.remember_update_in_progress());
+
+    assert_eq!(
+        runtime.remember_update_done(first_stop),
+        RememberUpdateDonePlan {
+            deliveries: Vec::new(),
+            next_update: Some(second_stop.clone()),
+        }
+    );
+    assert!(runtime.remember_update_in_progress());
+
+    assert_eq!(
+        runtime.remember_update_done(second_stop),
+        RememberUpdateDonePlan {
+            deliveries: Vec::new(),
+            next_update: None,
+        }
+    );
+    assert!(!runtime.remember_update_in_progress());
+    assert_eq!(runtime.entity_count(), 0);
+}
+
+#[test]
 fn shard_runtime_batches_remember_stop_while_start_update_is_in_progress() {
     let mut runtime = ShardRuntime::<String>::new_with_remember_entities("shard-1", 10);
     runtime.recover_remembered_entities(["entity-1".to_string()]);
