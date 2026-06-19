@@ -241,6 +241,31 @@ fn event_stream_prunes_failed_dead_letter_subscribers() {
             }),
         )
         .unwrap();
+
+    assert_event_stream_prunes_failed_dead_letter_subscriber(&system, subscriber, stopped_rx);
+}
+
+#[test]
+fn event_stream_prunes_failed_system_dead_letter_subscribers() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (stopped_tx, stopped_rx) = mpsc::channel();
+    let subscriber = system
+        .spawn_system(
+            "system-dead-letter-subscriber",
+            Props::new(move || DeadLetterSubscriber {
+                stopped: stopped_tx,
+            }),
+        )
+        .unwrap();
+
+    assert_event_stream_prunes_failed_dead_letter_subscriber(&system, subscriber, stopped_rx);
+}
+
+fn assert_event_stream_prunes_failed_dead_letter_subscriber(
+    system: &ActorSystem,
+    subscriber: ActorRef<DeadLetter>,
+    stopped_rx: mpsc::Receiver<()>,
+) {
     assert!(system.event_stream().subscribe(subscriber.clone()));
     system.stop(&subscriber);
     assert!(subscriber.wait_for_stop(Duration::from_secs(1)));

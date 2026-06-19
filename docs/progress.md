@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after system event-stream stale-subscriber
+  pruning coverage:
+
+  ```bash
+  cargo test -p kairo-actor event_stream_prunes_failed --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after direct system-actor receptionist cleanup
   parity coverage:
 
@@ -992,6 +1003,10 @@ Implemented:
 - Event-stream publication now delivers outside the subscription-table lock so
   failed subscribers can be removed and their resulting dead letters can be
   published without recursively deadlocking the stream.
+- Event-stream stale-subscriber pruning now has focused coverage for both
+  `/user` and `/system` subscribers: a stopped dead-letter subscriber is
+  removed after the first failed event delivery and is not retried on later
+  publications.
 - Event-stream subscription state lives in a focused `event_stream` module.
 - `Context::spawn_task` starts external local work with only a typed self ref,
   and `Context::pipe_to_self` maps task success or failure back into the
