@@ -537,6 +537,13 @@ where
     if stop_children_on_restart {
         stop_children_for_restart(system_inner, actor_ref.path());
     }
+    let preserved_children = if stop_children_on_restart {
+        Vec::new()
+    } else {
+        system_inner
+            .registry
+            .child_handles(actor_ref.path().as_str())
+    };
     let Some(mut restarted) = props.restart() else {
         return Err(ActorError::Message(
             "restart supervision requires restartable props".to_string(),
@@ -546,7 +553,7 @@ where
     invoke_started(&mut restarted, context)?;
     *actor = restarted;
     if !stop_children_on_restart {
-        restart_children_after_parent_restart(system_inner, actor_ref.path());
+        restart_children_after_parent_restart(&preserved_children);
     }
     Ok(())
 }
@@ -602,7 +609,7 @@ where
             Ok(()) => {
                 *actor = restarted;
                 if !stop_children_on_restart {
-                    restart_children_after_parent_restart(system_inner, actor_ref.path());
+                    restart_children_after_parent_restart(&preserved_children);
                 }
                 return Ok(());
             }

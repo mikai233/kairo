@@ -4315,6 +4315,11 @@ Implemented:
   death-watch path: a restartable parent that explicitly watches a child can
   stop that child as part of default restart without receiving a stale
   `Terminated` death-pact signal after the parent has been rebuilt.
+- `kairo-actor` child-preserving restart now snapshots survivor children
+  before the fresh parent actor runs `started()`: only pre-existing
+  restartable survivors receive the restart signal, while children spawned by
+  the replacement parent startup are left live and are not restarted as stale
+  survivors.
 - `kairo-cluster-sharding` region discovery bootstrap cleanup coverage now
   includes both local remember-store and shared remember-store region variants:
   if the discovery subscriber name collides after the region actor is spawned,
@@ -6848,5 +6853,11 @@ cargo test -p kairo-cluster-tools connector_keeps_route_and_clears_pending_recon
 cargo test -p kairo-cluster-tools --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor restart_preserving_children_restarts_only_pre_restart_survivor_snapshot --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 ```

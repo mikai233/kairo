@@ -375,6 +375,80 @@ impl Actor for FailedRestartChildCleanupProbe {
     }
 }
 
+enum PreservedChildSnapshotMsg {
+    Fail,
+    Ping(mpsc::Sender<()>),
+}
+
+struct PreservedChildSnapshotParent {
+    starts: Arc<AtomicU64>,
+    child_restarted: mpsc::Sender<&'static str>,
+}
+
+impl Actor for PreservedChildSnapshotParent {
+    type Msg = PreservedChildSnapshotMsg;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let start = self.starts.fetch_add(1, Ordering::SeqCst) + 1;
+        let child_restarted = self.child_restarted.clone();
+        match start {
+            1 => {
+                ctx.spawn(
+                    "survivor",
+                    Props::restartable(move || RestartNotifyingChild {
+                        name: "survivor",
+                        restarted: child_restarted.clone(),
+                    }),
+                )?;
+            }
+            2 => {
+                ctx.spawn(
+                    "fresh",
+                    Props::restartable(move || RestartNotifyingChild {
+                        name: "fresh",
+                        restarted: child_restarted.clone(),
+                    }),
+                )?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            PreservedChildSnapshotMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            PreservedChildSnapshotMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
+struct RestartNotifyingChild {
+    name: &'static str,
+    restarted: mpsc::Sender<&'static str>,
+}
+
+impl Actor for RestartNotifyingChild {
+    type Msg = ();
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PreRestart => self
+                .restarted
+                .send(self.name)
+                .map_err(|error| ActorError::Message(error.to_string())),
+            Signal::PostStop => self.stopped(ctx),
+            Signal::Terminated(_) | Signal::ChildFailed { .. } => Ok(()),
+        }
+    }
+}
+
 struct StartupChildFailureProbe {
     starts: Arc<AtomicU64>,
     child_stopped: mpsc::Sender<()>,
@@ -1767,6 +1841,47 @@ fn restart_preserving_children_restarts_restartable_child_after_parent_failure()
     child.tell(SupervisionMsg::Get(after_tx)).unwrap();
     assert_eq!(after_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 0);
     assert_eq!(child.path(), &child_path);
+}
+
+#[test]
+fn restart_preserving_children_restarts_only_pre_restart_survivor_snapshot() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let starts = Arc::new(AtomicU64::new(0));
+    let (child_restarted_tx, child_restarted_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable({
+                let starts = Arc::clone(&starts);
+                move || PreservedChildSnapshotParent {
+                    starts: Arc::clone(&starts),
+                    child_restarted: child_restarted_tx.clone(),
+                }
+            })
+            .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+
+    parent.tell(PreservedChildSnapshotMsg::Fail).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent
+        .tell(PreservedChildSnapshotMsg::Ping(ping_tx))
+        .unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert_eq!(
+        child_restarted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        "survivor"
+    );
+    assert!(
+        child_restarted_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "child spawned by the fresh parent instance must not be restarted as a survivor"
+    );
+    assert_eq!(starts.load(Ordering::SeqCst), 2);
 }
 
 #[test]
