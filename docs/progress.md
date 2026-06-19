@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after direct actor-stop ask temp-ref cleanup
+  coverage:
+
+  ```bash
+  cargo test -p kairo-actor actor_stop_unregisters --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after cluster membership retried-join welcome
   coverage:
 
@@ -4958,6 +4969,10 @@ Implemented:
   helpers, adapters, asks, watch registrations, stash operations, self
   scheduling, timers, and receive timeouts are rejected or inert during full
   system shutdown just as they are for direct actor stop.
+- `kairo-actor` direct actor-stop ask coverage now pins owner-bound temporary
+  ref cleanup for both `/user` and `/system` actors: an externally stopped
+  actor unregisters pending ask reply refs, rejects late replies as completed,
+  and does not map those replies back into the stopped owner mailbox.
 - `kairo-distributed-data` TCP peer-runtime coverage now pins the remote
   boundary for cluster snapshots: a local-only member address is rejected with
   `MissingRemoteHost`, does not dial, and leaves both peer-route and
