@@ -123,6 +123,29 @@ fn cluster_tcp_peer_bootstrap_clears_pending_reconnect_when_peer_leaves() -> Tes
 }
 
 #[test]
+fn cluster_tcp_peer_bootstrap_surfaces_local_only_member_without_pending_reconnect() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let node = cluster_tcp::ClusterTcpExampleNode::bind(
+        "cluster-local-only-node-a",
+        1,
+        11,
+        "cluster-local-only-node-a-peers",
+    )?;
+    let result = (|| -> TestResult {
+        let local_only = local_only_peer("cluster-local-only-missing", 2);
+        node.publish_up_members(vec![node.self_node().clone(), local_only])?;
+        wait_for_cluster_local_only_error(&node, Duration::from_secs(2))?;
+        Ok(())
+    })();
+
+    let shutdown = node.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown?;
+    Ok(())
+}
+
+#[test]
 fn cluster_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b, node_c) = cluster_tcp::bind_three_nodes()?;
@@ -558,6 +581,29 @@ fn ddata_tcp_peer_bootstrap_clears_pending_reconnect_when_peer_leaves() -> TestR
 }
 
 #[test]
+fn ddata_tcp_peer_bootstrap_surfaces_local_only_member_without_pending_reconnect() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let node = ddata_tcp::DDataTcpExampleNode::bind(
+        "ddata-local-only-node-a",
+        1,
+        11,
+        "ddata-local-only-node-a-peers",
+    )?;
+    let result = (|| -> TestResult {
+        let local_only = local_only_peer("ddata-local-only-missing", 2);
+        node.publish_up_members(vec![node.self_node().clone(), local_only])?;
+        wait_for_ddata_local_only_error(&node, Duration::from_secs(2))?;
+        Ok(())
+    })();
+
+    let shutdown = node.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown?;
+    Ok(())
+}
+
+#[test]
 fn ddata_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b, node_c) = ddata_tcp::bind_three_nodes()?;
@@ -938,6 +984,30 @@ fn cluster_tools_tcp_peer_bootstrap_clears_pending_reconnect_when_peer_leaves() 
 }
 
 #[test]
+fn cluster_tools_tcp_peer_bootstrap_surfaces_local_only_member_without_pending_reconnect()
+-> TestResult {
+    let _lock = lock_tcp_smoke();
+    let node = cluster_tools_tcp::ClusterToolsTcpExampleNode::bind(
+        "cluster-tools-local-only-node-a",
+        1,
+        11,
+        "cluster-tools-local-only-node-a-peers",
+    )?;
+    let result = (|| -> TestResult {
+        let local_only = local_only_peer("cluster-tools-local-only-missing", 2);
+        node.publish_up_members(vec![node.self_node().clone(), local_only])?;
+        wait_for_tools_local_only_error(&node, Duration::from_secs(2))?;
+        Ok(())
+    })();
+
+    let shutdown = node.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown?;
+    Ok(())
+}
+
+#[test]
 fn cluster_tools_tcp_peer_bootstrap_establishes_three_node_full_mesh_and_shrinks() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b, node_c) = cluster_tools_tcp::bind_three_nodes()?;
@@ -1205,6 +1275,10 @@ fn missing_peer(system_name: &str, uid: u64) -> UniqueAddress {
     )
 }
 
+fn local_only_peer(system_name: &str, uid: u64) -> UniqueAddress {
+    UniqueAddress::new(Address::local(system_name), uid)
+}
+
 fn wait_for_cluster_pending_reconnect(
     node: &cluster_tcp::ClusterTcpExampleNode,
     expected: &UniqueAddress,
@@ -1254,6 +1328,37 @@ fn wait_for_cluster_no_routes_or_pending(
         if !sleep_until_next_poll(deadline) {
             return Err(format!(
                 "timed out waiting for cluster routes and pending reconnects to clear: {snapshot:?}"
+            )
+            .into());
+        }
+    }
+}
+
+fn wait_for_cluster_local_only_error(
+    node: &cluster_tcp::ClusterTcpExampleNode,
+    timeout: Duration,
+) -> TestResult {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(
+                "timed out waiting for cluster local-only route rejection: no snapshot observed"
+                    .into(),
+            );
+        };
+        let snapshot = node.connector_snapshot(remaining)?;
+        if snapshot.route_count == 0
+            && snapshot.pending_reconnects.is_empty()
+            && snapshot
+                .last_error
+                .as_deref()
+                .is_some_and(|error| error.contains("has no remote host"))
+        {
+            return Ok(());
+        }
+        if !sleep_until_next_poll(deadline) {
+            return Err(format!(
+                "timed out waiting for cluster local-only route rejection: {snapshot:?}"
             )
             .into());
         }
@@ -1315,6 +1420,37 @@ fn wait_for_ddata_no_routes_or_pending(
     }
 }
 
+fn wait_for_ddata_local_only_error(
+    node: &ddata_tcp::DDataTcpExampleNode,
+    timeout: Duration,
+) -> TestResult {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(
+                "timed out waiting for distributed-data local-only route rejection: no snapshot observed"
+                    .into(),
+            );
+        };
+        let snapshot = node.connector_snapshot(remaining)?;
+        if snapshot.route_count == 0
+            && snapshot.pending_reconnects.is_empty()
+            && snapshot
+                .last_error
+                .as_deref()
+                .is_some_and(|error| error.contains("has no remote host"))
+        {
+            return Ok(());
+        }
+        if !sleep_until_next_poll(deadline) {
+            return Err(format!(
+                "timed out waiting for distributed-data local-only route rejection: {snapshot:?}"
+            )
+            .into());
+        }
+    }
+}
+
 fn wait_for_tools_pending_reconnect(
     node: &cluster_tools_tcp::ClusterToolsTcpExampleNode,
     expected: &UniqueAddress,
@@ -1364,6 +1500,37 @@ fn wait_for_tools_no_routes_or_pending(
         if !sleep_until_next_poll(deadline) {
             return Err(format!(
                 "timed out waiting for cluster-tools routes and pending reconnects to clear: {snapshot:?}"
+            )
+            .into());
+        }
+    }
+}
+
+fn wait_for_tools_local_only_error(
+    node: &cluster_tools_tcp::ClusterToolsTcpExampleNode,
+    timeout: Duration,
+) -> TestResult {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let Some(remaining) = remaining_until(deadline) else {
+            return Err(
+                "timed out waiting for cluster-tools local-only route rejection: no snapshot observed"
+                    .into(),
+            );
+        };
+        let snapshot = node.connector_snapshot(remaining)?;
+        if snapshot.route_count == 0
+            && snapshot.pending_reconnects.is_empty()
+            && snapshot
+                .last_error
+                .as_deref()
+                .is_some_and(|error| error.contains("has no remote host"))
+        {
+            return Ok(());
+        }
+        if !sleep_until_next_poll(deadline) {
+            return Err(format!(
+                "timed out waiting for cluster-tools local-only route rejection: {snapshot:?}"
             )
             .into());
         }

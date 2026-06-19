@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after public TCP bootstrap example local-only
+  member rejection smoke coverage:
+
+  ```bash
+  cargo test -p kairo-examples tcp_peer_bootstrap_surfaces_local_only_member_without_pending_reconnect --test tcp_bootstrap_smoke --all-features -- --nocapture
+  cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features
+  cargo test -p kairo-examples --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+  ```
+
 - Latest M13 validation refresh after cluster, distributed-data, and
   cluster-tools TCP bootstrap local-only member rejection coverage:
 
@@ -4884,6 +4895,10 @@ Implemented:
   facade as well: publishing a local-only peer member through cluster gossip
   surfaces the connector error without creating active routes or pending
   reconnects.
+- `kairo-examples` TCP bootstrap smoke coverage now pins the same local-only
+  peer rejection through the public cluster, distributed-data, and
+  cluster-tools example helpers, proving the runnable examples surface the
+  connector diagnostic without active routes or pending reconnects.
 
 Not yet implemented:
 
@@ -4935,8 +4950,9 @@ Not yet implemented:
   bootstrap local-only member rejection coverage,
   three-node full-mesh delivery coverage where applicable, public example
   smoke coverage that coordinated shutdown clears two live routes in each TCP
-  bootstrap facade, and public example smoke coverage that two-node and
-  three-node membership shrink clears removed-node routes.
+  bootstrap facade, public example local-only member rejection coverage, and
+  public example smoke coverage that two-node and three-node membership shrink
+  clears removed-node routes.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation, focused three-node route-preservation
