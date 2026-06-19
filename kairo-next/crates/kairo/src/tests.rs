@@ -532,6 +532,8 @@ fn implementation_status_docs_do_not_mark_actor_tree_lifecycle_coverage_as_futur
     let stale_phrases = [
         "Full actor tree lifecycle semantics beyond recursive local stop, recursive\n  restart-time child handling, restart-time child watch cleanup, and\n  terminating-child name reservation.",
         "terminating-child name reservation remain future work",
+        "terminating-parent\n  queued child-spawn drain coverage for direct parent and actor-system stop,\n  actor-system recursive child mailbox drain coverage",
+        "actor-system recursive child mailbox drain coverage, and actor-system\n  stashed-message/message-adapter/async-helper/ask-temp-ref/timer and",
     ];
 
     for phrase in stale_phrases {
@@ -545,6 +547,9 @@ fn implementation_status_docs_do_not_mark_actor_tree_lifecycle_coverage_as_futur
         "Restart-time child lifecycle coverage now also pins recursive descendant\n  waiting",
         "restart-time child teardown has completed",
         "stopping children keep their logical names reserved until\n  termination completes",
+        "direct parent and\n  actor-system queued message/child-spawn drain coverage",
+        "actor-system\n  recursive child mailbox drain coverage",
+        "actor-system stashed-message drain\ncoverage",
     ] {
         assert!(
             progress.contains(implemented_phrase),

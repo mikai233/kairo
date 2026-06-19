@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after actor tree lifecycle progress
+  convergence guard:
+
+  ```bash
+  cargo test -p kairo implementation_status_docs_do_not_mark_actor_tree_lifecycle_coverage_as_future_work --all-targets --all-features -- --nocapture
+  cargo test -p kairo --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after sharding region-discovery ADR
   convergence guard:
 
@@ -5324,11 +5335,11 @@ Not yet implemented:
 
 - Full actor tree lifecycle semantic audit beyond the current recursive local
   stop, recursive restart-time child handling, restart-time child watch
-  cleanup, terminating-child name reservation coverage, and terminating-parent
-  queued child-spawn drain coverage for direct parent and actor-system stop,
-  actor-system recursive child mailbox drain coverage, and actor-system
-  stashed-message/message-adapter/async-helper/ask-temp-ref/timer and
-  receive-timeout/death-watch/PostStop drain coverage.
+  cleanup, terminating-child name reservation coverage, direct parent and
+  actor-system queued message/child-spawn drain coverage, actor-system
+  recursive child mailbox drain coverage, and actor-system
+  stashed-message/message-adapter/async-helper/ask-temp-ref/timer,
+  receive-timeout, death-watch, and PostStop drain coverage.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and broader cross-crate compatibility
   fixtures.
