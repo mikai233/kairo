@@ -4307,6 +4307,10 @@ Implemented:
   public bootstrap facade and verifies the surviving route still delivers a
   serialized `ReplicatorRead` request to the bound replica after the missing
   peer's pending retry is skipped.
+- `kairo-cluster-tools` TCP bootstrap coverage now completes the same mixed
+  active-route plus pending-reconnect membership shrink parity for the third
+  public TCP bootstrap facade, including a surviving pubsub remote delivery
+  after the missing peer's pending retry is skipped.
 - `kairo-distributed-data` cluster connector coverage now includes a local
   two-node `MultiNodeTestKit` pruning scenario: the leader connector records a
   removed replica, waits for the all-reachable dissemination window,
@@ -4393,6 +4397,18 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after cluster-tools TCP bootstrap mixed-shrink
+cleanup:
+
+```bash
+cargo test -p kairo-cluster-tools bootstrap_keeps_route_and_clears_pending_reconnect_when_peer_leaves_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after distributed-data TCP bootstrap mixed-shrink
 cleanup:
