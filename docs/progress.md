@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after base remote TCP late-route shutdown
+  cleanup:
+
+  ```bash
+  cargo test -p kairo-remote tcp_remote_actor_system_shutdown_clears_late_routes_registered_during_shutdown --all-targets --all-features -- --nocapture
+  cargo test -p kairo-remote --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after distributed-data TCP late-route shutdown
   cleanup:
 
@@ -1273,6 +1285,10 @@ Implemented:
   association route, including listener-installed reverse routes and active
   dialed lane pipelines, before joining reader threads so live route
   registrations cannot keep socket lanes open after shutdown begins.
+- TCP actor-system runtime shutdown coverage now also pins late route cleanup:
+  if closing one cached remote route registers another route during shutdown,
+  the second shutdown clear removes that late route before the runtime reports
+  stopped.
 - Coordinated-shutdown coverage now also pins the user-facing stale-ref
   boundary: a `RemoteActorRef` resolved before shutdown can deliver while the
   route is live, but rejects later sends after coordinated shutdown clears the
@@ -4484,6 +4500,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after base remote TCP late-route shutdown
+cleanup:
+
+```bash
+cargo test -p kairo-remote tcp_remote_actor_system_shutdown_clears_late_routes_registered_during_shutdown --all-targets --all-features -- --nocapture
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after cluster TCP late-route shutdown cleanup:
 

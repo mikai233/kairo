@@ -151,6 +151,32 @@ impl RemoteDeathWatchEffectObserver for RecordingObserver {
     }
 }
 
+#[derive(Default)]
+struct NoopOutbound;
+
+impl RemoteOutbound for NoopOutbound {
+    fn send(&self, _envelope: RemoteEnvelope) -> crate::Result<()> {
+        Ok(())
+    }
+}
+
+struct LateRouteOnClose {
+    cache: RemoteAssociationCache,
+    late_address: RemoteAssociationAddress,
+}
+
+impl RemoteOutbound for LateRouteOnClose {
+    fn send(&self, _envelope: RemoteEnvelope) -> crate::Result<()> {
+        Ok(())
+    }
+
+    fn close(&self, _reason: &str) -> crate::Result<()> {
+        self.cache
+            .insert_route(self.late_address.clone(), Arc::new(NoopOutbound));
+        Ok(())
+    }
+}
+
 fn registry() -> Arc<Registry> {
     let mut registry = Registry::new();
     registry.register::<Ping, _>(PingCodec).unwrap();
@@ -1584,6 +1610,38 @@ fn tcp_remote_actor_system_routes_address_terminated_to_remote_death_watch() {
     assert_eq!(sender_report.accepted_associations, 0);
     let receiver_report = receiver_remote.shutdown().unwrap();
     assert_eq!(receiver_report.accepted_associations, 1);
+}
+
+#[test]
+fn tcp_remote_actor_system_shutdown_clears_late_routes_registered_during_shutdown() {
+    let system = ActorSystem::builder("remote-late-route-shutdown")
+        .build()
+        .unwrap();
+    let remote = TcpRemoteActorSystem::<Ping>::bind(
+        system,
+        registry(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    )
+    .unwrap();
+    let cache = remote.association_cache().clone();
+    let initial_address =
+        RemoteAssociationAddress::new("kairo", "initial", "127.0.0.1", Some(2552)).unwrap();
+    let late_address =
+        RemoteAssociationAddress::new("kairo", "late", "127.0.0.1", Some(2553)).unwrap();
+    cache.insert_route(
+        initial_address,
+        Arc::new(LateRouteOnClose {
+            cache: cache.clone(),
+            late_address,
+        }),
+    );
+    assert_eq!(cache.route_count(), 1);
+
+    let report = remote.shutdown().unwrap();
+
+    assert_eq!(report.accepted_associations, 0);
+    assert_eq!(cache.route_count(), 0);
 }
 
 #[test]
