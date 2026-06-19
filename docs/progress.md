@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after coordinated-shutdown task failure
+  propagation coverage:
+
+  ```bash
+  cargo test -p kairo-actor coordinated_shutdown_task_failure_aborts_before_next_phase --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after coordinated-shutdown same-phase late
   task registration coverage:
 
@@ -1159,6 +1170,9 @@ Implemented:
 - Coordinated shutdown coverage now also pins late registration semantics:
   tasks added to a later phase by an earlier task run, while tasks added to the
   currently running phase are accepted but too late to execute.
+- Coordinated shutdown coverage now pins non-recovering task failure behavior:
+  a failed task aborts before later phases, stores the original shutdown
+  reason, and repeated `run` calls return the recorded failure.
 - Coordinated shutdown actor termination task coverage now pins both `/user`
   and `/system` actor refs, including explicit stop-message delivery,
   wait-only timeout without implicit stopping, and already-stopped wait-only

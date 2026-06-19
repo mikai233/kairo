@@ -265,6 +265,38 @@ fn coordinated_shutdown_same_phase_task_added_during_run_is_too_late() {
 }
 
 #[test]
+fn coordinated_shutdown_task_failure_aborts_before_next_phase() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+    let (events_tx, events_rx) = mpsc::channel();
+
+    shutdown
+        .add_task(PHASE_SERVICE_STOP, "failing", move || {
+            Err(ActorError::Message("boom".to_string()))
+        })
+        .unwrap();
+    shutdown
+        .add_task(PHASE_BEFORE_CLUSTER_SHUTDOWN, "next-phase", move || {
+            events_tx
+                .send("next-phase")
+                .map_err(|error| ActorError::Message(error.to_string()))
+        })
+        .unwrap();
+
+    let result = shutdown.run("test");
+
+    assert!(
+        matches!(result, Err(ActorError::ShutdownTaskFailed(reason)) if reason.contains("task `failing` failed") && reason.contains("boom"))
+    );
+    assert!(events_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    assert!(matches!(
+        shutdown.run("second"),
+        Err(ActorError::ShutdownTaskFailed(reason)) if reason.contains("task `failing` failed")
+    ));
+    assert_eq!(shutdown.reason().as_deref(), Some("test"));
+}
+
+#[test]
 fn coordinated_shutdown_cancellable_task_skips_cancelled_registration() {
     let system = ActorSystem::builder("test").build().unwrap();
     let shutdown = system.coordinated_shutdown();
