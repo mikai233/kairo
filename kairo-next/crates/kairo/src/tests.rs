@@ -682,6 +682,27 @@ fn implementation_status_docs_do_not_mark_ddata_bootstrap_shrink_cleanup_as_futu
 }
 
 #[test]
+fn implementation_status_docs_list_all_tcp_peer_runtime_local_only_rejection_coverage()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let progress =
+        std::fs::read_to_string(repo_root.join("docs").join("progress.md"))?.replace("\r\n", "\n");
+
+    assert!(
+        !progress.contains("distributed-data and cluster-tools peer-runtime local-only snapshot\n  rejection coverage"),
+        "progress must not omit cluster from implemented TCP peer-runtime local-only rejection coverage"
+    );
+    assert!(
+        progress.contains(
+            "cluster, distributed-data, and cluster-tools peer-runtime local-only\n  snapshot rejection coverage"
+        ),
+        "progress must mention local-only snapshot rejection coverage for all TCP peer runtimes"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn implementation_status_docs_do_not_mark_cluster_remote_envelope_boundary_as_future_work()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;

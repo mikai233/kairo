@@ -62,6 +62,20 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after TCP peer-runtime local-only snapshot
+  rejection status convergence guard:
+
+  ```bash
+  cargo test -p kairo implementation_status_docs_list_all_tcp_peer_runtime_local_only_rejection_coverage --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster peer_runtime_rejects_non_remote_peer_snapshot_without_dialing --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data peer_runtime_rejects_non_remote_peer_snapshot_without_dialing --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools peer_runtime_rejects_non_remote_peer_snapshot_without_dialing --all-targets --all-features -- --nocapture
+  cargo test -p kairo --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after lease-majority status documentation
   convergence guard:
 
@@ -5461,10 +5475,11 @@ Not yet implemented:
   cluster, distributed-data, and cluster-tools bootstrap self-removal route
   cleanup coverage, focused bootstrap automatic retry coverage, focused
   peer-runtime, connector, and bootstrap partial-failure retry coverage,
-  distributed-data and cluster-tools peer-runtime local-only snapshot
-  rejection coverage, cluster/distributed-data/cluster-tools connector
-  local-only member rejection coverage, cluster/distributed-data/cluster-tools
-  bootstrap local-only member rejection coverage,
+  cluster, distributed-data, and cluster-tools peer-runtime local-only
+  snapshot rejection coverage, cluster/distributed-data/cluster-tools
+  connector local-only member rejection coverage,
+  cluster/distributed-data/cluster-tools bootstrap local-only member rejection
+  coverage,
   three-node full-mesh delivery coverage where applicable, public example
   smoke coverage that coordinated shutdown clears two live routes in each TCP
   bootstrap facade, public example local-only member rejection coverage, and
