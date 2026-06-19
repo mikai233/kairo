@@ -86,6 +86,69 @@ fn coordinated_shutdown_run_from_rejects_unknown_phase() {
 }
 
 #[test]
+fn coordinated_shutdown_runs_same_phase_tasks_in_parallel_before_next_phase() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+    let (events_tx, events_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+
+    shutdown
+        .add_task(PHASE_SERVICE_STOP, "blocked", {
+            let events = events_tx.clone();
+            move || {
+                events
+                    .send("blocked-start")
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                release_rx
+                    .recv()
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                events
+                    .send("blocked-done")
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+        })
+        .unwrap();
+    shutdown
+        .add_task(PHASE_SERVICE_STOP, "peer", {
+            let events = events_tx.clone();
+            move || {
+                events
+                    .send("peer-start")
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+        })
+        .unwrap();
+    shutdown
+        .add_task(PHASE_BEFORE_CLUSTER_SHUTDOWN, "next-phase", move || {
+            events_tx
+                .send("next-phase")
+                .map_err(|error| ActorError::Message(error.to_string()))
+        })
+        .unwrap();
+
+    let runner = shutdown.clone();
+    let join = thread::spawn(move || runner.run("test"));
+
+    let first = events_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let second = events_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let mut started = vec![first, second];
+    started.sort_unstable();
+    assert_eq!(started, ["blocked-start", "peer-start"]);
+    assert!(events_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+    release_tx.send(()).unwrap();
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "blocked-done"
+    );
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "next-phase"
+    );
+    join.join().unwrap().unwrap();
+}
+
+#[test]
 fn coordinated_shutdown_runs_only_once() {
     let system = ActorSystem::builder("test").build().unwrap();
     let shutdown = system.coordinated_shutdown();
