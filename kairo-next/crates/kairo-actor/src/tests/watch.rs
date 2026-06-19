@@ -1902,6 +1902,59 @@ fn stopped_watcher_is_removed_from_subject_watchers() {
 }
 
 #[test]
+fn stopping_watcher_discards_queued_terminated_signal() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchTwice {
+            subject: subject.clone(),
+            reply_to: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    watcher
+        .tell(WatchProbeMsg::Block {
+            entered: entered_tx,
+            release: release_rx,
+        })
+        .unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+    system.stop(&watcher);
+    release_tx.send(()).unwrap();
+    assert!(watcher.wait_for_stop(Duration::from_secs(1)));
+
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+    assert!(
+        !system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_millis(100)),
+        "queued Terminated should be discarded when the watcher stops before delivery"
+    );
+    assert!(system.dead_letters().is_empty());
+}
+
+#[test]
 fn default_terminated_signal_triggers_death_pact_stop() {
     let system = ActorSystem::builder("test").build().unwrap();
     let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();

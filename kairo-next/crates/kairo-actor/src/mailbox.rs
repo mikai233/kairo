@@ -247,7 +247,11 @@ impl<M> Mailbox<M> {
         let mut state = self.state.lock().expect("mailbox poisoned");
         state.closed = true;
         state.system.clear();
-        let drained = state.user.len();
+        let drained = state
+            .user
+            .iter()
+            .filter(|envelope| matches!(envelope, UserEnvelope::Message(_)))
+            .count();
         state.user.clear();
         self.ready.notify_all();
         drained

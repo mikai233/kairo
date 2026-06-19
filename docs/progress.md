@@ -365,6 +365,11 @@ Implemented:
   for live subjects: if a watcher is blocked while a subject terminates and an
   earlier queued user turn unwatches that subject, both plain `Terminated`
   signals and `watch_with` custom messages are discarded before delivery.
+- Local actor stop cleanup now also mirrors Pekko's queued termination cleanup:
+  if a watcher stops after a watched subject has already queued a pending
+  `Terminated` delivery but before that delivery runs, the internal
+  death-watch callback is discarded without notifying the stopped watcher or
+  publishing a dead letter for the framework-owned callback.
 - Death-watch registration and notification state lives in a focused
   `death_watch` module.
 - `ActorSystem::schedule_once`, `Context::schedule_once`, and
@@ -4446,6 +4451,20 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after stopped watcher queued-termination cleanup:
+
+```bash
+cargo test -p kairo-actor stopping_watcher_discards_queued_terminated_signal --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor system_stop_drains_queued_user_messages_to_dead_letters --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor stop_drains_stashed_messages_to_dead_letters --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor startup_self_stop_drains_queued_user_messages_to_dead_letters --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after queued death-watch unwatch delivery:
 
