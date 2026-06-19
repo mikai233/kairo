@@ -169,6 +169,20 @@ workspace stabilization before M13 release readiness.
   git diff --check
   ```
 
+- Latest M13 validation refresh after distributed-data and cluster-tools TCP
+  connector late-route shutdown cleanup:
+
+  ```bash
+  cargo test -p kairo-distributed-data connector_stop_clears_late_routes_registered_during_shutdown --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools connector_stop_clears_late_routes_registered_during_shutdown --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data --all-targets --all-features
+  cargo test -p kairo-cluster-tools --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+  cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
@@ -4261,6 +4275,10 @@ Implemented:
   stopping the connector closes a cached route whose close hook registers
   another association route, connector stop still returns with an empty
   association cache.
+- Distributed-data and cluster-tools actor-backed TCP peer connector coverage
+  now pins the same late-route shutdown invariant at their actor-owned runtime
+  boundaries, so all three TCP peer connector families now reject
+  close-hook-created association route leaks during connector stop.
 - Distributed-data and cluster-tools actor-backed TCP peer connector coverage
   now pins the same explicit multi-route `ClearRoutes` behavior, so all TCP
   peer connectors assert two active routes are removed by the command.

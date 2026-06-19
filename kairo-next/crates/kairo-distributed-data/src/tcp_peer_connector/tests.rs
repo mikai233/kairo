@@ -7,7 +7,9 @@ use kairo_cluster::{
     ClusterEventPublisher, ClusterEventPublisherMsg, CurrentClusterState, Gossip, Member,
     MemberStatus, Reachability,
 };
-use kairo_remote::{RemoteError, RemoteSettings};
+use kairo_remote::{
+    RemoteAssociationAddress, RemoteAssociationCache, RemoteError, RemoteOutbound, RemoteSettings,
+};
 use kairo_serialization::RemoteEnvelope;
 use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
@@ -42,6 +44,32 @@ impl ReplicatorRemoteReplyReceiver for IgnoreReplies {
         _from: ReplicaId,
         _envelope: RemoteEnvelope,
     ) -> Result<(), ReplicatorRemoteReplyError> {
+        Ok(())
+    }
+}
+
+#[derive(Default)]
+struct NoopOutbound;
+
+impl RemoteOutbound for NoopOutbound {
+    fn send(&self, _envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+        Ok(())
+    }
+}
+
+struct LateRouteOnClose {
+    cache: RemoteAssociationCache,
+    late_address: RemoteAssociationAddress,
+}
+
+impl RemoteOutbound for LateRouteOnClose {
+    fn send(&self, _envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+        Ok(())
+    }
+
+    fn close(&self, _reason: &str) -> kairo_remote::Result<()> {
+        self.cache
+            .insert_route(self.late_address.clone(), Arc::new(NoopOutbound));
         Ok(())
     }
 }
@@ -1098,6 +1126,85 @@ fn connector_stop_clears_pending_reconnect_and_unsubscribes_from_cluster() {
     assert!(sender_kit.system().dead_letters().is_empty());
     assert_eq!(sender_cache.route_count(), 0);
 
+    receiver_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn connector_stop_clears_late_routes_registered_during_shutdown() {
+    let _guard = ddata_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-late-route-sender").unwrap();
+    let receiver_kit =
+        ActorSystemTestKit::new("ddata-tcp-peer-connector-late-route-receiver").unwrap();
+    let retry_interval = Duration::from_millis(25);
+    let receiver_port = unused_port();
+    let receiver_node = node("late-route-receiver", receiver_port, 2);
+    let sender_runtime = bind_peer_runtime(
+        "late-route-sender",
+        1,
+        11,
+        ReplicaId::from(&receiver_node),
+        retry_interval,
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+    let cluster = Cluster::new(publisher.clone());
+    let snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("late-route-snapshots")
+        .unwrap();
+
+    let receiver_runtime = bind_association_runtime_on_port(
+        "late-route-receiver",
+        ReplicaId::from(&receiver_node),
+        ReplicaId::from(&sender_node),
+        22,
+        receiver_port,
+    );
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(sender_node.clone()), member(receiver_node.clone())]),
+        ))
+        .unwrap();
+    let connector = sender_kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ReplicatorTcpPeerConnector::with_settings(
+                    cluster,
+                    sender_runtime,
+                    ReplicatorTcpPeerConnectorSettings::new(retry_interval)
+                        .unwrap()
+                        .with_automatic_retry_ticks(false),
+                )
+            }),
+        )
+        .unwrap();
+
+    let snapshot =
+        eventually_snapshot(&connector, &snapshots, |snapshot| snapshot.route_count == 1);
+    assert_eq!(snapshot.active_targets[0].node(), &receiver_node);
+    let initial_address =
+        RemoteAssociationAddress::new("kairo", "ddata-connector-initial", "127.0.0.1", Some(2552))
+            .unwrap();
+    let late_address =
+        RemoteAssociationAddress::new("kairo", "ddata-connector-late", "127.0.0.1", Some(2553))
+            .unwrap();
+    sender_cache.insert_route(
+        initial_address,
+        Arc::new(LateRouteOnClose {
+            cache: sender_cache.clone(),
+            late_address,
+        }),
+    );
+    assert_eq!(sender_cache.route_count(), 2);
+
+    sender_kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+
+    assert_eq!(sender_cache.route_count(), 0);
     receiver_runtime.shutdown().unwrap();
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
