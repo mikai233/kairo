@@ -2766,6 +2766,56 @@ fn post_stop_rejects_late_child_spawns() {
     system.stop(&actor);
 
     let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_post_stop_rejects_late_child_spawn_results(&actor, results);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn actor_system_terminate_rejects_user_post_stop_child_spawns() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (results_tx, results_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "post-stop-spawner",
+            Props::new(move || PostStopSpawningActor {
+                results: results_tx,
+            }),
+        )
+        .unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+
+    let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_post_stop_rejects_late_child_spawn_results(&actor, results);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
+#[test]
+fn actor_system_terminate_rejects_system_post_stop_child_spawns() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (results_tx, results_rx) = mpsc::channel();
+    let actor = system
+        .spawn_system(
+            "system-post-stop-spawner",
+            Props::new(move || PostStopSpawningActor {
+                results: results_tx,
+            }),
+        )
+        .unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+
+    let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_post_stop_rejects_late_child_spawn_results(&actor, results);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
+fn assert_post_stop_rejects_late_child_spawn_results(
+    actor: &ActorRef<()>,
+    results: PostStopSpawnResults,
+) {
     assert_eq!(
         results.named.expect_err("named spawn should be rejected"),
         format!("actor `{}` is stopping", actor.path())
@@ -2776,7 +2826,6 @@ fn post_stop_rejects_late_child_spawns() {
             .expect_err("anonymous spawn should be rejected"),
         format!("actor `{}` is stopping", actor.path())
     );
-    assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 
 #[test]
@@ -2799,6 +2848,64 @@ fn post_stop_rejects_late_helper_creation() {
     system.stop(&actor);
 
     let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_post_stop_rejects_late_helper_results(&actor, results);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn actor_system_terminate_rejects_user_post_stop_helper_creation() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let ask_target = system
+        .spawn("post-stop-ask-target", Props::new(|| PostStopAskTarget))
+        .unwrap();
+    let (results_tx, results_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "post-stop-helper",
+            Props::new(move || PostStopHelperActor {
+                results: results_tx,
+                ask_target: ask_target.clone(),
+            }),
+        )
+        .unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+
+    let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_post_stop_rejects_late_helper_results(&actor, results);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
+#[test]
+fn actor_system_terminate_rejects_system_post_stop_helper_creation() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let ask_target = system
+        .spawn("post-stop-ask-target", Props::new(|| PostStopAskTarget))
+        .unwrap();
+    let (results_tx, results_rx) = mpsc::channel();
+    let actor = system
+        .spawn_system(
+            "system-post-stop-helper",
+            Props::new(move || PostStopHelperActor {
+                results: results_tx,
+                ask_target: ask_target.clone(),
+            }),
+        )
+        .unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+
+    let results = results_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_post_stop_rejects_late_helper_results(&actor, results);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+}
+
+fn assert_post_stop_rejects_late_helper_results(
+    actor: &ActorRef<()>,
+    results: PostStopHelperResults,
+) {
     let expected = format!("actor `{}` is stopping", actor.path());
     assert_eq!(
         results
@@ -2857,7 +2964,6 @@ fn post_stop_rejects_late_helper_creation() {
         results.receive_timeout, None,
         "late receive timeouts should not be armed during PostStop"
     );
-    assert!(actor.wait_for_stop(Duration::from_secs(1)));
 }
 
 struct SignalProbe {

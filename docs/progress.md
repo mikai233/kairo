@@ -4840,6 +4840,11 @@ Implemented:
   watchers remove watched subjects before blocking on their own children, so a
   concurrently stopped watched actor cannot enqueue or dead-letter stale
   watch-with messages.
+- `kairo-actor` actor-system termination coverage now also pins PostStop
+  invariants for `/user` and `/system` actors: late child spawns, async
+  helpers, adapters, asks, watch registrations, stash operations, self
+  scheduling, timers, and receive timeouts are rejected or inert during full
+  system shutdown just as they are for direct actor stop.
 
 Not yet implemented:
 
@@ -4849,7 +4854,7 @@ Not yet implemented:
   queued child-spawn drain coverage for direct parent and actor-system stop,
   actor-system recursive child mailbox drain coverage, and actor-system
   stashed-message/message-adapter/async-helper/ask-temp-ref/timer and
-  receive-timeout/death-watch drain coverage.
+  receive-timeout/death-watch/PostStop drain coverage.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and broader cross-crate compatibility
   fixtures.
@@ -4896,6 +4901,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after actor-system PostStop rejection coverage:
+
+```bash
+cargo test -p kairo-actor actor_system_terminate_rejects_ --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after actor-system death-watch cleanup coverage:
 
