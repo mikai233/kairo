@@ -1530,6 +1530,7 @@ impl Actor for RestartWatchParent {
 
 enum RestartPlainWatchMsg {
     SpawnAndWatchChild(mpsc::Sender<()>),
+    SpawnAndWatchChildRef(mpsc::Sender<ActorRef<()>>),
     Fail,
     Ping(mpsc::Sender<()>),
 }
@@ -1548,10 +1549,63 @@ impl Actor for RestartPlainWatchParent {
                     .send(())
                     .map_err(|error| ActorError::Message(error.to_string()))
             }
+            RestartPlainWatchMsg::SpawnAndWatchChildRef(reply_to) => {
+                let child = ctx.spawn("child", Props::new(|| Noop))?;
+                ctx.watch(&child)?;
+                reply_to
+                    .send(child)
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
             RestartPlainWatchMsg::Fail => Err(ActorError::Message("boom".to_string())),
             RestartPlainWatchMsg::Ping(reply_to) => reply_to
                 .send(())
                 .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
+struct RestartingPlainWatchParent {
+    pre_restart: mpsc::Sender<()>,
+}
+
+impl Actor for RestartingPlainWatchParent {
+    type Msg = RestartPlainWatchMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RestartPlainWatchMsg::SpawnAndWatchChild(reply_to) => {
+                let child = ctx.spawn("child", Props::new(|| Noop))?;
+                ctx.watch(&child)?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartPlainWatchMsg::SpawnAndWatchChildRef(reply_to) => {
+                let child = ctx.spawn("child", Props::new(|| Noop))?;
+                ctx.watch(&child)?;
+                reply_to
+                    .send(child)
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartPlainWatchMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            RestartPlainWatchMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+
+    fn signal(&mut self, ctx: &mut Context<Self::Msg>, signal: Signal) -> ActorResult {
+        match signal {
+            Signal::PreRestart => self
+                .pre_restart
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+            Signal::PostStop => self.stopped(ctx),
+            Signal::Terminated(actor) | Signal::ChildFailed { actor, .. } => {
+                Err(ActorError::DeathPact {
+                    actor: actor.path().to_string(),
+                })
+            }
         }
     }
 }
@@ -1686,6 +1740,51 @@ fn restart_preserving_children_keeps_child_watch_registration() {
     assert_eq!(
         events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         RestartWatchEvent::WatchDelivered
+    );
+}
+
+#[test]
+fn restart_preserving_children_plain_child_watch_restarts_parent_after_later_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (pre_restart_tx, pre_restart_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(move || RestartingPlainWatchParent {
+                pre_restart: pre_restart_tx.clone(),
+            })
+            .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartPlainWatchMsg::SpawnAndWatchChildRef(spawned_tx))
+        .unwrap();
+    let child = spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(RestartPlainWatchMsg::Fail).unwrap();
+    pre_restart_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent.tell(RestartPlainWatchMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        !child.is_stopped(),
+        "preserving restart must keep the watched child live"
+    );
+
+    system.stop(&child);
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    pre_restart_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (after_watch_restart_tx, after_watch_restart_rx) = mpsc::channel();
+    parent
+        .tell(RestartPlainWatchMsg::Ping(after_watch_restart_tx))
+        .unwrap();
+    assert!(
+        after_watch_restart_rx
+            .recv_timeout(Duration::from_secs(1))
+            .is_ok(),
+        "plain watch registration should survive preserving restart and death-pact through supervision"
     );
 }
 

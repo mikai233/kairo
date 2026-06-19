@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after preserving-restart plain child-watch
+  delivery coverage:
+
+  ```bash
+  cargo test -p kairo-actor restart_preserving_children_plain_child_watch_restarts_parent_after_later_stop --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after preserving-restart child queued-message
   coverage:
 
@@ -930,6 +942,10 @@ Implemented:
   watch registration for a preserved child survives the parent actor instance
   restart and still delivers the custom termination message when that child
   stops later, matching Pekko's cell-owned death-watch state.
+- Child-preserving restart supervision now also pins the plain death-watch
+  path: a preserved child remains live across the parent restart, and a later
+  child stop delivers `Terminated` to the restarted parent where the unhandled
+  death pact enters the configured restart supervision path.
 - Bounded child-preserving restart supervision now has focused coverage that
   allowed restarts keep child refs live, while exceeding the restart budget
   stops the parent and then its preserved child through the normal stop path.
