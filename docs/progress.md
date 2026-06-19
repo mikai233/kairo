@@ -62,15 +62,15 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
-- Latest M13 validation refresh after cluster-sharding stale remote route
+- Latest M13 validation refresh after restart-time child queued-message drain
   coverage:
 
   ```bash
-  cargo test -p kairo-cluster-sharding region_route_transport_reports_stale_remote_outbound_recipient --all-targets --all-features -- --nocapture
-  cargo test -p kairo-cluster-sharding --all-targets --all-features
+  cargo test -p kairo-actor restart_supervision_drains_child_queued_user_messages_to_dead_letters --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
   cargo fmt --all
   cargo fmt --all -- --check
-  cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
   git diff --check
   ```
 
@@ -168,6 +168,11 @@ Implemented:
   boundary for `ActorSystem::stop(parent)`: once parent termination has
   requested a child stop, child messages already queued behind a blocked
   receive are drained to dead letters instead of being delivered.
+- Restart-time child lifecycle coverage now also pins the child mailbox
+  priority boundary for default child-stopping restart: once restart
+  supervision has requested a child stop, child messages already queued behind
+  a blocked receive are drained to dead letters instead of being delivered
+  before the replacement parent resumes processing messages.
 - `Context::spawn` and `Context::spawn_anonymous` now reject child creation
   once the owning actor is stopping, including during `PostStop`, so stopped
   actors cannot create orphan children under a dead parent path.

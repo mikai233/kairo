@@ -370,6 +370,7 @@ impl Actor for BlockingReceiveChild {
 enum BlockingReceiveParentMsg {
     SpawnChild(mpsc::Sender<ActorRef<BlockingReceiveChildMsg>>),
     StopChild(mpsc::Sender<()>),
+    Fail,
 }
 
 struct BlockingReceiveParent {
@@ -395,6 +396,9 @@ impl Actor for BlockingReceiveParent {
                 reply_to
                     .send(())
                     .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            BlockingReceiveParentMsg::Fail => {
+                return Err(ActorError::Message("restart parent".to_string()));
             }
         }
         Ok(())
@@ -771,6 +775,75 @@ fn restart_supervision_waits_for_already_stopping_child_before_processing_messag
     assert_eq!(
         ping_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
         "alive"
+    );
+}
+
+#[test]
+fn restart_supervision_drains_child_queued_user_messages_to_dead_letters() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(|| BlockingReceiveParent { child: None })
+                .with_supervisor(SupervisorStrategy::Restart),
+        )
+        .unwrap();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (block_entered_tx, block_entered_rx) = mpsc::channel();
+    let (block_release_tx, block_release_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    let (replacement_tx, replacement_rx) = mpsc::channel();
+
+    parent
+        .tell(BlockingReceiveParentMsg::SpawnChild(spawn_tx))
+        .unwrap();
+    let child = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child
+        .tell(BlockingReceiveChildMsg::Block {
+            entered: block_entered_tx,
+            release: block_release_rx,
+        })
+        .unwrap();
+    block_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    child.tell(BlockingReceiveChildMsg::Ping(ping_tx)).unwrap();
+
+    parent.tell(BlockingReceiveParentMsg::Fail).unwrap();
+    let stop_requested_deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while !child.is_stopped() {
+        assert!(
+            std::time::Instant::now() < stop_requested_deadline,
+            "restart must request recursive child stop while the child receive turn is blocked"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    block_release_tx.send(()).unwrap();
+
+    assert!(
+        ping_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "queued child message must not be delivered after restart recursively stops the child"
+    );
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert_eq!(records[0].recipient(), child.path());
+    assert_eq!(records[0].reason(), "actor is stopped");
+
+    parent
+        .tell(BlockingReceiveParentMsg::SpawnChild(replacement_tx))
+        .unwrap();
+    let replacement = replacement_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_ne!(replacement.path(), child.path());
+    assert!(
+        replacement
+            .path()
+            .as_str()
+            .starts_with(&format!("{}/child#", parent.path()))
     );
 }
 
