@@ -4762,6 +4762,10 @@ Implemented:
   helper lifetimes for both `/user` and `/system` roots: adapter refs stop with
   their owner during full system termination and reject later sends through
   dead letters.
+- `kairo-actor` actor-system termination coverage now also pins actor-owned
+  async helper cancellation for both `/user` and `/system` roots: completions
+  from `spawn_task` and `pipe_to_self` cannot re-enter the owner after full
+  system termination and are routed to dead letters.
 - `kairo-actor` child-preserving restart now snapshots survivor children
   before the fresh parent actor runs `started()`: only pre-existing
   restartable survivors receive the restart signal, while children spawned by
@@ -4831,7 +4835,7 @@ Not yet implemented:
   cleanup, terminating-child name reservation coverage, and terminating-parent
   queued child-spawn drain coverage for direct parent and actor-system stop,
   actor-system recursive child mailbox drain coverage, and actor-system
-  stashed-message/message-adapter helper drain coverage.
+  stashed-message/message-adapter/async-helper drain coverage.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and broader cross-crate compatibility
   fixtures.
@@ -4878,6 +4882,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after actor-system async-helper cancellation
+coverage:
+
+```bash
+cargo test -p kairo-actor actor_system_terminate_rejects_ --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after actor-system message-adapter lifecycle
 coverage:

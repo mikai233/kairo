@@ -292,6 +292,106 @@ fn pipe_to_self_completion_after_owner_stop_is_rejected() {
 }
 
 #[test]
+fn actor_system_terminate_rejects_user_spawn_task_completion() {
+    let system = ActorSystem::builder("test-task-system-stop")
+        .build()
+        .unwrap();
+    let actor = system.spawn("task", Props::new(|| TaskProbe)).unwrap();
+
+    assert_actor_system_terminate_rejects_spawn_task_completion(system, actor);
+}
+
+#[test]
+fn actor_system_terminate_rejects_system_spawn_task_completion() {
+    let system = ActorSystem::builder("test-task-system-stop")
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn_system("system-task", Props::new(|| TaskProbe))
+        .unwrap();
+
+    assert_actor_system_terminate_rejects_spawn_task_completion(system, actor);
+}
+
+#[test]
+fn actor_system_terminate_rejects_user_pipe_to_self_completion() {
+    let system = ActorSystem::builder("test-pipe-system-stop")
+        .build()
+        .unwrap();
+    let actor = system.spawn("task", Props::new(|| TaskProbe)).unwrap();
+
+    assert_actor_system_terminate_rejects_pipe_to_self_completion(system, actor);
+}
+
+#[test]
+fn actor_system_terminate_rejects_system_pipe_to_self_completion() {
+    let system = ActorSystem::builder("test-pipe-system-stop")
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn_system("system-task", Props::new(|| TaskProbe))
+        .unwrap();
+
+    assert_actor_system_terminate_rejects_pipe_to_self_completion(system, actor);
+}
+
+fn assert_actor_system_terminate_rejects_spawn_task_completion(
+    system: ActorSystem,
+    actor: ActorRef<TaskProbeMsg>,
+) {
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor
+        .tell(TaskProbeMsg::SpawnTaskAfterRelease {
+            ready_to: ready_tx,
+            release: release_rx,
+            result_to: result_tx,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+    ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+    release_tx.send(()).unwrap();
+
+    let result = result_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(result, Err("actor is stopped".to_string()));
+    assert!(reply_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    assert_dead_letter_count_with_reason(&system, 1, "actor is stopped");
+}
+
+fn assert_actor_system_terminate_rejects_pipe_to_self_completion(
+    system: ActorSystem,
+    actor: ActorRef<TaskProbeMsg>,
+) {
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (reply_tx, reply_rx) = mpsc::channel();
+
+    actor
+        .tell(TaskProbeMsg::PipeAfterRelease {
+            ready_to: ready_tx,
+            release: release_rx,
+            reply_to: reply_tx,
+        })
+        .unwrap();
+    ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+    release_tx.send(()).unwrap();
+
+    assert!(reply_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    assert_dead_letter_count_with_reason(&system, 1, "actor is stopped");
+}
+
+#[test]
 fn spawn_task_completion_after_owner_restart_is_rejected() {
     let system = ActorSystem::builder("test-task-restart").build().unwrap();
     let actor = system
