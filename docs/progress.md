@@ -4758,6 +4758,10 @@ Implemented:
   drain behavior for both `/user` and `/system` roots: stashed messages are
   moved through the stop path and published as dead letters when full system
   termination stops the actor.
+- `kairo-actor` actor-system termination coverage now also pins message-adapter
+  helper lifetimes for both `/user` and `/system` roots: adapter refs stop with
+  their owner during full system termination and reject later sends through
+  dead letters.
 - `kairo-actor` child-preserving restart now snapshots survivor children
   before the fresh parent actor runs `started()`: only pre-existing
   restartable survivors receive the restart signal, while children spawned by
@@ -4827,7 +4831,7 @@ Not yet implemented:
   cleanup, terminating-child name reservation coverage, and terminating-parent
   queued child-spawn drain coverage for direct parent and actor-system stop,
   actor-system recursive child mailbox drain coverage, and actor-system
-  stashed-message drain coverage.
+  stashed-message/message-adapter helper drain coverage.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and broader cross-crate compatibility
   fixtures.
@@ -4874,6 +4878,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after actor-system message-adapter lifecycle
+coverage:
+
+```bash
+cargo test -p kairo-actor actor_system_terminate_stops_ --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after actor-system stashed-message drain
 coverage:

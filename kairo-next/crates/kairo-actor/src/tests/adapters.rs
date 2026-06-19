@@ -187,6 +187,70 @@ fn message_adapter_rejects_after_owner_stops() {
 }
 
 #[test]
+fn actor_system_terminate_stops_user_message_adapter_refs() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn("adapter", Props::new(|| AdapterProbe { adapted_count: 0 }))
+        .unwrap();
+
+    assert_actor_system_terminate_stops_message_adapter_refs(system, actor);
+}
+
+#[test]
+fn actor_system_terminate_stops_system_message_adapter_refs() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn_system(
+            "system-adapter",
+            Props::new(|| AdapterProbe { adapted_count: 0 }),
+        )
+        .unwrap();
+
+    assert_actor_system_terminate_stops_message_adapter_refs(system, actor);
+}
+
+fn assert_actor_system_terminate_stops_message_adapter_refs(
+    system: ActorSystem,
+    actor: ActorRef<AdapterProbeMsg>,
+) {
+    let (adapter_tx, adapter_rx) = mpsc::channel();
+    let (reply_tx, _reply_rx) = mpsc::channel();
+
+    actor
+        .tell(AdapterProbeMsg::CreateAdapter(adapter_tx))
+        .unwrap();
+    let adapter = adapter_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let adapter_path = adapter.path().clone();
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(adapter.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+
+    let error = adapter
+        .tell(ExternalProbeMsg {
+            label: "late",
+            reply_to: reply_tx,
+        })
+        .unwrap_err();
+
+    assert_eq!(error.reason(), "actor is stopped");
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert!(
+        records
+            .iter()
+            .any(|record| record.recipient() == &adapter_path
+                && record.reason() == "actor is stopped"
+                && record.message_type() == std::any::type_name::<ExternalProbeMsg>())
+    );
+}
+
+#[test]
 fn message_adapter_notifies_watchers_after_owner_stops() {
     let system = ActorSystem::builder("test").build().unwrap();
     let actor = system
