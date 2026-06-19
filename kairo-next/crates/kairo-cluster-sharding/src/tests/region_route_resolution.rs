@@ -449,6 +449,121 @@ fn region_actor_loads_remembered_entities_before_first_buffered_delivery() {
 }
 
 #[test]
+fn region_actor_with_shared_store_loads_remembered_entities_before_first_buffered_delivery() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-route-shared-remembered-load-first")
+        .unwrap();
+    let shard_store = kit
+        .system()
+        .spawn(
+            "shard-store",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new().with_remember_entities(true),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_remember_store_shards_and_registration(
+                "region-a",
+                10,
+                10,
+                BTreeMap::from([("shard-1".to_string(), shard_store.clone())]),
+                Duration::from_millis(500),
+                RegionRegistrationConfig::new(coordinator.clone(), Duration::from_millis(20)),
+            ),
+        )
+        .unwrap();
+    let region_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-state")
+        .unwrap();
+    let route = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("route")
+        .unwrap();
+    let delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("delivery")
+        .unwrap();
+    let local_shard = kit
+        .create_probe::<Option<ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+    let shard_store_state = kit
+        .create_probe::<RememberShardStoreSnapshot>("shard-store-state")
+        .unwrap();
+
+    wait_for_region_registration(
+        &region,
+        &region_state,
+        "shared-store region should register before route resolution",
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "loaded".to_string()),
+            route_reply_to: route.actor_ref(),
+            delivery_reply_to: delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        route.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    assert_eq!(
+        delivery.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "loaded".to_string()),
+        }
+    );
+
+    let snapshot = wait_for_remembered_shard_activation(
+        &region,
+        &local_shard,
+        &shard_store,
+        &shard_store_state,
+        &shard_state,
+        "shared remember-store shard should load entities before replaying first delivery",
+        |remembered_entities, snapshot| {
+            *remembered_entities == BTreeSet::from(["entity-1".to_string()])
+                && snapshot.active_entities == vec!["entity-1".to_string()]
+                && snapshot.total_buffered == 0
+        },
+    );
+    assert_eq!(
+        snapshot,
+        ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: vec!["entity-1".to_string()],
+            entity_count: 1,
+            total_buffered: 0,
+            handoff_in_progress: false,
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_requests_buffered_shard_home_after_registration_ack() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-route-after-registration").unwrap();
     let (request_tx, request_rx) = mpsc::channel();

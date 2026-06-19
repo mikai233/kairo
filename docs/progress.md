@@ -4358,6 +4358,11 @@ Implemented:
   replica becomes unreachable, pruning ticks are skipped and the dissemination
   clock stops advancing until reachability is restored, after which leader
   pruning initialization can proceed.
+- `kairo-cluster-sharding` region remember-entity routing now has shared-store
+  parity for the load-before-first-delivery path: a registered region can
+  buffer the first delivery, auto-host a shard backed by an external remember
+  store, load the remembered entity, and replay the buffered delivery without a
+  duplicate remember-start update.
 
 Not yet implemented:
 
@@ -4384,9 +4389,10 @@ Not yet implemented:
   orchestration beyond the current focused actor-level load/update/restart,
   store-backed shard load stashed-delivery replay ordering,
   coordinator-registered local remember-store allocation/recovery,
-  auto-spawned region load-before-first-delivery coverage, region death-watch
-  restart, multi-node discovery/shared-store first-delivery coverage, and
-  local/shared remember-store bootstrap helper success and cleanup coverage.
+  auto-spawned local/shared-store region load-before-first-delivery coverage,
+  region death-watch restart, multi-node discovery/shared-store first-delivery
+  coverage, and local/shared remember-store bootstrap helper success and
+  cleanup coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
@@ -4408,6 +4414,18 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after shared remember-store first-delivery route
+resolution:
+
+```bash
+cargo test -p kairo-cluster-sharding region_actor_with_shared_store_loads_remembered_entities_before_first_buffered_delivery --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after distributed-data pruning clock pause
 coverage:
