@@ -371,6 +371,7 @@ enum BlockingReceiveParentMsg {
     SpawnChild(mpsc::Sender<ActorRef<BlockingReceiveChildMsg>>),
     StopChild(mpsc::Sender<()>),
     Fail,
+    FailWithAck(mpsc::Sender<()>),
 }
 
 struct BlockingReceiveParent {
@@ -398,6 +399,12 @@ impl Actor for BlockingReceiveParent {
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
             BlockingReceiveParentMsg::Fail => {
+                return Err(ActorError::Message("restart parent".to_string()));
+            }
+            BlockingReceiveParentMsg::FailWithAck(reply_to) => {
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
                 return Err(ActorError::Message("restart parent".to_string()));
             }
         }
@@ -845,6 +852,55 @@ fn restart_supervision_drains_child_queued_user_messages_to_dead_letters() {
             .as_str()
             .starts_with(&format!("{}/child#", parent.path()))
     );
+}
+
+#[test]
+fn preserving_restart_keeps_child_queued_user_messages_deliverable() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(|| BlockingReceiveParent { child: None })
+                .with_supervisor(SupervisorStrategy::restart_preserving_children()),
+        )
+        .unwrap();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (block_entered_tx, block_entered_rx) = mpsc::channel();
+    let (block_release_tx, block_release_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    let (fail_ack_tx, fail_ack_rx) = mpsc::channel();
+
+    parent
+        .tell(BlockingReceiveParentMsg::SpawnChild(spawn_tx))
+        .unwrap();
+    let child = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child
+        .tell(BlockingReceiveChildMsg::Block {
+            entered: block_entered_tx,
+            release: block_release_rx,
+        })
+        .unwrap();
+    block_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    child.tell(BlockingReceiveChildMsg::Ping(ping_tx)).unwrap();
+
+    parent
+        .tell(BlockingReceiveParentMsg::FailWithAck(fail_ack_tx))
+        .unwrap();
+    fail_ack_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        !child.is_stopped(),
+        "preserving restart must not stop a blocked surviving child"
+    );
+    block_release_tx.send(()).unwrap();
+
+    assert_eq!(
+        ping_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "alive"
+    );
+    assert!(!child.is_stopped());
+    assert!(system.dead_letters().is_empty());
 }
 
 #[test]

@@ -62,11 +62,11 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
-- Latest M13 validation refresh after restart-time child queued-message drain
+- Latest M13 validation refresh after preserving-restart child queued-message
   coverage:
 
   ```bash
-  cargo test -p kairo-actor restart_supervision_drains_child_queued_user_messages_to_dead_letters --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor preserving_restart_keeps_child_queued_user_messages_deliverable --all-targets --all-features -- --nocapture
   cargo test -p kairo-actor --all-targets --all-features
   cargo fmt --all
   cargo fmt --all -- --check
@@ -173,6 +173,10 @@ Implemented:
   supervision has requested a child stop, child messages already queued behind
   a blocked receive are drained to dead letters instead of being delivered
   before the replacement parent resumes processing messages.
+- Preserving-restart coverage now also pins the opposite child mailbox
+  boundary: when restart supervision preserves children, a blocked surviving
+  child is not stopped and its queued user messages remain deliverable after
+  the parent restarts.
 - `Context::spawn` and `Context::spawn_anonymous` now reject child creation
   once the owning actor is stopping, including during `PostStop`, so stopped
   actors cannot create orphan children under a dead parent path.
