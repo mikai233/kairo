@@ -4284,6 +4284,11 @@ Implemented:
   coordinator store, dispatches the shard through handoff transport, and a
   registered region backed by a shared shard store hosts the shard and recovers
   the remembered entity.
+- `kairo-cluster-sharding` region remember-entity routing now has integration
+  coverage that a registered region auto-spawns a local remember-store-backed
+  shard, loads already remembered entities before replaying the first buffered
+  delivery, and delivers to the recovered entity without issuing a duplicate
+  remember-start update.
 
 Not yet implemented:
 
@@ -4304,9 +4309,9 @@ Not yet implemented:
   bootstrap shrink path.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
-  coordinator-registered local remember-store allocation/recovery, region
-  death-watch restart, and multi-node discovery/shared-store first-delivery
-  coverage.
+  coordinator-registered local remember-store allocation/recovery,
+  auto-spawned region load-before-first-delivery coverage, region death-watch
+  restart, and multi-node discovery/shared-store first-delivery coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
@@ -6789,6 +6794,7 @@ cargo fmt --all -- --check
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo-cluster-sharding region_bootstrap_ --all-targets --all-features
+cargo test -p kairo-cluster-sharding region_actor_loads_remembered_entities_before_first_buffered_delivery --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings

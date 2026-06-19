@@ -352,6 +352,103 @@ fn region_actor_persists_batched_remember_starts_after_buffered_allocation() {
 }
 
 #[test]
+fn region_actor_loads_remembered_entities_before_first_buffered_delivery() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-route-remembered-load-first").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                CoordinatorState::new().with_remember_entities(true),
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards_and_registration(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+                RegionRegistrationConfig::new(coordinator.clone(), Duration::from_millis(20)),
+            ),
+        )
+        .unwrap();
+    let region_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-state")
+        .unwrap();
+    let route = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("route")
+        .unwrap();
+    let delivery = kit
+        .create_probe::<ShardDeliverPlan<String>>("delivery")
+        .unwrap();
+    let local_shard = kit
+        .create_probe::<Option<ActorRef<ShardMsg<String>>>>("local-shard")
+        .unwrap();
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+
+    wait_for_region_registration(
+        &region,
+        &region_state,
+        "region should register before route resolution",
+    );
+
+    region
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "loaded".to_string()),
+            route_reply_to: route.actor_ref(),
+            delivery_reply_to: delivery.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        route.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::Buffered {
+            shard: "shard-1".to_string(),
+            request: Some(GetShardHome {
+                shard_id: "shard-1".to_string(),
+            }),
+        }
+    );
+    assert_eq!(
+        delivery.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "loaded".to_string()),
+        }
+    );
+
+    let snapshot = wait_for_local_shard_state(
+        &region,
+        &local_shard,
+        &shard_state,
+        "remembered shard should load entities before replaying first delivery",
+    );
+    assert_eq!(
+        snapshot,
+        ShardSnapshot {
+            shard_id: "shard-1".to_string(),
+            active_entities: vec!["entity-1".to_string()],
+            entity_count: 1,
+            total_buffered: 0,
+            handoff_in_progress: false,
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_actor_requests_buffered_shard_home_after_registration_ack() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-route-after-registration").unwrap();
     let (request_tx, request_rx) = mpsc::channel();
@@ -1047,6 +1144,42 @@ fn wait_for_remembered_shard_activation(
                     "{description}; remembered entities: {remembered_entities:?}; shard snapshot: {snapshot:?}"
                 ))
             }
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_local_shard_state(
+    region: &ActorRef<ShardRegionMsg<String>>,
+    local_shard: &kairo_testkit::TestProbe<Option<ActorRef<ShardMsg<String>>>>,
+    shard_state: &kairo_testkit::TestProbe<ShardSnapshot>,
+    description: &str,
+) -> ShardSnapshot {
+    kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ShardSnapshot, String> {
+            region
+                .tell(ShardRegionMsg::GetLocalShard {
+                    shard: "shard-1".to_string(),
+                    reply_to: local_shard.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let Some(shard) = local_shard
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?
+            else {
+                return Err(format!("{description}; local shard unavailable"));
+            };
+
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: shard_state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            shard_state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())
         },
     )
     .unwrap()
