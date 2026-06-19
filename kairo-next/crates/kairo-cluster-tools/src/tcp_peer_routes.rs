@@ -139,6 +139,9 @@ impl ClusterToolsTcpPeerRoutes {
                 .as_ref()
                 .map(RemoteAssociationRouteRegistration::address)
                 .unwrap_or_else(|| entry.target.association());
+            if let Some(registration) = &entry.registration {
+                registration.close_owned_route("cluster-tools peer route removed");
+            }
             runtime.remove_route_with_reason(address, "cluster-tools peer route removed");
             report.removed.push(target);
         } else if runtime

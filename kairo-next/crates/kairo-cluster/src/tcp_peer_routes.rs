@@ -130,6 +130,9 @@ impl ClusterTcpPeerRoutes {
                 .as_ref()
                 .map(RemoteAssociationRouteRegistration::address)
                 .unwrap_or_else(|| entry.target.association());
+            if let Some(registration) = &entry.registration {
+                registration.close_owned_route("cluster peer route removed");
+            }
             runtime.remove_route_with_reason(address, "cluster peer route removed");
             report.removed.push(target);
         } else if runtime

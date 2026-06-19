@@ -2999,9 +2999,13 @@ Implemented:
   snapshot before coordinated shutdown stops all live-route connectors; the same
   scenario now publishes a reduced two-node membership view and validates the
   surviving nodes remove the departed node's active route through the connector
-  boundary. The test now also pins the underlying association-cache route
-  counts across full mesh, reduced membership, and coordinated shutdown cleanup
-  for all three bootstrap-owned runtimes.
+  boundary. The route-reduction scenario now also proves all stale directions
+  involving the removed peer reject through the association cache without
+  delivering another mediator message, while the remaining first/second routes
+  still carry stable pubsub traffic in both directions. The test now also pins
+  the underlying association-cache route counts across full mesh, reduced
+  membership, and coordinated shutdown cleanup for all three bootstrap-owned
+  runtimes.
 - Cluster-tools TCP peer bootstrap tests now live in a focused sibling test
   module, keeping the production bootstrap facade separate from socket fixture
   setup and socket validation data.
@@ -4224,6 +4228,12 @@ Implemented:
   route when an inbound lane reader finishes, and route registrations remove
   only the exact cached outbound they installed so stale reader cleanup cannot
   delete a replacement association for the same address.
+- `kairo-remote` route registrations can now close their owned stream pipeline
+  even when a later accepted reverse route replaced the cache entry for the
+  same address; cluster, distributed-data, and cluster-tools peer-route
+  removals use that owned-pipeline close before clearing any current cached
+  route, so removed-peer cleanup no longer leaves the original dialed socket
+  keeping a reverse route alive on the peer.
 - `kairo-cluster` three-node TCP bootstrap coverage now synchronizes all
   connector snapshots before asserting cache shrink and allows the accepted
   TCP reader cleanup window to drain, hardening the full workspace gate against
@@ -4285,6 +4295,20 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after cluster-tools three-node shrink
+stale-route coverage:
+
+```bash
+cargo test -p kairo-remote stale_registration_close_keeps_replacement_route_and_closes_owned_pipeline --all-targets --all-features
+cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-tools --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after distributed-data three-node shrink
 stale-route coverage:

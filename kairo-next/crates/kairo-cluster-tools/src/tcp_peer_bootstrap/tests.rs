@@ -1802,6 +1802,25 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     await_cache_route_count(&second_cache, 1);
     await_cache_route_count(&third_cache, 0);
 
+    let first_to_third_after_reduction = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        third_node.clone(),
+        registry.clone(),
+        Arc::new(first_cache.clone()) as Arc<dyn RemoteOutbound>,
+    );
+    let removed_first_to_third_error = first_to_third_after_reduction
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("invoices-from-first-after-reduction"),
+            message: TestMessage { value: 88 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("first-to-third route should reject sends after third is removed");
+    assert!(
+        removed_first_to_third_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected first-to-third send error: {removed_first_to_third_error:?}"
+    );
     let removed_second_to_third_error = second_to_third
         .tell(LocalPubSubMsg::Publish {
             topic: TopicName::new("peer-orders-after-reduction"),
@@ -1816,7 +1835,43 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
             .contains("no remote association route"),
         "unexpected second-to-third send error: {removed_second_to_third_error:?}"
     );
+    let removed_third_to_first_error = third_to_first
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("first-from-third-after-reduction"),
+            message: TestMessage { value: 92 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("third-to-first route should reject sends after third is removed");
+    assert!(
+        removed_third_to_first_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected third-to-first send error: {removed_third_to_first_error:?}"
+    );
+    let removed_third_to_second_error = third_to_second
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("second-from-third-after-reduction"),
+            message: TestMessage { value: 93 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("third-to-second route should reject sends after third is removed");
+    assert!(
+        removed_third_to_second_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected third-to-second send error: {removed_third_to_second_error:?}"
+    );
     third_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+    first_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+    second_probes
         .mediator
         .expect_no_msg(Duration::from_millis(100))
         .unwrap();

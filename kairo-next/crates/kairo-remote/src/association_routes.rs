@@ -110,6 +110,14 @@ impl RemoteAssociationRouteRegistration {
         let _ = route.close(reason);
         true
     }
+
+    pub fn close_owned_route(&self, reason: &str) -> bool {
+        if self.remove_route(reason) {
+            return true;
+        }
+        let _ = self.pipeline.close(reason);
+        false
+    }
 }
 
 #[cfg(test)]
@@ -291,6 +299,38 @@ mod tests {
 
         assert!(!stale.remove_route("old reader finished"));
         assert_eq!(cache.route_count(), 1);
+        assert!(replacement.remove_route("replacement reader finished"));
+        assert_eq!(cache.route_count(), 0);
+    }
+
+    #[test]
+    fn stale_registration_close_keeps_replacement_route_and_closes_owned_pipeline() {
+        let cache = RemoteAssociationCache::new();
+        let diagnostics = Arc::new(CollectingDiagnostics::default());
+        let installer = RemoteAssociationRouteInstaller::new(cache.clone())
+            .with_diagnostics(diagnostics.clone() as Arc<dyn RemoteAssociationDiagnostics>);
+        let sinks = || {
+            (
+                Arc::new(CollectingByteSink::default()) as Arc<dyn RemoteByteSink>,
+                Arc::new(CollectingByteSink::default()) as Arc<dyn RemoteByteSink>,
+                Arc::new(CollectingByteSink::default()) as Arc<dyn RemoteByteSink>,
+            )
+        };
+        let (control, ordinary, large) = sinks();
+        let stale = installer.insert_stream_pipeline(address(), control, ordinary, large);
+        let (control, ordinary, large) = sinks();
+        let replacement = installer.insert_stream_pipeline(address(), control, ordinary, large);
+
+        assert!(!stale.close_owned_route("old peer route removed"));
+
+        assert_eq!(cache.route_count(), 1);
+        assert_eq!(
+            diagnostics.records(),
+            vec![RemoteAssociationDiagnostic::Closed {
+                remote: "kairo://remote@127.0.0.1:25520".to_string(),
+                reason: "old peer route removed".to_string(),
+            }]
+        );
         assert!(replacement.remove_route("replacement reader finished"));
         assert_eq!(cache.route_count(), 0);
     }
