@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use kairo_actor::{
-    Actor, ActorError, ActorPath, ActorRef, ActorResult, ActorSystem, Context,
-    PHASE_SERVICE_UNBIND, Props, Signal,
+    Actor, ActorError, ActorPath, ActorRef, ActorRefProvider, ActorRefResolveResult, ActorResult,
+    ActorSystem, Context, PHASE_SERVICE_UNBIND, Props, Signal,
 };
 use kairo_serialization::{
     ActorRefResolver, ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage,
@@ -280,6 +280,71 @@ fn await_bidirectional_routes(
         },
     )
     .unwrap();
+}
+
+#[test]
+fn tcp_remote_actor_system_provider_delegates_local_provider_boundary() {
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let (received_tx, _received_rx) = mpsc::channel();
+    let target = receiver
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
+    let receiver_remote = TcpRemoteActorSystem::<Ping>::bind(
+        receiver,
+        registry(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    )
+    .unwrap();
+    let provider = receiver_remote.provider();
+    let local_provider = receiver_remote.system().provider();
+
+    assert_eq!(
+        provider.root_guardian().path().as_str(),
+        local_provider.root_guardian().path().as_str()
+    );
+    assert_eq!(
+        provider.user_guardian().path().as_str(),
+        local_provider.user_guardian().path().as_str()
+    );
+    assert_eq!(
+        provider.system_guardian().path().as_str(),
+        local_provider.system_guardian().path().as_str()
+    );
+    assert_eq!(
+        provider.temp_guardian().path().as_str(),
+        local_provider.temp_guardian().path().as_str()
+    );
+    assert_eq!(
+        provider.dead_letters().path().as_str(),
+        local_provider.dead_letters().path().as_str()
+    );
+    assert_eq!(
+        provider.temp_path("tcp-provider").parent(),
+        Some(local_provider.temp_guardian().path().clone())
+    );
+
+    let canonical_path = ActorPath::new(remote_path_for(
+        target.path().as_str(),
+        receiver_remote.settings(),
+    ));
+    let resolved = ActorRefProvider::resolve(provider, &canonical_path);
+
+    assert!(matches!(resolved, ActorRefResolveResult::Local(_)));
+    assert_eq!(resolved.path().as_str(), target.path().as_str());
+
+    let foreign_path = ActorPath::new("kairo://sender@127.0.0.1:25521/user/target#1");
+    let resolved = ActorRefProvider::resolve(provider, &foreign_path);
+
+    assert!(matches!(resolved, ActorRefResolveResult::NonLocal(_)));
+    assert_eq!(resolved.path().as_str(), foreign_path.as_str());
+
+    receiver_remote.shutdown().unwrap();
 }
 
 #[test]

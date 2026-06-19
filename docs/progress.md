@@ -252,6 +252,13 @@ workspace stabilization before M13 release readiness.
   cargo test -p kairo-cluster-sharding multi_node_region_discovery_delivers_recovered_and_new_shared_store_entities --all-targets --all-features -- --nocapture
   ```
 
+- Latest M13 validation refresh after TCP remote actor-system provider
+  composition coverage:
+
+  ```bash
+  cargo test -p kairo-remote tcp_remote_actor_system_provider_delegates_local_provider_boundary --all-targets --all-features -- --nocapture
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
@@ -1519,6 +1526,11 @@ Implemented:
   missing local actors normalize back to missing local refs without a codec,
   preserving the local-message/no-serialization boundary while keeping remote
   sends codec-backed.
+- `TcpRemoteActorSystem::provider()` now has focused integration coverage that
+  the bound remote system's provider delegates root, user, system, temp, and
+  dead-letter guardian refs to the local provider, allocates temp paths under
+  `/temp`, maps owned canonical remote paths back to local resolution, and
+  leaves foreign canonical paths non-local.
 - `ResolvedActorRef<M>` local/remote inspection helpers now require only the
   normal local message bound (`Send + 'static`), not `RemoteMessage`; sending
   and provider resolution remain remote-message-gated.
@@ -4707,9 +4719,9 @@ Not yet implemented:
 - Full actor tree lifecycle semantic audit beyond the current recursive local
   stop, recursive restart-time child handling, restart-time child watch
   cleanup, and terminating-child name reservation coverage.
-- Broader actor-system local/remote provider integration, optional codec
-  helper crates, richer actor-system lifecycle wiring around the existing TCP
-  association primitives, and broader cross-crate compatibility fixtures.
+- Optional codec helper crates, richer actor-system lifecycle wiring around the
+  existing TCP association primitives, and broader cross-crate compatibility
+  fixtures.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
