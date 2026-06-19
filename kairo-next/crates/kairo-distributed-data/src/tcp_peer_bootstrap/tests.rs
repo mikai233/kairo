@@ -1885,6 +1885,123 @@ fn bootstrap_sender_keeps_remaining_route_delivering_after_peer_removed() {
 }
 
 #[test]
+fn bootstrap_clears_peer_routes_when_self_member_is_removed() {
+    let _guard = bootstrap_socket_test_lock();
+    let registry = registry();
+    let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-self-remove-sender").unwrap();
+    let receiver_kit = ActorSystemTestKit::new("ddata-bootstrap-self-remove-receiver").unwrap();
+    let receiver_requests = Arc::new(RecordingRequests::default());
+    let sender_runtime = bind_runtime(
+        "ddata-bootstrap-self-remove-sender",
+        1,
+        11,
+        ReplicaId::new("sender"),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let sender_settings = sender_runtime.runtime().settings().clone();
+    let receiver_runtime = bind_runtime_with_requests(
+        "ddata-bootstrap-self-remove-receiver",
+        2,
+        22,
+        ReplicaId::from(&sender_node),
+        receiver_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let receiver_node = receiver_runtime.self_node().clone();
+    let receiver_settings = receiver_runtime.runtime().settings().clone();
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_connector_name("sender-ddata-peer");
+
+    let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), receiver_node.clone()]),
+    );
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    await_cache_route_count(&sender_cache, 1);
+
+    let sender_ref =
+        replicator_actor_ref_for("ddata-bootstrap-self-remove-sender", &sender_settings)
+            .expect("sender ref should be serializable");
+    let receiver_ref =
+        replicator_actor_ref_for("ddata-bootstrap-self-remove-receiver", &receiver_settings)
+            .expect("receiver ref should be serializable");
+    let to_receiver = outbound(
+        ReplicaId::from(&receiver_node),
+        receiver_ref.clone(),
+        sender_ref.clone(),
+        registry,
+        sender_cache.clone(),
+    );
+
+    let received = send_read_until_received(
+        &to_receiver,
+        &receiver_requests,
+        ReplicatorRead {
+            key: "counter-before-self-removal".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        },
+        Duration::from_secs(1),
+    );
+    assert_eq!(received[0].0, ReplicaId::from(&sender_node));
+    assert_eq!(received[0].1.recipient, receiver_ref);
+    assert_eq!(received[0].1.sender, Some(sender_ref));
+
+    publish_gossip(&sender_publisher, up_gossip([receiver_node]));
+    await_connector_no_routes(sender_bootstrap.connector(), &sender_snapshots);
+    await_cache_route_count(&sender_cache, 0);
+
+    let removed_route_error = to_receiver
+        .tell(ReplicatorRead {
+            key: "counter-after-self-removal".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        })
+        .expect_err("self-removed bootstrap connector should clear outbound routes");
+    assert!(
+        removed_route_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected self-removal send error: {removed_route_error:?}"
+    );
+    assert_eq!(
+        receiver_requests
+            .wait_for_len(2, Duration::from_millis(100))
+            .len(),
+        1,
+        "self-removed bootstrap connector must not deliver after local removal"
+    );
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
+    receiver_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
     let _guard = bootstrap_socket_test_lock();
     let registry = registry();
