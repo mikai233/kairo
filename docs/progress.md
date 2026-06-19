@@ -122,6 +122,18 @@ workspace stabilization before M13 release readiness.
   git diff --check
   ```
 
+- Latest M13 validation refresh after cluster-tools TCP peer-runtime late-route
+  shutdown cleanup:
+
+  ```bash
+  cargo test -p kairo-cluster-tools peer_runtime_shutdown_clears_late_routes_registered_during_shutdown --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
@@ -4193,6 +4205,11 @@ Implemented:
 - Distributed-data and cluster-tools peer-runtime shutdown coverage now pin the
   matching multi-route cleanup invariant, so all TCP peer runtimes assert
   shutdown removes two active route-cache entries before listener stop.
+- `kairo-cluster-tools` TCP peer-runtime shutdown coverage now also pins the
+  late-route cleanup invariant at the composed runtime layer: after tracked
+  peer routes are removed and a close hook registers a fresh cached
+  association route, shutdown delegates to the association runtime and returns
+  with the association cache empty.
 - `kairo-cluster` actor-backed TCP peer connector coverage now pins explicit
   `ClearRoutes` cleanup with two active peer routes, including the clear
   report and empty association cache after the command.
