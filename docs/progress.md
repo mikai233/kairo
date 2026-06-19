@@ -238,6 +238,18 @@ workspace stabilization before M13 release readiness.
   git diff --check
   ```
 
+- Latest M13 validation refresh after sharding local-store region passivation
+  reactivation coverage:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding region_actor_with_local_remember_store_reactivates_passivated_entity --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after sharding bootstrap helper status audit:
 
   ```bash
@@ -4706,6 +4718,11 @@ Implemented:
   removed from the shared shard store after passivation, a later region-routed
   delivery writes a new remember-start update, and subsequent region routes
   deliver directly to the reactivated entity.
+- `kairo-cluster-sharding` local remember-store region coverage now also pins
+  same-region passivation reactivation: a region-hosted remembered entity is
+  removed after passivation, a later region-routed delivery writes a local
+  remember-start update, and subsequent region routes deliver directly to the
+  reactivated entity.
 - `kairo-cluster-sharding` shard-region bootstrap helper coverage has been
   re-audited for the local-shard, local remember-store, and shared
   remember-store variants: success tests cover discovery subscriber startup,
@@ -4752,7 +4769,7 @@ Not yet implemented:
   store-backed shard passivation stop-to-start acknowledgement ordering,
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned local/shared-store region load-before-first-delivery coverage,
-  and shared-store region passivation reactivation coverage.
+  and shared-store/local-store region passivation reactivation coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
