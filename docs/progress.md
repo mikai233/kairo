@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after distributed-data three-node actor-backed
+  TCP write smoke coverage:
+
+  ```bash
+  cargo test -p kairo-examples ddata_tcp_peer_bootstrap_delivers_write_to_three_node_replicator_actor --all-targets --all-features -- --nocapture
+  cargo test -p kairo-examples --test tcp_bootstrap_smoke --all-features -- --nocapture
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after preserving-restart plain child-watch
   delivery coverage:
 
@@ -4089,6 +4101,10 @@ Implemented:
   `/system/ddata` `ReplicatorActor<GCounter>`, a second node sends a
   stable-codec `ReplicatorWrite` over the membership-derived TCP route, and
   the receiver observes the updated counter through a local read.
+- `kairo-examples` distributed-data TCP bootstrap smoke coverage now also pins
+  the actor-backed write path inside a three-node mesh: the sender installs
+  two membership-derived routes, writes to the actor-backed peer, observes the
+  remote counter update, and proves the third peer's recorder remains quiet.
 - `kairo-distributed-data` live TCP tests now share a crate-level socket-test
   guard across route-owner, peer-runtime, connector, bootstrap, and direct
   association runtime modules, preventing parallel cargo test runs from racing

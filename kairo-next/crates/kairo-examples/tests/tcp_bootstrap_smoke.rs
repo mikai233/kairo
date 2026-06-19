@@ -455,6 +455,68 @@ fn ddata_tcp_peer_bootstrap_delivers_write_to_remote_replicator_actor() -> TestR
 }
 
 #[test]
+fn ddata_tcp_peer_bootstrap_delivers_write_to_three_node_replicator_actor() -> TestResult {
+    let _lock = lock_tcp_smoke();
+    let node_a = ddata_tcp::DDataTcpExampleNode::bind_with_remote_replica(
+        "ddata-actor-three-node-a",
+        1,
+        11,
+        "ddata-actor-three-node-a-peers",
+        ReplicaId::new("ddata-actor-three-node-b"),
+    )?;
+    let node_b = ddata_tcp::DDataTcpExampleNode::bind_with_replicator(
+        "ddata-actor-three-node-b",
+        2,
+        22,
+        "ddata-actor-three-node-b-peers",
+        ReplicaId::from(node_a.self_node()),
+    )?;
+    let node_c = ddata_tcp::DDataTcpExampleNode::bind_with_remote_replica(
+        "ddata-actor-three-node-c",
+        3,
+        33,
+        "ddata-actor-three-node-c-peers",
+        ReplicaId::new("ddata-actor-three-node-a"),
+    )?;
+    let result = (|| -> TestResult {
+        let members = vec![
+            node_a.self_node().clone(),
+            node_b.self_node().clone(),
+            node_c.self_node().clone(),
+        ];
+        node_a.publish_up_members(members.clone())?;
+        node_b.publish_up_members(members.clone())?;
+        node_c.publish_up_members(members)?;
+        node_a.wait_for_route_count(2, Duration::from_secs(2))?;
+        node_b.wait_for_route_count(2, Duration::from_secs(2))?;
+        node_c.wait_for_route_count(2, Duration::from_secs(2))?;
+
+        node_a.send_counter_write_to(&node_b, "example-three-node-actor-counter", 21)?;
+        node_b.wait_for_counter_value(
+            "example-three-node-actor-counter",
+            21,
+            Duration::from_secs(2),
+        )?;
+        assert!(
+            node_c
+                .wait_for_request_count(1, Duration::from_millis(100))
+                .is_empty()
+        );
+        Ok(())
+    })();
+
+    let shutdown_a = node_a.shutdown(Duration::from_secs(1));
+    let shutdown_b = node_b.shutdown(Duration::from_secs(1));
+    let shutdown_c = node_c.shutdown(Duration::from_secs(1));
+
+    result?;
+    shutdown_a?;
+    shutdown_b?;
+    shutdown_c?;
+    Ok(())
+}
+
+#[test]
 fn ddata_tcp_peer_bootstrap_removes_route_when_membership_shrinks() -> TestResult {
     let _lock = lock_tcp_smoke();
     let (node_a, node_b) = ddata_tcp::bind_two_nodes()?;
