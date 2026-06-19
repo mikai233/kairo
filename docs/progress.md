@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after shard remember-store passivation stop
+  acknowledgement removal coverage:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding shard_actor_with_remember_store_waits_for_stop_ack_before_removing_entity --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest full M13 validation refresh after public TCP bootstrap example
   local-only member rejection smoke coverage:
 
@@ -4944,10 +4955,10 @@ Not yet implemented:
   Current three-node bootstrap shrink coverage already feeds
   reduced gossip to the removed peer and asserts survivor and removed-peer
   route-cache cleanup before stale route rejection.
-- Sharding remember-entity stores still need broader automatic region/shard
-  orchestration beyond the current focused actor-level load/update/restart,
-  store-backed shard load stashed-delivery replay ordering,
-  store-backed shard passivation stop-to-start acknowledgement ordering,
+- Sharding remember-entity stores still need broader multi-node and lifecycle
+  stress beyond the current focused actor-level load/update/restart,
+  store-backed shard load stashed-delivery replay ordering, passivation
+  stop/removal and stop-to-start acknowledgement ordering,
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned local/shared-store region load-before-first-delivery coverage,
   and shared-store/local-store region passivation reactivation coverage.
