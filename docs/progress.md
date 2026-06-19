@@ -4835,6 +4835,11 @@ Implemented:
   and receive-timeout cleanup for both `/user` and `/system` actors: after
   full system termination, advancing manual time does not deliver the owner
   callback or publish late dead letters from cancelled scheduled work.
+- `kairo-actor` actor-system termination coverage now also pins Pekko-style
+  death-watch cleanup for stopping `/user` and `/system` actors: terminating
+  watchers remove watched subjects before blocking on their own children, so a
+  concurrently stopped watched actor cannot enqueue or dead-letter stale
+  watch-with messages.
 
 Not yet implemented:
 
@@ -4844,7 +4849,7 @@ Not yet implemented:
   queued child-spawn drain coverage for direct parent and actor-system stop,
   actor-system recursive child mailbox drain coverage, and actor-system
   stashed-message/message-adapter/async-helper/ask-temp-ref/timer and
-  receive-timeout drain coverage.
+  receive-timeout/death-watch drain coverage.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and broader cross-crate compatibility
   fixtures.
@@ -4891,6 +4896,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after actor-system death-watch cleanup coverage:
+
+```bash
+cargo test -p kairo-actor actor_system_terminate_unwatches_ --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after actor-system timer and receive-timeout
 cleanup coverage:

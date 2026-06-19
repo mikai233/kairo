@@ -2106,6 +2106,86 @@ fn stopping_watcher_is_removed_before_waiting_for_children() {
 }
 
 #[test]
+fn actor_system_terminate_unwatches_user_actor_before_waiting_for_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let watcher = system
+        .spawn("watcher", Props::new(|| StoppingWatchWithProbe))
+        .unwrap();
+
+    assert_actor_system_terminate_unwatches_actor_before_waiting_for_children(
+        system, watcher, subject,
+    );
+}
+
+#[test]
+fn actor_system_terminate_unwatches_system_actor_before_waiting_for_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let watcher = system
+        .spawn_system("system-watcher", Props::new(|| StoppingWatchWithProbe))
+        .unwrap();
+
+    assert_actor_system_terminate_unwatches_actor_before_waiting_for_children(
+        system, watcher, subject,
+    );
+}
+
+fn assert_actor_system_terminate_unwatches_actor_before_waiting_for_children(
+    system: ActorSystem,
+    watcher: ActorRef<StoppingWatchWithMsg>,
+    subject: ActorRef<()>,
+) {
+    let (entered_child_stop_tx, entered_child_stop_rx) = mpsc::channel();
+    let (release_child_stop_tx, release_child_stop_rx) = mpsc::channel();
+    let (registered_tx, registered_rx) = mpsc::channel();
+
+    watcher
+        .tell(StoppingWatchWithMsg::Start(Box::new(
+            StoppingWatchWithStart {
+                subject: subject.clone(),
+                entered_child_stop: entered_child_stop_tx,
+                release_child_stop: release_child_stop_rx,
+                reply_to: registered_tx,
+            },
+        )))
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let terminating_system = system.clone();
+    let terminate_thread =
+        std::thread::spawn(move || terminating_system.terminate(Duration::from_secs(1)));
+    entered_child_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert!(
+        subject.wait_for_stop(Duration::from_secs(1)),
+        "system termination should request subject stop while watcher child shutdown is blocked"
+    );
+    assert!(
+        !system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_millis(100)),
+        "system termination should unwatch subjects before child shutdown can block"
+    );
+    assert!(system.dead_letters().is_empty());
+
+    release_child_stop_tx.send(()).unwrap();
+    terminate_thread
+        .join()
+        .expect("system termination thread panicked")
+        .unwrap();
+    assert!(watcher.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        !system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_millis(100)),
+        "released watcher should not dead-letter stale watch messages after system termination"
+    );
+    assert!(system.dead_letters().is_empty());
+}
+
+#[test]
 fn stopping_parent_unwatches_child_before_stopping_it() {
     let system = ActorSystem::builder("test").build().unwrap();
     let parent = system
