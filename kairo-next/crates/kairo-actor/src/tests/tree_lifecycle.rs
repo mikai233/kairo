@@ -391,6 +391,67 @@ impl Actor for GrandchildOwner {
     }
 }
 
+enum EscalatingStopMsg {
+    Fail,
+}
+
+struct EscalatingStopChild;
+
+impl Actor for EscalatingStopChild {
+    type Msg = EscalatingStopMsg;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            EscalatingStopMsg::Fail => Err(ActorError::Message("escalate parent".to_string())),
+        }
+    }
+}
+
+struct EscalatedRecursiveStopParent {
+    failing_child: mpsc::Sender<ActorRef<EscalatingStopMsg>>,
+    child_path: mpsc::Sender<ActorPath>,
+    grandchild_path: mpsc::Sender<ActorPath>,
+    grandchild_entered_stop: mpsc::Sender<()>,
+    grandchild_release_stop: Option<mpsc::Receiver<()>>,
+}
+
+impl Actor for EscalatedRecursiveStopParent {
+    type Msg = ChildStopMsg;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        let failing_child = ctx.spawn(
+            "failing-child",
+            Props::new(|| EscalatingStopChild).with_supervisor(SupervisorStrategy::Escalate),
+        )?;
+        self.failing_child
+            .send(failing_child)
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+
+        let grandchild_path = self.grandchild_path.clone();
+        let entered_stop = self.grandchild_entered_stop.clone();
+        let release_stop = self
+            .grandchild_release_stop
+            .take()
+            .ok_or_else(|| ActorError::Message("grandchild release channel missing".to_string()))?;
+        let child = ctx.spawn(
+            "child",
+            Props::new(move || GrandchildOwner {
+                grandchild_path,
+                entered_stop,
+                release_stop: Some(release_stop),
+            }),
+        )?;
+        self.child_path
+            .send(child.path().clone())
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        Ok(())
+    }
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
 struct RestartGrandchildBlockingParent {
     child_path: mpsc::Sender<ActorPath>,
     grandchild_path: mpsc::Sender<ActorPath>,
@@ -1311,6 +1372,82 @@ fn parent_stop_waits_for_descendant_grandchild_before_notifying_watchers() {
             .recv_timeout(Duration::from_millis(100))
             .is_err(),
         "parent termination must not notify watchers while a descendant is still stopping"
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(grandchild.wait_for_stop(Duration::from_secs(1)));
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(
+        terminated_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        parent.path().clone()
+    );
+}
+
+#[test]
+fn escalated_parent_stop_waits_for_descendant_grandchild_before_notifying_watchers() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (failing_child_tx, failing_child_rx) = mpsc::channel();
+    let (child_path_tx, child_path_rx) = mpsc::channel();
+    let (grandchild_path_tx, grandchild_path_rx) = mpsc::channel();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(move || EscalatedRecursiveStopParent {
+                failing_child: failing_child_tx,
+                child_path: child_path_tx,
+                grandchild_path: grandchild_path_tx,
+                grandchild_entered_stop: entered_stop_tx,
+                grandchild_release_stop: Some(release_stop_rx),
+            }),
+        )
+        .unwrap();
+    let failing_child = failing_child_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    let child_path = child_path_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let grandchild_path = grandchild_path_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+    let grandchild = system
+        .resolve_local::<()>(grandchild_path.as_str())
+        .unwrap();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || ParentTerminationWatcher {
+                terminated: terminated_tx,
+            }),
+        )
+        .unwrap();
+    watcher
+        .tell(ParentTerminationWatcherMsg::Watch {
+            subject: parent.clone(),
+            registered: registered_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    failing_child.tell(EscalatingStopMsg::Fail).unwrap();
+    assert!(failing_child.wait_for_stop(Duration::from_secs(1)));
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    assert!(
+        !parent.wait_for_stop(Duration::from_millis(100)),
+        "escalated parent stop must wait for descendant grandchild termination"
+    );
+    assert!(
+        terminated_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "escalated parent termination must not notify watchers while a descendant is still stopping"
     );
 
     release_stop_tx.send(()).unwrap();

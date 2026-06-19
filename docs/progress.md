@@ -316,6 +316,10 @@ Implemented:
   when a child failure escalates to a parent stop, the parent rejects later user
   messages and does not report termination until a sibling that was already in
   `PostStop` has fully terminated.
+- Escalated parent-stop coverage now also pins recursive child-tree teardown:
+  a parent stopped by child failure escalation does not terminate or notify
+  watchers until a descendant grandchild that is blocked in `PostStop` has fully
+  terminated.
 - Escalated parent-restart coverage now pins the same already-stopping sibling
   window for default child-stopping restarts: user messages queued behind the
   restart are not processed until the sibling finishes `PostStop`, and the
@@ -4304,6 +4308,16 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after escalated recursive parent-stop coverage:
+
+```bash
+cargo test -p kairo-actor escalated_parent_stop_waits_for_descendant_grandchild_before_notifying_watchers --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after escalated parent-restart child-stop window
 coverage:
