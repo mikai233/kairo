@@ -2121,6 +2121,66 @@ fn escalate_supervision_restarts_parent_when_parent_strategy_restarts() {
 }
 
 #[test]
+fn escalated_parent_restart_waits_for_already_stopping_sibling() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (restarted_tx, restarted_rx) = mpsc::channel();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::restartable(move || EscalationParent {
+                restarted: Some(restarted_tx.clone()),
+            }),
+        )
+        .unwrap();
+    let (entered_stop_tx, entered_stop_rx) = mpsc::channel();
+    let (release_stop_tx, release_stop_rx) = mpsc::channel();
+    let (sibling_tx, sibling_rx) = mpsc::channel();
+    let (child_tx, child_rx) = mpsc::channel();
+
+    parent
+        .tell(EscalationParentMsg::SpawnBlockingSibling {
+            entered_stop: entered_stop_tx,
+            release_stop: release_stop_rx,
+            reply_to: sibling_tx,
+        })
+        .unwrap();
+    let sibling = sibling_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    parent
+        .tell(EscalationParentMsg::SpawnChild {
+            child_stopped: None,
+            reply_to: child_tx,
+        })
+        .unwrap();
+    let child = child_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&sibling);
+    entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    child.tell(EscalatingChildMsg::Fail).unwrap();
+    restarted_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent
+        .tell(EscalationParentMsg::Ping(ping_tx.clone()))
+        .unwrap();
+    assert!(
+        ping_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+        "parent must not process user messages queued behind an escalated restart"
+    );
+    assert!(
+        !sibling.wait_for_stop(Duration::from_millis(50)),
+        "sibling must remain blocked until its stop hook completes"
+    );
+
+    release_stop_tx.send(()).unwrap();
+    assert!(sibling.wait_for_stop(Duration::from_secs(1)));
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(!parent.is_stopped());
+}
+
+#[test]
 fn escalating_child_preserving_parent_restart_keeps_sibling_alive() {
     let system = ActorSystem::builder("test").build().unwrap();
     let (restarted_tx, restarted_rx) = mpsc::channel();
