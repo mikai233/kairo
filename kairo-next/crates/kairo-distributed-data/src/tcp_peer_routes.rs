@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Formatter};
 
 use kairo_cluster::{ClusterAssociationPeerChange, ClusterAssociationPeerTarget};
@@ -60,6 +60,7 @@ impl ReplicatorTcpPeerRouteReport {
 #[derive(Default)]
 pub struct ReplicatorTcpPeerRoutes {
     registrations: BTreeMap<String, ReplicatorTcpPeerRouteEntry>,
+    removed_peers: BTreeSet<String>,
 }
 
 struct ReplicatorTcpPeerRouteEntry {
@@ -124,6 +125,7 @@ impl ReplicatorTcpPeerRoutes {
         target: ClusterAssociationPeerTarget,
         report: &mut ReplicatorTcpPeerRouteReport,
     ) {
+        let key = peer_key(&target);
         if let Some(entry) = self.registrations.remove(&peer_key(&target)) {
             let address = entry
                 .registration
@@ -134,10 +136,12 @@ impl ReplicatorTcpPeerRoutes {
                 registration.close_owned_route("distributed-data peer route removed");
             }
             runtime.remove_route_with_reason(address, "distributed-data peer route removed");
+            self.removed_peers.insert(key);
             report.removed.push(target);
         } else if runtime
             .remove_route_with_reason(target.association(), "distributed-data peer route removed")
         {
+            self.removed_peers.insert(key);
             report.removed.push(target);
         } else {
             report.skipped.push(target);
@@ -155,23 +159,31 @@ impl ReplicatorTcpPeerRoutes {
             return Ok(());
         }
 
+        let key = peer_key(&target);
         if runtime
             .association_cache()
             .contains_route(target.association())
         {
-            runtime.register_source_replica(
-                target.association().clone(),
-                crate::ReplicaId::from(target.node()),
-            );
-            self.registrations.insert(
-                peer_key(&target),
-                ReplicatorTcpPeerRouteEntry {
-                    target: target.clone(),
-                    registration: None,
-                },
-            );
-            report.skipped.push(target);
-            return Ok(());
+            if self.removed_peers.contains(&key) {
+                runtime.remove_route_with_reason(
+                    target.association(),
+                    "distributed-data peer route replaced after removal",
+                );
+            } else {
+                runtime.register_source_replica(
+                    target.association().clone(),
+                    crate::ReplicaId::from(target.node()),
+                );
+                self.registrations.insert(
+                    key,
+                    ReplicatorTcpPeerRouteEntry {
+                        target: target.clone(),
+                        registration: None,
+                    },
+                );
+                report.skipped.push(target);
+                return Ok(());
+            }
         }
 
         let registration = runtime
@@ -183,8 +195,9 @@ impl ReplicatorTcpPeerRoutes {
                 target: Box::new(target.clone()),
                 source: Box::new(source),
             })?;
+        self.removed_peers.remove(&key);
         self.registrations.insert(
-            peer_key(&target),
+            key,
             ReplicatorTcpPeerRouteEntry {
                 target: target.clone(),
                 registration: Some(registration),
@@ -455,6 +468,77 @@ mod tests {
         assert_eq!(sender_report.accepted_associations, 0);
         let receiver_report = receiver.shutdown().unwrap();
         assert_eq!(receiver_report.accepted_associations, 1);
+    }
+
+    #[test]
+    fn peer_routes_replace_cached_route_after_removed_peer_returns() {
+        let _guard = ddata_socket_test_lock();
+        let sender = bind_runtime(
+            "returning-sender",
+            replica("sender"),
+            replica("receiver"),
+            11,
+        );
+        let receiver = bind_runtime(
+            "returning-receiver",
+            replica("receiver"),
+            replica("sender"),
+            22,
+        );
+        let sender_node = node("returning-sender", sender.settings().canonical_port, 1);
+        let receiver_node = node("returning-receiver", receiver.settings().canonical_port, 2);
+        let mut planner = ClusterAssociationPeerState::new(sender_node.clone());
+        let mut routes = ReplicatorTcpPeerRoutes::new();
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![member(sender_node.clone()), member(receiver_node.clone())],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+        assert_eq!(report.dialed.len(), 1);
+        assert_eq!(routes.route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        wait_for_reverse_route(&receiver);
+
+        let changes = planner
+            .apply_snapshot(state(vec![member(sender_node.clone())], vec![]))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(routes.route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        sender
+            .dial_peer(
+                receiver.local_address().clone(),
+                ReplicaId::from(&receiver_node),
+            )
+            .unwrap();
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![member(sender_node), member(receiver_node.clone())],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+        assert_eq!(report.dialed.len(), 1);
+        assert_eq!(report.dialed[0].node(), &receiver_node);
+        assert!(report.skipped.is_empty());
+        assert_eq!(routes.route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let clear_report = routes.clear(&sender);
+        assert_eq!(clear_report.removed.len(), 1);
+        assert_eq!(routes.route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        let sender_report = sender.shutdown().unwrap();
+        assert_eq!(sender_report.accepted_associations, 0);
+        receiver.shutdown().unwrap();
     }
 
     #[test]

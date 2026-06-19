@@ -1881,6 +1881,10 @@ Implemented:
   already-installed outbound runtime association route: the route is reported
   as skipped instead of dialed again, tracked by the owner, and removed when
   the owner clears routes.
+- Distributed-data TCP peer routes now remember peers removed by membership
+  reduction, so if a cached association for that peer appears before the peer
+  returns, the route owner closes it and performs a fresh managed dial instead
+  of adopting a potentially stale route.
 - Cluster and cluster-tools TCP peer routes now adopt already-installed
   reverse association routes from accepted handshakes instead of redialing and
   replacing them. Their full-mesh bootstrap validations now send membership
