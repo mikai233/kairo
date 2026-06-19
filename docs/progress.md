@@ -4192,6 +4192,11 @@ Implemented:
   termination itself, removes the local route, schedules the remember-entity
   restart backoff, and restarts the shard without an explicit
   `MarkShardStopped` test command.
+- Shared remember-store region death-watch coverage now pins the same
+  automatic restart path: a shared-store-backed remembered shard child stop is
+  observed through actor death watch, the stopped shard route is replaced
+  after the remember-entity backoff, and recovered entity delivery resumes
+  without an explicit `MarkShardStopped` test command.
 - The same sharding region death-watch coverage now pins the non-remembered
   shard path: a plain local shard termination is observed by the region, the
   local route is removed, no restart is scheduled, and later delivery buffers
