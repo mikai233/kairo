@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Formatter};
 
 use kairo_remote::{RemoteAssociationRouteRegistration, RemoteError};
@@ -63,6 +63,7 @@ impl ClusterTcpPeerRouteReport {
 #[derive(Default)]
 pub struct ClusterTcpPeerRoutes {
     registrations: BTreeMap<String, ClusterTcpPeerRouteEntry>,
+    removed_peers: BTreeSet<String>,
 }
 
 struct ClusterTcpPeerRouteEntry {
@@ -124,6 +125,7 @@ impl ClusterTcpPeerRoutes {
         target: ClusterAssociationPeerTarget,
         report: &mut ClusterTcpPeerRouteReport,
     ) {
+        let key = peer_key(&target);
         if let Some(entry) = self.registrations.remove(&peer_key(&target)) {
             let address = entry
                 .registration
@@ -134,10 +136,12 @@ impl ClusterTcpPeerRoutes {
                 registration.close_owned_route("cluster peer route removed");
             }
             runtime.remove_route_with_reason(address, "cluster peer route removed");
+            self.removed_peers.insert(key);
             report.removed.push(target);
         } else if runtime
             .remove_route_with_reason(target.association(), "cluster peer route removed")
         {
+            self.removed_peers.insert(key);
             report.removed.push(target);
         } else {
             report.skipped.push(target);
@@ -155,19 +159,27 @@ impl ClusterTcpPeerRoutes {
             return Ok(());
         }
 
+        let key = peer_key(&target);
         if runtime
             .association_cache()
             .contains_route(target.association())
         {
-            self.registrations.insert(
-                peer_key(&target),
-                ClusterTcpPeerRouteEntry {
-                    target: target.clone(),
-                    registration: None,
-                },
-            );
-            report.skipped.push(target);
-            return Ok(());
+            if self.removed_peers.contains(&key) {
+                runtime.remove_route_with_reason(
+                    target.association(),
+                    "cluster peer route replaced after removal",
+                );
+            } else {
+                self.registrations.insert(
+                    key,
+                    ClusterTcpPeerRouteEntry {
+                        target: target.clone(),
+                        registration: None,
+                    },
+                );
+                report.skipped.push(target);
+                return Ok(());
+            }
         }
 
         let registration = runtime
@@ -176,8 +188,9 @@ impl ClusterTcpPeerRoutes {
                 target: Box::new(target.clone()),
                 source: Box::new(source),
             })?;
+        self.removed_peers.remove(&key);
         self.registrations.insert(
-            peer_key(&target),
+            key,
             ClusterTcpPeerRouteEntry {
                 target: target.clone(),
                 registration: Some(registration),
@@ -390,6 +403,69 @@ mod tests {
         assert_eq!(sender_report.accepted_associations, 0);
         let receiver_report = receiver.shutdown().unwrap();
         assert_eq!(receiver_report.accepted_associations, 1);
+        sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+        receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn peer_routes_replace_cached_cluster_route_after_removed_peer_returns() {
+        let sender_kit = ActorSystemTestKit::new("cluster-peer-routes-return-sender").unwrap();
+        let receiver_kit = ActorSystemTestKit::new("cluster-peer-routes-return-receiver").unwrap();
+        let registry = registry();
+        let sender = bind_runtime("return-sender", 1, 11, &sender_kit, registry.clone());
+        let receiver = bind_runtime("return-receiver", 2, 22, &receiver_kit, registry);
+        let mut planner = ClusterAssociationPeerState::new(sender.self_node().clone());
+        let mut routes = ClusterTcpPeerRoutes::new();
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![
+                    member(sender.self_node().clone()),
+                    member(receiver.self_node().clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+        assert_eq!(report.dialed.len(), 1);
+        assert_eq!(routes.route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+        wait_for_reverse_route(&receiver);
+
+        let changes = planner
+            .apply_snapshot(state(vec![member(sender.self_node().clone())], vec![]))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+        assert_eq!(report.removed.len(), 1);
+        assert_eq!(routes.route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        sender.dial(receiver.local_address().clone()).unwrap();
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let changes = planner
+            .apply_snapshot(state(
+                vec![
+                    member(sender.self_node().clone()),
+                    member(receiver.self_node().clone()),
+                ],
+                vec![],
+            ))
+            .unwrap();
+        let report = routes.apply_changes(&sender, changes).unwrap();
+        assert_eq!(report.dialed.len(), 1);
+        assert_eq!(report.dialed[0].node(), receiver.self_node());
+        assert!(report.skipped.is_empty());
+        assert_eq!(routes.route_count(), 1);
+        assert_eq!(sender.association_cache().route_count(), 1);
+
+        let clear_report = routes.clear(&sender);
+        assert_eq!(clear_report.removed.len(), 1);
+        assert_eq!(routes.route_count(), 0);
+        assert_eq!(sender.association_cache().route_count(), 0);
+
+        sender.shutdown().unwrap();
+        receiver.shutdown().unwrap();
         sender_kit.shutdown(Duration::from_secs(1)).unwrap();
         receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
     }

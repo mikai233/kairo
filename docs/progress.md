@@ -1895,6 +1895,10 @@ Implemented:
   adoption of already-installed outbound runtime association routes: each owner
   reports the route as skipped rather than redialed, tracks it, and removes it
   when cleared.
+- Cluster and cluster-tools TCP peer routes now also remember peers removed by
+  membership reduction, replacing a later cached association with a fresh
+  managed dial when that peer returns instead of adopting a potentially stale
+  route.
 - `kairo-distributed-data` built-in CRDT codec round-trip and rejection tests
   now live in a focused sibling test module.
 - `kairo-distributed-data` delta propagation log versioning, node selection,
