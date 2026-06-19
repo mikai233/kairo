@@ -62,15 +62,15 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
-- Latest M13 validation refresh after parent recursive stop child
-  queued-message drain coverage:
+- Latest M13 validation refresh after cluster-sharding stale remote route
+  coverage:
 
   ```bash
-  cargo test -p kairo-actor parent_stop_drains_child_queued_user_messages_to_dead_letters --all-targets --all-features -- --nocapture
-  cargo test -p kairo-actor --all-targets --all-features
+  cargo test -p kairo-cluster-sharding region_route_transport_reports_stale_remote_outbound_recipient --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding --all-targets --all-features
   cargo fmt --all
   cargo fmt --all -- --check
-  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
   git diff --check
   ```
 
@@ -2460,6 +2460,10 @@ Implemented:
   sharding-to-remoting coupling; dev coverage proves
   `RegionRouteTransport` can route through `RemoteAssociationCache` via that
   recipient adapter.
+- Cluster-sharding remote route transport coverage now also pins the stale
+  association-cache boundary: when a known remote region target has no live
+  route, `RegionRouteTransport` reports `SendFailed` with the original
+  `ShardingEnvelope` preserved instead of losing the business message.
 - `kairo-cluster-sharding` coordinator system inbound coverage now also routes
   remote registration and shard-home replies through
   `kairo-remote::RemoteAssociationCache` via `RemoteOutboundRecipient`, pinning

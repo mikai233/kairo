@@ -570,6 +570,65 @@ fn region_route_transport_can_use_remote_outbound_recipient() {
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn region_route_transport_reports_stale_remote_outbound_recipient() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("sharding-stale-remote-outbound-recipient").unwrap();
+    let mut registry = Registry::new();
+    register_sharding_protocol_codecs(&mut registry).unwrap();
+    registry
+        .register::<RemoteRouteMessage, _>(RemoteRouteMessageCodec)
+        .unwrap();
+    let registry = std::sync::Arc::new(registry);
+    let route_replies = kit
+        .create_probe::<RegionLocalRoutePlan<RemoteRouteMessage>>("route-replies")
+        .unwrap();
+    let delivery_replies = kit
+        .create_probe::<ShardDeliverPlan<RemoteRouteMessage>>("delivery-replies")
+        .unwrap();
+    let cache = kairo_remote::RemoteAssociationCache::new();
+    let remote_target = ShardRegionRemoteOutbound::<RemoteRouteMessage>::new(
+        remote_node("sharding", "127.0.0.1", 25521),
+        registry,
+        kairo_remote::RemoteOutboundRecipient::from_arc(
+            Arc::new(cache) as Arc<dyn kairo_remote::RemoteOutbound>
+        ),
+    )
+    .into_region_route_target("region-b");
+    let mut transport = RegionRouteTransport::new();
+    transport.insert_target(remote_target);
+
+    let delivery = transport.send_route_to(
+        &"region-b".to_string(),
+        "shard-1".to_string(),
+        ShardingEnvelope::new("entity-1", RemoteRouteMessage("first".to_string())),
+        route_replies.actor_ref(),
+        delivery_replies.actor_ref(),
+    );
+
+    match delivery {
+        RegionRouteDelivery::SendFailed {
+            shard,
+            region,
+            message,
+            reason,
+        } => {
+            assert_eq!(shard, "shard-1");
+            assert_eq!(region, "region-b");
+            assert_eq!(
+                message,
+                ShardingEnvelope::new("entity-1", RemoteRouteMessage("first".to_string()))
+            );
+            assert!(
+                reason.contains("no remote association route"),
+                "unexpected stale remote route failure reason: {reason}"
+            );
+        }
+        other => panic!("expected stale remote outbound recipient to report SendFailed: {other:?}"),
+    }
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 #[derive(Default)]
 struct CollectingRemoteOutbound {
     envelopes: Mutex<Vec<RemoteEnvelope>>,
