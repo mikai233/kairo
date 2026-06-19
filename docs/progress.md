@@ -4306,6 +4306,11 @@ Implemented:
   death-watch path: a restartable parent that explicitly watches a child can
   stop that child as part of default restart without receiving a stale
   `Terminated` death-pact signal after the parent has been rebuilt.
+- `kairo-cluster-sharding` region discovery bootstrap cleanup coverage now
+  includes both local remember-store and shared remember-store region variants:
+  if the discovery subscriber name collides after the region actor is spawned,
+  bootstrap returns the duplicate-name error, stops the half-created region,
+  and leaves the region name reusable.
 
 Not yet implemented:
 
@@ -4330,7 +4335,7 @@ Not yet implemented:
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned region load-before-first-delivery coverage, region death-watch
   restart, multi-node discovery/shared-store first-delivery coverage, and
-  local/shared remember-store bootstrap helper coverage.
+  local/shared remember-store bootstrap helper success and cleanup coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful

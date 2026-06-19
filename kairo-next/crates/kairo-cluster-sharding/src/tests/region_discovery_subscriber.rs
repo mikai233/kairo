@@ -498,6 +498,166 @@ fn region_bootstrap_stops_region_when_discovery_subscriber_spawn_fails() {
 }
 
 #[test]
+fn region_bootstrap_stops_local_remember_store_region_when_discovery_subscriber_spawn_fails() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("region-bootstrap-local-remember-cleanup").unwrap();
+    let self_node = remote_unique_node(
+        "region-bootstrap-local-remember-cleanup",
+        "127.0.0.1",
+        2669,
+        20,
+    );
+    let publisher = kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(self_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher);
+    let _occupied_subscriber_name = kit
+        .system()
+        .spawn(
+            "region-a-discovery",
+            ShardRegionActor::<String>::props_with_local_shards("occupied", 10, 10),
+        )
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::<String>::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    );
+
+    let error =
+        match ShardRegionBootstrap::spawn_local_remember_store_shards_with_coordinator_discovery(
+            kit.system(),
+            ShardRegionLocalRememberStoreBootstrapConfig::new(
+                ShardRegionBootstrapConfig::new(
+                    "region-a",
+                    "region-a-discovery",
+                    cluster,
+                    "region-a",
+                    10,
+                    10,
+                    discovery,
+                ),
+                "orders",
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+            ),
+        ) {
+            Ok(_) => panic!("duplicate subscriber name should fail local remember-store bootstrap"),
+            Err(error) => error,
+        };
+
+    assert!(
+        matches!(error, ActorError::DuplicateName(ref name) if name == "region-a-discovery"),
+        "unexpected bootstrap failure: {error:?}"
+    );
+    let replacement = kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ActorRef<ShardRegionMsg<String>>, String> {
+            kit.system()
+                .spawn(
+                    "region-a",
+                    ShardRegionActor::<String>::props_with_local_shards("region-a", 10, 10),
+                )
+                .map_err(|error| format!("region name is not reusable yet: {error}"))
+        },
+    )
+    .unwrap();
+    kit.system().stop(&replacement);
+    assert!(replacement.wait_for_stop(Duration::from_secs(1)));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_bootstrap_stops_shared_remember_store_region_when_discovery_subscriber_spawn_fails() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("region-bootstrap-shared-remember-cleanup").unwrap();
+    let self_node = remote_unique_node(
+        "region-bootstrap-shared-remember-cleanup",
+        "127.0.0.1",
+        2673,
+        24,
+    );
+    let publisher = kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(self_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher);
+    let remember_store = kit
+        .system()
+        .spawn(
+            "remember-store",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let _occupied_subscriber_name = kit
+        .system()
+        .spawn(
+            "region-a-discovery",
+            ShardRegionActor::<String>::props_with_local_shards("occupied", 10, 10),
+        )
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::<String>::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    );
+
+    let error = match ShardRegionBootstrap::spawn_remember_store_shards_with_coordinator_discovery(
+        kit.system(),
+        ShardRegionRememberStoreBootstrapConfig::new(
+            ShardRegionBootstrapConfig::new(
+                "region-a",
+                "region-a-discovery",
+                cluster,
+                "region-a",
+                10,
+                10,
+                discovery,
+            ),
+            BTreeMap::from([("shard-1".to_string(), remember_store)]),
+            Duration::from_millis(500),
+        ),
+    ) {
+        Ok(_) => panic!("duplicate subscriber name should fail shared remember-store bootstrap"),
+        Err(error) => error,
+    };
+
+    assert!(
+        matches!(error, ActorError::DuplicateName(ref name) if name == "region-a-discovery"),
+        "unexpected bootstrap failure: {error:?}"
+    );
+    let replacement = kairo_testkit::await_assert(
+        polling_timeout(),
+        Duration::from_millis(10),
+        || -> Result<ActorRef<ShardRegionMsg<String>>, String> {
+            kit.system()
+                .spawn(
+                    "region-a",
+                    ShardRegionActor::<String>::props_with_local_shards("region-a", 10, 10),
+                )
+                .map_err(|error| format!("region name is not reusable yet: {error}"))
+        },
+    )
+    .unwrap();
+    kit.system().stop(&replacement);
+    assert!(replacement.wait_for_stop(Duration::from_secs(1)));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_discovery_subscriber_reregisters_when_coordinator_moves() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-discovery-moves").unwrap();
     let self_node = remote_unique_node("region-discovery-moves", "127.0.0.1", 2670, 21);
