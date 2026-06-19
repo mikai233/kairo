@@ -62,6 +62,23 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest full M13 validation refresh after public TCP bootstrap example
+  local-only member rejection smoke coverage:
+
+  ```bash
+  cargo fmt --all -- --check
+  git diff --check
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  cargo test -p kairo implementation_status_docs_do_not_mark_ddata_bootstrap_shrink_cleanup_as_future_work --all-targets --all-features
+  cargo test --workspace --all-targets --all-features
+  cargo test -p kairo-examples --all-targets --all-features
+  cargo test --doc --workspace --all-features
+  cargo test -p kairo-examples --doc --all-features
+  cargo test -p kairo-testkit multi_node --all-targets --all-features
+  RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+  KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
+  ```
+
 - Latest M13 validation refresh after public TCP bootstrap example local-only
   member rejection smoke coverage:
 
@@ -4923,10 +4940,10 @@ Not yet implemented:
   cleanup, bootstrap automatic retry, partial-failure retry coverage,
   connector dynamic pruning-clock pause/resume coverage, and three-node
   example shutdown route cleanup coverage. Current TCP peer-runtime coverage
-  also rejects local-only member snapshots before dialing. Current three-node
-  bootstrap shrink coverage already feeds reduced gossip to the removed peer
-  and asserts survivor and removed-peer route-cache cleanup before stale route
-  rejection.
+  also rejects local-only member snapshots before dialing.
+  Current three-node bootstrap shrink coverage already feeds
+  reduced gossip to the removed peer and asserts survivor and removed-peer
+  route-cache cleanup before stale route rejection.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
   store-backed shard load stashed-delivery replay ordering,
