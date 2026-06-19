@@ -216,7 +216,7 @@ fn ask_is_rejected_after_self_stop_is_requested() {
 }
 
 #[test]
-fn ask_temp_ref_is_unregistered_when_actor_system_terminates() {
+fn actor_system_terminate_unregisters_user_ask_temp_ref() {
     let system = ActorSystem::builder("test").build().unwrap();
     let target = system
         .spawn("ask-target", Props::new(|| AskTarget))
@@ -224,6 +224,31 @@ fn ask_temp_ref_is_unregistered_when_actor_system_terminates() {
     let probe = system
         .spawn("ask-probe", Props::new(|| AskProbe { pre_restart: None }))
         .unwrap();
+
+    assert_actor_system_terminate_unregisters_ask_temp_ref(system, target, probe);
+}
+
+#[test]
+fn actor_system_terminate_unregisters_system_ask_temp_ref() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let target = system
+        .spawn("ask-target", Props::new(|| AskTarget))
+        .unwrap();
+    let probe = system
+        .spawn_system(
+            "system-ask-probe",
+            Props::new(|| AskProbe { pre_restart: None }),
+        )
+        .unwrap();
+
+    assert_actor_system_terminate_unregisters_ask_temp_ref(system, target, probe);
+}
+
+fn assert_actor_system_terminate_unregisters_ask_temp_ref(
+    system: ActorSystem,
+    target: ActorRef<AskTargetMsg>,
+    probe: ActorRef<AskProbeMsg>,
+) {
     let (reply_tx, reply_rx) = mpsc::channel();
     let (captured_tx, captured_rx) = mpsc::channel();
 
