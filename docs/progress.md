@@ -1339,6 +1339,11 @@ Implemented:
   termination, received remote termination, and reports deterministic watch
   statistics for tests and future diagnostics, including ordered watched ref
   pairs and watched remote addresses in addition to counters.
+- Remote death-watch actor coverage now also pins Pekko-style same-address
+  remote termination reduction at the actor boundary: a received
+  `RemoteTerminated` for one watched remote ref emits that ref's termination
+  effect while leaving the remaining same-address watch active in stats and
+  still eligible for later heartbeat effects.
 - Remote death-watch actor coverage now lives in a focused sibling test module
   and validates inbound remote unwatch cleanup at the actor boundary, proving
   decoded inbound `UnwatchRemote` commands remove remote watchers without
@@ -4451,6 +4456,19 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after remote death-watch same-address actor
+coverage:
+
+```bash
+cargo test -p kairo-remote remote_watch_actor_rewatches_after_uid_changes --all-targets --all-features -- --nocapture
+cargo test -p kairo-remote remote_watch_actor_remote_terminated_keeps_other_watch_on_same_address --all-targets --all-features -- --nocapture
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after stopped watcher queued-termination cleanup:
 

@@ -196,6 +196,79 @@ fn remote_watch_actor_rewatches_after_uid_changes() {
 }
 
 #[test]
+fn remote_watch_actor_remote_terminated_keeps_other_watch_on_same_address() {
+    let (system, actor, sink) = spawn_remote_watcher("watcher");
+    let (stats_probe, stats_rx) = stats_probe(&system);
+    let first = watchee("first");
+    let second = watchee("second");
+    let watcher = watcher("observer");
+
+    actor
+        .tell(RemoteDeathWatchCommand::Watch(WatchRemote {
+            watchee: first.clone(),
+            watcher: watcher.clone(),
+        }))
+        .unwrap();
+    actor
+        .tell(RemoteDeathWatchCommand::Watch(WatchRemote {
+            watchee: second.clone(),
+            watcher: watcher.clone(),
+        }))
+        .unwrap();
+    actor
+        .tell(RemoteDeathWatchCommand::HeartbeatAck {
+            address: "kairo://remote@127.0.0.1:25520".to_string(),
+            ack: RemoteHeartbeatAck { uid: 7 },
+        })
+        .unwrap();
+    actor
+        .tell(RemoteDeathWatchCommand::RemoteTerminated(
+            RemoteTerminated {
+                watchee: first.clone(),
+                existence_confirmed: true,
+            },
+        ))
+        .unwrap();
+    actor
+        .tell(RemoteDeathWatchCommand::HeartbeatTick { local_uid: 42 })
+        .unwrap();
+    actor
+        .tell(RemoteDeathWatchCommand::GetStats {
+            reply_to: stats_probe,
+        })
+        .unwrap();
+
+    let effects = sink.wait_for_len(7, Duration::from_secs(1));
+    assert_eq!(
+        effects[5..],
+        [
+            RemoteDeathWatchEffect::RemoteTerminated(RemoteTerminated {
+                watchee: first,
+                existence_confirmed: true,
+            }),
+            RemoteDeathWatchEffect::SendHeartbeat {
+                address: "kairo://remote@127.0.0.1:25520".to_string(),
+                message: RemoteHeartbeat { from_uid: 42 },
+            },
+        ]
+    );
+    assert_eq!(
+        stats_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        RemoteDeathWatchStats {
+            watching: 1,
+            watched_addresses: 1,
+            inbound_watching: 0,
+            unreachable_addresses: 0,
+            watching_refs: vec![WatchRemote {
+                watchee: second,
+                watcher,
+            }],
+            watching_addresses: vec!["kairo://remote@127.0.0.1:25520".to_string()],
+        }
+    );
+}
+
+#[test]
 fn remote_watch_actor_reports_stats_after_ordered_commands() {
     let (system, actor, _sink) = spawn_remote_watcher("watcher");
     let (stats_probe, stats_rx) = stats_probe(&system);
