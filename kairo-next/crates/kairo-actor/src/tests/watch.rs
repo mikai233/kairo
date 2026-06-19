@@ -1955,6 +1955,62 @@ fn stopping_watcher_discards_queued_terminated_signal() {
 }
 
 #[test]
+fn stopping_watcher_discards_queued_watch_with_message() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();
+    let (terminated_tx, _terminated_rx) = mpsc::channel();
+    let watcher = system
+        .spawn(
+            "watcher",
+            Props::new(move || WatchProbe {
+                terminated: terminated_tx,
+                custom: None,
+            }),
+        )
+        .unwrap();
+    let (registered_tx, registered_rx) = mpsc::channel();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+
+    watcher
+        .tell(WatchProbeMsg::WatchWith {
+            subject: subject.clone(),
+            registered: registered_tx,
+            observed: observed_tx,
+        })
+        .unwrap();
+    registered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    watcher
+        .tell(WatchProbeMsg::Block {
+            entered: entered_tx,
+            release: release_rx,
+        })
+        .unwrap();
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    system.stop(&subject);
+    assert!(subject.wait_for_stop(Duration::from_secs(1)));
+    system.stop(&watcher);
+    release_tx.send(()).unwrap();
+    assert!(watcher.wait_for_stop(Duration::from_secs(1)));
+
+    assert!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+    assert!(
+        !system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_millis(100)),
+        "queued watch_with message should be discarded when the watcher stops before delivery: {:?}",
+        system.dead_letters().records()
+    );
+    assert!(system.dead_letters().is_empty());
+}
+
+#[test]
 fn default_terminated_signal_triggers_death_pact_stop() {
     let system = ActorSystem::builder("test").build().unwrap();
     let subject = system.spawn("subject", Props::new(|| Noop)).unwrap();

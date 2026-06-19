@@ -423,21 +423,39 @@ impl ActorSystem {
         let subject_path = subject.path().clone();
         let watcher_path = watcher.path().clone();
         let watcher_mailbox = watcher.target.mailbox.clone();
+        let watcher_stopped = Arc::clone(&watcher.target.stopped);
         let watcher_dead_letters = watcher.dead_letters.clone();
         let inner = Arc::clone(&self.inner);
         let registration =
             DeathWatchRegistration::new(watcher_path.clone(), DeathWatchKind::Custom, move |_| {
                 let Some(mailbox) = watcher_mailbox else {
+                    if inner
+                        .death_watch
+                        .take_queued_custom(&subject_path, &watcher_path)
+                        && !watcher_stopped.load(Ordering::Acquire)
+                    {
+                        watcher_dead_letters.publish::<M>(watcher_path.clone(), "actor is stopped");
+                    }
+                    return;
+                };
+                if watcher_stopped.load(Ordering::Acquire) {
                     inner
                         .death_watch
                         .clear_queued_custom(&subject_path, &watcher_path);
-                    watcher_dead_letters.publish::<M>(watcher_path, "actor is stopped");
                     return;
-                };
+                }
                 let subject_path_for_delivery = subject_path.clone();
                 let watcher_path_for_delivery = watcher_path.clone();
+                let watcher_stopped_for_delivery = Arc::clone(&watcher_stopped);
                 let inner_for_delivery = Arc::clone(&inner);
                 if let Err(error) = mailbox.enqueue_adapted((), move |()| {
+                    if watcher_stopped_for_delivery.load(Ordering::Acquire) {
+                        inner_for_delivery.death_watch.clear_queued_custom(
+                            &subject_path_for_delivery,
+                            &watcher_path_for_delivery,
+                        );
+                        return None;
+                    }
                     if inner_for_delivery
                         .death_watch
                         .take_queued_custom(&subject_path_for_delivery, &watcher_path_for_delivery)
@@ -447,10 +465,12 @@ impl ActorSystem {
                         None
                     }
                 }) {
-                    inner
+                    let was_queued = inner
                         .death_watch
-                        .clear_queued_custom(&subject_path, &watcher_path);
-                    watcher_dead_letters.publish::<M>(watcher_path, error.reason());
+                        .take_queued_custom(&subject_path, &watcher_path);
+                    if was_queued && !watcher_stopped.load(Ordering::Acquire) {
+                        watcher_dead_letters.publish::<M>(watcher_path.clone(), error.reason());
+                    }
                 }
             });
         self.watch_registered(subject, registration)

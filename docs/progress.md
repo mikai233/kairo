@@ -208,6 +208,17 @@ workspace stabilization before M13 release readiness.
   cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
   ```
 
+- Latest M13 validation refresh after actor death-watch custom-message cleanup:
+
+  ```bash
+  cargo test -p kairo-actor stopping_watcher_discards_queued_watch_with_message --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
