@@ -4173,6 +4173,11 @@ Implemented:
   surviving-route delivery while another peer is pending reconnect: cluster
   membership joins, distributed-data read requests, and cluster-tools pubsub
   publishes all cross the active connector route before retry.
+- `kairo-distributed-data` actor-backed TCP peer connector coverage now also
+  pins the mixed membership-shrink case: when one replicator route is active
+  and another peer is pending reconnect, removing the pending peer clears only
+  the reconnect state while the surviving route still delivers a
+  stable-manifest `ReplicatorRead`.
 - `kairo-cluster-tools` actor-backed TCP peer connector coverage now also
   pins the mixed membership-shrink case: when one pubsub route is active and
   another peer is pending reconnect, removing the pending peer clears only the
@@ -6859,5 +6864,11 @@ cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-distributed-data connector_keeps_route_and_clears_pending_reconnect_when_peer_leaves_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 git diff --check
 ```

@@ -628,6 +628,128 @@ fn connector_keeps_remaining_route_delivering_after_member_removed_event() {
 }
 
 #[test]
+fn connector_keeps_route_and_clears_pending_reconnect_when_peer_leaves_membership() {
+    let _guard = ddata_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("ddata-tcp-peer-connector-mixed-shrink-sender").unwrap();
+    let bound_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-mixed-shrink-bound").unwrap();
+    let retry_interval = Duration::from_millis(25);
+    let registry = registry();
+    let bound_port = unused_port();
+    let missing_port = unused_port();
+    let bound_node = node("mixed-shrink-bound", bound_port, 2);
+    let missing_node = node("mixed-shrink-missing", missing_port, 3);
+    let bound_requests = Arc::new(RecordingRequests::default());
+    let sender_runtime = bind_peer_runtime(
+        "mixed-shrink-sender",
+        1,
+        11,
+        ReplicaId::from(&bound_node),
+        retry_interval,
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let bound_runtime = bind_association_runtime_on_port_with_requests(
+        "mixed-shrink-bound",
+        ReplicaId::from(&bound_node),
+        ReplicaId::from(&sender_node),
+        22,
+        bound_port,
+        bound_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+    let cluster = Cluster::new(publisher.clone());
+    let snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("mixed-shrink-snapshots")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                member(sender_node.clone()),
+                member(bound_node.clone()),
+                member(missing_node.clone()),
+            ]),
+        ))
+        .unwrap();
+    let connector = sender_kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ReplicatorTcpPeerConnector::with_settings(
+                    cluster,
+                    sender_runtime,
+                    ReplicatorTcpPeerConnectorSettings::new(retry_interval)
+                        .unwrap()
+                        .with_automatic_retry_ticks(false),
+                )
+            }),
+        )
+        .unwrap();
+
+    let snapshot = eventually_snapshot(&connector, &snapshots, |snapshot| {
+        snapshot.route_count == 1 && snapshot.pending_reconnects.len() == 1
+    });
+    assert_eq!(snapshot.active_targets[0].node(), &bound_node);
+    assert_eq!(snapshot.pending_reconnects[0].target.node(), &missing_node);
+    assert_eq!(sender_cache.route_count(), 1);
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(sender_node.clone()), member(bound_node.clone())]),
+        ))
+        .unwrap();
+    let snapshot = eventually_snapshot(&connector, &snapshots, |snapshot| {
+        snapshot.route_count == 1 && snapshot.pending_reconnects.is_empty()
+    });
+    assert_eq!(snapshot.active_targets.len(), 1);
+    assert_eq!(snapshot.active_targets[0].node(), &bound_node);
+    assert!(snapshot.last_error.is_none());
+    let report = snapshot
+        .last_report
+        .expect("membership shrink should record a route report");
+    assert!(report.removed.is_empty());
+    assert_eq!(report.skipped.len(), 1);
+    assert_eq!(report.skipped[0].node(), &missing_node);
+    assert_eq!(sender_cache.route_count(), 1);
+
+    let bound_recipient = replicator_ref("mixed-shrink-bound", bound_port);
+    let sender_ref = replicator_ref(
+        sender_node.address.system(),
+        sender_node.address.port().unwrap(),
+    );
+    let read = ReplicatorRead {
+        key: "mixed-shrink-active-route".to_string(),
+        from: Some(ReplicaId::from(&sender_node)),
+    };
+    sender_cache
+        .send_to_recipient(RemoteEnvelope::new(
+            bound_recipient.clone(),
+            Some(sender_ref.clone()),
+            registry.serialize(&read).unwrap(),
+        ))
+        .unwrap();
+
+    let received = bound_requests.wait_for_len(1, Duration::from_secs(1));
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].0, ReplicaId::from(&sender_node));
+    assert_eq!(received[0].1.recipient, bound_recipient);
+    assert_eq!(received[0].1.sender, Some(sender_ref));
+    let decoded = registry
+        .deserialize::<ReplicatorRead>(received[0].1.message.clone())
+        .unwrap();
+    assert_eq!(decoded, read);
+
+    sender_kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+    assert_eq!(sender_cache.route_count(), 0);
+    bound_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    bound_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn connector_clears_pending_reconnect_when_peer_leaves_membership() {
     let _guard = ddata_socket_test_lock();
     let sender_kit =
