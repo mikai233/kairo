@@ -1634,6 +1634,111 @@ fn bootstrap_sender_keeps_remaining_pubsub_route_delivering_after_peer_removed()
 }
 
 #[test]
+fn bootstrap_clears_peer_routes_when_self_member_is_removed() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-self-remove-sender").unwrap();
+    let receiver_kit =
+        ActorSystemTestKit::new("cluster-tools-bootstrap-self-remove-receiver").unwrap();
+    let registry = registry();
+    let sender_runtime = bind_runtime(
+        "cluster-tools-bootstrap-self-remove-sender",
+        1,
+        11,
+        &sender_kit,
+        registry.clone(),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let (receiver_runtime, receiver_probes) = bind_runtime_with_probes(
+        "cluster-tools-bootstrap-self-remove-receiver",
+        2,
+        22,
+        &receiver_kit,
+        registry.clone(),
+    );
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = receiver_runtime.self_node().clone();
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ClusterToolsTcpPeerBootstrapSettings::new()
+        .with_connector_settings(
+            ClusterToolsTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        )
+        .with_connector_name("sender-tools-peer");
+
+    let sender_bootstrap = ClusterToolsTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), receiver_node.clone()]),
+    );
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    await_cache_route_count(&sender_cache, 1);
+
+    let outbound = PubSubRemoteDeliveryOutbound::<TestMessage>::from_arc(
+        receiver_node.clone(),
+        registry,
+        Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>,
+    );
+    outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders-before-self-removal"),
+            message: TestMessage { value: 21 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .unwrap();
+    assert_pubsub_publish(
+        &receiver_probes,
+        TopicName::new("orders-before-self-removal"),
+        TestMessage { value: 21 },
+    );
+
+    publish_gossip(&sender_publisher, up_gossip([receiver_node]));
+    await_connector_no_routes(sender_bootstrap.connector(), &sender_snapshots);
+    await_cache_route_count(&sender_cache, 0);
+
+    let removed_route_error = outbound
+        .tell(LocalPubSubMsg::Publish {
+            topic: TopicName::new("orders-after-self-removal"),
+            message: TestMessage { value: 22 },
+            mode: TopicPublishMode::Broadcast,
+            reply_to: None,
+        })
+        .expect_err("self-removed bootstrap connector should clear outbound routes");
+    assert!(
+        removed_route_error
+            .reason()
+            .contains("no remote association route"),
+        "unexpected self-removal send error: {removed_route_error:?}"
+    );
+    receiver_probes
+        .mediator
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
+    receiver_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
     let _guard = bootstrap_socket_test_lock();
     let first_kit = ActorSystemTestKit::new("cluster-tools-bootstrap-first").unwrap();
