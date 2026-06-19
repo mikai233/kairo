@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after sharding coordinator unavailable-region
+  rebalance gating:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding unavailable_region --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding coordinator_runtime_skips_rebalance_when_regions_are_unavailable --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after cluster-tools TCP peer runtime
   reachability-replacement route coverage:
 
@@ -2771,6 +2783,11 @@ Implemented:
   includes registered regions and proxies as `BeginHandOff` participants,
   deallocates shard homes on successful completion, retries pending
   `GetShardHome` requests, and clears in-progress state on timeout.
+- `kairo-cluster-sharding` coordinator runtime and actor control messages now
+  model Pekko's unavailable-region rebalance gate: marking any region
+  unavailable skips rebalance planning, healing that region allows rebalance
+  selection again, and known shard homes still reply while the region is not
+  terminating.
 - `kairo-cluster-sharding` now has an actor-backed shard coordinator boundary
   that wraps the focused coordinator runtime in synchronous actor turns,
   accepts explicit registration, shutdown marker, shard-home request,

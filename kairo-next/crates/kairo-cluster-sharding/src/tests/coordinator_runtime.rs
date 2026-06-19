@@ -291,6 +291,77 @@ fn coordinator_runtime_skips_rebalance_when_preparing_for_shutdown() {
 }
 
 #[test]
+fn coordinator_runtime_skips_rebalance_when_regions_are_unavailable() {
+    let strategy = LeastShardAllocationStrategy::new(1, 1.0).unwrap();
+    let mut runtime = coordinator_runtime_with_regions(["region-a", "region-b"]);
+    for shard in ["1", "2", "3", "4"] {
+        runtime
+            .apply_event(CoordinatorEvent::ShardHomeAllocated {
+                shard: shard.to_string(),
+                region: "region-a".to_string(),
+            })
+            .unwrap();
+    }
+    runtime.mark_region_unavailable("region-b");
+
+    assert_eq!(
+        runtime.plan_rebalance(&strategy).unwrap(),
+        RebalancePlan::Skipped {
+            reason: RebalanceSkipReason::RegionsUnavailable {
+                regions: BTreeSet::from(["region-b".to_string()]),
+            },
+        }
+    );
+    assert!(runtime.rebalance_in_progress().is_empty());
+}
+
+#[test]
+fn coordinator_runtime_rebalances_after_unavailable_region_heals() {
+    let strategy = LeastShardAllocationStrategy::new(1, 1.0).unwrap();
+    let mut runtime = coordinator_runtime_with_regions(["region-a", "region-b"]);
+    for shard in ["1", "2", "3", "4"] {
+        runtime
+            .apply_event(CoordinatorEvent::ShardHomeAllocated {
+                shard: shard.to_string(),
+                region: "region-a".to_string(),
+            })
+            .unwrap();
+    }
+    runtime.mark_region_unavailable("region-b");
+    assert!(matches!(
+        runtime.plan_rebalance(&strategy).unwrap(),
+        RebalancePlan::Skipped {
+            reason: RebalanceSkipReason::RegionsUnavailable { .. },
+        }
+    ));
+
+    assert_eq!(
+        runtime
+            .request_shard_home("region-b", "1", &strategy)
+            .unwrap(),
+        GetShardHomePlan::Reply {
+            shard: "1".to_string(),
+            region: "region-a".to_string(),
+        }
+    );
+    runtime.unmark_region_unavailable(&"region-b".to_string());
+
+    assert_eq!(
+        runtime.plan_rebalance(&strategy).unwrap(),
+        RebalancePlan::Started {
+            shards: vec![crate::ShardRebalancePlan {
+                shard: "1".to_string(),
+                from_region: "region-a".to_string(),
+                participants: BTreeSet::from(["region-a".to_string(), "region-b".to_string()]),
+                begin_handoff: crate::BeginHandOff {
+                    shard_id: "1".to_string(),
+                },
+            }],
+        }
+    );
+}
+
+#[test]
 fn coordinator_runtime_skips_rebalance_when_strategy_selects_no_shards() {
     let strategy = LeastShardAllocationStrategy::default();
     let mut runtime = coordinator_runtime_with_regions(["region-a", "region-b"]);

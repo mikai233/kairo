@@ -68,6 +68,7 @@ pub struct ShardRebalancePlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RebalanceSkipReason {
     PreparingForShutdown,
+    RegionsUnavailable { regions: BTreeSet<RegionId> },
     NoShardRegions,
     StrategySelectedNoShards,
     SelectedShardsMissingHomes,
@@ -97,6 +98,7 @@ pub struct CoordinatorRuntime {
     all_regions_registered: bool,
     graceful_shutdown_regions: BTreeSet<RegionId>,
     terminating_regions: BTreeSet<RegionId>,
+    unavailable_regions: BTreeSet<RegionId>,
     rebalance_in_progress: BTreeMap<ShardId, BTreeSet<RegionId>>,
     preparing_for_shutdown: bool,
 }
@@ -108,6 +110,7 @@ impl CoordinatorRuntime {
             all_regions_registered: true,
             graceful_shutdown_regions: BTreeSet::new(),
             terminating_regions: BTreeSet::new(),
+            unavailable_regions: BTreeSet::new(),
             rebalance_in_progress: BTreeMap::new(),
             preparing_for_shutdown: false,
         }
@@ -185,6 +188,18 @@ impl CoordinatorRuntime {
         self.terminating_regions.remove(region);
     }
 
+    pub fn mark_region_unavailable(&mut self, region: impl Into<RegionId>) {
+        self.unavailable_regions.insert(region.into());
+    }
+
+    pub fn unmark_region_unavailable(&mut self, region: &RegionId) {
+        self.unavailable_regions.remove(region);
+    }
+
+    pub fn unavailable_regions(&self) -> &BTreeSet<RegionId> {
+        &self.unavailable_regions
+    }
+
     pub fn begin_rebalance(&mut self, shard: impl Into<ShardId>) -> bool {
         self.rebalance_in_progress
             .insert(shard.into(), BTreeSet::new())
@@ -213,6 +228,14 @@ impl CoordinatorRuntime {
         if self.preparing_for_shutdown {
             return Ok(RebalancePlan::Skipped {
                 reason: RebalanceSkipReason::PreparingForShutdown,
+            });
+        }
+
+        if !self.unavailable_regions.is_empty() {
+            return Ok(RebalancePlan::Skipped {
+                reason: RebalanceSkipReason::RegionsUnavailable {
+                    regions: self.unavailable_regions.clone(),
+                },
             });
         }
 

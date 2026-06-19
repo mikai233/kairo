@@ -64,6 +64,12 @@ where
     UnmarkRegionTerminating {
         region: RegionId,
     },
+    MarkRegionUnavailable {
+        region: RegionId,
+    },
+    UnmarkRegionUnavailable {
+        region: RegionId,
+    },
     GracefulShutdownReq {
         region: RegionId,
         reply_to: Option<ActorRef<RegionShutdownPlan>>,
@@ -198,6 +204,12 @@ where
             }
             ShardCoordinatorMsg::UnmarkRegionTerminating { region } => {
                 self.runtime.unmark_region_terminating(&region);
+            }
+            ShardCoordinatorMsg::MarkRegionUnavailable { region } => {
+                self.runtime.mark_region_unavailable(region);
+            }
+            ShardCoordinatorMsg::UnmarkRegionUnavailable { region } => {
+                self.runtime.unmark_region_unavailable(&region);
             }
             ShardCoordinatorMsg::GracefulShutdownReq { region, reply_to } => {
                 let plan = self.runtime.plan_region_shutdown(region);

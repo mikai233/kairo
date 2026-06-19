@@ -2934,3 +2934,33 @@ Consequences:
 - Business payload codecs stay explicit and version-aware, preserving the rule
   that Rust type names, enum discriminants, and memory layout are not wire
   contracts.
+
+## ADR-0101: Sharding Rebalance Gates On Coordinator Unavailable Regions
+
+Status: Accepted
+
+Context:
+Pekko's least-shard allocation strategy avoids rebalance while needed cluster
+members are unreachable, because rebalancing requires acknowledgements from
+regions and proxies. Pekko obtains that evidence from `CurrentClusterState`
+inside the actor-system-dependent allocation strategy. Kairo's
+`ShardAllocationStrategy` is intentionally cluster-agnostic and synchronous, so
+putting cluster reachability directly into the strategy trait would widen a
+small testable boundary.
+
+Decision:
+Kairo stores unavailable region markers in `CoordinatorRuntime` and exposes
+actor control messages to mark or unmark regions as unavailable. Rebalance
+planning skips while any region is marked unavailable and resumes after the
+set is cleared. Known shard-home replies remain available unless the owning
+region is terminating, matching Pekko coordinator behavior where reachability
+gates rebalance suitability rather than making existing shard homes disappear.
+
+Consequences:
+- The public allocation strategy trait stays independent from cluster
+  membership, reachability, remoting, and actor-system state.
+- Cluster or sharding integration layers can project reachability observations
+  into explicit coordinator runtime markers.
+- Focused runtime and actor tests pin unavailable-region rebalance skips,
+  healing, and known-home reply behavior without requiring a multi-node cluster
+  fixture.

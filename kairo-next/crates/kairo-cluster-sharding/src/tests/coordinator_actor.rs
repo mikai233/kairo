@@ -528,6 +528,78 @@ fn coordinator_actor_plans_rebalance_and_defers_shard_home_requests() {
 }
 
 #[test]
+fn coordinator_actor_skips_rebalance_until_unavailable_region_heals() {
+    let mut state = CoordinatorState::new();
+    for region in ["region-a", "region-b"] {
+        state
+            .apply(CoordinatorEvent::ShardRegionRegistered {
+                region: region.to_string(),
+            })
+            .unwrap();
+    }
+    state
+        .apply(CoordinatorEvent::ShardHomeAllocated {
+            shard: "s1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("coordinator-actor-unavailable-rebalance").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props(state, FixedRebalanceStrategy::new(["s1"])),
+        )
+        .unwrap();
+    let rebalance = kit
+        .create_probe::<Result<RebalancePlan, ShardingError>>("rebalance")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::MarkRegionUnavailable {
+            region: "region-b".to_string(),
+        })
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::PlanRebalance {
+            reply_to: rebalance.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        rebalance
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        RebalancePlan::Skipped {
+            reason: RebalanceSkipReason::RegionsUnavailable {
+                regions: BTreeSet::from(["region-b".to_string()]),
+            },
+        }
+    );
+
+    coordinator
+        .tell(ShardCoordinatorMsg::UnmarkRegionUnavailable {
+            region: "region-b".to_string(),
+        })
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::PlanRebalance {
+            reply_to: rebalance.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        rebalance
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        RebalancePlan::Started { ref shards } if shards.len() == 1 && shards[0].shard == "s1"
+    ));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_retries_pending_home_after_cleared_rebalance() {
     let mut state = CoordinatorState::new();
     for region in ["region-a", "region-b"] {
