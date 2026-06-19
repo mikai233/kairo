@@ -238,6 +238,35 @@ fn schedule_once_self_after_owner_stop_goes_to_dead_letters() {
             }),
         )
         .unwrap();
+
+    assert_schedule_once_self_after_owner_stop_goes_to_dead_letters(&system, &scheduler, actor);
+}
+
+#[test]
+fn schedule_once_self_after_system_owner_stop_goes_to_dead_letters() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let (observed_tx, _observed_rx) = mpsc::channel();
+    let actor = system
+        .spawn_system(
+            "system-scheduled",
+            Props::new(move || ScheduledProbe {
+                observed: observed_tx,
+            }),
+        )
+        .unwrap();
+
+    assert_schedule_once_self_after_owner_stop_goes_to_dead_letters(&system, &scheduler, actor);
+}
+
+fn assert_schedule_once_self_after_owner_stop_goes_to_dead_letters(
+    system: &ActorSystem,
+    scheduler: &ManualScheduler,
+    actor: ActorRef<ScheduledMsg>,
+) {
     let (reply_tx, reply_rx) = mpsc::channel();
     let (ack_tx, ack_rx) = mpsc::channel();
 
@@ -264,6 +293,10 @@ fn schedule_once_self_after_owner_stop_goes_to_dead_letters() {
     let records = system.dead_letters().records();
     assert_eq!(records[0].recipient(), actor.path());
     assert_eq!(records[0].reason(), "actor is stopped");
+    assert_eq!(
+        records[0].message_type(),
+        std::any::type_name::<ScheduledMsg>()
+    );
 }
 
 #[test]

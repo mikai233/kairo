@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after direct system-actor scheduled-self stop
+  dead-letter coverage:
+
+  ```bash
+  cargo test -p kairo-actor schedule_once_self_after --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after system event-stream stale-subscriber
   pruning coverage:
 
@@ -678,7 +689,10 @@ Implemented:
   targets, local death-watch signals, custom watch messages, and unwatch.
 - Focused scheduler tests cover delayed delivery, cancellation, scheduled self
   messages re-entering the actor mailbox, and delayed scheduled-self delivery
-  to dead letters when the owner stops before the delay fires.
+  to dead letters when the owner stops before the delay fires. The direct
+  actor-stop coverage now pins that stopped-owner scheduled self delivery for
+  both `/user` and `/system` actors and records the delayed message type in
+  dead letters.
 - Actor-system scheduler entry points now return already-cancelled handles
   after termination has started, so post-termination scheduling does not retain
   delayed work or enqueue dead letters.
