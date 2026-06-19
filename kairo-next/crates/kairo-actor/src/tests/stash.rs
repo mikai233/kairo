@@ -358,30 +358,25 @@ fn stop_drains_stashed_messages_to_dead_letters() {
             .with_stash_capacity(8),
         )
         .unwrap();
-    let (inspect_tx, inspect_rx) = mpsc::channel();
 
-    actor.tell(StashProbeMsg::Work(1)).unwrap();
-    actor.tell(StashProbeMsg::Work(2)).unwrap();
-    actor.tell(StashProbeMsg::Inspect(inspect_tx)).unwrap();
-    assert_eq!(
-        inspect_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
-        (2, Some(8), false)
-    );
+    assert_actor_stop_drains_stashed_messages_to_dead_letters(&system, actor);
+}
 
-    system.stop(&actor);
-    assert!(actor.wait_for_stop(Duration::from_secs(1)));
-    assert!(
-        system
-            .dead_letters()
-            .wait_for_len(2, Duration::from_secs(1))
-    );
-    assert!(
-        system
-            .dead_letters()
-            .records()
-            .iter()
-            .all(|record| record.recipient() == actor.path())
-    );
+#[test]
+fn system_actor_stop_drains_stashed_messages_to_dead_letters() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn_system(
+            "system-stash",
+            Props::new(|| StashProbe {
+                open: false,
+                values: Vec::new(),
+            })
+            .with_stash_capacity(8),
+        )
+        .unwrap();
+
+    assert_actor_stop_drains_stashed_messages_to_dead_letters(&system, actor);
 }
 
 #[test]
@@ -416,6 +411,39 @@ fn actor_system_terminate_drains_system_actor_stashed_messages_to_dead_letters()
         .unwrap();
 
     assert_actor_system_terminate_drains_stashed_messages_to_dead_letters(system, actor);
+}
+
+fn assert_actor_stop_drains_stashed_messages_to_dead_letters(
+    system: &ActorSystem,
+    actor: ActorRef<StashProbeMsg>,
+) {
+    let (inspect_tx, inspect_rx) = mpsc::channel();
+
+    actor.tell(StashProbeMsg::Work(1)).unwrap();
+    actor.tell(StashProbeMsg::Work(2)).unwrap();
+    actor.tell(StashProbeMsg::Inspect(inspect_tx)).unwrap();
+    assert_eq!(
+        inspect_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        (2, Some(8), false)
+    );
+
+    system.stop(&actor);
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(2, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record.recipient() == actor.path()
+                && record.reason() == "actor is stopped"
+                && record.message_type() == std::any::type_name::<StashProbeMsg>())
+            .count(),
+        2
+    );
 }
 
 fn assert_actor_system_terminate_drains_stashed_messages_to_dead_letters(

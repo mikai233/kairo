@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after direct actor-stop stashed-message drain
+  parity coverage:
+
+  ```bash
+  cargo test -p kairo-actor stop_drains_stashed_messages_to_dead_letters --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after direct actor-stop timer cleanup parity
   coverage:
 
@@ -653,7 +664,8 @@ Implemented:
   before later mailbox messages when explicitly unstashed.
 - Stash operations now reject new public stash/unstash requests once an actor
   has requested or entered stop, while runtime stop cleanup still drains
-  already-stashed messages to dead letters.
+  already-stashed messages to dead letters for both `/user` and `/system`
+  actors.
 - Focused event-stream tests cover typed subscription, duplicate subscription
   suppression, exact event-type matching, publishing, and unsubscribe.
 - `kairo-actor` runtime code is split by responsibility across modules instead
