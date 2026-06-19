@@ -2409,6 +2409,11 @@ Implemented:
   helper that spawns a discovery-enabled local shard region together with its
   cluster discovery subscriber, cleans up the region if subscriber startup
   fails, and returns both actor refs for user control and tests.
+- `ShardRegionBootstrap` now also has remember-entity construction paths for
+  discovery-enabled regions: one for shard-owned local remember stores seeded
+  by remembered entity data, and one for externally supplied shared
+  remember-store actor refs. Focused bootstrap tests pin coordinator discovery,
+  remembered-shard allocation, and recovered entity delivery for both paths.
 - The `kairo` facade test suite now pins the implementation-status docs
   against the completed `ShardRegionBootstrap` helper, so progress and ADR
   docs cannot regress to describing the sharding region bootstrap path as
@@ -4324,7 +4329,8 @@ Not yet implemented:
   orchestration beyond the current focused actor-level load/update/restart,
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned region load-before-first-delivery coverage, region death-watch
-  restart, and multi-node discovery/shared-store first-delivery coverage.
+  restart, multi-node discovery/shared-store first-delivery coverage, and
+  local/shared remember-store bootstrap helper coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful

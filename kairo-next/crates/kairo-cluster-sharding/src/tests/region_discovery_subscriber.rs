@@ -196,6 +196,246 @@ fn region_bootstrap_spawns_region_and_discovery_subscriber() {
 }
 
 #[test]
+fn region_bootstrap_spawns_local_remember_store_region_with_discovery() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-bootstrap-local-remember-discovery")
+        .unwrap();
+    let self_node = remote_unique_node(
+        "region-bootstrap-local-remember-discovery",
+        "127.0.0.1",
+        2665,
+        16,
+    );
+    let coordinator_node = remote_unique_node(
+        "region-bootstrap-local-remember-discovery",
+        "127.0.0.1",
+        2666,
+        17,
+    );
+    let publisher = kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(self_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state.merge_remembered_shards(["shard-1".to_string()]);
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    )
+    .with_local_coordinator(coordinator_node.clone(), coordinator.clone());
+    let bootstrap =
+        ShardRegionBootstrap::spawn_local_remember_store_shards_with_coordinator_discovery(
+            kit.system(),
+            ShardRegionLocalRememberStoreBootstrapConfig::new(
+                ShardRegionBootstrapConfig::new(
+                    "region-a",
+                    "region-a-discovery",
+                    cluster,
+                    "region-a",
+                    10,
+                    10,
+                    discovery,
+                ),
+                "orders",
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+            ),
+        )
+        .unwrap();
+    let coordinator_state = kit
+        .create_probe::<CoordinatorStateSnapshot>("local-remember-coordinator-state")
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("local-remember-routes")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("local-remember-deliveries")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([cluster_member(
+                coordinator_node,
+                MemberStatus::Up,
+                ["backend"],
+                1,
+            )]),
+        ))
+        .unwrap();
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "bootstrap local remember-store region should allocate remembered shard",
+        remembered_shard_allocated,
+    );
+
+    bootstrap
+        .region()
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-bootstrap".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string()
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-bootstrap".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn region_bootstrap_spawns_shared_remember_store_region_with_discovery() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("region-bootstrap-shared-remember-discovery")
+        .unwrap();
+    let self_node = remote_unique_node(
+        "region-bootstrap-shared-remember-discovery",
+        "127.0.0.1",
+        2667,
+        18,
+    );
+    let coordinator_node = remote_unique_node(
+        "region-bootstrap-shared-remember-discovery",
+        "127.0.0.1",
+        2668,
+        19,
+    );
+    let remember_store = kit
+        .system()
+        .spawn(
+            "remember-store",
+            RememberShardStoreActor::props(RememberShardStoreState::with_entities(
+                "orders",
+                "shard-1",
+                ["entity-1".to_string()],
+            )),
+        )
+        .unwrap();
+    let publisher = kit
+        .system()
+        .spawn(
+            "cluster-events",
+            Props::new(move || ClusterEventPublisher::new(self_node.clone())),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state.merge_remembered_shards(["shard-1".to_string()]);
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let discovery = RegionCoordinatorDiscoveryConfig::new(
+        CoordinatorDiscoverySettings::default().with_required_role("backend"),
+        Duration::from_millis(20),
+    )
+    .with_local_coordinator(coordinator_node.clone(), coordinator.clone());
+    let bootstrap = ShardRegionBootstrap::spawn_remember_store_shards_with_coordinator_discovery(
+        kit.system(),
+        ShardRegionRememberStoreBootstrapConfig::new(
+            ShardRegionBootstrapConfig::new(
+                "region-a",
+                "region-a-discovery",
+                cluster,
+                "region-a",
+                10,
+                10,
+                discovery,
+            ),
+            BTreeMap::from([("shard-1".to_string(), remember_store)]),
+            Duration::from_millis(500),
+        ),
+    )
+    .unwrap();
+    let coordinator_state = kit
+        .create_probe::<CoordinatorStateSnapshot>("shared-remember-coordinator-state")
+        .unwrap();
+    let routes = kit
+        .create_probe::<RegionLocalRoutePlan<String>>("shared-remember-routes")
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("shared-remember-deliveries")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([cluster_member(
+                coordinator_node,
+                MemberStatus::Up,
+                ["backend"],
+                1,
+            )]),
+        ))
+        .unwrap();
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "bootstrap shared remember-store region should allocate remembered shard",
+        remembered_shard_allocated,
+    );
+
+    bootstrap
+        .region()
+        .tell(ShardRegionMsg::RouteToLocalShard {
+            shard: "shard-1".to_string(),
+            message: ShardingEnvelope::new("entity-1", "after-bootstrap".to_string()),
+            route_reply_to: routes.actor_ref(),
+            delivery_reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        routes.expect_msg(Duration::from_millis(500)).unwrap(),
+        RegionLocalRoutePlan::DeliveredToLocalShard {
+            shard: "shard-1".to_string()
+        }
+    );
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-bootstrap".to_string()),
+        }
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn region_bootstrap_stops_region_when_discovery_subscriber_spawn_fails() {
     let kit = kairo_testkit::ActorSystemTestKit::new("region-bootstrap-cleanup").unwrap();
     let self_node = remote_unique_node("region-bootstrap-cleanup", "127.0.0.1", 2664, 15);

@@ -175,7 +175,10 @@ pub use protocol::{
     ShardStopped,
 };
 pub use region_actor::ShardRegionActor;
-pub use region_bootstrap::{ShardRegionBootstrap, ShardRegionBootstrapConfig};
+pub use region_bootstrap::{
+    ShardRegionBootstrap, ShardRegionBootstrapConfig, ShardRegionLocalRememberStoreBootstrapConfig,
+    ShardRegionRememberStoreBootstrapConfig,
+};
 pub use region_coordinator_discovery::{
     RegionCoordinatorDiscovery, RegionCoordinatorDiscoveryConfig, RegionCoordinatorDiscoveryPlan,
 };
