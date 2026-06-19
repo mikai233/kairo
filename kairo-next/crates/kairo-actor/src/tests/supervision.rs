@@ -1454,6 +1454,34 @@ impl Actor for RestartWatchParent {
     }
 }
 
+enum RestartPlainWatchMsg {
+    SpawnAndWatchChild(mpsc::Sender<()>),
+    Fail,
+    Ping(mpsc::Sender<()>),
+}
+
+struct RestartPlainWatchParent;
+
+impl Actor for RestartPlainWatchParent {
+    type Msg = RestartPlainWatchMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            RestartPlainWatchMsg::SpawnAndWatchChild(reply_to) => {
+                let child = ctx.spawn("child", Props::new(|| Noop))?;
+                ctx.watch(&child)?;
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))
+            }
+            RestartPlainWatchMsg::Fail => Err(ActorError::Message("boom".to_string())),
+            RestartPlainWatchMsg::Ping(reply_to) => reply_to
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string())),
+        }
+    }
+}
+
 #[test]
 fn restart_supervision_unwatches_children_before_restart_stop() {
     let system = ActorSystem::builder("test").build().unwrap();
@@ -1486,6 +1514,30 @@ fn restart_supervision_unwatches_children_before_restart_stop() {
         RestartWatchEvent::ChildStopped
     );
     assert_eq!(events_rx.try_recv().unwrap_err(), mpsc::TryRecvError::Empty);
+}
+
+#[test]
+fn restart_supervision_plain_child_watch_does_not_death_pact_restarted_parent() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::restartable(|| RestartPlainWatchParent))
+        .unwrap();
+    let (spawned_tx, spawned_rx) = mpsc::channel();
+
+    parent
+        .tell(RestartPlainWatchMsg::SpawnAndWatchChild(spawned_tx))
+        .unwrap();
+    spawned_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    parent.tell(RestartPlainWatchMsg::Fail).unwrap();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    parent.tell(RestartPlainWatchMsg::Ping(ping_tx)).unwrap();
+    ping_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    assert!(
+        !parent.is_stopped(),
+        "restart-time child stop must not deliver a stale Terminated signal to the restarted parent"
+    );
 }
 
 #[test]

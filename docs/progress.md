@@ -4289,11 +4289,16 @@ Implemented:
   shard, loads already remembered entities before replaying the first buffered
   delivery, and delivers to the recovered entity without issuing a duplicate
   remember-start update.
+- `kairo-actor` restart-time child lifecycle coverage now includes the plain
+  death-watch path: a restartable parent that explicitly watches a child can
+  stop that child as part of default restart without receiving a stale
+  `Terminated` death-pact signal after the parent has been rebuilt.
 
 Not yet implemented:
 
 - Full actor tree lifecycle semantics beyond recursive local stop, recursive
-  restart-time child handling, and terminating-child name reservation.
+  restart-time child handling, restart-time child watch cleanup, and
+  terminating-child name reservation.
 - Broader actor-system local/remote provider integration, optional codec
   helper crates, richer actor-system lifecycle wiring around the existing TCP
   association primitives, and broader cross-crate compatibility fixtures.
@@ -6798,6 +6803,12 @@ cargo test -p kairo-cluster-sharding region_actor_loads_remembered_entities_befo
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+cargo test -p kairo-actor restart_supervision_plain_child_watch_does_not_death_pact_restarted_parent --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
 cargo test -p kairo implementation_status_docs_do_not_mark_region_bootstrap_as_future_work --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
