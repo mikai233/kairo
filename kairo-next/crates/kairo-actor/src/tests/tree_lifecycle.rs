@@ -879,6 +879,62 @@ fn context_stop_drains_child_queued_user_messages_to_dead_letters() {
 }
 
 #[test]
+fn parent_stop_drains_child_queued_user_messages_to_dead_letters() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(|| BlockingReceiveParent { child: None }),
+        )
+        .unwrap();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (block_entered_tx, block_entered_rx) = mpsc::channel();
+    let (block_release_tx, block_release_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+
+    parent
+        .tell(BlockingReceiveParentMsg::SpawnChild(spawn_tx))
+        .unwrap();
+    let child = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child
+        .tell(BlockingReceiveChildMsg::Block {
+            entered: block_entered_tx,
+            release: block_release_rx,
+        })
+        .unwrap();
+    block_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    child.tell(BlockingReceiveChildMsg::Ping(ping_tx)).unwrap();
+
+    system.stop(&parent);
+    let stop_requested_deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while !child.is_stopped() {
+        assert!(
+            std::time::Instant::now() < stop_requested_deadline,
+            "parent stop must request recursive child stop while the child receive turn is blocked"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    block_release_tx.send(()).unwrap();
+
+    assert!(
+        ping_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "queued child message must not be delivered after parent stop recursively stops the child"
+    );
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert_eq!(records[0].recipient(), child.path());
+    assert_eq!(records[0].reason(), "actor is stopped");
+}
+
+#[test]
 fn stopping_child_name_is_reserved_until_termination_completes() {
     let system = ActorSystem::builder("test").build().unwrap();
     let parent = system

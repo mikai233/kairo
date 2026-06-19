@@ -62,11 +62,11 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
-- Latest M13 validation refresh after direct child stop queued-message drain
-  coverage:
+- Latest M13 validation refresh after parent recursive stop child
+  queued-message drain coverage:
 
   ```bash
-  cargo test -p kairo-actor context_stop_drains_child_queued_user_messages_to_dead_letters --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor parent_stop_drains_child_queued_user_messages_to_dead_letters --all-targets --all-features -- --nocapture
   cargo test -p kairo-actor --all-targets --all-features
   cargo fmt --all
   cargo fmt --all -- --check
@@ -164,6 +164,10 @@ Implemented:
   boundary: when a parent stops a child that is blocked in a receive turn,
   child messages already queued behind the stop request are drained to dead
   letters instead of being delivered after the blocked turn completes.
+- Parent recursive-stop coverage now also pins the same child mailbox priority
+  boundary for `ActorSystem::stop(parent)`: once parent termination has
+  requested a child stop, child messages already queued behind a blocked
+  receive are drained to dead letters instead of being delivered.
 - `Context::spawn` and `Context::spawn_anonymous` now reject child creation
   once the owning actor is stopping, including during `PostStop`, so stopped
   actors cannot create orphan children under a dead parent path.
