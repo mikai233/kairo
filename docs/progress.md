@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after coordinated-shutdown same-phase late
+  task registration coverage:
+
+  ```bash
+  cargo test -p kairo-actor coordinated_shutdown_same_phase_task_added_during_run_is_too_late --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after coordinated-shutdown same-phase
   parallel task coverage:
 
@@ -1145,6 +1156,9 @@ Implemented:
 - Coordinated shutdown coverage now pins Pekko-style same-phase task
   execution: tasks in one phase can start concurrently, and the next phase does
   not begin until all started tasks in the current phase complete.
+- Coordinated shutdown coverage now also pins late registration semantics:
+  tasks added to a later phase by an earlier task run, while tasks added to the
+  currently running phase are accepted but too late to execute.
 - Coordinated shutdown actor termination task coverage now pins both `/user`
   and `/system` actor refs, including explicit stop-message delivery,
   wait-only timeout without implicit stopping, and already-stopped wait-only

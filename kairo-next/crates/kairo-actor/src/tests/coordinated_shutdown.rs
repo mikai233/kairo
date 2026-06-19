@@ -230,6 +230,41 @@ fn coordinated_shutdown_task_can_add_later_phase_task() {
 }
 
 #[test]
+fn coordinated_shutdown_same_phase_task_added_during_run_is_too_late() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let shutdown = system.coordinated_shutdown();
+    let (events_tx, events_rx) = mpsc::channel();
+    let ran_late = Arc::new(AtomicU64::new(0));
+
+    shutdown
+        .add_task(PHASE_SERVICE_STOP, "register-same-phase", {
+            let shutdown = shutdown.clone();
+            let events = events_tx.clone();
+            let ran_late = Arc::clone(&ran_late);
+            move || {
+                events
+                    .send("early")
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                shutdown.add_task(PHASE_SERVICE_STOP, "too-late-same-phase", move || {
+                    ran_late.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                })
+            }
+        })
+        .unwrap();
+
+    shutdown.run("test").unwrap();
+    shutdown.run("second").unwrap();
+
+    assert_eq!(
+        events_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "early"
+    );
+    assert!(events_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    assert_eq!(ran_late.load(Ordering::Relaxed), 0);
+}
+
+#[test]
 fn coordinated_shutdown_cancellable_task_skips_cancelled_registration() {
     let system = ActorSystem::builder("test").build().unwrap();
     let shutdown = system.coordinated_shutdown();
