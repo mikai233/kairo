@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after shard remember-store load/update failure
+  stop coverage:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding shard_actor_with_remember_store_stops_after --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after direct actor-stop receive-timeout
   cleanup coverage:
 
@@ -4908,6 +4919,10 @@ Implemented:
   remember-store shard termination is observed through death watch and restarts
   after the configured backoff without requiring an explicit mark-stopped
   command.
+- `kairo-cluster-sharding` store-backed `ShardActor` failure coverage now pins
+  the remembered-entity store boundary: failed load or update results stop the
+  shard instead of replaying stashed deliveries or continuing with uncertain
+  durable remembered-entity state.
 - `kairo-cluster-sharding` multi-node shared remember-store discovery coverage
   has been re-audited: a region discovers a coordinator on another node,
   allocates a remembered shard backed by a store on a third node, delivers a
