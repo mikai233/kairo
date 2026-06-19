@@ -10,7 +10,9 @@ use kairo_cluster::{
     Cluster, ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Member, MemberStatus,
     UniqueAddress,
 };
-use kairo_remote::RemoteSettings;
+use kairo_remote::{
+    RemoteAssociationAddress, RemoteAssociationCache, RemoteOutbound, RemoteSettings,
+};
 use kairo_serialization::RemoteMessage;
 use kairo_testkit::{ActorSystemTestKit, ManualTime, MultiNodeTestKit, await_assert};
 
@@ -58,6 +60,32 @@ impl ReplicatorRemoteRequestReceiver for DeferredRequests {
                 )
             })?;
         receiver.receive_request_from(from, envelope)
+    }
+}
+
+#[derive(Default)]
+struct NoopOutbound;
+
+impl RemoteOutbound for NoopOutbound {
+    fn send(&self, _envelope: kairo_serialization::RemoteEnvelope) -> kairo_remote::Result<()> {
+        Ok(())
+    }
+}
+
+struct LateRouteOnClose {
+    cache: RemoteAssociationCache,
+    late_address: RemoteAssociationAddress,
+}
+
+impl RemoteOutbound for LateRouteOnClose {
+    fn send(&self, _envelope: kairo_serialization::RemoteEnvelope) -> kairo_remote::Result<()> {
+        Ok(())
+    }
+
+    fn close(&self, _reason: &str) -> kairo_remote::Result<()> {
+        self.cache
+            .insert_route(self.late_address.clone(), Arc::new(NoopOutbound));
+        Ok(())
     }
 }
 
@@ -492,6 +520,92 @@ fn bootstrap_coordinated_shutdown_stops_connector_after_live_route() {
 
     run_bootstrap_shutdown(&receiver_kit, receiver_bootstrap.connector());
     await_cache_route_count(&receiver_cache, 0);
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_coordinated_shutdown_clears_late_route_registered_during_connector_stop() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-late-route-sender").unwrap();
+    let receiver_kit = ActorSystemTestKit::new("ddata-bootstrap-late-route-receiver").unwrap();
+    let receiver_port = unused_port();
+    let receiver_node = node("ddata-bootstrap-late-route-receiver", receiver_port, 2);
+    let sender_runtime = bind_runtime(
+        "ddata-bootstrap-late-route-sender",
+        1,
+        11,
+        ReplicaId::from(&receiver_node),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_runtime = bind_association_runtime_on_port(
+        "ddata-bootstrap-late-route-receiver",
+        ReplicaId::from(&receiver_node),
+        ReplicaId::from(&sender_node),
+        22,
+        receiver_port,
+    );
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_shutdown_timeout(Duration::from_secs(1));
+
+    let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings.with_connector_name("sender-ddata-peer"),
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    sender_publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+                Member::new(receiver_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+            ]),
+        ))
+        .unwrap();
+
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    assert_eq!(sender_cache.route_count(), 1);
+    let initial_address = RemoteAssociationAddress::new(
+        "kairo",
+        "ddata-bootstrap-late-initial",
+        "127.0.0.1",
+        Some(2552),
+    )
+    .unwrap();
+    let late_address =
+        RemoteAssociationAddress::new("kairo", "ddata-bootstrap-late", "127.0.0.1", Some(2553))
+            .unwrap();
+    sender_cache.insert_route(
+        initial_address,
+        Arc::new(LateRouteOnClose {
+            cache: sender_cache.clone(),
+            late_address,
+        }),
+    );
+    assert_eq!(sender_cache.route_count(), 2);
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
+
+    receiver_runtime.shutdown().unwrap();
     receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

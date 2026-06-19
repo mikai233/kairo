@@ -183,6 +183,17 @@ workspace stabilization before M13 release readiness.
   cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
   ```
 
+- Latest M13 validation refresh after distributed-data TCP bootstrap
+  coordinated-shutdown late-route cleanup:
+
+  ```bash
+  cargo test -p kairo-distributed-data bootstrap_coordinated_shutdown_clears_late_route_registered_during_connector_stop --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
@@ -4282,6 +4293,10 @@ Implemented:
 - Distributed-data and cluster-tools actor-backed TCP peer connector coverage
   now pins the same explicit multi-route `ClearRoutes` behavior, so all TCP
   peer connectors assert two active routes are removed by the command.
+- Distributed-data TCP peer bootstrap coverage now pins the same late-route
+  shutdown invariant through the public coordinated-shutdown facade: a
+  bootstrap-registered connector stop clears a close-hook-created association
+  route before the shutdown task reports success.
 - `MultiNodeTestKit::shutdown` now uses one shared timeout budget across all
   node actor systems, so a slow first node cannot grant later nodes fresh
   full shutdown windows during deterministic multi-node cleanup.
