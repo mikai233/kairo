@@ -63,7 +63,7 @@ workspace stabilization before M13 release readiness.
 ## Known Validation Status
 
 - Latest M13 validation refresh after coordinated-shutdown system actor
-  termination task coverage:
+  termination task wait-only timeout coverage:
 
   ```bash
   cargo test -p kairo-actor coordinated_shutdown_actor_termination_task --all-targets --all-features -- --nocapture
@@ -1132,8 +1132,9 @@ Implemented:
   and `ActorSystem::run_coordinated_shutdown` for task execution followed by
   top-level actor termination.
 - Coordinated shutdown actor termination task coverage now pins both `/user`
-  and `/system` actor refs, including explicit stop-message delivery and
-  already-stopped wait-only completion.
+  and `/system` actor refs, including explicit stop-message delivery,
+  wait-only timeout without implicit stopping, and already-stopped wait-only
+  completion.
 - Coordinated shutdown state lives in a focused `coordinated_shutdown` module.
 - `Props::with_supervisor` supports explicit stop, resume, and restart
   directives for local actor receive failures; stop remains the default.

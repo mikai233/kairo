@@ -367,6 +367,35 @@ fn coordinated_shutdown_actor_termination_task_without_message_waits_only() {
 }
 
 #[test]
+fn coordinated_shutdown_actor_termination_task_without_message_waits_only_for_system_actor() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let counter = system
+        .spawn_system("system-counter", Props::new(|| Counter { value: 0 }))
+        .unwrap();
+
+    system
+        .coordinated_shutdown()
+        .add_actor_termination_task(
+            PHASE_SERVICE_STOP,
+            "wait-system-counter",
+            counter.clone(),
+            None,
+            Duration::from_millis(20),
+        )
+        .unwrap();
+
+    let result = system.coordinated_shutdown().run("test");
+
+    assert!(
+        matches!(result, Err(ActorError::ShutdownTaskFailed(reason)) if reason.contains("timed out"))
+    );
+    assert!(!counter.is_stopped());
+    system.stop(&counter);
+    assert!(counter.wait_for_stop(Duration::from_secs(1)));
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinated_shutdown_actor_termination_task_without_message_accepts_already_stopped_actor() {
     let system = ActorSystem::builder("test").build().unwrap();
     let counter = system
