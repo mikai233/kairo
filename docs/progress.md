@@ -2202,6 +2202,11 @@ Implemented:
   stop, the region schedules a remembered-shard restart, respawns the shard
   with the same shared store ref, reloads remembered entities, and delivers to
   the recovered entity after the backoff.
+- `kairo-cluster-sharding` region actor coverage now also pins shared
+  remember-store stale restart generation handling: if a remembered shard is
+  manually rehosted and then fails again before the prior backoff fires, the
+  first delayed restart is ignored and the replacement occurs only when the
+  second failure's backoff expires.
 - `kairo-cluster-sharding` region actor coverage now also pins the shared
   remember-store handoff race: if an unexpectedly stopped remembered shard has
   a restart timer pending, a later `BeginHandOff` suppresses the stale restart
@@ -4295,6 +4300,17 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after shared-store remembered-shard stale restart
+generation coverage:
+
+```bash
+cargo test -p kairo-cluster-sharding region_actor_ignores_prior_shared_store_remembered_shard_restart_timer_after_new_failure --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after cluster-tools three-node shrink
 stale-route coverage:
