@@ -4297,6 +4297,11 @@ Implemented:
   coverage now mirror the cluster route-cache shrink checks: after membership
   removes a peer, both survivor caches must settle to one route and the removed
   peer cache must clear before stale delivery is asserted to fail.
+- `kairo-cluster` TCP bootstrap coverage now exercises a mixed active-route
+  plus pending-reconnect membership shrink path through the public bootstrap
+  facade: reduced gossip clears the missing peer's pending retry state,
+  records it as skipped, and keeps the surviving route delivering membership
+  messages.
 - `kairo-distributed-data` cluster connector coverage now includes a local
   two-node `MultiNodeTestKit` pruning scenario: the leader connector records a
   removed replica, waits for the all-reachable dissemination window,
@@ -4367,6 +4372,7 @@ Not yet implemented:
   `run_coordinated_shutdown` coverage, focused sender-side route-reduction
   delivery coverage, focused connector and bootstrap partial-failure delivery
   coverage, focused connector member-removal delivery coverage, focused
+  bootstrap mixed active-route/pending-reconnect shrink coverage, focused
   bootstrap automatic retry coverage, focused peer-runtime, connector, and
   bootstrap partial-failure retry coverage, three-node full-mesh delivery
   coverage where applicable, public example smoke coverage that coordinated
@@ -4381,6 +4387,17 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after cluster TCP bootstrap mixed-shrink cleanup:
+
+```bash
+cargo test -p kairo-cluster bootstrap_keeps_route_and_clears_pending_reconnect_when_peer_leaves_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after distributed-data example actor-backed TCP
 write coverage:

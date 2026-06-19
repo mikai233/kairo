@@ -948,6 +948,111 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
 }
 
 #[test]
+fn bootstrap_keeps_route_and_clears_pending_reconnect_when_peer_leaves_membership() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-bootstrap-mixed-shrink-sender").unwrap();
+    let bound_kit = ActorSystemTestKit::new("cluster-bootstrap-mixed-shrink-bound").unwrap();
+    let registry = registry();
+    let retry_interval = Duration::from_millis(25);
+    let sender_runtime = bind_runtime("cluster-bootstrap-mixed-shrink-sender", 1, 11, &sender_kit);
+    let sender_cache = sender_runtime.association_cache().clone();
+    let bound_port = unused_port();
+    let missing_port = unused_port();
+    let sender_node = sender_runtime.self_node().clone();
+    let bound_node = node("cluster-bootstrap-mixed-shrink-bound", bound_port, 2);
+    let missing_node = node("cluster-bootstrap-mixed-shrink-missing", missing_port, 3);
+    let (bound_runtime, bound_probes) = bind_association_runtime_on_port_with_probes(
+        "cluster-bootstrap-mixed-shrink-bound",
+        2,
+        22,
+        bound_port,
+        &bound_kit,
+        registry.clone(),
+    );
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ClusterTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ClusterTcpPeerConnectorSettings::new(retry_interval)
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_connector_name("sender-cluster-peer");
+
+    let sender_bootstrap = ClusterTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([
+            sender_node.clone(),
+            bound_node.clone(),
+            missing_node.clone(),
+        ]),
+    );
+    await_connector_routes_and_pending_reconnect(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        std::slice::from_ref(&bound_node),
+        &missing_node,
+    );
+    await_cache_route_count(&sender_cache, 1);
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), bound_node.clone()]),
+    );
+    let snapshot = await_connector_routes_without_pending(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        std::slice::from_ref(&bound_node),
+    );
+    assert_eq!(snapshot.active_targets.len(), 1);
+    assert_eq!(snapshot.active_targets[0].node(), &bound_node);
+    assert!(snapshot.last_error.is_none());
+    let report = snapshot
+        .last_report
+        .expect("membership shrink should record a route report");
+    assert!(report.removed.is_empty());
+    assert_eq!(report.skipped.len(), 1);
+    assert_eq!(report.skipped[0].node(), &missing_node);
+    await_cache_route_count(&sender_cache, 1);
+
+    let membership_outbound = ClusterMembershipWireOutbound::new(
+        bound_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(
+            Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>
+        ),
+    );
+    send_join_until_received(
+        &membership_outbound,
+        &bound_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["mixed-shrink-active-route".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
+    bound_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    bound_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_coordinated_shutdown_stops_connector_with_pending_reconnect() {
     let _guard = bootstrap_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-bootstrap-shutdown-pending-sender").unwrap();
