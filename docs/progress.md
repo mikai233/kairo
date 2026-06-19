@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after distributed-data delta-log per-node
+  unsent-range merge coverage:
+
+  ```bash
+  cargo test -p kairo-distributed-data delta_propagation_log_merges_unsent_ranges_per_node --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data delta_log --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after cluster-tools pubsub limited-delta
   version-ordering coverage:
 
@@ -5504,6 +5516,11 @@ Implemented:
   delta chunking: when a peer can only receive part of a bucket, entries are
   selected by lowest entry version before key order so the peer can advance its
   seen bucket version without permanently missing older unsent registrations.
+- `kairo-distributed-data` delta propagation log coverage now pins Pekko-style
+  per-node delta selection: a node that missed earlier versions receives one
+  merged unsent range, while a node that already saw those versions receives
+  only the later delta, and cleanup retains entries until every live peer has
+  advanced past them.
 
 Not yet implemented:
 
@@ -5527,7 +5544,8 @@ Not yet implemented:
   active-route/pending-reconnect shrink delivery, bootstrap self-removal route
   cleanup, bootstrap automatic retry, partial-failure retry coverage,
   connector dynamic pruning-clock pause/resume coverage, and three-node
-  example shutdown route cleanup coverage. Current TCP peer-runtime coverage
+  example shutdown route cleanup coverage. Current delta-log coverage pins
+  per-node merged unsent-range delivery, and current TCP peer-runtime coverage
   also rejects local-only member snapshots before dialing.
   Current three-node bootstrap shrink coverage already feeds
   reduced gossip to the removed peer and asserts survivor and removed-peer

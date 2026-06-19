@@ -67,6 +67,47 @@ fn delta_propagation_log_selects_nodes_by_round_robin_slice() {
 }
 
 #[test]
+fn delta_propagation_log_merges_unsent_ranges_per_node() {
+    let key = ReplicatorKey::new("counter");
+    let node_a = replica("node-a");
+    let node_b = replica("node-b");
+    let node_c = replica("node-c");
+    let mut log = DeltaPropagationLog::new([node_a.clone(), node_b.clone(), node_c.clone()]);
+
+    log.record_delta(key.clone(), Some(delta_counter("a", 1)));
+    log.record_delta(key.clone(), Some(delta_counter("b", 2)));
+    let first = log.collect_propagations();
+    for node in [&node_a, &node_b] {
+        let entry = first.get(node).unwrap().entries().get(&key).unwrap();
+        assert_eq!(entry.from_version(), 1);
+        assert_eq!(entry.to_version(), 2);
+        assert_eq!(entry.delta().value().unwrap(), 3);
+    }
+    assert!(!first.contains_key(&node_c));
+
+    log.record_delta(key.clone(), Some(delta_counter("c", 4)));
+    let second = log.collect_propagations();
+    let missed_range = second.get(&node_c).unwrap().entries().get(&key).unwrap();
+    assert_eq!(missed_range.from_version(), 1);
+    assert_eq!(missed_range.to_version(), 3);
+    assert_eq!(missed_range.delta().value().unwrap(), 7);
+    let new_only = second.get(&node_a).unwrap().entries().get(&key).unwrap();
+    assert_eq!(new_only.from_version(), 3);
+    assert_eq!(new_only.to_version(), 3);
+    assert_eq!(new_only.delta().value().unwrap(), 4);
+    assert!(!second.contains_key(&node_b));
+
+    log.cleanup_delta_entries();
+    assert!(log.has_delta_entries(&key));
+
+    let third = log.collect_propagations();
+    let final_node = third.get(&node_b).unwrap().entries().get(&key).unwrap();
+    assert_eq!(final_node.from_version(), 3);
+    assert_eq!(final_node.to_version(), 3);
+    assert_eq!(final_node.delta().value().unwrap(), 4);
+}
+
+#[test]
 fn delta_propagation_log_cleans_entries_after_all_nodes_have_seen_them() {
     let key = ReplicatorKey::new("counter");
     let mut log = DeltaPropagationLog::new([replica("a"), replica("b")]);
