@@ -9,7 +9,10 @@ mod route_tests {
     use kairo_cluster::{
         CurrentClusterState, Member, MemberEvent, MemberStatus, ReachabilityEvent, UniqueAddress,
     };
-    use kairo_remote::{RemoteError, RemoteSettings};
+    use kairo_remote::{
+        RemoteAssociationAddress, RemoteAssociationCache, RemoteError, RemoteOutbound,
+        RemoteSettings,
+    };
     use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
     use kairo_testkit::await_assert;
 
@@ -41,6 +44,32 @@ mod route_tests {
             _from: ReplicaId,
             _envelope: RemoteEnvelope,
         ) -> Result<(), ReplicatorRemoteReplyError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct NoopOutbound;
+
+    impl RemoteOutbound for NoopOutbound {
+        fn send(&self, _envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+            Ok(())
+        }
+    }
+
+    struct LateRouteOnClose {
+        cache: RemoteAssociationCache,
+        late_address: RemoteAssociationAddress,
+    }
+
+    impl RemoteOutbound for LateRouteOnClose {
+        fn send(&self, _envelope: RemoteEnvelope) -> kairo_remote::Result<()> {
+            Ok(())
+        }
+
+        fn close(&self, _reason: &str) -> kairo_remote::Result<()> {
+            self.cache
+                .insert_route(self.late_address.clone(), Arc::new(NoopOutbound));
             Ok(())
         }
     }
@@ -730,6 +759,61 @@ mod route_tests {
         assert_eq!(sender_report.peer_routes.removed.len(), 1);
         assert!(sender_report.pending_reconnects.is_empty());
         assert_eq!(sender_report.listener.accepted_associations, 0);
+        let receiver_report = receiver.shutdown().unwrap();
+        assert_eq!(receiver_report.accepted_associations, 1);
+    }
+
+    #[test]
+    fn peer_runtime_shutdown_clears_late_routes_registered_during_shutdown() {
+        let _guard = ddata_socket_test_lock();
+        let retry_interval = Duration::from_millis(25);
+        let receiver_port = unused_port();
+        let receiver_node = node("receiver", receiver_port, 2);
+        let receiver = bind_association_runtime_on_port(
+            "receiver",
+            ReplicaId::from(&receiver_node),
+            replica("sender"),
+            22,
+            receiver_port,
+        );
+        let mut sender = bind_peer_runtime(
+            "sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&receiver_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+
+        sender
+            .apply_snapshot(state(
+                vec![member(sender_node), member(receiver_node)],
+                vec![],
+            ))
+            .unwrap();
+        wait_for_reverse_route(&receiver);
+        let cache = sender.association_cache().clone();
+        let initial_address =
+            RemoteAssociationAddress::new("kairo", "initial", "127.0.0.1", Some(2552)).unwrap();
+        let late_address =
+            RemoteAssociationAddress::new("kairo", "late", "127.0.0.1", Some(2553)).unwrap();
+        cache.insert_route(
+            initial_address,
+            Arc::new(LateRouteOnClose {
+                cache: cache.clone(),
+                late_address,
+            }),
+        );
+        assert_eq!(sender.peer_route_count(), 1);
+        assert_eq!(cache.route_count(), 2);
+
+        let sender_report = sender.shutdown().unwrap();
+
+        assert_eq!(sender_report.peer_routes.removed.len(), 1);
+        assert!(sender_report.pending_reconnects.is_empty());
+        assert_eq!(sender_report.listener.accepted_associations, 0);
+        assert_eq!(cache.route_count(), 0);
         let receiver_report = receiver.shutdown().unwrap();
         assert_eq!(receiver_report.accepted_associations, 1);
     }
