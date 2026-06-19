@@ -303,20 +303,38 @@ fn coordinated_shutdown_actor_termination_task_stops_actor() {
         .spawn("counter", Props::new(|| Counter { value: 0 }))
         .unwrap();
 
-    system
-        .coordinated_shutdown()
-        .add_actor_termination_task(
-            PHASE_SERVICE_STOP,
-            "stop-counter",
-            counter.clone(),
-            Some(CounterMsg::Stop),
-            Duration::from_secs(1),
-        )
-        .unwrap();
+    add_counter_stop_task(&system, "stop-counter", counter.clone());
 
     system.coordinated_shutdown().run("test").unwrap();
 
     assert!(counter.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
+fn coordinated_shutdown_actor_termination_task_stops_system_actor() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let counter = system
+        .spawn_system("system-counter", Props::new(|| Counter { value: 0 }))
+        .unwrap();
+
+    add_counter_stop_task(&system, "stop-system-counter", counter.clone());
+
+    system.coordinated_shutdown().run("test").unwrap();
+
+    assert!(counter.wait_for_stop(Duration::from_secs(1)));
+}
+
+fn add_counter_stop_task(system: &ActorSystem, task_name: &str, counter: ActorRef<CounterMsg>) {
+    system
+        .coordinated_shutdown()
+        .add_actor_termination_task(
+            PHASE_SERVICE_STOP,
+            task_name,
+            counter,
+            Some(CounterMsg::Stop),
+            Duration::from_secs(1),
+        )
+        .unwrap();
 }
 
 #[test]
@@ -362,6 +380,30 @@ fn coordinated_shutdown_actor_termination_task_without_message_accepts_already_s
         .add_actor_termination_task(
             PHASE_SERVICE_STOP,
             "wait-counter",
+            counter,
+            None,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+
+    system.coordinated_shutdown().run("test").unwrap();
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn coordinated_shutdown_actor_termination_task_without_message_accepts_stopped_system_actor() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let counter = system
+        .spawn_system("system-counter", Props::new(|| Counter { value: 0 }))
+        .unwrap();
+    system.stop(&counter);
+    assert!(counter.wait_for_stop(Duration::from_secs(1)));
+
+    system
+        .coordinated_shutdown()
+        .add_actor_termination_task(
+            PHASE_SERVICE_STOP,
+            "wait-system-counter",
             counter,
             None,
             Duration::from_secs(1),
