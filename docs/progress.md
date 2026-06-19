@@ -215,6 +215,18 @@ workspace stabilization before M13 release readiness.
   cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
   ```
 
+- Latest M13 validation refresh after cluster TCP bootstrap full-mesh stale
+  route direction coverage:
+
+  ```bash
+  cargo test -p kairo-cluster bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after actor death-watch custom-message cleanup:
 
   ```bash
@@ -4039,9 +4051,9 @@ Implemented:
   connectors install routes, so the three-node bootstrap test verifies
   cross-peer socket delivery instead of only route counts outside the first
   sender. The same test now reduces the membership view to two nodes, verifies
-  second-to-third sends reject through the removed association route, and
-  proves first-to-second plus second-to-first membership delivery still works
-  across the surviving routes.
+  first-to-third, second-to-third, and third-to-first sends reject through
+  removed association routes, and proves first-to-second plus second-to-first
+  membership delivery still works across the surviving routes.
 - `kairo-cluster` live TCP tests now share a crate-level socket-test guard
   across peer-runtime, connector, bootstrap, and direct association runtime
   modules, keeping default parallel cargo test runs from racing over
@@ -4615,7 +4627,8 @@ Implemented:
 - `kairo-cluster` three-node TCP bootstrap coverage now applies reduced gossip
   to the removed peer as well as the survivors, then waits for the removed
   peer connector and association cache to clear before asserting stale
-  membership routes reject delivery.
+  membership routes reject delivery from survivor-to-removed and
+  removed-to-survivor directions.
 - `kairo-examples` TCP bootstrap smoke support now publishes reduced
   membership to removed peers as well as surviving peers during two-node and
   three-node shrink scenarios, then waits for the removed node's route cache to

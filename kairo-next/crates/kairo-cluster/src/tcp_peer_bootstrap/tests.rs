@@ -1901,6 +1901,21 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
     await_cache_route_count(&second_cache, 1);
     await_cache_route_count(&third_cache, 0);
 
+    let removed_first_to_third_error = third_membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: first_node.clone(),
+                roles: vec!["first-to-third-after-reduction".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("first-to-third route should reject sends after third is removed");
+    assert!(
+        removed_first_to_third_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected first-to-third send error: {removed_first_to_third_error:?}"
+    );
     let removed_second_to_third_error = second_to_third_outbound
         .send_membership(ClusterMembershipMsg::Join {
             join: Join {
@@ -1917,6 +1932,26 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         "unexpected second-to-third send error: {removed_second_to_third_error:?}"
     );
     third_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    let removed_third_to_first_error = third_to_first_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: third_node.clone(),
+                roles: vec!["third-to-first-after-reduction".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("removed third node should reject sends to first after route cleanup");
+    assert!(
+        removed_third_to_first_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected third-to-first send error: {removed_third_to_first_error:?}"
+    );
+    first_probes
         .membership
         .expect_no_msg(Duration::from_millis(100))
         .unwrap();
