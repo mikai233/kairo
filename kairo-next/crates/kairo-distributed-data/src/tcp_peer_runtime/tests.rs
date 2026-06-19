@@ -891,6 +891,35 @@ mod route_tests {
     }
 
     #[test]
+    fn peer_runtime_rejects_non_remote_peer_snapshot_without_dialing() {
+        let _guard = ddata_socket_test_lock();
+        let retry_interval = Duration::from_millis(25);
+        let mut runtime = bind_peer_runtime(
+            "local",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            replica("remote"),
+            retry_interval,
+        );
+        let local_only = UniqueAddress::new(Address::local("local-only"), 2);
+
+        let error = runtime
+            .apply_snapshot(state(vec![member(local_only)], vec![]))
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            ReplicatorTcpPeerRuntimeError::Peer(
+                kairo_cluster::ClusterAssociationPeerError::MissingRemoteHost { .. }
+            )
+        ));
+        assert_eq!(runtime.peer_route_count(), 0);
+        assert_eq!(runtime.association_cache().route_count(), 0);
+        runtime.shutdown().unwrap();
+    }
+
+    #[test]
     fn peer_runtime_adopts_existing_ddata_route_and_clears_it_on_shutdown() {
         let _guard = ddata_socket_test_lock();
         let retry_interval = Duration::from_millis(25);

@@ -4845,6 +4845,10 @@ Implemented:
   helpers, adapters, asks, watch registrations, stash operations, self
   scheduling, timers, and receive timeouts are rejected or inert during full
   system shutdown just as they are for direct actor stop.
+- `kairo-distributed-data` TCP peer-runtime coverage now pins the remote
+  boundary for cluster snapshots: a local-only member address is rejected with
+  `MissingRemoteHost`, does not dial, and leaves both peer-route and
+  association-cache state empty.
 
 Not yet implemented:
 
@@ -4868,9 +4872,11 @@ Not yet implemented:
   active-route/pending-reconnect shrink delivery, bootstrap self-removal route
   cleanup, bootstrap automatic retry, partial-failure retry coverage,
   connector dynamic pruning-clock pause/resume coverage, and three-node
-  example shutdown route cleanup coverage. Current three-node bootstrap shrink
-  coverage already feeds reduced gossip to the removed peer and asserts
-  survivor and removed-peer route-cache cleanup before stale route rejection.
+  example shutdown route cleanup coverage. Current TCP peer-runtime coverage
+  also rejects local-only member snapshots before dialing. Current three-node
+  bootstrap shrink coverage already feeds reduced gossip to the removed peer
+  and asserts survivor and removed-peer route-cache cleanup before stale route
+  rejection.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
   store-backed shard load stashed-delivery replay ordering,
@@ -4901,6 +4907,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after distributed-data non-remote peer rejection
+coverage:
+
+```bash
+cargo test -p kairo-distributed-data peer_runtime_rejects_non_remote_peer_snapshot_without_dialing --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after actor-system PostStop rejection coverage:
 
