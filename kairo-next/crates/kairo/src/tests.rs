@@ -524,6 +524,47 @@ fn implementation_status_docs_do_not_mark_region_discovery_wiring_as_future_work
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_remote_sharding_registration_as_future_work()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let decisions =
+        std::fs::read_to_string(repo_root.join("docs").join("decisions.md"))?.replace("\r\n", "\n");
+    let progress =
+        std::fs::read_to_string(repo_root.join("docs").join("progress.md"))?.replace("\r\n", "\n");
+    let stale_phrases = [
+        "stable wire recipient for a future remote registration bridge",
+        "future\n  remote registration",
+        "The actual remote registration outbound/reply bridge remains a separate\n  transport-facing module",
+        "Outbound retry scheduling for remote registration and shard-home requests\n  remains a follow-up",
+    ];
+
+    for phrase in stale_phrases {
+        assert!(
+            !decisions.contains(phrase) && !progress.contains(phrase),
+            "status docs must not describe implemented remote sharding registration as future work"
+        );
+    }
+    for phrase in [
+        "ShardCoordinatorRemoteRegistrationOutbound",
+        "RegionRemoteCoordinatorTransport",
+        "/system/sharding/coordinator",
+    ] {
+        assert!(
+            decisions.contains(phrase) && progress.contains(phrase),
+            "remote sharding registration status docs must mention implemented boundary `{phrase}`"
+        );
+    }
+    assert!(
+        progress.contains(
+            "sending\n  stable `Register` envelopes after remote coordinator discovery/retry"
+        ),
+        "progress must mention region-driven remote registration retry sends"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn implementation_status_docs_do_not_mark_actor_tree_lifecycle_coverage_as_future_work()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;

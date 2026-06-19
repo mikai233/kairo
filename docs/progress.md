@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after remote sharding registration
+  documentation convergence guard:
+
+  ```bash
+  cargo test -p kairo implementation_status_docs_do_not_mark_remote_sharding_registration_as_future_work --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding remote_coordinator --all-targets --all-features -- --nocapture
+  cargo test -p kairo --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after cluster membership remote-envelope
   boundary documentation convergence guard:
 
@@ -3156,9 +3168,9 @@ Implemented:
   self-registration/retry flow when the selected coordinator appears or moves.
 - `kairo-cluster-sharding` now has focused remote shard-coordinator target
   resolution that maps discovered `UniqueAddress` candidates to stable
-  `/system/sharding/coordinator` `ActorRefWireData` recipients for future
-  remote registration without treating the remote coordinator as a local typed
-  `ShardCoordinatorMsg<M>` actor.
+  `/system/sharding/coordinator` `ActorRefWireData` recipients for
+  region-driven remote registration without treating the remote coordinator as
+  a local typed `ShardCoordinatorMsg<M>` actor.
 - `kairo-cluster-sharding` now has an actor-backed shard-region discovery
   subscriber that owns the cluster subscription, requests an initial cluster
   snapshot, forwards snapshots/events into the region's coordinator-discovery
@@ -4189,9 +4201,10 @@ Implemented:
   module, keeping shared live-socket locking, node adapters, membership
   publication, and route-count assertions separate from the scenario tests.
 - `kairo-cluster-sharding` now has a transport-neutral remote coordinator
-  registration bridge that serializes stable `Register` envelopes to resolved
-  coordinator recipients with region sender metadata and decodes
-  `RegisterAck` replies addressed to the region.
+  registration bridge: `ShardCoordinatorRemoteRegistrationOutbound`
+  serializes stable `Register` envelopes to resolved coordinator recipients
+  with region sender metadata, and `ShardCoordinatorRemoteRegistrationInbound`
+  decodes `RegisterAck` replies addressed to the region.
 - `kairo-cluster-sharding` now has a separate transport-neutral remote
   coordinator shard-home bridge that serializes stable `GetShardHome`
   envelopes to resolved coordinator recipients and decodes `ShardHome` replies

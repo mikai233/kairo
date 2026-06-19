@@ -2278,14 +2278,15 @@ Kairo adds a focused remote coordinator target module that derives stable
 documented `/system/sharding/coordinator` path. Region coordinator discovery
 can now select either a local typed coordinator target, which produces a
 `RegionRegistrationConfig`, or a remote coordinator target, which produces a
-stable wire recipient for a future remote registration bridge.
+stable wire recipient for the remote registration, shard-home, and shutdown
+bridges.
 
 Consequences:
 - Remote coordinator discovery advances without relying on Rust enum
   discriminants, type names, or local-only coordinator messages as wire
   contracts.
-- The actual remote registration outbound/reply bridge remains a separate
-  transport-facing module that can serialize `Register` and correlate
+- The remote registration outbound/reply bridge remains a separate
+  transport-facing module that serializes `Register` and correlates
   `RegisterAck` explicitly.
 - Local registration behavior remains unchanged for current runnable sharding
   tests.
@@ -2379,9 +2380,9 @@ Consequences:
   contract.
 - Remote region identities are stable across nodes because they use explicit
   `ActorRefWireData` paths instead of process-local actor-ref values.
-- Outbound retry scheduling for remote registration and shard-home requests
-  remains a follow-up that can build on this state module and the existing
-  transport-neutral wire bridges.
+- Outbound registration retry and shard-home requests are driven by
+  `RegionRemoteCoordinatorTransport`, keeping remote send orchestration
+  separate from decoded reply state.
 
 ## ADR-0083: Region Remote Coordinator Sends Compose Stable Bridges
 
