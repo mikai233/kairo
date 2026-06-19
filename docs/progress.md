@@ -3722,6 +3722,10 @@ Implemented:
 - `kairo-actor` tree-lifecycle tests now pin stop-time child termination
   ordering: a stopping parent rejects and does not process user messages while
   waiting for a blocking child stop to finish.
+- `kairo-actor` tree-lifecycle tests now also pin the queued-message drain
+  boundary during stop-time child termination: user messages queued before the
+  stop request are drained to dead letters before the parent waits for blocking
+  children to finish.
 - `kairo-actor` context spawn, parent/child introspection, direct-child stop,
   parent-before-child shutdown, actor-path metadata, and post-stop signal tests
   now live in a focused sibling test module.
@@ -4460,6 +4464,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after parent-stop queued-message drain coverage:
+
+```bash
+cargo test -p kairo-actor parent_stop_drains_queued_user_messages_before_waiting_for_children --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after shared remember-store handoff-stop restart
 suppression coverage:
