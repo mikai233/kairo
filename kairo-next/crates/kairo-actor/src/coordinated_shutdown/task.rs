@@ -145,3 +145,40 @@ pub(super) fn run_phase(phase: &PhaseDefinition, tasks: Vec<TaskEntry>) -> Resul
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn non_recovering_phase_reports_timeout() {
+        let phase = PhaseDefinition {
+            name: "test-phase".to_string(),
+            timeout: Duration::from_millis(20),
+            recover: false,
+        };
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let task = TaskEntry::new("blocked".to_string(), move || {
+            started_tx
+                .send(())
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+            release_rx
+                .recv()
+                .map_err(|error| ActorError::Message(error.to_string()))?;
+            Ok(())
+        });
+
+        let result = run_phase(&phase, vec![task]);
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            result,
+            Err(ActorError::ShutdownPhaseTimeout { phase, timeout })
+                if phase == "test-phase" && timeout == Duration::from_millis(20)
+        ));
+        release_tx.send(()).unwrap();
+    }
+}
