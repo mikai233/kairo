@@ -525,6 +525,37 @@ fn implementation_status_docs_do_not_mark_actor_tree_lifecycle_coverage_as_futur
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_ddata_bootstrap_shrink_cleanup_as_future_work()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let progress =
+        std::fs::read_to_string(repo_root.join("docs").join("progress.md"))?.replace("\r\n", "\n");
+    let stale_phrases = [
+        "including removed-peer route cleanup in the three-node\n  bootstrap shrink path",
+        "removed-peer route cleanup in the three-node bootstrap shrink path remains future work",
+    ];
+
+    for phrase in stale_phrases {
+        assert!(
+            !progress.contains(phrase),
+            "progress must not mark implemented distributed-data bootstrap shrink cleanup as future work"
+        );
+    }
+    for implemented_phrase in [
+        "`kairo-distributed-data` three-node TCP bootstrap coverage now feeds reduced\n  gossip to the removed peer as well as the survivors",
+        "`kairo-distributed-data` and `kairo-cluster-tools` three-node TCP bootstrap\n  coverage now mirror the cluster route-cache shrink checks",
+        "Current three-node bootstrap shrink coverage already feeds\n  reduced gossip to the removed peer",
+    ] {
+        assert!(
+            progress.contains(implemented_phrase),
+            "progress must mention distributed-data bootstrap shrink cleanup coverage: {implemented_phrase}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn implementation_status_docs_do_not_mark_reader_supervision_as_future_work()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;

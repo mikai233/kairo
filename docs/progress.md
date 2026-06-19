@@ -4328,8 +4328,9 @@ Not yet implemented:
   bootstrap sender-side route-reduction, connector/bootstrap partial-failure
   delivery, connector member-removal delivery, bootstrap automatic retry,
   partial-failure retry coverage, and three-node example shutdown route
-  cleanup coverage, including removed-peer route cleanup in the three-node
-  bootstrap shrink path.
+  cleanup coverage. Current three-node bootstrap shrink coverage already feeds
+  reduced gossip to the removed peer and asserts survivor and removed-peer
+  route-cache cleanup before stale route rejection.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
   coordinator-registered local remember-store allocation/recovery,
