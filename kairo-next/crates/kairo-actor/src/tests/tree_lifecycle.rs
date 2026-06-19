@@ -1118,6 +1118,98 @@ fn parent_stop_drains_child_queued_user_messages_to_dead_letters() {
 }
 
 #[test]
+fn actor_system_terminate_drains_user_child_queued_messages_to_dead_letters() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(|| BlockingReceiveParent { child: None }),
+        )
+        .unwrap();
+    assert_system_terminate_drains_child_queued_messages_to_dead_letters(system, parent);
+}
+
+#[test]
+fn actor_system_terminate_drains_system_child_queued_messages_to_dead_letters() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn_system(
+            "system-parent",
+            Props::new(|| BlockingReceiveParent { child: None }),
+        )
+        .unwrap();
+    assert_system_terminate_drains_child_queued_messages_to_dead_letters(system, parent);
+}
+
+fn assert_system_terminate_drains_child_queued_messages_to_dead_letters(
+    system: ActorSystem,
+    parent: ActorRef<BlockingReceiveParentMsg>,
+) {
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (block_entered_tx, block_entered_rx) = mpsc::channel();
+    let (block_release_tx, block_release_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    let (terminated_tx, terminated_rx) = mpsc::channel();
+
+    parent
+        .tell(BlockingReceiveParentMsg::SpawnChild(spawn_tx))
+        .unwrap();
+    let child = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child
+        .tell(BlockingReceiveChildMsg::Block {
+            entered: block_entered_tx,
+            release: block_release_rx,
+        })
+        .unwrap();
+    block_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    child.tell(BlockingReceiveChildMsg::Ping(ping_tx)).unwrap();
+
+    let terminating_system = system.clone();
+    let terminate_thread = std::thread::spawn(move || {
+        terminated_tx
+            .send(terminating_system.terminate(Duration::from_secs(2)))
+            .unwrap();
+    });
+    let stop_requested_deadline = Instant::now() + Duration::from_secs(1);
+    while !child.is_stopped() {
+        assert!(
+            Instant::now() < stop_requested_deadline,
+            "system termination must request recursive child stop while the child receive turn is blocked"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    block_release_tx.send(()).unwrap();
+
+    assert!(
+        ping_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "queued child message must not be delivered after system termination recursively stops the child"
+    );
+    terminated_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    terminate_thread.join().unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+    assert!(system.is_terminated());
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert!(
+        records
+            .iter()
+            .any(|record| record.recipient() == child.path()
+                && record.reason() == "actor is stopped"
+                && record.message_type() == std::any::type_name::<BlockingReceiveChildMsg>())
+    );
+}
+
+#[test]
 fn stopping_child_name_is_reserved_until_termination_completes() {
     let system = ActorSystem::builder("test").build().unwrap();
     let parent = system
