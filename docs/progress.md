@@ -4754,6 +4754,10 @@ Implemented:
   child mailbox drain behavior for both `/user` and `/system` roots: a blocked
   child receives the stop request, its queued user message is dead-lettered,
   and system termination still waits for the child and parent to finish.
+- `kairo-actor` actor-system termination coverage now also pins stashed-message
+  drain behavior for both `/user` and `/system` roots: stashed messages are
+  moved through the stop path and published as dead letters when full system
+  termination stops the actor.
 - `kairo-actor` child-preserving restart now snapshots survivor children
   before the fresh parent actor runs `started()`: only pre-existing
   restartable survivors receive the restart signal, while children spawned by
@@ -4822,7 +4826,8 @@ Not yet implemented:
   stop, recursive restart-time child handling, restart-time child watch
   cleanup, terminating-child name reservation coverage, and terminating-parent
   queued child-spawn drain coverage for direct parent and actor-system stop,
-  plus actor-system recursive child mailbox drain coverage.
+  actor-system recursive child mailbox drain coverage, and actor-system
+  stashed-message drain coverage.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and broader cross-crate compatibility
   fixtures.
@@ -4869,6 +4874,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after actor-system stashed-message drain
+coverage:
+
+```bash
+cargo test -p kairo-actor actor_system_terminate_drains_ --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after actor-system child mailbox drain coverage:
 
