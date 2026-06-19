@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after cluster-tools TCP peer runtime
+  reachability-replacement route coverage:
+
+  ```bash
+  cargo test -p kairo-cluster-tools peer_runtime_replaces_routes_on_reachability_changed_self_observer_set --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after distributed-data TCP peer runtime
   reachability-replacement route coverage:
 
@@ -3670,6 +3681,12 @@ Implemented:
   closes only that peer route, keeps the surviving route delivering
   stable-manifest pubsub publishes, rejects sends to the removed peer through
   the association cache, and leaves the removed peer's mediator inbox empty.
+- Cluster-tools TCP peer runtime coverage now also validates
+  `ReachabilityChanged` replacement against live pubsub socket routes: changing
+  the self-observer unreachable set removes the newly unreachable peer route,
+  redials the peer that became self-reachable, keeps stable pubsub publish
+  delivery on the active route, and rejects sends to whichever peer is
+  currently self-unreachable.
 - Cluster-tools TCP peer runtime coverage now directly pins local
   `MemberRemoved` handling for the runtime's own node: self removal clears all
   outbound pubsub/singleton peer routes and cached routes, rejects later pubsub
