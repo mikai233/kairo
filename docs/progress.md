@@ -278,6 +278,18 @@ workspace stabilization before M13 release readiness.
   cargo test -p kairo-remote tcp_remote_actor_system_provider_delegates_local_provider_boundary --all-targets --all-features -- --nocapture
   ```
 
+- Latest M13 validation refresh after TCP remote actor-system coordinated
+  shutdown ownership coverage:
+
+  ```bash
+  cargo test -p kairo-remote tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once --all-targets --all-features -- --nocapture
+  cargo test -p kairo-remote --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
@@ -1515,6 +1527,11 @@ Implemented:
   boundary: a `RemoteActorRef` resolved before shutdown can deliver while the
   route is live, but rejects later sends after coordinated shutdown clears the
   route and does not deliver a message to the remote actor.
+- Coordinated-shutdown coverage now also pins TCP actor-system ownership of
+  dial-created outbound pipelines and reader handles: the runtime records
+  those handles while the association is live and releases them when
+  coordinated shutdown stops the runtime, while any cloned route registration
+  remains inspectable by tests.
 - `kairo-remote` now has a focused TCP reader supervision state machine:
   `TcpAssociationReaderSupervisor` plans full inbound-stream restarts for
   inbound lane or association reader failures by default, finite restart

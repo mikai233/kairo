@@ -1759,6 +1759,22 @@ fn tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once() {
     .unwrap();
     let registration = sender_remote.dial(receiver_address).unwrap();
     assert_eq!(sender_remote.association_cache().route_count(), 1);
+    assert_eq!(
+        sender_remote
+            .outbound_pipelines
+            .lock()
+            .expect("outbound pipelines lock poisoned")
+            .len(),
+        1
+    );
+    assert_eq!(
+        sender_remote
+            .outbound_readers
+            .lock()
+            .expect("outbound readers lock poisoned")
+            .len(),
+        1
+    );
     remote_target.tell(Ping { value: 17 }).unwrap();
     assert_eq!(
         received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
@@ -1779,6 +1795,22 @@ fn tcp_remote_actor_system_coordinated_shutdown_stops_runtime_once() {
             .wait_for_stop(Duration::from_secs(1))
     );
     assert_eq!(sender_remote.association_cache().route_count(), 0);
+    assert!(
+        sender_remote
+            .outbound_pipelines
+            .lock()
+            .expect("outbound pipelines lock poisoned")
+            .is_empty(),
+        "coordinated shutdown should release owned outbound pipelines"
+    );
+    assert!(
+        sender_remote
+            .outbound_readers
+            .lock()
+            .expect("outbound readers lock poisoned")
+            .is_empty(),
+        "coordinated shutdown should release owned outbound readers"
+    );
     assert!(matches!(
         registration
             .pipeline()
