@@ -69,6 +69,73 @@ fn remote_join_adds_joining_member_and_replies_with_welcome() {
 }
 
 #[test]
+fn retried_join_from_existing_member_replies_with_current_welcome() {
+    let kit = ActorSystemTestKit::new("cluster-membership-retried-join").unwrap();
+    let self_node = node("self", 1);
+    let joining = node("joining", 2);
+    let (membership, events) = spawn_membership(&kit, self_node.clone(), "membership");
+    let reply_probe = kit
+        .create_probe::<ClusterMembershipMsg>("retry-welcome")
+        .unwrap();
+
+    membership.tell(ClusterMembershipMsg::JoinSelf).unwrap();
+    expect_event(
+        &events,
+        |event| matches!(event, ClusterEvent::Member(MemberEvent::Joined(member)) if member.unique_address == self_node),
+    );
+    expect_event(
+        &events,
+        |event| matches!(event, ClusterEvent::Member(MemberEvent::Up(member)) if member.unique_address == self_node),
+    );
+
+    membership
+        .tell(ClusterMembershipMsg::Join {
+            join: Join {
+                node: joining.clone(),
+                roles: vec!["backend".to_string()],
+            },
+            reply_to: None,
+        })
+        .unwrap();
+    expect_event(
+        &events,
+        |event| matches!(event, ClusterEvent::Member(MemberEvent::Joined(member)) if member.unique_address == joining),
+    );
+    drain_events(&events);
+
+    membership
+        .tell(ClusterMembershipMsg::Join {
+            join: Join {
+                node: joining.clone(),
+                roles: vec!["backend".to_string()],
+            },
+            reply_to: Some(reply_probe.actor_ref()),
+        })
+        .unwrap();
+
+    let ClusterMembershipMsg::Welcome(welcome) =
+        reply_probe.expect_msg(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("expected welcome for retried join");
+    };
+    assert_eq!(welcome.from, self_node);
+    assert_eq!(
+        welcome.gossip.member(&joining).map(|member| member.status),
+        Some(MemberStatus::Joining)
+    );
+    assert_eq!(
+        welcome
+            .gossip
+            .members()
+            .iter()
+            .filter(|member| member.unique_address == joining)
+            .count(),
+        1
+    );
+    events.expect_no_msg(Duration::from_millis(50)).unwrap();
+}
+
+#[test]
 fn new_incarnation_join_downs_existing_same_address_without_welcome() {
     let kit = ActorSystemTestKit::new("cluster-membership-new-incarnation").unwrap();
     let self_node = node("self", 1);
@@ -544,6 +611,10 @@ fn expect_event(
         }
     }
     panic!("expected matching cluster event");
+}
+
+fn drain_events(probe: &kairo_testkit::TestProbe<ClusterEvent>) {
+    while probe.expect_msg(Duration::from_millis(20)).is_ok() {}
 }
 
 fn node(system: &str, uid: u64) -> UniqueAddress {

@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after cluster membership retried-join welcome
+  coverage:
+
+  ```bash
+  cargo test -p kairo-cluster retried_join_from_existing_member_replies_with_current_welcome --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after shard remember-store load/update failure
   stop coverage:
 
@@ -4973,6 +4984,10 @@ Implemented:
   old incarnation Down without a Welcome, and the retried join removes the
   downed old incarnation, admits the new one as Joining, clears old
   reachability, publishes Removed/Joined events, and returns Welcome.
+- `kairo-cluster` membership actor coverage now also pins the ordinary lost
+  Welcome retry path from Pekko `ClusterDaemon.joining`: a repeated join from
+  the same `UniqueAddress` receives the current Welcome without duplicating the
+  member in gossip or publishing another membership change.
 
 Not yet implemented:
 
