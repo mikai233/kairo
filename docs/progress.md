@@ -245,6 +245,13 @@ workspace stabilization before M13 release readiness.
   cargo test -p kairo-cluster-sharding region_actor_observes --all-targets --all-features -- --nocapture
   ```
 
+- Latest M13 validation refresh after sharding multi-node shared-store
+  discovery status audit:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding multi_node_region_discovery_delivers_recovered_and_new_shared_store_entities --all-targets --all-features -- --nocapture
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
@@ -4688,6 +4695,12 @@ Implemented:
   remember-store shard termination is observed through death watch and restarts
   after the configured backoff without requiring an explicit mark-stopped
   command.
+- `kairo-cluster-sharding` multi-node shared remember-store discovery coverage
+  has been re-audited: a region discovers a coordinator on another node,
+  allocates a remembered shard backed by a store on a third node, delivers a
+  recovered entity after loading remembered state, persists a new entity's
+  first delivery to the shared store, and then routes directly after the
+  remember-start update activates that entity.
 
 Not yet implemented:
 
@@ -4716,8 +4729,7 @@ Not yet implemented:
   store-backed shard passivation stop-to-start acknowledgement ordering,
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned local/shared-store region load-before-first-delivery coverage,
-  shared-store region passivation reactivation coverage, and multi-node
-  discovery/shared-store first-delivery coverage.
+  and shared-store region passivation reactivation coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
