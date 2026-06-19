@@ -4314,9 +4314,9 @@ Implemented:
 
 Not yet implemented:
 
-- Full actor tree lifecycle semantics beyond recursive local stop, recursive
-  restart-time child handling, restart-time child watch cleanup, and
-  terminating-child name reservation.
+- Full actor tree lifecycle semantic audit beyond the current recursive local
+  stop, recursive restart-time child handling, restart-time child watch
+  cleanup, and terminating-child name reservation coverage.
 - Broader actor-system local/remote provider integration, optional codec
   helper crates, richer actor-system lifecycle wiring around the existing TCP
   association primitives, and broader cross-crate compatibility fixtures.

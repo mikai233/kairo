@@ -489,6 +489,42 @@ fn implementation_status_docs_do_not_mark_region_bootstrap_as_future_work()
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_actor_tree_lifecycle_coverage_as_future_work()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let progress =
+        std::fs::read_to_string(repo_root.join("docs").join("progress.md"))?.replace("\r\n", "\n");
+    let stale_phrases = [
+        "Full actor tree lifecycle semantics beyond recursive local stop, recursive\n  restart-time child handling, restart-time child watch cleanup, and\n  terminating-child name reservation.",
+        "terminating-child name reservation remain future work",
+    ];
+
+    for phrase in stale_phrases {
+        assert!(
+            !progress.contains(phrase),
+            "progress must not mark implemented actor-tree lifecycle coverage as future work"
+        );
+    }
+    for implemented_phrase in [
+        "Actor-system termination now has focused coverage that top-level actor stop\n  waits recursively for descendant child termination",
+        "Restart-time child lifecycle coverage now also pins recursive descendant\n  waiting",
+        "restart-time child teardown has completed",
+        "stopping children keep their logical names reserved until\n  termination completes",
+    ] {
+        assert!(
+            progress.contains(implemented_phrase),
+            "progress must mention implemented actor-tree lifecycle coverage: {implemented_phrase}"
+        );
+    }
+    assert!(
+        progress.contains("Full actor tree lifecycle semantic audit beyond the current"),
+        "remaining actor-tree lifecycle status should be scoped to audit beyond current coverage"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn implementation_status_docs_do_not_mark_reader_supervision_as_future_work()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
