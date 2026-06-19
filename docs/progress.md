@@ -4742,6 +4742,10 @@ Implemented:
   death-watch path: a restartable parent that explicitly watches a child can
   stop that child as part of default restart without receiving a stale
   `Terminated` death-pact signal after the parent has been rebuilt.
+- `kairo-actor` parent-stop coverage now pins the terminating-parent child
+  creation boundary: a queued child-spawn request is drained to dead letters
+  once parent stop starts and is not processed while the parent waits for its
+  existing child to terminate.
 - `kairo-actor` child-preserving restart now snapshots survivor children
   before the fresh parent actor runs `started()`: only pre-existing
   restartable survivors receive the restart signal, while children spawned by
@@ -4808,7 +4812,8 @@ Not yet implemented:
 
 - Full actor tree lifecycle semantic audit beyond the current recursive local
   stop, recursive restart-time child handling, restart-time child watch
-  cleanup, and terminating-child name reservation coverage.
+  cleanup, terminating-child name reservation coverage, and terminating-parent
+  queued child-spawn drain coverage.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and broader cross-crate compatibility
   fixtures.
@@ -4855,6 +4860,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after parent-stop queued child-spawn drain
+coverage:
+
+```bash
+cargo test -p kairo-actor parent_stop_drains_queued_child_spawns_before_waiting_for_children --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after direct child stop queued-message drain
 coverage:

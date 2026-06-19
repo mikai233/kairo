@@ -2078,6 +2078,73 @@ fn parent_stop_drains_queued_user_messages_before_waiting_for_children() {
 }
 
 #[test]
+fn parent_stop_drains_queued_child_spawns_before_waiting_for_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
+        .unwrap();
+    let (child_entered_stop_tx, child_entered_stop_rx) = mpsc::channel();
+    let (child_release_stop_tx, child_release_stop_rx) = mpsc::channel();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (block_entered_tx, block_entered_rx) = mpsc::channel();
+    let (block_release_tx, block_release_rx) = mpsc::channel();
+    let (replacement_tx, replacement_rx) = mpsc::channel();
+
+    parent
+        .tell(ChildStopMsg::SpawnBlockingChild {
+            entered_stop: child_entered_stop_tx,
+            release_stop: child_release_stop_rx,
+            reply_to: spawn_tx,
+        })
+        .unwrap();
+    let child_path = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let child = system.resolve_local::<()>(child_path.as_str()).unwrap();
+
+    parent
+        .tell(ChildStopMsg::Block {
+            entered: block_entered_tx,
+            release: block_release_rx,
+        })
+        .unwrap();
+    block_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    parent
+        .tell(ChildStopMsg::SpawnReplacement {
+            reply_to: replacement_tx,
+        })
+        .unwrap();
+    system.stop(&parent);
+    block_release_tx.send(()).unwrap();
+    child_entered_stop_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+
+    assert!(
+        replacement_rx
+            .recv_timeout(Duration::from_millis(100))
+            .is_err(),
+        "queued child spawn must not run after parent stop is requested"
+    );
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert_eq!(records[0].recipient(), parent.path());
+    assert_eq!(records[0].reason(), "actor is stopped");
+    assert!(
+        !parent.wait_for_stop(Duration::from_millis(100)),
+        "parent should still be waiting for child termination after draining queued child spawns"
+    );
+
+    child_release_stop_tx.send(()).unwrap();
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(parent.wait_for_stop(Duration::from_secs(1)));
+}
+
+#[test]
 fn actor_system_terminate_drains_queued_user_messages_before_waiting_for_children() {
     let system = ActorSystem::builder("test").build().unwrap();
     let parent = system
