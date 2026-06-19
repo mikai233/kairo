@@ -4269,6 +4269,11 @@ Implemented:
   coverage that a coordinator loading remembered shards from its local remember
   store dispatches the loaded shard to a real registered remember-store region,
   which hosts the shard and recovers its remembered entity.
+- The same remember-entity orchestration is now covered for shared
+  remember-store actors: a coordinator loads remembered shards from an external
+  coordinator store, dispatches the shard through handoff transport, and a
+  registered region backed by a shared shard store hosts the shard and recovers
+  the remembered entity.
 
 Not yet implemented:
 
@@ -4318,6 +4323,7 @@ remember-store region orchestration:
 
 ```bash
 cargo test -p kairo-cluster-sharding coordinator_actor_loads_remembered_shard_and_hosts_remember_store_region --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding coordinator_actor_loads_shared_remembered_shard_and_hosts_shared_store_region --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
