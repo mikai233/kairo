@@ -4302,6 +4302,11 @@ Implemented:
   facade: reduced gossip clears the missing peer's pending retry state,
   records it as skipped, and keeps the surviving route delivering membership
   messages.
+- `kairo-cluster` TCP bootstrap coverage now drives local self-removal through
+  the public bootstrap facade: when reduced gossip removes the bootstrap node
+  itself, the connector clears the installed peer route, the association cache
+  reaches zero routes, and stale membership delivery through the old outbound
+  route is rejected.
 - `kairo-distributed-data` TCP bootstrap coverage now mirrors that mixed
   active-route plus pending-reconnect membership shrink path through the
   public bootstrap facade and verifies the surviving route still delivers a
@@ -4400,20 +4405,33 @@ Not yet implemented:
   delivery coverage, focused connector and bootstrap partial-failure delivery
   coverage, focused connector member-removal delivery coverage, focused
   bootstrap mixed active-route/pending-reconnect shrink coverage, focused
-  bootstrap automatic retry coverage, focused peer-runtime, connector, and
-  bootstrap partial-failure retry coverage, three-node full-mesh delivery
-  coverage where applicable, public example smoke coverage that coordinated
-  shutdown clears two live routes in each TCP bootstrap facade, and public
-  example smoke coverage that two-node and three-node membership shrink clears
-  removed-node routes.
+  cluster bootstrap self-removal route cleanup coverage, focused bootstrap
+  automatic retry coverage, focused peer-runtime, connector, and bootstrap
+  partial-failure retry coverage, three-node full-mesh delivery coverage where
+  applicable, public example smoke coverage that coordinated shutdown clears
+  two live routes in each TCP bootstrap facade, and public example smoke
+  coverage that two-node and three-node membership shrink clears removed-node
+  routes.
 - Multi-node cluster membership socket lifecycle orchestration still needs
   broader automated multi-node scenarios beyond the current local two-node
   membership/downing socket validation, focused three-node route-preservation
   coverage, three-node bootstrap full-mesh membership delivery coverage with
-  removed-peer route cleanup in the shrink path, and focused peer-runtime
-  partial-failure retry coverage.
+  removed-peer route cleanup in the shrink path, focused cluster bootstrap
+  self-removal route cleanup, and focused peer-runtime partial-failure retry
+  coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after cluster TCP bootstrap self-removal cleanup:
+
+```bash
+cargo test -p kairo-cluster bootstrap_clears_peer_routes_when_self_member_is_removed --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after shared remember-store first-delivery route
 resolution:

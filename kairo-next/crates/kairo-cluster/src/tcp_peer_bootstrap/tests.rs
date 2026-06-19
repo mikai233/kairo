@@ -1450,6 +1450,104 @@ fn bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_remov
 }
 
 #[test]
+fn bootstrap_clears_peer_routes_when_self_member_is_removed() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-bootstrap-self-remove-sender").unwrap();
+    let receiver_kit = ActorSystemTestKit::new("cluster-bootstrap-self-remove-receiver").unwrap();
+    let registry = registry();
+    let sender_runtime = bind_runtime("cluster-bootstrap-self-remove-sender", 1, 11, &sender_kit);
+    let sender_cache = sender_runtime.association_cache().clone();
+    let (receiver_runtime, receiver_probes) = bind_runtime_with_probes(
+        "cluster-bootstrap-self-remove-receiver",
+        2,
+        22,
+        &receiver_kit,
+    );
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = receiver_runtime.self_node().clone();
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ClusterTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ClusterTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_connector_name("sender-cluster-peer");
+
+    let sender_bootstrap = ClusterTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ClusterTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), receiver_node.clone()]),
+    );
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    await_cache_route_count(&sender_cache, 1);
+
+    let membership_outbound = ClusterMembershipWireOutbound::new(
+        receiver_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(
+            Arc::new(sender_cache.clone()) as Arc<dyn RemoteOutbound>
+        ),
+    );
+    send_join_until_received(
+        &membership_outbound,
+        &receiver_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["before-self-removal".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+
+    publish_gossip(&sender_publisher, up_gossip([receiver_node]));
+    await_connector_no_routes(sender_bootstrap.connector(), &sender_snapshots);
+    await_cache_route_count(&sender_cache, 0);
+
+    let removed_route_error = membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: sender_node,
+                roles: vec!["after-self-removal".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("self-removed bootstrap connector should clear outbound routes");
+    assert!(
+        removed_route_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected self-removal send error: {removed_route_error:?}"
+    );
+    receiver_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
+    receiver_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    receiver_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership() {
     let _guard = bootstrap_socket_test_lock();
     let first_kit = ActorSystemTestKit::new("cluster-bootstrap-first").unwrap();
