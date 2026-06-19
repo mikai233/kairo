@@ -2,6 +2,7 @@ mod support;
 
 use std::net::TcpListener;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use kairo_actor::{ActorError, Address, Props, Recipient};
@@ -18,12 +19,47 @@ use super::{
     ReplicatorTcpPeerBootstrapIdentity, ReplicatorTcpPeerBootstrapSettings,
 };
 use crate::{
-    ReplicaId, ReplicatorRead, ReplicatorRemoteReplyReceiver, ReplicatorRemoteRequestReceiver,
-    ReplicatorTcpPeerConnectorSettings, ReplicatorTcpPeerConnectorSnapshot,
-    replicator_actor_ref_for,
+    DataEnvelope, DeltaReplicatedData, GCounter, GCounterCodec, GetResponse, ReadConsistency,
+    ReplicaId, ReplicatorActor, ReplicatorActorMsg, ReplicatorRead,
+    ReplicatorRemoteAssociationCacheOutbound, ReplicatorRemoteReplyReceiver,
+    ReplicatorRemoteRequestError, ReplicatorRemoteRequestInbound, ReplicatorRemoteRequestReceiver,
+    ReplicatorTcpPeerConnectorSettings, ReplicatorTcpPeerConnectorSnapshot, ReplicatorWireCodecs,
+    encode_write, replicator_actor_ref_for,
 };
 
 use support::*;
+
+#[derive(Default)]
+struct DeferredRequests {
+    inner: Mutex<Option<Arc<dyn ReplicatorRemoteRequestReceiver>>>,
+}
+
+impl DeferredRequests {
+    fn set(&self, receiver: Arc<dyn ReplicatorRemoteRequestReceiver>) {
+        *self.inner.lock().expect("deferred requests poisoned") = Some(receiver);
+    }
+}
+
+impl ReplicatorRemoteRequestReceiver for DeferredRequests {
+    fn receive_request_from(
+        &self,
+        from: ReplicaId,
+        envelope: kairo_serialization::RemoteEnvelope,
+    ) -> Result<(), ReplicatorRemoteRequestError> {
+        let receiver = self
+            .inner
+            .lock()
+            .expect("deferred requests poisoned")
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| {
+                ReplicatorRemoteRequestError::Send(
+                    "deferred remote request receiver is not initialized".to_string(),
+                )
+            })?;
+        receiver.receive_request_from(from, envelope)
+    }
+}
 
 fn unused_port() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -731,6 +767,162 @@ fn bootstrap_installed_peer_route_delivers_remote_request_to_receiver() {
     assert_eq!(received[0].1.sender, Some(sender_ref));
 
     run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
+    run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
+    nodes.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_installed_peer_route_delivers_write_to_remote_replicator_actor() {
+    let _guard = bootstrap_socket_test_lock();
+    let registry = registry();
+    let nodes = MultiNodeTestKit::new([
+        "ddata-bootstrap-actor-sender",
+        "ddata-bootstrap-actor-receiver",
+    ])
+    .unwrap();
+    let sender_kit = nodes.kit("ddata-bootstrap-actor-sender").unwrap();
+    let receiver_kit = nodes.kit("ddata-bootstrap-actor-receiver").unwrap();
+    let receiver_requests = Arc::new(DeferredRequests::default());
+    let sender_runtime = bind_runtime(
+        "ddata-bootstrap-actor-sender",
+        1,
+        11,
+        ReplicaId::new("receiver"),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let receiver_runtime = bind_runtime_with_requests(
+        "ddata-bootstrap-actor-receiver",
+        2,
+        22,
+        ReplicaId::from(sender_runtime.self_node()),
+        receiver_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = receiver_runtime.self_node().clone();
+    let sender_settings = sender_runtime.runtime().settings().clone();
+    let receiver_settings = receiver_runtime.runtime().settings().clone();
+    let receiver_ref =
+        replicator_actor_ref_for("ddata-bootstrap-actor-receiver", &receiver_settings)
+            .expect("receiver ref should be serializable");
+    let receiver_replicator = receiver_kit
+        .system()
+        .spawn_system("ddata", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let receiver_inbound = ReplicatorRemoteRequestInbound::new(
+        receiver_kit.system().clone(),
+        receiver_ref.clone(),
+        Some(receiver_ref.clone()),
+        registry.clone(),
+        receiver_replicator.clone(),
+        ReplicatorWireCodecs::new(Arc::new(GCounterCodec), Arc::new(GCounterCodec)),
+        ReplicatorRemoteAssociationCacheOutbound::new(receiver_runtime.association_cache().clone()),
+    );
+    receiver_requests.set(Arc::new(receiver_inbound) as Arc<dyn ReplicatorRemoteRequestReceiver>);
+    let sender_publisher = spawn_publisher(sender_kit, "sender-publisher", sender_node.clone());
+    let receiver_publisher =
+        spawn_publisher(receiver_kit, "receiver-publisher", receiver_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let receiver_cluster = Cluster::new(receiver_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(Duration::from_millis(25))
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    );
+
+    let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings.clone().with_connector_name("sender-ddata-peer"),
+    )
+    .unwrap();
+    let receiver_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        receiver_kit.system(),
+        receiver_cluster,
+        receiver_runtime,
+        settings.with_connector_name("receiver-ddata-peer"),
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+    let receiver_snapshots = receiver_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("receiver-snapshots")
+        .unwrap();
+
+    let gossip = Gossip::from_members([
+        Member::new(sender_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+        Member::new(receiver_node.clone(), Vec::new()).with_status(MemberStatus::Up),
+    ]);
+    publish_gossip(&sender_publisher, gossip.clone());
+    publish_gossip(&receiver_publisher, gossip);
+    await_connector_route(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        &receiver_node,
+    );
+    await_connector_route(
+        receiver_bootstrap.connector(),
+        &receiver_snapshots,
+        &sender_node,
+    );
+
+    let sender_ref = replicator_actor_ref_for("ddata-bootstrap-actor-sender", &sender_settings)
+        .expect("sender ref should be serializable");
+    let outbound = outbound(
+        ReplicaId::from(&receiver_node),
+        receiver_ref,
+        sender_ref,
+        registry,
+        sender_cache.clone(),
+    );
+    let key = crate::ReplicatorKey::new("actor-backed-counter");
+    let counter = GCounter::new()
+        .increment(ReplicaId::from(&sender_node), 9)
+        .unwrap()
+        .reset_delta();
+    outbound
+        .tell(
+            encode_write(
+                &key,
+                Some(ReplicaId::from(&sender_node)),
+                &DataEnvelope::new(counter),
+                &GCounterCodec,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+    let receiver_gets = receiver_kit
+        .create_probe::<GetResponse<GCounter>>("receiver-gets")
+        .unwrap();
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            receiver_replicator
+                .tell(ReplicatorActorMsg::Get {
+                    key: key.clone(),
+                    consistency: ReadConsistency::local(),
+                    reply_to: receiver_gets.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            match receiver_gets
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?
+            {
+                GetResponse::Success { data, .. } if data.value().unwrap() == 9 => Ok(()),
+                other => Err(format!("unexpected receiver read result: {other:?}")),
+            }
+        },
+    )
+    .unwrap();
+
+    run_bootstrap_shutdown(sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
     run_bootstrap_shutdown(receiver_kit, receiver_bootstrap.connector());
     nodes.shutdown(Duration::from_secs(1)).unwrap();
 }

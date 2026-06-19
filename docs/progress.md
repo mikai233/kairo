@@ -1805,6 +1805,11 @@ Implemented:
   replica metadata before coordinated shutdown. The delivery scenario now uses
   `kairo-testkit::MultiNodeTestKit` so both live bootstrap-owned actor systems
   and their final shutdown are owned by the structured multi-node harness.
+- Distributed-data TCP peer bootstrap coverage now also drives an installed
+  membership-derived route into a real remote `ReplicatorActor<GCounter>`:
+  a stable-codec `ReplicatorWrite` crosses the bootstrap-owned TCP association,
+  the actor-backed remote request inbound applies it, and a local read on the
+  receiver observes the updated CRDT state before coordinated shutdown.
 - Distributed-data TCP peer bootstrap now also has a three-node full-mesh
   socket validation: three real bound runtimes are spawned through the
   bootstrap facade, membership-derived routes from the first node carry stable
