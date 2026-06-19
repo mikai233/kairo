@@ -231,6 +231,13 @@ workspace stabilization before M13 release readiness.
   git diff --check
   ```
 
+- Latest M13 validation refresh after sharding bootstrap helper status audit:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding region_bootstrap_spawns --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding region_bootstrap_stops --all-targets --all-features -- --nocapture
+  ```
+
 - The current full M13 validation gate passes on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
@@ -4662,6 +4669,12 @@ Implemented:
   removed from the shared shard store after passivation, a later region-routed
   delivery writes a new remember-start update, and subsequent region routes
   deliver directly to the reactivated entity.
+- `kairo-cluster-sharding` shard-region bootstrap helper coverage has been
+  re-audited for the local-shard, local remember-store, and shared
+  remember-store variants: success tests cover discovery subscriber startup,
+  coordinator registration, remembered shard allocation, and first local
+  delivery, while cleanup tests cover stopping the created region when
+  subscriber spawn fails.
 
 Not yet implemented:
 
@@ -4691,8 +4704,7 @@ Not yet implemented:
   coordinator-registered local remember-store allocation/recovery,
   auto-spawned local/shared-store region load-before-first-delivery coverage,
   shared-store region passivation reactivation coverage, region death-watch
-  restart, multi-node discovery/shared-store first-delivery coverage, and
-  local/shared remember-store bootstrap helper success and cleanup coverage.
+  restart, and multi-node discovery/shared-store first-delivery coverage.
 - Socket integration still needs broader lifecycle tests around the bootstrap
   facades beyond the current localhost crate; cluster, distributed-data, and
   cluster-tools bootstraps now have crate-level routeful
