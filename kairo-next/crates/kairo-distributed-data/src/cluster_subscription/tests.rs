@@ -401,6 +401,176 @@ fn connector_gates_removed_node_pruning_until_all_replicas_reachable() {
 }
 
 #[test]
+fn connector_pauses_removed_node_pruning_clock_when_peer_becomes_unreachable() {
+    let system = ActorSystem::builder("ddata-cluster-connector-pruning-pause")
+        .build()
+        .unwrap();
+    let self_node = node("self", 1);
+    let peer = node("peer", 2);
+    let removed = node("removed", 3);
+    let publisher = system
+        .spawn(
+            "publisher",
+            Props::new({
+                let self_node = self_node.clone();
+                move || ClusterEventPublisher::new(self_node)
+            }),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher.clone());
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let key = ReplicatorKey::new("paused-pruning-counter");
+    let peer_replica = ReplicaId::from(&peer);
+    let removed_replica = ReplicaId::from(&removed);
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([
+                member(self_node.clone(), MemberStatus::Up, ["ddata"]),
+                member(peer.clone(), MemberStatus::Up, ["ddata"]),
+                member(removed.clone(), MemberStatus::Up, ["ddata"]),
+            ]),
+        ))
+        .unwrap();
+    let connector = system
+        .spawn(
+            "connector",
+            Props::new({
+                let cluster = cluster.clone();
+                let self_node = self_node.clone();
+                let replicator = replicator.clone();
+                move || {
+                    ReplicatorClusterConnector::with_required_roles(
+                        cluster,
+                        self_node,
+                        replicator,
+                        ["ddata"],
+                    )
+                    .with_pruning_settings(ReplicatorClusterPruningSettings::new(50, 100))
+                }
+            }),
+        )
+        .unwrap();
+    let (snapshot_ref, snapshot_rx) =
+        forward_ref::<ReplicatorClusterConnectorSnapshot>(&system, "pruning-pause-snapshots");
+
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.remote_replicas == vec![peer_replica.clone(), removed_replica.clone()]
+    });
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::LeaderChanged {
+                leader: Some(self_node.clone()),
+            },
+        ))
+        .unwrap();
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.is_leader
+    });
+    replicator
+        .tell(ReplicatorActorMsg::WriteFull {
+            key: key.clone(),
+            envelope: DataEnvelope::new(
+                GCounter::new()
+                    .increment(ReplicaId::from(&self_node), 1)
+                    .unwrap()
+                    .increment(removed_replica.clone(), 4)
+                    .unwrap()
+                    .reset_delta(),
+            ),
+        })
+        .unwrap();
+    connector
+        .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 100 })
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::Member(MemberEvent::Removed {
+                member: member(removed.clone(), MemberStatus::Removed, ["ddata"]),
+                previous_status: MemberStatus::Up,
+            }),
+        ))
+        .unwrap();
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.remote_replicas == vec![peer_replica.clone()]
+            && snapshot
+                .last_report
+                .as_ref()
+                .is_some_and(|report| report.recorded_removed.contains(&removed_replica))
+    });
+
+    connector
+        .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 130 })
+        .unwrap();
+    let snapshot = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.all_reachable_time_nanos == 30
+    });
+    assert_eq!(snapshot.all_reachable_time_nanos, 30);
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::Reachability(ReachabilityEvent::Unreachable(member(
+                peer.clone(),
+                MemberStatus::Up,
+                ["ddata"],
+            ))),
+        ))
+        .unwrap();
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.unreachable_replicas == BTreeSet::from([peer_replica.clone()])
+    });
+    connector
+        .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 300 })
+        .unwrap();
+    connector
+        .tell(ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis: 1_000 })
+        .unwrap();
+    let paused = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.all_reachable_time_nanos == 30
+            && snapshot
+                .last_pruning_report
+                .as_ref()
+                .is_some_and(|report| report.skipped_unreachable)
+    });
+    assert!(paused.last_pruning_report.unwrap().initialized.is_empty());
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishEvent(
+            ClusterEvent::Reachability(ReachabilityEvent::Reachable(member(
+                peer.clone(),
+                MemberStatus::Up,
+                ["ddata"],
+            ))),
+        ))
+        .unwrap();
+    eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.unreachable_replicas.is_empty()
+    });
+    connector
+        .tell(ReplicatorClusterConnectorMsg::ClockTick { now_nanos: 330 })
+        .unwrap();
+    connector
+        .tell(ReplicatorClusterConnectorMsg::RunRemovedNodePruning { now_millis: 1_100 })
+        .unwrap();
+    let initialized = eventually_snapshot(&connector, &snapshot_ref, &snapshot_rx, |snapshot| {
+        snapshot.all_reachable_time_nanos == 60
+            && snapshot
+                .last_pruning_report
+                .as_ref()
+                .is_some_and(|report| report.initialized.contains(&key))
+    });
+    assert_eq!(
+        initialized.last_pruning_report.unwrap().initialized,
+        BTreeSet::from([key])
+    );
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn multi_node_connector_pruning_performs_after_peer_seen_marker() {
     let leader_name = "ddata-pruning-leader";
     let peer_name = "ddata-pruning-peer";

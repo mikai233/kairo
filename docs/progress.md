@@ -4353,6 +4353,11 @@ Implemented:
   store-backed shards stash multiple deliveries while remembered entities are
   loading, then replay those deliveries in FIFO order once the store replies
   with the remembered entity set.
+- `kairo-distributed-data` cluster connector pruning coverage now verifies the
+  Pekko all-reachable clock rule after removed-node discovery: if a remaining
+  replica becomes unreachable, pruning ticks are skipped and the dissemination
+  clock stops advancing until reachability is restored, after which leader
+  pruning initialization can proceed.
 
 Not yet implemented:
 
@@ -4370,10 +4375,11 @@ Not yet implemented:
   bootstrap sender-side route-reduction, connector/bootstrap partial-failure
   delivery, connector member-removal delivery, bootstrap mixed
   active-route/pending-reconnect shrink delivery, bootstrap automatic retry,
-  partial-failure retry coverage, and three-node example shutdown route
-  cleanup coverage. Current three-node bootstrap shrink coverage already feeds
-  reduced gossip to the removed peer and asserts survivor and removed-peer
-  route-cache cleanup before stale route rejection.
+  partial-failure retry coverage, connector dynamic pruning-clock pause/resume
+  coverage, and three-node example shutdown route cleanup coverage. Current
+  three-node bootstrap shrink coverage already feeds reduced gossip to the
+  removed peer and asserts survivor and removed-peer route-cache cleanup before
+  stale route rejection.
 - Sharding remember-entity stores still need broader automatic region/shard
   orchestration beyond the current focused actor-level load/update/restart,
   store-backed shard load stashed-delivery replay ordering,
@@ -4402,6 +4408,18 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after distributed-data pruning clock pause
+coverage:
+
+```bash
+cargo test -p kairo-distributed-data connector_pauses_removed_node_pruning_clock_when_peer_becomes_unreachable --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after shard remember-store load replay ordering
 coverage:
