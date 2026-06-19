@@ -334,6 +334,73 @@ impl Actor for BlockingStopChild {
     }
 }
 
+enum BlockingReceiveChildMsg {
+    Block {
+        entered: mpsc::Sender<()>,
+        release: mpsc::Receiver<()>,
+    },
+    Ping(mpsc::Sender<&'static str>),
+}
+
+struct BlockingReceiveChild;
+
+impl Actor for BlockingReceiveChild {
+    type Msg = BlockingReceiveChildMsg;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            BlockingReceiveChildMsg::Block { entered, release } => {
+                entered
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                release
+                    .recv()
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            BlockingReceiveChildMsg::Ping(reply_to) => {
+                reply_to
+                    .send("alive")
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+enum BlockingReceiveParentMsg {
+    SpawnChild(mpsc::Sender<ActorRef<BlockingReceiveChildMsg>>),
+    StopChild(mpsc::Sender<()>),
+}
+
+struct BlockingReceiveParent {
+    child: Option<ActorRef<BlockingReceiveChildMsg>>,
+}
+
+impl Actor for BlockingReceiveParent {
+    type Msg = BlockingReceiveParentMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            BlockingReceiveParentMsg::SpawnChild(reply_to) => {
+                let child = ctx.spawn("child", Props::new(|| BlockingReceiveChild))?;
+                reply_to
+                    .send(child.clone())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                self.child = Some(child);
+            }
+            BlockingReceiveParentMsg::StopChild(reply_to) => {
+                if let Some(child) = self.child.clone() {
+                    ctx.stop(child)?;
+                }
+                reply_to
+                    .send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+        Ok(())
+    }
+}
+
 struct GrandchildBlockingParent {
     child_path: mpsc::Sender<ActorPath>,
     grandchild_path: mpsc::Sender<ActorPath>,
@@ -757,6 +824,58 @@ fn context_stop_can_stop_direct_child_without_stopping_parent() {
             .as_str()
             .starts_with(&format!("{}/child#", parent.path()))
     );
+}
+
+#[test]
+fn context_stop_drains_child_queued_user_messages_to_dead_letters() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn(
+            "parent",
+            Props::new(|| BlockingReceiveParent { child: None }),
+        )
+        .unwrap();
+    let (spawn_tx, spawn_rx) = mpsc::channel();
+    let (block_entered_tx, block_entered_rx) = mpsc::channel();
+    let (block_release_tx, block_release_rx) = mpsc::channel();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    let (stop_tx, stop_rx) = mpsc::channel();
+
+    parent
+        .tell(BlockingReceiveParentMsg::SpawnChild(spawn_tx))
+        .unwrap();
+    let child = spawn_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    child
+        .tell(BlockingReceiveChildMsg::Block {
+            entered: block_entered_tx,
+            release: block_release_rx,
+        })
+        .unwrap();
+    block_entered_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    child.tell(BlockingReceiveChildMsg::Ping(ping_tx)).unwrap();
+
+    parent
+        .tell(BlockingReceiveParentMsg::StopChild(stop_tx))
+        .unwrap();
+    stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    block_release_tx.send(()).unwrap();
+
+    assert!(
+        ping_rx.recv_timeout(Duration::from_millis(100)).is_err(),
+        "queued child message must not be delivered after parent context stops the child"
+    );
+    assert!(child.wait_for_stop(Duration::from_secs(1)));
+    assert!(
+        system
+            .dead_letters()
+            .wait_for_len(1, Duration::from_secs(1))
+    );
+    let records = system.dead_letters().records();
+    assert_eq!(records[0].recipient(), child.path());
+    assert_eq!(records[0].reason(), "actor is stopped");
+    assert!(!parent.is_stopped());
 }
 
 #[test]

@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after direct child stop queued-message drain
+  coverage:
+
+  ```bash
+  cargo test -p kairo-actor context_stop_drains_child_queued_user_messages_to_dead_letters --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after actor-system terminate queued-message
   drain coverage:
 
@@ -148,6 +160,10 @@ Implemented:
 - `Context::stop` can stop the current actor or a typed direct child actor ref
   without stopping the parent, and returns an explicit error for invalid
   targets.
+- Direct-child stop coverage now also pins the child mailbox priority
+  boundary: when a parent stops a child that is blocked in a receive turn,
+  child messages already queued behind the stop request are drained to dead
+  letters instead of being delivered after the blocked turn completes.
 - `Context::spawn` and `Context::spawn_anonymous` now reject child creation
   once the owning actor is stopping, including during `PostStop`, so stopped
   actors cannot create orphan children under a dead parent path.
@@ -4517,6 +4533,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after direct child stop queued-message drain
+coverage:
+
+```bash
+cargo test -p kairo-actor context_stop_drains_child_queued_user_messages_to_dead_letters --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after actor-system terminate queued-message
 drain coverage:
