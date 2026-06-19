@@ -217,6 +217,45 @@ pub(super) fn await_connector_routes_and_pending_reconnect(
     .unwrap();
 }
 
+pub(super) fn await_connector_routes_without_pending(
+    connector: &ActorRef<ReplicatorTcpPeerConnectorMsg>,
+    snapshots: &TestProbe<ReplicatorTcpPeerConnectorSnapshot>,
+    expected_routes: &[UniqueAddress],
+) -> ReplicatorTcpPeerConnectorSnapshot {
+    let mut matched = None;
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            connector
+                .tell(ReplicatorTcpPeerConnectorMsg::Snapshot {
+                    reply_to: snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            let has_all_expected_routes = expected_routes.iter().all(|expected_peer| {
+                snapshot
+                    .active_targets
+                    .iter()
+                    .any(|target| target.node() == expected_peer)
+            });
+            if snapshot.route_count == expected_routes.len()
+                && has_all_expected_routes
+                && snapshot.pending_reconnects.is_empty()
+            {
+                matched = Some(snapshot);
+                Ok(())
+            } else {
+                Err(format!("unexpected connector snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
+    matched.expect("matching connector snapshot should be captured")
+}
+
 pub(super) fn bind_runtime(
     system: &str,
     node_uid: u64,

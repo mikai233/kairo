@@ -4302,6 +4302,11 @@ Implemented:
   facade: reduced gossip clears the missing peer's pending retry state,
   records it as skipped, and keeps the surviving route delivering membership
   messages.
+- `kairo-distributed-data` TCP bootstrap coverage now mirrors that mixed
+  active-route plus pending-reconnect membership shrink path through the
+  public bootstrap facade and verifies the surviving route still delivers a
+  serialized `ReplicatorRead` request to the bound replica after the missing
+  peer's pending retry is skipped.
 - `kairo-distributed-data` cluster connector coverage now includes a local
   two-node `MultiNodeTestKit` pruning scenario: the leader connector records a
   removed replica, waits for the all-reachable dissemination window,
@@ -4355,7 +4360,8 @@ Not yet implemented:
   two-node and sender-side three-node example smoke tests, three-node
   bootstrap route validation, and focused peer-runtime, connector, and
   bootstrap sender-side route-reduction, connector/bootstrap partial-failure
-  delivery, connector member-removal delivery, bootstrap automatic retry,
+  delivery, connector member-removal delivery, bootstrap mixed
+  active-route/pending-reconnect shrink delivery, bootstrap automatic retry,
   partial-failure retry coverage, and three-node example shutdown route
   cleanup coverage. Current three-node bootstrap shrink coverage already feeds
   reduced gossip to the removed peer and asserts survivor and removed-peer
@@ -4387,6 +4393,18 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after distributed-data TCP bootstrap mixed-shrink
+cleanup:
+
+```bash
+cargo test -p kairo-distributed-data bootstrap_keeps_route_and_clears_pending_reconnect_when_peer_leaves_membership --all-targets --all-features -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after cluster TCP bootstrap mixed-shrink cleanup:
 

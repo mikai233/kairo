@@ -1270,6 +1270,132 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
 }
 
 #[test]
+fn bootstrap_keeps_route_and_clears_pending_reconnect_when_peer_leaves_membership() {
+    let _guard = bootstrap_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-mixed-shrink-sender").unwrap();
+    let bound_kit = ActorSystemTestKit::new("ddata-bootstrap-mixed-shrink-bound").unwrap();
+    let registry = registry();
+    let retry_interval = Duration::from_millis(25);
+    let bound_port = unused_port();
+    let missing_port = unused_port();
+    let bound_node = node("ddata-bootstrap-mixed-shrink-bound", bound_port, 2);
+    let missing_node = node("ddata-bootstrap-mixed-shrink-missing", missing_port, 3);
+    let sender_runtime = bind_runtime(
+        "ddata-bootstrap-mixed-shrink-sender",
+        1,
+        11,
+        ReplicaId::from(&bound_node),
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let sender_settings = sender_runtime.runtime().settings().clone();
+    let sender_node = sender_runtime.self_node().clone();
+    let bound_requests = Arc::new(RecordingRequests::default());
+    let bound_runtime = bind_association_runtime_on_port_with_requests(
+        "ddata-bootstrap-mixed-shrink-bound",
+        ReplicaId::from(&bound_node),
+        ReplicaId::from(&sender_node),
+        22,
+        bound_port,
+        bound_requests.clone() as Arc<dyn ReplicatorRemoteRequestReceiver>,
+    );
+    let bound_settings = bound_runtime.settings().clone();
+    let sender_publisher = spawn_publisher(&sender_kit, "sender-publisher", sender_node.clone());
+    let sender_cluster = Cluster::new(sender_publisher.clone());
+    let settings = ReplicatorTcpPeerBootstrapSettings::new(
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+    )
+    .with_connector_settings(
+        ReplicatorTcpPeerConnectorSettings::new(retry_interval)
+            .unwrap()
+            .with_automatic_retry_ticks(false),
+    )
+    .with_connector_name("sender-ddata-peer");
+
+    let sender_bootstrap = ReplicatorTcpPeerBootstrap::spawn_with_runtime(
+        sender_kit.system(),
+        sender_cluster,
+        sender_runtime,
+        settings,
+    )
+    .unwrap();
+    let sender_snapshots = sender_kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("sender-snapshots")
+        .unwrap();
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([
+            sender_node.clone(),
+            bound_node.clone(),
+            missing_node.clone(),
+        ]),
+    );
+    await_connector_routes_and_pending_reconnect(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        std::slice::from_ref(&bound_node),
+        &missing_node,
+    );
+    await_cache_route_count(&sender_cache, 1);
+
+    publish_gossip(
+        &sender_publisher,
+        up_gossip([sender_node.clone(), bound_node.clone()]),
+    );
+    let snapshot = await_connector_routes_without_pending(
+        sender_bootstrap.connector(),
+        &sender_snapshots,
+        std::slice::from_ref(&bound_node),
+    );
+    assert_eq!(snapshot.active_targets.len(), 1);
+    assert_eq!(snapshot.active_targets[0].node(), &bound_node);
+    assert!(snapshot.last_error.is_none());
+    let report = snapshot
+        .last_report
+        .expect("membership shrink should record a route report");
+    assert!(report.removed.is_empty());
+    assert_eq!(report.skipped.len(), 1);
+    assert_eq!(report.skipped[0].node(), &missing_node);
+    await_cache_route_count(&sender_cache, 1);
+
+    let sender_ref =
+        replicator_actor_ref_for("ddata-bootstrap-mixed-shrink-sender", &sender_settings)
+            .expect("sender ref should be serializable");
+    let bound_ref = replicator_actor_ref_for("ddata-bootstrap-mixed-shrink-bound", &bound_settings)
+        .expect("bound ref should be serializable");
+    let to_bound = outbound(
+        ReplicaId::from(&bound_node),
+        bound_ref.clone(),
+        sender_ref.clone(),
+        registry.clone(),
+        sender_cache.clone(),
+    );
+    let received = send_read_until_received(
+        &to_bound,
+        bound_requests.as_ref(),
+        ReplicatorRead {
+            key: "mixed-shrink-active-route".to_string(),
+            from: Some(ReplicaId::from(&sender_node)),
+        },
+        Duration::from_secs(1),
+    );
+    assert_eq!(received[0].0, ReplicaId::from(&sender_node));
+    let decoded = registry
+        .deserialize::<ReplicatorRead>(received[0].1.message.clone())
+        .unwrap();
+    assert_eq!(decoded.key, "mixed-shrink-active-route");
+    assert_eq!(decoded.from, Some(ReplicaId::from(&sender_node)));
+    assert_eq!(received[0].1.recipient, bound_ref);
+    assert_eq!(received[0].1.sender, Some(sender_ref));
+
+    run_bootstrap_shutdown(&sender_kit, sender_bootstrap.connector());
+    await_cache_route_count(&sender_cache, 0);
+    bound_runtime.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    bound_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn bootstrap_coordinated_shutdown_stops_connector_with_pending_reconnect() {
     let _guard = bootstrap_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("ddata-bootstrap-shutdown-pending-sender").unwrap();
