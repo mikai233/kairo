@@ -2619,6 +2619,10 @@ Implemented:
   route during shutdown, including listener-installed reverse routes and
   dialed lane pipelines, before joining reader threads so membership and
   heartbeat socket routes cannot keep lanes open after runtime stop.
+- Cluster TCP association runtime shutdown coverage now also pins late route
+  cleanup: if closing one cached route registers another route during shutdown,
+  the second shutdown clear removes that late route before the runtime reports
+  stopped.
 - `kairo-cluster` now has a focused cluster-derived association peer planner
   that consumes `CurrentClusterState` snapshots and cluster events, excludes
   self, follows Pekko's local-observer reachability rule for gossip peer
@@ -4464,6 +4468,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after cluster TCP late-route shutdown cleanup:
+
+```bash
+cargo test -p kairo-cluster tcp_runtime_shutdown_clears_late_routes_registered_during_shutdown --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after parent-stop queued-message drain coverage:
 
