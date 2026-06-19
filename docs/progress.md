@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after remote death-watch cross-address
+  unreachable isolation coverage:
+
+  ```bash
+  cargo test -p kairo-remote unreachable_address_keeps_other_address_watch_and_heartbeat --all-targets --all-features -- --nocapture
+  cargo test -p kairo-remote --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after coordinated-shutdown task registration
   validation coverage:
 
@@ -2055,6 +2066,10 @@ Implemented:
   and cached remote UID metadata when an address terminates, emits an explicit
   heartbeat-stop effect, and keeps the unreachable observation so a later watch
   to that address resets failure detection before starting a fresh watch.
+- Remote death-watch state coverage now also pins Pekko-style per-address
+  isolation for unreachable cleanup: marking one remote address unreachable
+  removes only that address's watched refs, cached UID, and heartbeat while
+  preserving another remote address's watch, UID, and heartbeat schedule.
 - TCP actor-system runtime tests now also send the stable `AddressTerminated`
   control protocol across a real association route and verify the receiver's
   actor-backed remote watcher observes the unreachable sender address with the

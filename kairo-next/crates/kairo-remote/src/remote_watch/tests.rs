@@ -6,6 +6,10 @@ fn watchee(name: &str) -> ActorRefWireData {
     ActorRefWireData::new(format!("kairo://remote@127.0.0.1:25520/user/{name}")).unwrap()
 }
 
+fn watchee_on(system: &str, port: u16, name: &str) -> ActorRefWireData {
+    ActorRefWireData::new(format!("kairo://{system}@127.0.0.1:{port}/user/{name}")).unwrap()
+}
+
 fn watcher(name: &str) -> ActorRefWireData {
     ActorRefWireData::new(format!("kairo://local@127.0.0.1:25521/user/{name}")).unwrap()
 }
@@ -365,6 +369,59 @@ fn unreachable_address_can_use_explicit_uid_from_wire_protocol() {
                 address: "kairo://remote@127.0.0.1:25520".to_string()
             }
         ]
+    );
+}
+
+#[test]
+fn unreachable_address_keeps_other_address_watch_and_heartbeat() {
+    let mut state = RemoteDeathWatchState::new();
+    let first = watchee_on("first-remote", 25520, "target");
+    let second = watchee_on("second-remote", 25522, "target");
+    let watcher = watcher("observer");
+    state.watch(first.clone(), watcher.clone());
+    state.watch(second.clone(), watcher.clone());
+    state.heartbeat_ack("kairo://first-remote@127.0.0.1:25520", 7);
+    state.heartbeat_ack("kairo://second-remote@127.0.0.1:25522", 9);
+
+    let effects = state.mark_unreachable("kairo://first-remote@127.0.0.1:25520");
+
+    assert_eq!(
+        effects,
+        vec![
+            RemoteDeathWatchEffect::AddressTerminated(AddressTerminated {
+                address: "kairo://first-remote@127.0.0.1:25520".to_string(),
+                uid: Some(7),
+            }),
+            RemoteDeathWatchEffect::StopHeartbeat {
+                address: "kairo://first-remote@127.0.0.1:25520".to_string()
+            }
+        ]
+    );
+    assert!(state.is_unreachable("kairo://first-remote@127.0.0.1:25520"));
+    assert!(!state.is_unreachable("kairo://second-remote@127.0.0.1:25522"));
+    assert_eq!(state.watching_count(), 1);
+    assert_eq!(state.watched_address_count(), 1);
+    assert_eq!(
+        state.address_uid("kairo://first-remote@127.0.0.1:25520"),
+        None
+    );
+    assert_eq!(
+        state.address_uid("kairo://second-remote@127.0.0.1:25522"),
+        Some(9)
+    );
+    assert_eq!(
+        state.watching_refs(),
+        vec![WatchRemote {
+            watchee: second,
+            watcher
+        }]
+    );
+    assert_eq!(
+        state.heartbeat_due(42),
+        vec![RemoteDeathWatchEffect::SendHeartbeat {
+            address: "kairo://second-remote@127.0.0.1:25522".to_string(),
+            message: RemoteHeartbeat { from_uid: 42 },
+        }]
     );
 }
 
