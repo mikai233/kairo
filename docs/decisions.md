@@ -852,8 +852,8 @@ Context:
 Pekko sends cluster membership commands such as `Join`, `Welcome`, and
 `GossipEnvelope` to the remote cluster core daemon path
 `/system/cluster/core/daemon`. Kairo already has stable cluster protocol
-codecs and a transport-neutral membership wire bridge, but still needs a
-shared remote association boundary that does not turn remoting into a
+codecs, a transport-neutral membership wire bridge, and a shared
+remote-envelope association boundary that does not turn remoting into a
 membership authority.
 
 Decision:
@@ -869,8 +869,9 @@ Consequences:
   cluster subsystems without duplicating transport route tables.
 - The cluster core daemon path is a documented Kairo system path and can be
   made configurable later without changing cluster message manifests.
-- Socket-backed cluster transport and heartbeat receiver routing remain
-  separate integration steps.
+- Socket-backed cluster transport composes this boundary with the shared
+  association cache, while heartbeat receiver routing remains a separate
+  system path with its own stable manifests.
 
 ## ADR-0034: Remote Inbound Composition Splits Business And System Traffic
 

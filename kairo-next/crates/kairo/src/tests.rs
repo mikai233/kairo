@@ -596,6 +596,49 @@ fn implementation_status_docs_do_not_mark_ddata_bootstrap_shrink_cleanup_as_futu
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_cluster_remote_envelope_boundary_as_future_work()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let decisions =
+        std::fs::read_to_string(repo_root.join("docs").join("decisions.md"))?.replace("\r\n", "\n");
+    let progress =
+        std::fs::read_to_string(repo_root.join("docs").join("progress.md"))?.replace("\r\n", "\n");
+
+    let stale_phrases = [
+        "but still needs a\nshared remote association boundary",
+        "Socket-backed cluster transport and heartbeat receiver routing remain\n  separate integration steps.",
+    ];
+
+    for phrase in stale_phrases {
+        assert!(
+            !decisions.contains(phrase),
+            "decisions must not describe implemented cluster remote-envelope wiring as future work"
+        );
+    }
+    for phrase in [
+        "ClusterMembershipRemoteEnvelopeOutbound",
+        "/system/cluster/core/daemon",
+        "RemoteAssociationCache",
+    ] {
+        assert!(
+            decisions.contains(phrase) && progress.contains(phrase),
+            "cluster remote-envelope status docs must mention implemented boundary `{phrase}`"
+        );
+    }
+    for phrase in [
+        "routes\n  join/welcome/gossip and heartbeat request/response envelopes through live",
+        "socket associations, and keeps cluster membership truth in gossip",
+    ] {
+        assert!(
+            progress.contains(phrase),
+            "progress must mention implemented cluster socket association routing: {phrase}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn implementation_status_docs_do_not_mark_reader_supervision_as_future_work()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;

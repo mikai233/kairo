@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after cluster membership remote-envelope
+  boundary documentation convergence guard:
+
+  ```bash
+  cargo test -p kairo implementation_status_docs_do_not_mark_cluster_remote_envelope_boundary_as_future_work --all-targets --all-features -- --nocapture
+  cargo test -p kairo --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after actor tree lifecycle progress
   convergence guard:
 
