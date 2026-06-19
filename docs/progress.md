@@ -4237,6 +4237,11 @@ Implemented:
   termination flow: shards made unallocated by `ShardRegionTerminated` are
   allocated to surviving regions and `HostShard` is dispatched through the
   registered handoff target.
+- `kairo-cluster-sharding` shard coordinators now pin the same
+  remembered-shard allocation path for remote region registration: a remote
+  register receives its stable `RegisterAck`, the remembered shard is assigned
+  to the remote region id, and `HostShard` is dispatched through the
+  registered handoff target.
 - `kairo-cluster-sharding` handoff workers now consume coordinator
   region-termination notifications: a terminated participant counts as a
   begin-handoff acknowledgement, and a terminated source region completes the
@@ -4432,6 +4437,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after remembered remote-region allocation:
+
+```bash
+cargo test -p kairo-cluster-sharding coordinator_actor_allocates_remembered_shard_after_remote_region_registration --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after cluster-tools TCP bootstrap self-removal
 cleanup:

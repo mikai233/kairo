@@ -1013,6 +1013,93 @@ fn coordinator_actor_allocates_remembered_shards_after_local_region_registration
 }
 
 #[test]
+fn coordinator_actor_allocates_remembered_shard_after_remote_region_registration() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("remembered-remote-registration").unwrap();
+    let mut state = CoordinatorState::new().with_remember_entities(true);
+    state.merge_remembered_shards(["shard-1".to_string()]);
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let remote_region =
+        ActorRefWireData::new("kairo://remote@127.0.0.1:2552/system/sharding/region-a").unwrap();
+    let coordinator_wire =
+        ActorRefWireData::new("kairo://local@127.0.0.1:2551/system/sharding/coordinator").unwrap();
+    let mut registry = Registry::new();
+    register_sharding_protocol_codecs(&mut registry).unwrap();
+    let registry = Arc::new(registry);
+    let remote_outbound = kit
+        .create_probe::<RemoteEnvelope>("remote-registration-replies")
+        .unwrap();
+    let remote_region_probe = kit
+        .create_probe::<ShardRegionMsg<String>>("remote-region-target")
+        .unwrap();
+    let coordinator_state = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RegisterRemoteRegion {
+            region: remote_region.clone(),
+            target: Some(HandoffRegionTarget::new(
+                remote_region_id(&remote_region),
+                remote_region_probe.actor_ref(),
+            )),
+            reply: CoordinatorRemoteReplyTarget::new(
+                coordinator_wire.clone(),
+                registry.clone(),
+                remote_outbound.actor_ref(),
+            ),
+        })
+        .unwrap();
+
+    let ack = remote_outbound
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert_eq!(ack.recipient, remote_region);
+    assert_eq!(ack.sender, Some(coordinator_wire.clone()));
+    assert_eq!(ack.message.manifest.as_str(), RegisterAck::MANIFEST);
+    assert_eq!(
+        registry
+            .deserialize::<RegisterAck>(ack.message)
+            .unwrap()
+            .coordinator,
+        coordinator_wire
+    );
+    match remote_region_probe
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+    {
+        ShardRegionMsg::HostShard { shard, .. } => assert_eq!(shard, "shard-1"),
+        _ => panic!("expected remembered HostShard dispatch"),
+    }
+
+    coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: coordinator_state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = coordinator_state
+        .expect_msg(Duration::from_millis(500))
+        .unwrap();
+    assert!(snapshot.unallocated_shards.is_empty());
+    assert_eq!(
+        snapshot.allocations.get(&remote_region_id(&remote_region)),
+        Some(&vec!["shard-1".to_string()])
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_allocates_remembered_shard_to_remember_store_region() {
     let kit = kairo_testkit::ActorSystemTestKit::new("remembered-store-registration").unwrap();
     let mut state = CoordinatorState::new().with_remember_entities(true);
