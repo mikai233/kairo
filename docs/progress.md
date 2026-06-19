@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after lease-majority status documentation
+  convergence guard:
+
+  ```bash
+  cargo test -p kairo implementation_status_docs_do_not_mark_lease_majority_as_future_work --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster lease_majority --all-targets --all-features -- --nocapture
+  cargo test -p kairo --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after cluster and cluster-tools TCP connector
   clear-routes pending-reconnect parity coverage:
 
@@ -3301,6 +3313,10 @@ Implemented:
   delay, role-filtered majority/minority calculation, lease-denied reverse
   decisions, and indirect-connection reversal without making the lease a source
   of cluster membership truth.
+- The architecture and downing ADR status now align with implemented
+  lease-majority support: `LeaseMajorityHook` is documented as an explicit
+  downing hook, not pending work or a source of cluster membership truth, and
+  the `kairo` facade has a regression guard for that status.
 - `kairo-cluster::DowningProviderActor` now wraps the downing hook boundary in
   an actor-backed stable-after timer: it observes gossip snapshots, tracks
   relevant unreachable members, resets or cancels stable-after and hook-supplied

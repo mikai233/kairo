@@ -1337,8 +1337,11 @@ Downing:
   unreachable nodes that have still seen current gossip, then combined with
   the ordinary strategy decision after filtering reachability records between
   indirectly connected nodes.
-- Lease-majority and broader data-center-aware policy coverage remain later
-  work.
+- Lease-majority is modeled as `LeaseMajorityHook`: it can acquire or deny a
+  caller-provided lease before applying a split-brain lease-majority decision,
+  but it is not membership truth; gossip and reachability remain the only
+  membership and partition evidence.
+- Broader data-center-aware policy coverage remains later work.
 
 ### Seed and Discovery
 

@@ -570,8 +570,8 @@ Pekko's split-brain resolver is an actor-backed downing provider. It waits for
 stable reachability, handles indirectly connected graphs, and can use lease
 acquisition for lease-majority decisions. Kairo has the gossip, reachability,
 and downing-plan state needed for deterministic decisions, plus a local actor
-runtime with deterministic timers. At the time of this decision,
-lease-majority support was still pending.
+runtime with deterministic timers. Lease-majority is now captured by ADR-0094
+as an explicit downing hook, not as membership truth.
 
 Decision:
 Kairo exposes synchronous

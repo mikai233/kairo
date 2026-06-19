@@ -725,6 +725,42 @@ fn implementation_status_docs_do_not_mark_cluster_remote_envelope_boundary_as_fu
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_lease_majority_as_future_work()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let architecture =
+        std::fs::read_to_string(repo_root.join("kairo-next").join("ARCHITECTURE.md"))?
+            .replace("\r\n", "\n");
+    let decisions =
+        std::fs::read_to_string(repo_root.join("docs").join("decisions.md"))?.replace("\r\n", "\n");
+    let progress =
+        std::fs::read_to_string(repo_root.join("docs").join("progress.md"))?.replace("\r\n", "\n");
+    let stale_phrases = [
+        "lease-majority support was still pending",
+        "Lease-majority and broader data-center-aware policy coverage remain later\n  work.",
+    ];
+
+    for phrase in stale_phrases {
+        assert!(
+            !architecture.contains(phrase)
+                && !decisions.contains(phrase)
+                && !progress.contains(phrase),
+            "status docs must not describe implemented lease-majority support as future work"
+        );
+    }
+    for phrase in ["LeaseMajorityHook", "lease-majority", "membership truth"] {
+        assert!(
+            architecture.contains(phrase)
+                && decisions.contains(phrase)
+                && progress.contains(phrase),
+            "lease-majority status docs must mention implemented boundary `{phrase}`"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn implementation_status_docs_do_not_mark_reader_supervision_as_future_work()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
