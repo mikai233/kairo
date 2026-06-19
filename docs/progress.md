@@ -62,6 +62,18 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after remote region-control inbound
+  documentation convergence guard:
+
+  ```bash
+  cargo test -p kairo implementation_status_docs_do_not_mark_remote_region_control_inbound_as_future_work --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-sharding region_system_inbound --all-targets --all-features -- --nocapture
+  cargo test -p kairo --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after remote sharding registration
   documentation convergence guard:
 
@@ -4261,10 +4273,11 @@ Implemented:
   and test modules instead of concentrating coordinator-to-region control
   routing, stable reply envelopes, and fixtures in one file.
 - `kairo-cluster-sharding` now has region-side inbound handling for stable
-  remote `HostShard`, `BeginHandOff`, and `HandOff` commands; these re-enter
-  region actor state transitions and emit stable `ShardStarted`,
-  `BeginHandOffAck`, or immediate `ShardStopped` replies where the current
-  region runtime can complete the command synchronously.
+  remote `HostShard`, `BeginHandOff`, and `HandOff` commands:
+  `ShardRegionSystemInbound` routes the commands into region actor state
+  transitions, and `ShardRegionRemoteControlReplyTarget` emits stable
+  `ShardStarted`, `BeginHandOffAck`, or immediate `ShardStopped` replies
+  where the current region runtime can complete the command synchronously.
 - Shard-region system inbound coverage now lives in a focused sibling test
   module and decodes the emitted `ShardStarted`, `BeginHandOffAck`, and
   `ShardStopped` reply payloads through registered codecs instead of asserting

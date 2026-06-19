@@ -2493,9 +2493,10 @@ Consequences:
   through the same transport abstraction used for local regions.
 - Remote sharding control messages use stable manifests and codecs rather than
   local Rust enum layout, discriminants, or type names.
-- Region-side inbound execution of remote `HostShard`, `BeginHandOff`, and
-  `HandOff` commands remains a follow-up so replies can be generated from
-  actual local region actor results.
+- Region-side inbound execution of stable remote `HostShard`, `BeginHandOff`,
+  and `HandOff` commands is implemented by `ShardRegionSystemInbound` and the
+  `ShardRegionRemoteControlReplyTarget`, so stable commands re-enter local
+  region actor turns before replies are serialized.
 
 ## ADR-0087: Remote Region Control Inbound Re-enters Region Actors
 
