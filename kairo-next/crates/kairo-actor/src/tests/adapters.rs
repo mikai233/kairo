@@ -157,6 +157,27 @@ fn message_adapter_rejects_after_owner_stops() {
     let actor = system
         .spawn("adapter", Props::new(|| AdapterProbe { adapted_count: 0 }))
         .unwrap();
+
+    assert_actor_stop_stops_message_adapter_refs(&system, actor);
+}
+
+#[test]
+fn message_adapter_rejects_after_system_owner_stops() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let actor = system
+        .spawn_system(
+            "system-adapter",
+            Props::new(|| AdapterProbe { adapted_count: 0 }),
+        )
+        .unwrap();
+
+    assert_actor_stop_stops_message_adapter_refs(&system, actor);
+}
+
+fn assert_actor_stop_stops_message_adapter_refs(
+    system: &ActorSystem,
+    actor: ActorRef<AdapterProbeMsg>,
+) {
     let (adapter_tx, adapter_rx) = mpsc::channel();
     let (reply_tx, _reply_rx) = mpsc::channel();
 
@@ -164,8 +185,11 @@ fn message_adapter_rejects_after_owner_stops() {
         .tell(AdapterProbeMsg::CreateAdapter(adapter_tx))
         .unwrap();
     let adapter = adapter_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let adapter_path = adapter.path().clone();
+
     system.stop(&actor);
     assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    assert!(adapter.wait_for_stop(Duration::from_secs(1)));
 
     let error = adapter
         .tell(ExternalProbeMsg {
@@ -180,9 +204,13 @@ fn message_adapter_rejects_after_owner_stops() {
             .dead_letters()
             .wait_for_len(1, Duration::from_secs(1))
     );
-    assert_eq!(
-        system.dead_letters().records()[0].recipient(),
-        adapter.path()
+    let records = system.dead_letters().records();
+    assert!(
+        records
+            .iter()
+            .any(|record| record.recipient() == &adapter_path
+                && record.reason() == "actor is stopped"
+                && record.message_type() == std::any::type_name::<ExternalProbeMsg>())
     );
 }
 

@@ -990,6 +990,9 @@ Implemented:
   death-watch subscribers for the adapter path when the owner stops or
   restarts, and discard already queued stale adapter messages after lifecycle
   cancellation.
+- Direct actor-stop coverage now pins the same message-adapter helper
+  lifecycle for both `/user` and `/system` roots: adapter refs stop with their
+  owner and reject later sends through dead letters.
 - Message adapter refs now have focused resume-supervision coverage showing
   that queued adapted messages and the adapter ref remain live when the owner
   resumes after a failed receive turn, matching Pekko's state-preserving
@@ -5187,6 +5190,17 @@ coverage:
 cargo test -p kairo-actor actor_system_terminate_rejects_ --all-targets --all-features -- --nocapture
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+git diff --check
+```
+
+Latest M13 validation refresh after direct actor-stop message-adapter lifecycle
+coverage:
+
+```bash
+cargo test -p kairo-actor message_adapter_rejects_after --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
 git diff --check
