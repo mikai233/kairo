@@ -4242,6 +4242,11 @@ Implemented:
   register receives its stable `RegisterAck`, the remembered shard is assigned
   to the remote region id, and `HostShard` is dispatched through the
   registered handoff target.
+- `kairo-cluster-sharding` shard coordinators now also pin remote-region stop
+  recovery for remembered shards: a `RemoteRegionStopped` notification removes
+  the stopped remote owner, moves its shard through the remembered
+  unallocated path, and dispatches `HostShard` to a surviving registered
+  region.
 - `kairo-cluster-sharding` handoff workers now consume coordinator
   region-termination notifications: a terminated participant counts as a
   begin-handoff acknowledgement, and a terminated source region completes the
@@ -4437,6 +4442,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after remembered remote-region stop recovery:
+
+```bash
+cargo test -p kairo-cluster-sharding coordinator_actor_reallocates_remembered_shard_after_remote_region_stopped --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after remembered remote-region allocation:
 
