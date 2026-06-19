@@ -66,7 +66,7 @@ workspace stabilization before M13 release readiness.
   drain coverage:
 
   ```bash
-  cargo test -p kairo-actor actor_system_terminate_drains_queued_user_messages_before_waiting_for_children --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor actor_system_terminate_drains_queued --all-targets --all-features -- --nocapture
   cargo test -p kairo-actor --all-targets --all-features
   cargo fmt --all
   cargo fmt --all -- --check
@@ -134,9 +134,10 @@ Implemented:
   behavior: a second `terminate` call succeeds as a no-op and does not deliver
   another `PostStop`.
 - Actor-system termination coverage now also pins the system-stop priority
-  boundary: after termination has requested a top-level actor stop, user
-  messages already queued behind a blocked receive are drained to dead letters
-  before termination waits for child actors to finish stopping.
+  boundary for both `/user` and `/system` top-level actors: after termination
+  has requested a root child stop, user messages already queued behind a
+  blocked receive are drained to dead letters before termination waits for
+  child actors to finish stopping.
 - `Context::system`, `Context::spawn`, and `Context::spawn_anonymous` are
   available for local actors.
 - `ActorSystem::spawn_system` can spawn framework-owned actors under `/system`
@@ -4521,7 +4522,7 @@ Latest M13 validation refresh after actor-system terminate queued-message
 drain coverage:
 
 ```bash
-cargo test -p kairo-actor actor_system_terminate_drains_queued_user_messages_before_waiting_for_children --all-targets --all-features -- --nocapture
+cargo test -p kairo-actor actor_system_terminate_drains_queued --all-targets --all-features -- --nocapture
 cargo test -p kairo-actor --all-targets --all-features
 cargo fmt --all
 cargo fmt --all -- --check

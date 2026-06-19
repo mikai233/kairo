@@ -1699,6 +1699,25 @@ fn actor_system_terminate_drains_queued_user_messages_before_waiting_for_childre
     let parent = system
         .spawn("parent", Props::new(|| ChildStoppingParent { child: None }))
         .unwrap();
+    assert_system_terminate_drains_queued_messages_before_waiting_for_children(system, parent);
+}
+
+#[test]
+fn actor_system_terminate_drains_queued_system_messages_before_waiting_for_children() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let parent = system
+        .spawn_system(
+            "system-parent",
+            Props::new(|| ChildStoppingParent { child: None }),
+        )
+        .unwrap();
+    assert_system_terminate_drains_queued_messages_before_waiting_for_children(system, parent);
+}
+
+fn assert_system_terminate_drains_queued_messages_before_waiting_for_children(
+    system: ActorSystem,
+    parent: ActorRef<ChildStopMsg>,
+) {
     let (child_entered_stop_tx, child_entered_stop_rx) = mpsc::channel();
     let (child_release_stop_tx, child_release_stop_rx) = mpsc::channel();
     let (spawn_tx, spawn_rx) = mpsc::channel();
