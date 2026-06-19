@@ -380,6 +380,48 @@ mod tests {
     }
 
     #[test]
+    fn reachability_changed_replaces_self_observer_unreachable_set() {
+        let self_node = node("self", 2551, 1);
+        let first_peer = node("first-peer", 2552, 2);
+        let second_peer = node("second-peer", 2553, 3);
+        let observer = node("observer", 2554, 4);
+        let mut peers = ClusterAssociationPeerState::new(self_node.clone());
+        peers
+            .apply_snapshot(state(
+                vec![member(first_peer.clone()), member(second_peer.clone())],
+                vec![],
+            ))
+            .unwrap();
+        peers
+            .apply_event(ClusterEvent::ReachabilityChanged {
+                reachability: Reachability::new()
+                    .unreachable(self_node.clone(), first_peer.clone())
+                    .unreachable(observer, second_peer.clone()),
+            })
+            .unwrap();
+
+        let changes = peers
+            .apply_event(ClusterEvent::ReachabilityChanged {
+                reachability: Reachability::new()
+                    .unreachable(self_node, second_peer.clone())
+                    .unreachable(first_peer.clone(), second_peer.clone()),
+            })
+            .unwrap();
+
+        assert_eq!(
+            changes,
+            vec![
+                ClusterAssociationPeerChange::Remove(
+                    ClusterAssociationPeerTarget::new(second_peer).unwrap()
+                ),
+                ClusterAssociationPeerChange::Dial(
+                    ClusterAssociationPeerTarget::new(first_peer).unwrap()
+                )
+            ]
+        );
+    }
+
+    #[test]
     fn member_removal_removes_active_peer_and_new_uid_redials() {
         let self_node = node("self", 2551, 1);
         let peer_v1 = node("peer", 2552, 2);

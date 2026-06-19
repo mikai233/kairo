@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after cluster association peer
+  self-observer reachability replacement coverage:
+
+  ```bash
+  cargo test -p kairo-cluster reachability_changed_replaces_self_observer_unreachable_set --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after remote death-watch cross-address
   unreachable isolation coverage:
 
@@ -3270,6 +3281,10 @@ Implemented:
   validity, rejects non-self local-only peers, and emits explicit dial/remove
   targets for future multi-peer TCP runtime ownership without making remoting a
   membership authority.
+- Cluster-derived association peer planning now also pins replacement of the
+  self-observer unreachable set: a `ReachabilityChanged` update redials peers
+  that are no longer unreachable from self, removes only newly self-unreachable
+  peers, and ignores unreachable observations made only by other nodes.
 - `kairo-cluster` now has a focused TCP peer-route owner that applies
   cluster-derived dial/remove plans to `ClusterTcpAssociationRuntime`, keeps
   per-peer route registrations separate from membership state, and closes full
