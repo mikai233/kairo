@@ -15,7 +15,8 @@ use crate::{
     ClusterMembershipWireOutbound, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
     DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, HeartbeatRemoteReceiverInbound,
     HeartbeatRemoteResponseInbound, HeartbeatSenderMsg, Join, Member, MemberEvent, MemberStatus,
-    ReachabilityEvent, register_cluster_protocol_codecs, test_support::cluster_socket_test_lock,
+    Reachability, ReachabilityEvent, register_cluster_protocol_codecs,
+    test_support::cluster_socket_test_lock,
 };
 
 fn registry() -> Arc<Registry> {
@@ -453,6 +454,162 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
     sender_kit.shutdown(Duration::from_secs(1)).unwrap();
     second_kit.shutdown(Duration::from_secs(1)).unwrap();
     third_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn peer_runtime_replaces_routes_on_reachability_changed_self_observer_set() {
+    let _guard = cluster_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("cluster-peer-runtime-reachability-change-sender").unwrap();
+    let first_kit =
+        ActorSystemTestKit::new("cluster-peer-runtime-reachability-change-first").unwrap();
+    let second_kit =
+        ActorSystemTestKit::new("cluster-peer-runtime-reachability-change-second").unwrap();
+    let registry = registry();
+    let mut sender = bind_peer_runtime(
+        "reachability-change-sender",
+        1,
+        11,
+        &sender_kit,
+        registry.clone(),
+    );
+    let (first, first_probes) = bind_association_runtime_with_probes(
+        "reachability-change-first",
+        2,
+        22,
+        &first_kit,
+        registry.clone(),
+    );
+    let (second, second_probes) = bind_association_runtime_with_probes(
+        "reachability-change-second",
+        3,
+        33,
+        &second_kit,
+        registry.clone(),
+    );
+    let sender_node = sender.self_node().clone();
+    let first_node = first.self_node().clone();
+    let second_node = second.self_node().clone();
+    let observer = node("observer", 2660, 4);
+    let outbound = Arc::new(sender.association_cache().clone()) as Arc<dyn RemoteOutbound>;
+    let first_membership_outbound = ClusterMembershipWireOutbound::new(
+        first_node.clone(),
+        registry.clone(),
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(outbound.clone()),
+    );
+    let second_membership_outbound = ClusterMembershipWireOutbound::new(
+        second_node.clone(),
+        registry,
+        ClusterMembershipRemoteEnvelopeOutbound::from_arc(outbound),
+    );
+
+    let report = sender
+        .apply_snapshot(state(
+            vec![
+                member(sender_node.clone()),
+                member(first_node.clone()),
+                member(second_node.clone()),
+            ],
+            vec![],
+        ))
+        .unwrap();
+    assert_eq!(report.dialed.len(), 2);
+    assert_eq!(sender.peer_route_count(), 2);
+    assert_eq!(sender.association_cache().route_count(), 2);
+    wait_for_reverse_route(&first);
+    wait_for_reverse_route(&second);
+
+    let report = sender
+        .apply_event(ClusterEvent::ReachabilityChanged {
+            reachability: Reachability::new()
+                .unreachable(sender_node.clone(), first_node.clone())
+                .unreachable(observer, second_node.clone()),
+        })
+        .unwrap();
+    assert_eq!(report.removed.len(), 1);
+    assert_eq!(report.removed[0].node(), &first_node);
+    assert!(report.dialed.is_empty());
+    assert_eq!(sender.peer_route_count(), 1);
+    assert_eq!(sender.association_cache().route_count(), 1);
+    send_join_until_received(
+        &second_membership_outbound,
+        &second_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["after-first-unreachable".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+    let first_error = first_membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: sender_node.clone(),
+                roles: vec!["after-first-unreachable-first".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("self-unreachable peer route should reject sends");
+    assert!(
+        first_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected first-peer send error: {first_error:?}"
+    );
+    first_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    let report = sender
+        .apply_event(ClusterEvent::ReachabilityChanged {
+            reachability: Reachability::new()
+                .unreachable(sender_node.clone(), second_node.clone())
+                .unreachable(first_node.clone(), second_node.clone()),
+        })
+        .unwrap();
+    assert_eq!(report.removed.len(), 1);
+    assert_eq!(report.removed[0].node(), &second_node);
+    assert_eq!(report.dialed.len(), 1);
+    assert_eq!(report.dialed[0].node(), &first_node);
+    assert_eq!(sender.peer_route_count(), 1);
+    assert_eq!(sender.association_cache().route_count(), 1);
+    send_join_until_received(
+        &first_membership_outbound,
+        &first_probes,
+        Join {
+            node: sender_node.clone(),
+            roles: vec!["after-first-redial".to_string()],
+        },
+        Duration::from_secs(1),
+    );
+    let second_error = second_membership_outbound
+        .send_membership(ClusterMembershipMsg::Join {
+            join: Join {
+                node: sender_node,
+                roles: vec!["after-second-unreachable-second".to_string()],
+            },
+            reply_to: None,
+        })
+        .expect_err("new self-unreachable peer route should reject sends");
+    assert!(
+        second_error
+            .to_string()
+            .contains("no remote association route"),
+        "unexpected second-peer send error: {second_error:?}"
+    );
+    second_probes
+        .membership
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    let sender_report = sender.shutdown().unwrap();
+    assert_eq!(sender_report.peer_routes.removed.len(), 1);
+    assert_eq!(sender_report.listener.accepted_associations, 0);
+    first.shutdown().unwrap();
+    second.shutdown().unwrap();
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+    first_kit.shutdown(Duration::from_secs(1)).unwrap();
+    second_kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

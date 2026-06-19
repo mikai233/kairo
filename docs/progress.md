@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after cluster TCP peer runtime
+  reachability-replacement route coverage:
+
+  ```bash
+  cargo test -p kairo-cluster peer_runtime_replaces_routes_on_reachability_changed_self_observer_set --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after cluster association peer
   self-observer reachability replacement coverage:
 
@@ -3300,6 +3311,12 @@ Implemented:
   route, keeps the surviving route delivering stable-manifest `Join` messages,
   rejects sends to the removed peer through the association cache, and leaves
   the removed peer's membership inbox empty.
+- Cluster TCP peer runtime coverage now also validates
+  `ReachabilityChanged` replacement at the live socket boundary: replacing the
+  self-observer unreachable set removes the newly unreachable route, redials
+  the peer that became self-reachable again, keeps stable `Join` delivery on
+  the active route, and rejects sends to whichever peer is currently
+  self-unreachable.
 - Cluster-derived association peer planning now treats local self-removal as a
   lifecycle boundary: a `MemberRemoved` event for the runtime's own node clears
   all active peer targets, and composed cluster TCP peer runtime coverage proves
