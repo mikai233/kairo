@@ -4265,6 +4265,10 @@ Implemented:
   coordinator actor to process a registered local region's termination before
   asserting allocations were removed, matching the asynchronous death-watch
   delivery contract.
+- `kairo-cluster-sharding` remember-entity orchestration now has integration
+  coverage that a coordinator loading remembered shards from its local remember
+  store dispatches the loaded shard to a real registered remember-store region,
+  which hosts the shard and recovers its remembered entity.
 
 Not yet implemented:
 
@@ -4308,6 +4312,17 @@ Not yet implemented:
   partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation refresh after coordinator remember-store load to real
+remember-store region orchestration:
+
+```bash
+cargo test -p kairo-cluster-sharding coordinator_actor_loads_remembered_shard_and_hosts_remember_store_region --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation refresh after escalated recursive parent-stop coverage:
 

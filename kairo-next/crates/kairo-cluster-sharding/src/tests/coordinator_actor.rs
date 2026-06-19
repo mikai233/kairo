@@ -1079,6 +1079,76 @@ fn coordinator_actor_allocates_remembered_shard_to_remember_store_region() {
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn coordinator_actor_loads_remembered_shard_and_hosts_remember_store_region() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("remembered-store-load-registration").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            Props::new(|| {
+                ShardCoordinatorActor::with_local_remember_store_and_handoff(
+                    CoordinatorState::new(),
+                    LeastShardAllocationStrategy::default(),
+                    RememberCoordinatorStoreState::with_shards(["shard-1".to_string()]),
+                    Duration::from_millis(500),
+                    "stop".to_string(),
+                    Duration::from_millis(500),
+                    HandoffTransport::new(),
+                )
+            })
+            .with_stash_capacity(8),
+        )
+        .unwrap();
+    let region = kit
+        .system()
+        .spawn(
+            "region-a",
+            ShardRegionActor::<String>::props_with_local_remember_store_shards_and_registration(
+                "region-a",
+                "orders",
+                10,
+                10,
+                BTreeMap::from([(
+                    "shard-1".to_string(),
+                    BTreeSet::from(["entity-1".to_string()]),
+                )]),
+                Duration::from_millis(500),
+                RegionRegistrationConfig::new(coordinator.clone(), Duration::from_millis(20)),
+            ),
+        )
+        .unwrap();
+    let coordinator_state = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+    let region_state = kit
+        .create_probe::<ShardRegionSnapshot>("region-state")
+        .unwrap();
+
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &coordinator_state,
+        "loaded remembered shard should be allocated to registered region",
+        remembered_shard_allocated,
+    );
+
+    wait_for_region_snapshot(
+        &region,
+        &region_state,
+        "region should host remembered shard allocated from coordinator store load",
+        |snapshot| snapshot.local_shards.contains("shard-1"),
+    );
+    let local_shard = wait_for_local_shard(&kit, &region, "shard-1");
+    let shard_state = kit.create_probe::<ShardSnapshot>("shard-state").unwrap();
+    wait_for_shard_snapshot(
+        &local_shard,
+        &shard_state,
+        "remember-store shard should recover entity after coordinator store load",
+        |snapshot| snapshot.active_entities == vec!["entity-1".to_string()],
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 struct RequesterAllocationStrategy {
     rebalance_shards: BTreeSet<String>,
 }

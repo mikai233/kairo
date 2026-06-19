@@ -151,6 +151,35 @@ where
         }
     }
 
+    pub fn with_local_remember_store_and_handoff(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        store_state: RememberCoordinatorStoreState,
+        store_timeout: Duration,
+        stop_message: M,
+        handoff_timeout: Duration,
+        transport: HandoffTransport<M>,
+    ) -> Self {
+        Self {
+            runtime: CoordinatorRuntime::new(state.with_remember_entities(true)),
+            strategy: Box::new(strategy),
+            rebalance_interval: None,
+            remember_store: None,
+            local_remember_store_provider: Some(LocalCoordinatorRememberStoreProvider::new(
+                store_state,
+                store_timeout,
+            )),
+            waiting_for_remember_store_load: true,
+            handoff: Some(CoordinatorHandoff::new(
+                stop_message,
+                handoff_timeout,
+                transport,
+            )),
+            remote_regions: CoordinatorRemoteRegions::new(),
+            region_watch_by_path: HashMap::new(),
+        }
+    }
+
     pub fn props_with_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
