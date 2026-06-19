@@ -63,6 +63,10 @@ fn node(system: &str, port: u16, uid: u64) -> UniqueAddress {
     )
 }
 
+fn member(node: UniqueAddress) -> Member {
+    Member::new(node, Vec::new()).with_status(MemberStatus::Up)
+}
+
 fn assert_pubsub_publish(
     probes: &ClusterToolsInboundProbes,
     expected_topic: TopicName,
@@ -154,6 +158,39 @@ fn await_connector_route_without_manual_retry(
     .unwrap();
 }
 
+fn await_connector_local_only_error(
+    connector: &kairo_actor::ActorRef<crate::ClusterToolsTcpPeerConnectorMsg>,
+    snapshots: &kairo_testkit::TestProbe<ClusterToolsTcpPeerConnectorSnapshot>,
+) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            connector
+                .tell(crate::ClusterToolsTcpPeerConnectorMsg::Snapshot {
+                    reply_to: snapshots.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            let snapshot = snapshots
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?;
+            if snapshot.route_count == 0
+                && snapshot.active_targets.is_empty()
+                && snapshot.pending_reconnects.is_empty()
+                && snapshot
+                    .last_error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("has no remote host"))
+            {
+                Ok(())
+            } else {
+                Err(format!("unexpected connector snapshot: {snapshot:?}"))
+            }
+        },
+    )
+    .unwrap();
+}
+
 #[test]
 fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
     let _guard = bootstrap_socket_test_lock();
@@ -198,6 +235,53 @@ fn bootstrap_binds_connector_and_registers_coordinated_shutdown_stop() {
             .starts_with("kairo://cluster-tools-peer-bootstrap/system/tools-peer#")
     );
     assert!(!bootstrap.connector().is_stopped());
+
+    run_bootstrap_shutdown(&kit, bootstrap.connector());
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn bootstrap_surfaces_local_only_member_without_pending_reconnect() {
+    let _guard = bootstrap_socket_test_lock();
+    let kit = ActorSystemTestKit::new("cluster-tools-bootstrap-local-only").unwrap();
+    let registry = registry();
+    let publisher_node =
+        UniqueAddress::new(Address::local("cluster-tools-bootstrap-local-only"), 1);
+    let publisher = spawn_publisher(&kit, "publisher", publisher_node);
+    let cluster = Cluster::new(publisher.clone());
+    let settings = ClusterToolsTcpPeerBootstrapSettings::new()
+        .with_connector_name("tools-peer")
+        .with_connector_settings(
+            ClusterToolsTcpPeerConnectorSettings::new(Duration::from_millis(25))
+                .unwrap()
+                .with_automatic_retry_ticks(false),
+        )
+        .with_shutdown_timeout(Duration::from_secs(1));
+    let system = kit.system().clone();
+    let kit_ref = &kit;
+
+    let bootstrap = ClusterToolsTcpPeerBootstrap::bind_and_spawn(
+        &system,
+        cluster,
+        1,
+        11,
+        RemoteSettings::new("127.0.0.1", 0).with_connect_timeout(Duration::from_millis(10)),
+        settings,
+        move |self_node| inbound_for("local-only", kit_ref, registry, self_node),
+    )
+    .unwrap();
+    let snapshots = kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("local-only-snapshots")
+        .unwrap();
+    let local_only = UniqueAddress::new(Address::local("local-only"), 2);
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(bootstrap.self_node().clone()), member(local_only)]),
+        ))
+        .unwrap();
+
+    await_connector_local_only_error(bootstrap.connector(), &snapshots);
 
     run_bootstrap_shutdown(&kit, bootstrap.connector());
     kit.shutdown(Duration::from_secs(1)).unwrap();

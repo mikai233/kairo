@@ -63,6 +63,18 @@ workspace stabilization before M13 release readiness.
 ## Known Validation Status
 
 - Latest M13 validation refresh after cluster, distributed-data, and
+  cluster-tools TCP bootstrap local-only member rejection coverage:
+
+  ```bash
+  cargo test -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools bootstrap_surfaces_local_only_member_without_pending_reconnect --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
+- Latest M13 validation refresh after cluster, distributed-data, and
   cluster-tools TCP connector local-only member rejection coverage:
 
   ```bash
@@ -4867,6 +4879,11 @@ Implemented:
   connector coverage now pins the same remote boundary at the actor facade:
   local-only member snapshots are surfaced as connector errors and leave
   active routes and pending reconnect state empty instead of scheduling a dial.
+- `kairo-cluster`, `kairo-distributed-data`, and `kairo-cluster-tools` TCP
+  bootstrap coverage now pins that remote boundary through the public bootstrap
+  facade as well: publishing a local-only peer member through cluster gossip
+  surfaces the connector error without creating active routes or pending
+  reconnects.
 
 Not yet implemented:
 
@@ -4914,7 +4931,8 @@ Not yet implemented:
   peer-runtime, connector, and bootstrap partial-failure retry coverage,
   distributed-data and cluster-tools peer-runtime local-only snapshot
   rejection coverage, cluster/distributed-data/cluster-tools connector
-  local-only member rejection coverage,
+  local-only member rejection coverage, cluster/distributed-data/cluster-tools
+  bootstrap local-only member rejection coverage,
   three-node full-mesh delivery coverage where applicable, public example
   smoke coverage that coordinated shutdown clears two live routes in each TCP
   bootstrap facade, and public example smoke coverage that two-node and
