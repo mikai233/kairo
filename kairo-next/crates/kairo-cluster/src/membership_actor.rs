@@ -90,10 +90,19 @@ impl ClusterMembership {
             .gossip
             .members()
             .iter()
-            .find(|member| member.unique_address.address == join.node.address);
+            .find(|member| member.unique_address.address == join.node.address)
+            .cloned();
 
         if let Some(existing) = existing_same_address {
             if existing.unique_address == join.node {
+                self.reply_welcome(reply_to);
+            } else if existing.status == crate::MemberStatus::Down {
+                let removal_timestamp = self.next_timestamp();
+                let gossip = self
+                    .gossip
+                    .remove(&existing.unique_address, removal_timestamp)
+                    .add_member(Member::new(join.node.clone(), join.roles));
+                self.update_latest_gossip(gossip);
                 self.reply_welcome(reply_to);
             } else {
                 let reachability = self

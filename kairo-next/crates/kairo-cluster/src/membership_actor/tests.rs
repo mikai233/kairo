@@ -130,6 +130,102 @@ fn new_incarnation_join_downs_existing_same_address_without_welcome() {
 }
 
 #[test]
+fn new_incarnation_retry_after_downing_rejoins_same_address() {
+    let kit = ActorSystemTestKit::new("cluster-membership-new-incarnation-retry").unwrap();
+    let self_node = node("self", 1);
+    let old_peer = node("peer", 2);
+    let new_peer = node("peer", 3);
+    let (membership, events) = spawn_membership(&kit, self_node.clone(), "membership");
+    let reply_probe = kit
+        .create_probe::<ClusterMembershipMsg>("retry-welcome")
+        .unwrap();
+    let gossip_probe = kit
+        .create_probe::<Gossip>("new-incarnation-retry-gossip")
+        .unwrap();
+
+    membership.tell(ClusterMembershipMsg::JoinSelf).unwrap();
+    membership
+        .tell(ClusterMembershipMsg::Join {
+            join: Join {
+                node: old_peer.clone(),
+                roles: vec!["backend".to_string()],
+            },
+            reply_to: None,
+        })
+        .unwrap();
+    membership
+        .tell(ClusterMembershipMsg::Join {
+            join: Join {
+                node: new_peer.clone(),
+                roles: vec!["backend".to_string()],
+            },
+            reply_to: None,
+        })
+        .unwrap();
+    expect_event(&events, |event| {
+        matches!(
+            event,
+            ClusterEvent::Member(MemberEvent::Downed(member))
+                if member.unique_address == old_peer
+        )
+    });
+
+    membership
+        .tell(ClusterMembershipMsg::Join {
+            join: Join {
+                node: new_peer.clone(),
+                roles: vec!["backend".to_string()],
+            },
+            reply_to: Some(reply_probe.actor_ref()),
+        })
+        .unwrap();
+    membership
+        .tell(ClusterMembershipMsg::SendCurrentGossip {
+            reply_to: gossip_probe.actor_ref(),
+        })
+        .unwrap();
+
+    let ClusterMembershipMsg::Welcome(welcome) =
+        reply_probe.expect_msg(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("expected welcome for retried incarnation");
+    };
+    assert_eq!(welcome.from, self_node);
+    assert!(!welcome.gossip.has_member(&old_peer));
+    assert_eq!(
+        welcome.gossip.member(&new_peer).map(|member| member.status),
+        Some(MemberStatus::Joining)
+    );
+
+    let gossip = gossip_probe.expect_msg(Duration::from_secs(1)).unwrap();
+    assert!(!gossip.has_member(&old_peer));
+    assert_eq!(
+        gossip.member(&new_peer).map(|member| member.status),
+        Some(MemberStatus::Joining)
+    );
+    assert_eq!(
+        gossip.reachability().status(&self_node, &old_peer),
+        ReachabilityStatus::Reachable
+    );
+    expect_event(&events, |event| {
+        matches!(
+            event,
+            ClusterEvent::Member(MemberEvent::Removed {
+                member,
+                previous_status: MemberStatus::Down,
+            }) if member.unique_address == old_peer
+        )
+    });
+    expect_event(&events, |event| {
+        matches!(
+            event,
+            ClusterEvent::Member(MemberEvent::Joined(member))
+                if member.unique_address == new_peer
+        )
+    });
+}
+
+#[test]
 fn welcome_initializes_empty_joining_node() {
     let kit = ActorSystemTestKit::new("cluster-membership-welcome").unwrap();
     let seed = node("seed", 1);

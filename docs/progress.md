@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after cluster membership same-address
+  incarnation retry coverage:
+
+  ```bash
+  cargo test -p kairo-cluster new_incarnation --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after shard remember-store passivation stop
   acknowledgement removal coverage:
 
@@ -4927,6 +4938,11 @@ Implemented:
   peer rejection through the public cluster, distributed-data, and
   cluster-tools example helpers, proving the runnable examples surface the
   connector diagnostic without active routes or pending reconnects.
+- `kairo-cluster` membership actor coverage now pins Pekko-style same-address
+  incarnation retry semantics: the first join from a replacement UID marks the
+  old incarnation Down without a Welcome, and the retried join removes the
+  downed old incarnation, admits the new one as Joining, clears old
+  reachability, publishes Removed/Joined events, and returns Welcome.
 
 Not yet implemented:
 
