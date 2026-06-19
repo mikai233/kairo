@@ -74,6 +74,18 @@ workspace stabilization before M13 release readiness.
   git diff --check
   ```
 
+- Latest M13 validation refresh after preserving-restart live-child non-waiting
+  coverage:
+
+  ```bash
+  cargo test -p kairo-actor preserving_restart_does_not_wait_for_live_blocked_child_receive --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after actor-system terminate queued-message
   drain coverage:
 
@@ -177,6 +189,10 @@ Implemented:
   boundary: when restart supervision preserves children, a blocked surviving
   child is not stopped and its queued user messages remain deliverable after
   the parent restarts.
+- Preserving-restart coverage now also pins the live-child non-waiting
+  boundary: when a preserved child is blocked in its current receive turn, the
+  parent restart completes and processes later parent messages without waiting
+  for that child receive turn to finish.
 - `Context::spawn` and `Context::spawn_anonymous` now reject child creation
   once the owning actor is stopping, including during `PostStop`, so stopped
   actors cannot create orphan children under a dead parent path.
