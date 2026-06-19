@@ -62,6 +62,16 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after cluster, distributed-data, and
+  cluster-tools TCP connector local-only member rejection coverage:
+
+  ```bash
+  cargo test -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools connector_rejects_non_remote_member_without_pending_reconnect --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster -p kairo-distributed-data -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  ```
+
 - Latest M13 validation refresh after distributed-data three-node actor-backed
   TCP write smoke coverage:
 
@@ -4853,6 +4863,10 @@ Implemented:
   boundary for cluster-tools routes: local-only member snapshots are rejected
   before dialing and leave route/cache state empty, matching the shared cluster
   and distributed-data TCP behavior.
+- `kairo-cluster`, `kairo-distributed-data`, and `kairo-cluster-tools` TCP
+  connector coverage now pins the same remote boundary at the actor facade:
+  local-only member snapshots are surfaced as connector errors and leave
+  active routes and pending reconnect state empty instead of scheduling a dial.
 
 Not yet implemented:
 
@@ -4899,7 +4913,8 @@ Not yet implemented:
   cleanup coverage, focused bootstrap automatic retry coverage, focused
   peer-runtime, connector, and bootstrap partial-failure retry coverage,
   distributed-data and cluster-tools peer-runtime local-only snapshot
-  rejection coverage,
+  rejection coverage, cluster/distributed-data/cluster-tools connector
+  local-only member rejection coverage,
   three-node full-mesh delivery coverage where applicable, public example
   smoke coverage that coordinated shutdown clears two live routes in each TCP
   bootstrap facade, and public example smoke coverage that two-node and

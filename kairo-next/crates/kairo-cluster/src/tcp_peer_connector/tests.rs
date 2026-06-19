@@ -342,6 +342,68 @@ fn connector_subscribes_to_cluster_and_applies_tcp_peer_routes() {
 }
 
 #[test]
+fn connector_rejects_non_remote_member_without_pending_reconnect() {
+    let _guard = connector_socket_test_lock();
+    let sender_kit = ActorSystemTestKit::new("cluster-tcp-peer-connector-local-only").unwrap();
+    let registry = registry();
+    let retry_interval = Duration::from_millis(25);
+    let sender_runtime = bind_peer_runtime(
+        "local-only-sender",
+        1,
+        11,
+        RemoteSettings::new("127.0.0.1", 0),
+        retry_interval,
+        &sender_kit,
+        registry,
+    );
+    let sender_node = sender_runtime.self_node().clone();
+    let local_only = UniqueAddress::new(Address::local("local-only"), 2);
+    let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+    let cluster = Cluster::new(publisher.clone());
+    let snapshots = sender_kit
+        .create_probe::<ClusterTcpPeerConnectorSnapshot>("local-only-snapshots")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(sender_node), member(local_only)]),
+        ))
+        .unwrap();
+    let connector = sender_kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ClusterTcpPeerConnector::with_settings(
+                    cluster,
+                    sender_runtime,
+                    ClusterTcpPeerConnectorSettings::new(retry_interval)
+                        .unwrap()
+                        .with_automatic_retry_ticks(false),
+                )
+            }),
+        )
+        .unwrap();
+
+    let snapshot = eventually_snapshot(&connector, &snapshots, |snapshot| {
+        snapshot.last_error.is_some()
+    });
+    assert_eq!(snapshot.route_count, 0);
+    assert!(snapshot.active_targets.is_empty());
+    assert!(snapshot.pending_reconnects.is_empty());
+    assert!(
+        snapshot
+            .last_error
+            .as_deref()
+            .is_some_and(|error| error.contains("has no remote host"))
+    );
+
+    sender_kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
     let _guard = connector_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-tcp-peer-connector-partial-sender").unwrap();
