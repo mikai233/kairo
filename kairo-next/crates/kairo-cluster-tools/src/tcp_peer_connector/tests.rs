@@ -1154,6 +1154,84 @@ fn connector_clear_routes_removes_multiple_active_peer_routes() {
 }
 
 #[test]
+fn connector_clear_routes_preserves_pending_reconnects() {
+    let _guard = connector_socket_test_lock();
+    let sender_kit =
+        ActorSystemTestKit::new("cluster-tools-tcp-peer-connector-clear-pending-sender").unwrap();
+    let registry = registry();
+    let retry_interval = Duration::from_millis(25);
+    let sender_runtime = bind_peer_runtime(
+        "clear-pending-sender",
+        1,
+        11,
+        RemoteSettings::new("127.0.0.1", 0),
+        retry_interval,
+        &sender_kit,
+        registry,
+    );
+    let sender_cache = sender_runtime.association_cache().clone();
+    let receiver_port = unused_port();
+    let sender_node = sender_runtime.self_node().clone();
+    let receiver_node = node("clear-pending-receiver", receiver_port, 2);
+    let publisher = spawn_publisher(&sender_kit, sender_node.clone());
+    let cluster = Cluster::new(publisher.clone());
+    let snapshots = sender_kit
+        .create_probe::<ClusterToolsTcpPeerConnectorSnapshot>("clear-pending-snapshots")
+        .unwrap();
+
+    publisher
+        .tell(ClusterEventPublisherMsg::PublishChanges(
+            Gossip::from_members([member(sender_node), member(receiver_node.clone())]),
+        ))
+        .unwrap();
+    let connector = sender_kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ClusterToolsTcpPeerConnector::with_settings(
+                    cluster,
+                    sender_runtime,
+                    ClusterToolsTcpPeerConnectorSettings::new(retry_interval)
+                        .unwrap()
+                        .with_automatic_retry_ticks(false),
+                )
+            }),
+        )
+        .unwrap();
+
+    let snapshot = eventually_snapshot(&connector, &snapshots, |snapshot| {
+        snapshot.pending_reconnects.len() == 1
+    });
+    assert_eq!(snapshot.route_count, 0);
+    assert_eq!(snapshot.pending_reconnects[0].target.node(), &receiver_node);
+    assert!(snapshot.last_error.is_some());
+
+    connector
+        .tell(ClusterToolsTcpPeerConnectorMsg::ClearRoutes)
+        .unwrap();
+    let snapshot = eventually_snapshot(&connector, &snapshots, |snapshot| {
+        snapshot.last_report.is_some() && snapshot.last_error.is_none()
+    });
+
+    assert_eq!(snapshot.route_count, 0);
+    assert!(snapshot.active_targets.is_empty());
+    assert_eq!(snapshot.pending_reconnects.len(), 1);
+    assert_eq!(snapshot.pending_reconnects[0].target.node(), &receiver_node);
+    let report = snapshot
+        .last_report
+        .expect("clear routes should record an empty active-route report");
+    assert!(report.dialed.is_empty());
+    assert!(report.removed.is_empty());
+    assert!(report.skipped.is_empty());
+    assert_eq!(sender_cache.route_count(), 0);
+
+    sender_kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+    sender_kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn connector_stop_clears_pending_reconnect_and_unsubscribes_from_cluster() {
     let _guard = connector_socket_test_lock();
     let sender_kit =
