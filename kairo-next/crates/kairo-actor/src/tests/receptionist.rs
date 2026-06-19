@@ -442,8 +442,26 @@ fn receptionist_deregister_with_ack_confirms_known_actor_for_absent_key() {
 #[test]
 fn receptionist_removes_registered_service_on_actor_stop() {
     let system = ActorSystem::builder("test").build().unwrap();
-    let key = ServiceKey::<()>::new("svc");
     let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
+
+    assert_receptionist_removes_registered_service_on_actor_stop(&system, service);
+}
+
+#[test]
+fn receptionist_removes_registered_system_service_on_actor_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let service = system
+        .spawn_system("system-svc", Props::new(|| Noop))
+        .unwrap();
+
+    assert_receptionist_removes_registered_service_on_actor_stop(&system, service);
+}
+
+fn assert_receptionist_removes_registered_service_on_actor_stop(
+    system: &ActorSystem,
+    service: ActorRef<()>,
+) {
+    let key = ServiceKey::<()>::new("svc");
     let (listing_tx, listing_rx) = mpsc::channel();
     let subscriber = system
         .spawn(
@@ -473,9 +491,27 @@ fn receptionist_removes_registered_service_on_actor_stop() {
 #[test]
 fn receptionist_removes_service_from_all_keys_on_actor_stop() {
     let system = ActorSystem::builder("test").build().unwrap();
+    let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
+
+    assert_receptionist_removes_service_from_all_keys_on_actor_stop(&system, service);
+}
+
+#[test]
+fn receptionist_removes_system_service_from_all_keys_on_actor_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let service = system
+        .spawn_system("system-svc", Props::new(|| Noop))
+        .unwrap();
+
+    assert_receptionist_removes_service_from_all_keys_on_actor_stop(&system, service);
+}
+
+fn assert_receptionist_removes_service_from_all_keys_on_actor_stop(
+    system: &ActorSystem,
+    service: ActorRef<()>,
+) {
     let key_a = ServiceKey::<()>::new("svc-a");
     let key_b = ServiceKey::<()>::new("svc-b");
-    let service = system.spawn("svc", Props::new(|| Noop)).unwrap();
     let (listing_a_tx, listing_a_rx) = mpsc::channel();
     let subscriber_a = system
         .spawn(
@@ -533,8 +569,6 @@ fn receptionist_removes_service_from_all_keys_on_actor_stop() {
 #[test]
 fn receptionist_removes_subscriber_from_all_keys_on_actor_stop() {
     let system = ActorSystem::builder("test").build().unwrap();
-    let key_a = ServiceKey::<()>::new("svc-a");
-    let key_b = ServiceKey::<()>::new("svc-b");
     let (listing_tx, listing_rx) = mpsc::channel();
     let subscriber = system
         .spawn(
@@ -544,6 +578,37 @@ fn receptionist_removes_subscriber_from_all_keys_on_actor_stop() {
             }),
         )
         .unwrap();
+
+    assert_receptionist_removes_subscriber_from_all_keys_on_actor_stop(
+        &system, subscriber, listing_rx,
+    );
+}
+
+#[test]
+fn receptionist_removes_system_subscriber_from_all_keys_on_actor_stop() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let (listing_tx, listing_rx) = mpsc::channel();
+    let subscriber = system
+        .spawn_system(
+            "system-listing-probe",
+            Props::new(move || ListingProbe {
+                observed: listing_tx,
+            }),
+        )
+        .unwrap();
+
+    assert_receptionist_removes_subscriber_from_all_keys_on_actor_stop(
+        &system, subscriber, listing_rx,
+    );
+}
+
+fn assert_receptionist_removes_subscriber_from_all_keys_on_actor_stop(
+    system: &ActorSystem,
+    subscriber: ActorRef<Listing<()>>,
+    listing_rx: mpsc::Receiver<Vec<ActorPath>>,
+) {
+    let key_a = ServiceKey::<()>::new("svc-a");
+    let key_b = ServiceKey::<()>::new("svc-b");
 
     assert!(
         system
@@ -572,6 +637,7 @@ fn receptionist_removes_subscriber_from_all_keys_on_actor_stop() {
     assert!(system.receptionist().register(key_a.clone(), service_a));
     assert!(system.receptionist().register(key_b.clone(), service_b));
 
+    assert!(listing_rx.recv_timeout(Duration::from_millis(100)).is_err());
     assert_eq!(system.dead_letters().len(), 0);
     assert_eq!(
         system.receptionist().find(&key_a).service_instances().len(),

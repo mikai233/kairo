@@ -62,6 +62,17 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after direct system-actor receptionist cleanup
+  parity coverage:
+
+  ```bash
+  cargo test -p kairo-actor receptionist_removes_ --all-targets --all-features -- --nocapture
+  cargo test -p kairo-actor --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-actor --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after direct actor-stop death-watch cleanup
   parity coverage:
 
@@ -1062,11 +1073,13 @@ Implemented:
 - Local receptionist coverage now pins Pekko's multi-key cleanup semantics:
   when one actor is registered for several service keys, actor termination
   removes that actor from each listing and publishes empty updates to each
-  subscriber.
+  subscriber. The direct actor-stop coverage now pins this cleanup for both
+  `/user` and `/system` service actors.
 - Local receptionist coverage now also pins multi-key subscriber cleanup:
   when one subscriber actor is subscribed to several service keys, subscriber
   termination removes it from each bucket so later service updates do not send
-  stale listings to dead letters.
+  stale listings to dead letters. The direct actor-stop coverage now pins this
+  subscriber cleanup for both `/user` and `/system` subscribers.
 - Local receptionist coverage now also pins duplicate-subscribe and typed-key
   isolation semantics: subscribing the same actor twice receives another
   current listing without duplicating later updates, and service keys with the
