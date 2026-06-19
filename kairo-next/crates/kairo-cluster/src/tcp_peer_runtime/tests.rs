@@ -1203,6 +1203,60 @@ fn peer_runtime_shutdown_clears_pending_reconnects_after_failed_dial() {
 }
 
 #[test]
+fn peer_runtime_clear_routes_preserves_pending_reconnects() {
+    let _guard = cluster_socket_test_lock();
+    let kit = ActorSystemTestKit::new("cluster-peer-runtime-clear-pending-reconnect").unwrap();
+    let registry = registry();
+    let receiver_port = unused_port();
+    let retry_interval = Duration::from_millis(25);
+    let mut runtime = bind_peer_runtime_with_reconnect(
+        "sender",
+        1,
+        11,
+        RemoteSettings::new("127.0.0.1", 0),
+        ClusterTcpPeerReconnectSettings::new(retry_interval).unwrap(),
+        &kit,
+        registry,
+    );
+    let receiver_node = node("receiver", receiver_port, 2);
+
+    runtime
+        .apply_snapshot_at(
+            state(
+                vec![
+                    member(runtime.self_node().clone()),
+                    member(receiver_node.clone()),
+                ],
+                vec![],
+            ),
+            Duration::ZERO,
+        )
+        .unwrap_err();
+
+    assert_eq!(runtime.peer_route_count(), 0);
+    assert_eq!(runtime.pending_peer_reconnect_count(), 1);
+
+    let report = runtime.clear_peer_routes();
+
+    assert!(report.is_empty());
+    assert_eq!(runtime.peer_route_count(), 0);
+    let pending = runtime.pending_peer_reconnects();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].target.node(), &receiver_node);
+    assert_eq!(pending[0].attempts, 1);
+    assert_eq!(pending[0].next_retry_at, retry_interval);
+
+    let shutdown = runtime.shutdown().unwrap();
+    assert!(shutdown.peer_routes.is_empty());
+    assert_eq!(shutdown.pending_reconnects.cleared.len(), 1);
+    assert_eq!(
+        shutdown.pending_reconnects.cleared[0].node(),
+        &receiver_node
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn peer_runtime_clears_pending_reconnect_when_peer_is_removed() {
     let _guard = cluster_socket_test_lock();
     let kit = ActorSystemTestKit::new("cluster-peer-runtime-retry-removed").unwrap();

@@ -1339,6 +1339,54 @@ mod route_tests {
     }
 
     #[test]
+    fn peer_runtime_clear_routes_preserves_pending_reconnects() {
+        let _guard = ddata_socket_test_lock();
+        let receiver_port = unused_port();
+        let receiver_node = node("receiver", receiver_port, 2);
+        let retry_interval = Duration::from_millis(25);
+        let mut sender = bind_peer_runtime(
+            "sender",
+            1,
+            11,
+            RemoteSettings::new("127.0.0.1", 0),
+            ReplicaId::from(&receiver_node),
+            retry_interval,
+        );
+        let sender_node = sender.self_node().clone();
+
+        sender
+            .apply_snapshot_at(
+                state(
+                    vec![member(sender_node), member(receiver_node.clone())],
+                    vec![],
+                ),
+                Duration::ZERO,
+            )
+            .unwrap_err();
+
+        assert_eq!(sender.peer_route_count(), 0);
+        assert_eq!(sender.pending_peer_reconnect_count(), 1);
+
+        let report = sender.clear_peer_routes();
+
+        assert!(report.is_empty());
+        assert_eq!(sender.peer_route_count(), 0);
+        let pending = sender.pending_peer_reconnects();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].target.node(), &receiver_node);
+        assert_eq!(pending[0].attempts, 1);
+        assert_eq!(pending[0].next_retry_at, retry_interval);
+
+        let shutdown = sender.shutdown().unwrap();
+        assert!(shutdown.peer_routes.is_empty());
+        assert_eq!(shutdown.pending_reconnects.cleared.len(), 1);
+        assert_eq!(
+            shutdown.pending_reconnects.cleared[0].node(),
+            &receiver_node
+        );
+    }
+
+    #[test]
     fn peer_runtime_clears_pending_reconnect_when_peer_is_removed() {
         let _guard = ddata_socket_test_lock();
         let receiver_port = unused_port();

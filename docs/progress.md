@@ -62,6 +62,23 @@ workspace stabilization before M13 release readiness.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after TCP peer-runtime clear-routes
+  pending-reconnect boundary coverage:
+
+  ```bash
+  cargo test -p kairo-cluster peer_runtime_clear_routes_preserves_pending_reconnects --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data peer_runtime_clear_routes_preserves_pending_reconnects --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools peer_runtime_clear_routes_preserves_pending_reconnects --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster tcp_peer_runtime --all-targets --all-features -- --nocapture
+  cargo test -p kairo-distributed-data tcp_peer_runtime --all-targets --all-features -- --nocapture
+  cargo test -p kairo-cluster-tools tcp_peer_runtime --all-targets --all-features -- --nocapture
+  cargo fmt --all -- --check
+  cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+  cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+  cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
+
 - Latest M13 validation refresh after TCP peer-runtime local-only snapshot
   rejection status convergence guard:
 
@@ -1188,6 +1205,10 @@ Implemented:
   pins explicit live-route clearing: each actor-backed connector removes an
   installed association route, records the removed target in the last route
   report, clears active targets, and leaves the error state clear.
+- Cluster, distributed-data, and cluster-tools TCP peer runtime coverage now
+  pins the lower-level `clear_peer_routes` pending-reconnect boundary:
+  explicit active-route clearing leaves failed-dial retry diagnostics intact,
+  while runtime shutdown still clears and reports pending reconnects.
 - Cluster TCP peer connector lifecycle coverage now publishes a follow-up
   membership change after the routeful connector has stopped, proving the
   stopped connector unsubscribed from cluster events, does not emit stale
