@@ -1720,10 +1720,19 @@ separate routing observation, so an unreachable-but-live incarnation retains
 its identity mapping, while membership removal deletes it. Neither envelope
 metadata nor the association cache can add a replica to this map.
 
-Post-bind activation installs one typed `DistributedDataExtension<D>` and
-registers the replicator and connector to stop before cluster shutdown. The
-composed replicator schedules both periodic full-state/status gossip and delta
-propagation over cluster-derived target registries. Unless explicitly
+Post-bind activation installs a distributed-data runtime that may own multiple
+typed `DistributedDataExtension<D>` families and registers their replicators
+and connectors to stop before cluster shutdown. Each family is identified by
+its stable CRDT data manifest and receives the deterministic remote path
+`/system/ddata-{fnv1a64(manifest)}`. One shared ordinary-lane inbound registry
+dispatches requests by that canonical recipient path into the matching typed
+receiver; reply traffic continues to target typed temporary actors. Duplicate
+manifests and the unlikely case where different manifests produce the same
+path token are rejected during registration. Type erasure is confined to this
+transport router and does not introduce a global user-facing data enum.
+
+Each composed replicator schedules both periodic full-state/status gossip and
+delta propagation over its cluster-derived target registry. Unless explicitly
 overridden, the delta interval is one fifth of the gossip interval with a
 200-millisecond floor, following Pekko's propagation cadence. A two-node test
 delays full-state gossip beyond its deadline and proves convergence through the
@@ -1732,11 +1741,10 @@ populates the aggregation target registry. Non-local read/write consistency
 spawns typed temporary session and aggregator actors, publishes their canonical
 sender refs, and routes stable acknowledgements/results back through the shared
 ordinary lane. A two-node test disables both background propagation paths and
-proves remote majority write acknowledgement plus majority read/merge.
-Because the replicator actor protocol is generic in `D`, one registration owns
-the `/system/ddata` manifest namespace for one configured replicated-data
-family per ActorSystem. A later heterogeneous registry may broaden that API;
-it must preserve the same stable wire metadata and typed user boundary.
+proves remote majority write acknowledgement plus majority read/merge. Within
+the typed public API, key identity is the pair `(CRDT family manifest, key
+string)`; the same key string may therefore be used independently by two
+families.
 
 Sharding uses this later for coordinator state and remember entities. MVP
 sharding may start with an in-memory coordinator store to prove the routing

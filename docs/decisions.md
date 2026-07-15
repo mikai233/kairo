@@ -4050,3 +4050,53 @@ Consequences:
   weakening graceful reassignment when another region is available.
 - Shutdown tasks no longer rely on unrelated actor termination to make
   wait-only registrations complete.
+
+## ADR-0127: DData Routes Typed Families By Stable Manifest Paths
+
+Status: Accepted
+
+Context:
+The composed distributed-data extension owns one generic `ReplicatorActor<D>`
+at `/system/ddata`. A second CRDT family cannot be registered in the same
+ActorSystem because it would collide on that actor path and on the one generic
+remote request receiver. Pekko avoids this restriction by erasing replicated
+data behind one replicator and treats key strings as globally unique, but a
+global data enum or dynamically typed user protocol would violate Kairo's
+typed actor boundary. Remote read and gossip-status requests also carry no CRDT
+manifest, so payload inspection alone cannot reliably select a family.
+
+Decision:
+One ActorSystem-owned distributed-data runtime may register multiple typed CRDT
+families. A family is identified by the stable data manifest declared by its
+`CrdtDataCodec` and owns the remote recipient path
+`/system/ddata-{fnv1a64(manifest)}`, where the token is lowercase, fixed-width
+hexadecimal FNV-1a 64-bit over the UTF-8 manifest bytes. This hashing rule and
+path shape are remotely visible compatibility rules.
+
+The ordinary remote lane registers the ddata protocol manifests once. One
+shared inbound registry dispatches each request by its validated canonical
+recipient path to a type-erased receiver whose implementation immediately
+enters the matching typed `ReplicatorActor<D>` boundary. Replies continue to
+address typed temporary actors and need no family registry. Duplicate family
+manifests and path-token collisions between different manifests are explicit
+registration errors. The registry cannot infer membership or accept an
+unregistered recipient.
+
+The public handle for each family remains `DistributedDataHandle<D>`, and no
+global message enum, `DynMessage`, or local serialization requirement is
+introduced. Key identity in Kairo is `(family manifest, key string)`, so two
+families may independently use the same key string. This intentionally differs
+from Pekko's erased `Key` equality by id string alone in order to preserve
+compile-time family isolation at the Rust API boundary.
+
+Consequences:
+- Read and gossip-status messages are routed without adding redundant manifest
+  fields or changing any existing replicator request/reply payload codec.
+- All typed families share the ActorSystem's listener, association cache,
+  cluster membership source, protocol codecs, and shutdown lifecycle while
+  retaining independent replicator state and propagation settings.
+- Changing a CRDT data manifest changes its recipient path and is therefore a
+  wire migration, just as changing that manifest already changes its encoded
+  data contract.
+- Hash collisions are not silently aliased; registration fails before remote
+  traffic can be accepted.
