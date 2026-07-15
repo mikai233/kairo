@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::marker::PhantomData;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
@@ -7,6 +9,11 @@ use crate::{
     shard_id_for,
 };
 
+/// Actor that maps typed [`ShardingEnvelope`] values onto local region commands.
+///
+/// The router derives every shard with Kairo's stable hash and forwards the
+/// unchanged envelope. Internal plan replies are intentionally consumed because
+/// this public boundary exposes fire-and-forget entity messaging.
 pub struct ShardingEnvelopeRouter<M>
 where
     M: Send + 'static,
@@ -21,6 +28,7 @@ impl<M> ShardingEnvelopeRouter<M>
 where
     M: Send + 'static,
 {
+    /// Creates an envelope router for `region` and `shard_count`.
     pub fn new(region: ActorRef<ShardRegionMsg<M>>, shard_count: u64) -> Self {
         Self {
             region,
@@ -30,14 +38,17 @@ where
         }
     }
 
+    /// Creates actor properties for an envelope router.
     pub fn props(region: ActorRef<ShardRegionMsg<M>>, shard_count: u64) -> Props<Self> {
         Props::new(move || Self::new(region, shard_count))
     }
 
+    /// Returns the typed region command target.
     pub fn region(&self) -> &ActorRef<ShardRegionMsg<M>> {
         &self.region
     }
 
+    /// Returns the shard count used for stable entity-id routing.
     pub fn shard_count(&self) -> u64 {
         self.shard_count
     }

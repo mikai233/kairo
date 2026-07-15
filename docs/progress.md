@@ -176,7 +176,10 @@ Status terms in this document mean:
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
   stores, remote routes, `ShardRegionBootstrap`, and focused multi-node tests
-  exist. The cluster-integrated extension now runs each entity-type coordinator
+  exist. The typed entity key/ref/envelope, optional extractor adapter, on-demand
+  actor factory, envelope routers, and fixed FNV-1a shard derivation now document
+  and hard-gate their Rust-first routing and lifecycle contracts. The
+  cluster-integrated extension now runs each entity-type coordinator
   through the public cluster-singleton lifecycle and recovers fresh allocation
   after oldest-node handover. Role-scoped coordinator placement also keeps an
   older ineligible node proxy-only. A supplied coordinator remember store now

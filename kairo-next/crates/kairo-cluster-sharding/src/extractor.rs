@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::marker::PhantomData;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
@@ -7,15 +9,23 @@ use crate::{
     ShardingError, shard_id_for,
 };
 
+/// Optional adapter from an application-specific input protocol to sharding metadata.
+///
+/// Returning `None` ignores the input. Returning an extracted message may
+/// provide an explicit shard identifier or let the router derive one with
+/// Kairo's stable hash. This adapter is not required when callers can use
+/// [`ShardingEnvelope`] or [`crate::EntityRef`] directly.
 pub trait EntityMessageExtractor<In, M>: Send + 'static
 where
     In: Send + 'static,
     M: Send + 'static,
 {
+    /// Extracts routing metadata and the entity business message from one input.
     fn extract(&mut self, message: In) -> Option<ExtractedEntityMessage<M>>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Business message paired with entity routing metadata produced by an extractor.
 pub struct ExtractedEntityMessage<M> {
     entity_id: EntityId,
     shard_id: Option<ShardId>,
@@ -23,6 +33,7 @@ pub struct ExtractedEntityMessage<M> {
 }
 
 impl<M> ExtractedEntityMessage<M> {
+    /// Creates a message whose shard is derived from the stable entity-id hash.
     pub fn new(entity_id: impl Into<EntityId>, message: M) -> Self {
         Self {
             entity_id: entity_id.into(),
@@ -31,6 +42,9 @@ impl<M> ExtractedEntityMessage<M> {
         }
     }
 
+    /// Creates a message with an application-supplied shard identifier.
+    ///
+    /// Explicit shard identifiers bypass the router's stable hash calculation.
     pub fn with_shard_id(
         entity_id: impl Into<EntityId>,
         shard_id: impl Into<ShardId>,
@@ -43,23 +57,32 @@ impl<M> ExtractedEntityMessage<M> {
         }
     }
 
+    /// Returns the extracted logical entity identifier.
     pub fn entity_id(&self) -> &str {
         &self.entity_id
     }
 
+    /// Returns the explicit shard identifier, if one was supplied.
     pub fn shard_id(&self) -> Option<&str> {
         self.shard_id.as_deref()
     }
 
+    /// Borrows the extracted business message.
     pub fn message(&self) -> &M {
         &self.message
     }
 
+    /// Consumes the value and returns the entity id, optional shard id, and message.
     pub fn into_parts(self) -> (EntityId, Option<ShardId>, M) {
         (self.entity_id, self.shard_id, self.message)
     }
 }
 
+/// Actor adapter that applies an [`EntityMessageExtractor`] and routes matches to a region.
+///
+/// Messages without an explicit shard use [`shard_id_for`]. Inputs rejected by
+/// the extractor are deliberately dropped, matching an extractor's filtering
+/// role rather than manufacturing a routing failure.
 pub struct EntityMessageExtractorRouter<In, M, E>
 where
     In: Send + 'static,
@@ -80,6 +103,7 @@ where
     M: Send + 'static,
     E: EntityMessageExtractor<In, M>,
 {
+    /// Creates an extractor router for `region` and the configured shard count.
     pub fn new(region: ActorRef<ShardRegionMsg<M>>, shard_count: u64, extractor: E) -> Self {
         Self {
             region,
@@ -91,6 +115,7 @@ where
         }
     }
 
+    /// Creates actor properties for an extractor router.
     pub fn props(
         region: ActorRef<ShardRegionMsg<M>>,
         shard_count: u64,
@@ -99,10 +124,12 @@ where
         Props::new(move || Self::new(region, shard_count, extractor))
     }
 
+    /// Returns the typed region command target.
     pub fn region(&self) -> &ActorRef<ShardRegionMsg<M>> {
         &self.region
     }
 
+    /// Returns the shard count used when an extractor omits a shard identifier.
     pub fn shard_count(&self) -> u64 {
         self.shard_count
     }

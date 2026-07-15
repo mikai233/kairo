@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_actor::{Actor, ActorError, ActorRef, Context, Props};
@@ -7,6 +9,11 @@ use crate::{EntityId, ShardMsg};
 type SpawnEntity<M> =
     dyn Fn(&Context<ShardMsg<M>>, &EntityId) -> Result<ActorRef<M>, ActorError> + Send + Sync;
 
+/// Cloneable factory used by a shard actor to spawn typed entity actors on demand.
+///
+/// The factory receives the business entity id for each new incarnation. Kairo
+/// encodes the id's UTF-8 bytes into a collision-free actor child name, keeping
+/// arbitrary business identifiers out of actor-path syntax.
 pub struct EntityActorFactory<M>
 where
     M: Send + 'static,
@@ -29,6 +36,7 @@ impl<M> EntityActorFactory<M>
 where
     M: Send + 'static,
 {
+    /// Creates a factory from an entity-id-aware actor constructor.
     pub fn new<A, F>(factory: F) -> Self
     where
         A: Actor<Msg = M>,
