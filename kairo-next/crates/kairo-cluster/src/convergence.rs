@@ -1,17 +1,26 @@
+#![deny(missing_docs)]
+
 use std::collections::HashSet;
 
 use crate::{Gossip, ReachabilityStatus, UniqueAddress};
 
+/// Result of evaluating whether cluster gossip has converged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Convergence {
     blockers: Vec<ConvergenceBlocker>,
 }
 
 impl Convergence {
+    /// Evaluates convergence without externally confirmed exiting members.
     pub fn check(gossip: &Gossip, self_node: &UniqueAddress) -> Self {
         Self::check_with_exiting_confirmed(gossip, self_node, HashSet::new())
     }
 
+    /// Evaluates seen and reachability convergence with confirmed exits ignored.
+    ///
+    /// During the cluster's first convergence, joining and weakly-up members
+    /// must also have seen the gossip. Later convergence requires `Up` and
+    /// `Leaving` members. Unreachable `Down` or `Exiting` members do not block.
     pub fn check_with_exiting_confirmed(
         gossip: &Gossip,
         self_node: &UniqueAddress,
@@ -84,23 +93,32 @@ impl Convergence {
         Self { blockers }
     }
 
+    /// Returns whether no seen or reachability blockers remain.
     pub fn is_converged(&self) -> bool {
         self.blockers.is_empty()
     }
 
+    /// Returns the members currently preventing convergence.
     pub fn blockers(&self) -> &[ConvergenceBlocker] {
         &self.blockers
     }
 }
 
+/// Reason one member prevents gossip convergence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConvergenceBlocker {
+    /// A participating member has not acknowledged the current gossip version.
     NotSeen {
+        /// Member that has not seen the gossip.
         node: UniqueAddress,
+        /// Member status at evaluation time.
         status: crate::MemberStatus,
     },
+    /// A non-terminal member is reported unreachable or terminated.
     Unreachable {
+        /// Member whose reachability blocks convergence.
         node: UniqueAddress,
+        /// Member status at evaluation time.
         status: crate::MemberStatus,
     },
 }

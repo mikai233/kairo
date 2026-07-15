@@ -89,7 +89,9 @@ Status terms in this document mean:
   coverage without a central membership authority. Remote membership reply
   routes now survive transient transport-send failures, preserving Pekko's
   same-version gossip talkback path until all nodes merge the fuller `seen`
-  set.
+  set. The causal-clock, membership ordering, convergence, and leader-selection
+  public APIs now document their Pekko-aligned ordering and eligibility
+  contracts and deny missing documentation module by module.
 - M6 cluster runtime and membership protocol: complete. Membership actors,
   join/welcome handling, heartbeat, downing hooks, remote envelopes, and TCP
   peer bootstrap components exist. The composed daemon now proves seed contact,

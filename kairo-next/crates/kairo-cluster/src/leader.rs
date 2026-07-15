@@ -1,15 +1,23 @@
+#![deny(missing_docs)]
+
 use crate::{Gossip, ReachabilityStatus, UniqueAddress};
 
+/// Deterministic leader-selection result for a gossip snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeaderSelection {
     leader: Option<UniqueAddress>,
 }
 
 impl LeaderSelection {
+    /// Selects the oldest reachable eligible member from the full cluster.
+    ///
+    /// The local node remains a candidate despite observations reported by
+    /// other nodes, matching the local membership view used for leader actions.
     pub fn for_gossip(gossip: &Gossip, self_node: &UniqueAddress) -> Self {
         Self::for_members(gossip, self_node, gossip.members())
     }
 
+    /// Selects the oldest reachable eligible member advertising `role`.
     pub fn for_role(gossip: &Gossip, self_node: &UniqueAddress, role: &str) -> Self {
         let members: Vec<_> = gossip
             .members()
@@ -20,10 +28,12 @@ impl LeaderSelection {
         Self::for_members(gossip, self_node, &members)
     }
 
+    /// Returns the selected member, or `None` when no candidate is available.
     pub fn leader(&self) -> Option<&UniqueAddress> {
         self.leader.as_ref()
     }
 
+    /// Returns whether `node` is the selected leader.
     pub fn is_leader(&self, node: &UniqueAddress) -> bool {
         self.leader.as_ref() == Some(node)
     }

@@ -1,42 +1,61 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 
+/// Stable logical node identifier used as one vector-clock dimension.
+///
+/// Callers must derive names from stable cluster identity rather than process
+/// memory or Rust type metadata when clocks cross a wire boundary.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VectorClockNode(String);
 
 impl VectorClockNode {
+    /// Creates a logical clock node from its stable name.
     pub fn new(name: impl Into<String>) -> Self {
         Self(name.into())
     }
 
+    /// Returns the stable node name.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 }
 
+/// Causal ordering between two vector clocks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VectorClockOrdering {
+    /// Both clocks describe the same causal history.
     Same,
+    /// Every counter is less than or equal to the other clock and at least one is less.
     Before,
+    /// Every counter is greater than or equal to the other clock and at least one is greater.
     After,
+    /// Each clock contains an event absent from the other's causal history.
     Concurrent,
 }
 
+/// Immutable vector clock for ordering distributed cluster state changes.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct VectorClock {
     versions: BTreeMap<VectorClockNode, u64>,
 }
 
 impl VectorClock {
+    /// Creates an empty clock.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Creates a clock from explicit node counters.
+    ///
+    /// Repeated nodes keep the final entry yielded by the iterator.
     pub fn from_entries(entries: impl IntoIterator<Item = (VectorClockNode, u64)>) -> Self {
         Self {
             versions: entries.into_iter().collect(),
         }
     }
 
+    /// Returns a new clock with `node` incremented by one.
     pub fn increment(&self, node: impl Into<VectorClockNode>) -> Self {
         let mut versions = self.versions.clone();
         let node = node.into();
@@ -45,18 +64,22 @@ impl VectorClock {
         Self { versions }
     }
 
+    /// Returns `node`'s counter, or zero when the node has no entry.
     pub fn get(&self, node: &VectorClockNode) -> u64 {
         self.versions.get(node).copied().unwrap_or(0)
     }
 
+    /// Iterates over node counters in stable node-name order.
     pub fn entries(&self) -> impl Iterator<Item = (&VectorClockNode, u64)> {
         self.versions.iter().map(|(node, version)| (node, *version))
     }
 
+    /// Returns whether this clock has no causal entries.
     pub fn is_empty(&self) -> bool {
         self.versions.is_empty()
     }
 
+    /// Computes the causal ordering of this clock relative to `other`.
     pub fn compare(&self, other: &Self) -> VectorClockOrdering {
         let mut has_less = false;
         let mut has_greater = false;
@@ -79,18 +102,22 @@ impl VectorClock {
         }
     }
 
+    /// Returns whether this clock is causally before `other`.
     pub fn is_before(&self, other: &Self) -> bool {
         self.compare(other) == VectorClockOrdering::Before
     }
 
+    /// Returns whether this clock is causally after `other`.
     pub fn is_after(&self, other: &Self) -> bool {
         self.compare(other) == VectorClockOrdering::After
     }
 
+    /// Returns whether neither clock causally dominates the other.
     pub fn is_concurrent(&self, other: &Self) -> bool {
         self.compare(other) == VectorClockOrdering::Concurrent
     }
 
+    /// Merges causal histories by retaining the maximum counter for every node.
     pub fn merge(&self, other: &Self) -> Self {
         let mut versions = other.versions.clone();
         for (node, time) in &self.versions {
@@ -102,6 +129,7 @@ impl VectorClock {
         Self { versions }
     }
 
+    /// Returns a clock without the removed node's causal dimension.
     pub fn prune(&self, node: &VectorClockNode) -> Self {
         let mut versions = self.versions.clone();
         versions.remove(node);

@@ -209,6 +209,27 @@ fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error:
 }
 
 #[test]
+fn cluster_pure_state_modules_deny_missing_docs() -> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let documented_modules = [
+        "kairo-next/crates/kairo-cluster/src/convergence.rs",
+        "kairo-next/crates/kairo-cluster/src/leader.rs",
+        "kairo-next/crates/kairo-cluster/src/member.rs",
+        "kairo-next/crates/kairo-cluster/src/vector_clock.rs",
+    ];
+
+    for relative_path in documented_modules {
+        let source = std::fs::read_to_string(repo_root.join(relative_path))?.replace("\r\n", "\n");
+        assert!(
+            source.starts_with("#![deny(missing_docs)]\n"),
+            "{relative_path} must keep missing public documentation as a hard error"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn publishable_workspace_dependencies_keep_registry_versions()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
