@@ -41,7 +41,10 @@ Status terms in this document mean:
   messaged, stopped, observed, and routed through actor paths and providers.
   Actor mailboxes now run as throughput-limited activations on an
   ActorSystem-owned fixed worker pool, with atomic schedule-once wakeups and
-  cooperative child lifecycle progress as recorded by ADR-0102.
+  cooperative child lifecycle progress as recorded by ADR-0102. The complete
+  public actor API now documents its lifecycle, messaging, scheduling,
+  supervision, discovery, and shutdown contracts and denies missing public
+  documentation at compile time.
 - M2 lifecycle, supervision, patterns, and testkit: complete through its
   acceptance boundary. Lifecycle, supervision, death watch, timers, scheduler, ask,
   pipe-to-self, adapters, stash, event stream, receptionist, coordinated
@@ -60,7 +63,9 @@ Status terms in this document mean:
   remote envelopes, and actor-ref serialization boundaries exist.
   Bidirectional v1/v2 process fixtures now prove codec-owned backward and
   explicitly forward-compatible migration over the real remoting boundary;
-  optional codec helpers and broader compatibility fixtures remain.
+  optional codec helpers and broader compatibility fixtures remain. The
+  serialization contract crate and remote-message derive crate now deny
+  missing public documentation at compile time.
 - M4 remoting: complete through the composed runtime boundary. One
   ActorSystem-owned runtime carries heterogeneous registered protocols over
   bounded non-blocking lanes, provides reliable ordered lifecycle delivery,
@@ -157,8 +162,9 @@ Status terms in this document mean:
 - M12 examples, migration, and documentation: substantial implementation.
   Examples, migration guidance, README feature maps, workspace doctests,
   rustdoc warning gates, and compile-tested public API snippets exist. The
-  recommended `kairo` facade and public `kairo-testkit` utility surface now
-  deny missing public documentation. The `cluster_sharding_tcp` example
+  recommended `kairo` facade, foundational actor and serialization APIs, and
+  public `kairo-testkit` utility surface now deny missing public
+  documentation. The `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower
   diagnostic/bootstrap roles.
@@ -168,9 +174,10 @@ Status terms in this document mean:
   coverage, release-mode benchmark smoke, and verified release archives for
   every public crate. Process-level remoting now also proves bidirectional
   v1/v2 compatibility through the stable serializer-id/manifest contract and
-  codec-owned schema migration, while the facade and testkit now enforce
-  complete public-item documentation; final sign-off focuses on release
-  quality rather than replacement architecture.
+  codec-owned schema migration, while the facade, actor/serialization
+  foundation, and testkit now enforce complete public-item documentation;
+  final sign-off focuses on release quality rather than replacement
+  architecture.
 
 ## Execution Plan Before M13
 

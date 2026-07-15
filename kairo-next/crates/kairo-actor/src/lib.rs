@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! Typed local actor API and runtime primitives.
 //!
 //! `kairo-actor` is the local runtime foundation. Users define a protocol as
@@ -141,6 +143,7 @@ pub use system::{ActorSystem, ActorSystemBuilder};
 pub use tasks::{TaskExecutorSettings, TaskHandle};
 pub use timers::TimerKey;
 
+/// Commonly used actor runtime types and traits.
 pub mod prelude {
     pub use crate::{
         Actor, ActorError, ActorPath, ActorRef, ActorRefProvider, ActorRefResolveResult,

@@ -12,6 +12,7 @@ use crate::tasks::{TaskExecutor, TaskExecutorSettings};
 use super::{ActorSystem, ActorSystemInner};
 
 #[derive(Debug)]
+/// Builder for an [`ActorSystem`] and its owned runtime resources.
 pub struct ActorSystemBuilder {
     name: String,
     dispatcher: DispatcherSettings,
@@ -33,42 +34,50 @@ impl ActorSystemBuilder {
         }
     }
 
+    /// Sets the maximum user messages processed per mailbox activation.
     pub fn dispatcher_throughput(mut self, throughput: usize) -> Self {
         self.dispatcher =
             DispatcherSettings::new(throughput).with_workers(self.dispatcher.workers());
         self
     }
 
+    /// Sets the number of dispatcher worker threads.
     pub fn dispatcher_workers(mut self, workers: usize) -> Self {
         self.dispatcher = self.dispatcher.with_workers(workers);
         self
     }
 
+    /// Sets the number of actor helper-task worker threads.
     pub fn task_executor_workers(mut self, workers: usize) -> Self {
         self.task_executor = self.task_executor.with_workers(workers);
         self
     }
 
+    /// Sets the bounded pending-task queue capacity.
     pub fn task_executor_queue_capacity(mut self, queue_capacity: usize) -> Self {
         self.task_executor = self.task_executor.with_queue_capacity(queue_capacity);
         self
     }
 
+    /// Applies one bounded user-mailbox capacity to actors in this system.
     pub fn mailbox_capacity(mut self, capacity: usize) -> Self {
         self.mailbox = MailboxSettings::bounded(capacity);
         self
     }
 
+    /// Replaces the real-time scheduler with a deterministic manual scheduler.
     pub fn manual_scheduler(mut self, scheduler: ManualScheduler) -> Self {
         self.scheduler = scheduler.into_scheduler();
         self
     }
 
+    /// Controls whether dead letters are also published on the event stream.
     pub fn publish_dead_letters_to_event_stream(mut self, enabled: bool) -> Self {
         self.publish_dead_letters_to_event_stream = enabled;
         self
     }
 
+    /// Validates the configuration and creates the actor system.
     pub fn build(self) -> Result<ActorSystem, ActorError> {
         if self.dispatcher.throughput() == 0 {
             return Err(ActorError::InvalidThroughput);

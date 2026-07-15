@@ -14,20 +14,33 @@ use state::{CoordinatedShutdownInner, ShutdownState};
 pub use task::ShutdownTaskHandle;
 use task::{TaskEntry, run_phase};
 
+/// Phase before network-facing services stop accepting traffic.
 pub const PHASE_BEFORE_SERVICE_UNBIND: &str = "before-service-unbind";
+/// Phase in which network-facing services unbind listeners.
 pub const PHASE_SERVICE_UNBIND: &str = "service-unbind";
+/// Phase that waits for accepted service requests to finish.
 pub const PHASE_SERVICE_REQUESTS_DONE: &str = "service-requests-done";
+/// Phase that stops application services.
 pub const PHASE_SERVICE_STOP: &str = "service-stop";
+/// Phase before cluster-aware services begin leaving.
 pub const PHASE_BEFORE_CLUSTER_SHUTDOWN: &str = "before-cluster-shutdown";
+/// Phase that gracefully stops local shard regions.
 pub const PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION: &str = "cluster-sharding-shutdown-region";
+/// Phase that initiates and observes cluster leave.
 pub const PHASE_CLUSTER_LEAVE: &str = "cluster-leave";
+/// Phase that waits for the member to enter exiting state.
 pub const PHASE_CLUSTER_EXITING: &str = "cluster-exiting";
+/// Phase that confirms exiting to remaining members.
 pub const PHASE_CLUSTER_EXITING_DONE: &str = "cluster-exiting-done";
+/// Phase that stops the cluster daemon and membership services.
 pub const PHASE_CLUSTER_SHUTDOWN: &str = "cluster-shutdown";
+/// Final extension cleanup phase before actor-system termination.
 pub const PHASE_BEFORE_ACTOR_SYSTEM_TERMINATE: &str = "before-actor-system-terminate";
+/// Phase that terminates the local actor runtime.
 pub const PHASE_ACTOR_SYSTEM_TERMINATE: &str = "actor-system-terminate";
 
 #[derive(Clone)]
+/// Ordered, one-shot shutdown coordinator shared by an actor system.
 pub struct CoordinatedShutdown {
     inner: Arc<CoordinatedShutdownInner>,
 }
@@ -49,6 +62,7 @@ impl fmt::Debug for CoordinatedShutdown {
 }
 
 impl CoordinatedShutdown {
+    /// Returns the reason supplied by the first shutdown invocation.
     pub fn reason(&self) -> Option<String> {
         self.inner
             .state
@@ -58,6 +72,7 @@ impl CoordinatedShutdown {
             .clone()
     }
 
+    /// Returns phase names in execution order.
     pub fn phases(&self) -> Vec<String> {
         self.inner
             .state
@@ -69,6 +84,7 @@ impl CoordinatedShutdown {
             .collect()
     }
 
+    /// Registers a task in an existing shutdown phase.
     pub fn add_task<F>(
         &self,
         phase: impl AsRef<str>,
@@ -116,6 +132,7 @@ impl CoordinatedShutdown {
         Ok(handle)
     }
 
+    /// Registers a task that sends an optional stop message and awaits actor termination.
     pub fn add_actor_termination_task<M>(
         &self,
         phase: impl AsRef<str>,
@@ -145,10 +162,14 @@ impl CoordinatedShutdown {
         })
     }
 
+    /// Runs every shutdown phase once.
+    ///
+    /// Concurrent and later callers observe the result of the first run.
     pub fn run(&self, reason: impl Into<String>) -> Result<(), ActorError> {
         self.run_from(reason, None)
     }
 
+    /// Runs shutdown starting at `from_phase`, or at the first phase when absent.
     pub fn run_from(
         &self,
         reason: impl Into<String>,

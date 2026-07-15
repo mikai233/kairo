@@ -129,6 +129,9 @@ fn user_facing_crates_deny_missing_public_documentation() -> Result<(), Box<dyn 
     let repo_root = repo_root()?;
     let user_facing_crates = [
         "kairo-next/crates/kairo/src/lib.rs",
+        "kairo-next/crates/kairo-actor/src/lib.rs",
+        "kairo-next/crates/kairo-actor-macros/src/lib.rs",
+        "kairo-next/crates/kairo-serialization/src/lib.rs",
         "kairo-next/crates/kairo-testkit/src/lib.rs",
     ];
 

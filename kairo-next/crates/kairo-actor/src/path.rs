@@ -1,6 +1,7 @@
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Network or local identity of an actor system.
 pub struct Address {
     protocol: String,
     system: String,
@@ -9,6 +10,7 @@ pub struct Address {
 }
 
 impl Address {
+    /// Creates an address from its protocol, system name, and optional socket endpoint.
     pub fn new(
         protocol: impl Into<String>,
         system: impl Into<String>,
@@ -23,6 +25,7 @@ impl Address {
         }
     }
 
+    /// Creates a local-only address for `system`.
     pub fn local(system: impl Into<String>) -> Self {
         Self {
             protocol: "kairo".to_string(),
@@ -32,18 +35,22 @@ impl Address {
         }
     }
 
+    /// Returns the transport protocol name.
     pub fn protocol(&self) -> &str {
         &self.protocol
     }
 
+    /// Returns the actor-system name.
     pub fn system(&self) -> &str {
         &self.system
     }
 
+    /// Returns the optional remote host.
     pub fn host(&self) -> Option<&str> {
         self.host.as_deref()
     }
 
+    /// Returns the optional remote port.
     pub fn port(&self) -> Option<u16> {
         self.port
     }
@@ -78,6 +85,7 @@ impl PathSegment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// Canonical address, hierarchy, and incarnation of an actor reference.
 pub struct ActorPath {
     value: String,
     address: Address,
@@ -85,10 +93,15 @@ pub struct ActorPath {
 }
 
 impl ActorPath {
+    /// Returns whether `name` is valid for a user-created actor.
     pub fn is_valid_actor_name(name: &str) -> bool {
         is_valid_path_element(name, false)
     }
 
+    /// Parses a canonical path string.
+    ///
+    /// Invalid input is retained as text and assigned an empty `unknown` path
+    /// model so diagnostics can still report the original value.
     pub fn new(value: impl Into<String>) -> Self {
         let value = value.into();
         let (address, segments) =
@@ -100,22 +113,27 @@ impl ActorPath {
         }
     }
 
+    /// Returns the canonical path string.
     pub fn as_str(&self) -> &str {
         &self.value
     }
 
+    /// Returns the owning actor-system address.
     pub fn address(&self) -> &Address {
         &self.address
     }
 
+    /// Returns the final actor name, if the path has an actor segment.
     pub fn name(&self) -> Option<&str> {
         self.segments.last().map(|segment| segment.name.as_str())
     }
 
+    /// Returns the final actor incarnation identifier, if present.
     pub fn uid(&self) -> Option<u64> {
         self.segments.last().and_then(|segment| segment.uid)
     }
 
+    /// Returns the immediate parent path.
     pub fn parent(&self) -> Option<Self> {
         if self.segments.is_empty() {
             return None;

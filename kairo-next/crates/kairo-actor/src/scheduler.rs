@@ -16,6 +16,7 @@ const CANCELLED: u8 = 1;
 const COMPLETED: u8 = 2;
 
 #[derive(Clone)]
+/// Cancellation and completion handle for one scheduled action.
 pub struct Cancellable {
     state: Arc<AtomicU8>,
 }
@@ -33,16 +34,21 @@ impl Cancellable {
         }
     }
 
+    /// Cancels an action that has not started.
+    ///
+    /// Returns `true` only for the call that transitions the action to cancelled.
     pub fn cancel(&self) -> bool {
         self.state
             .compare_exchange(SCHEDULED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
     }
 
+    /// Returns whether the action was cancelled before completion.
     pub fn is_cancelled(&self) -> bool {
         self.state.load(Ordering::Acquire) == CANCELLED
     }
 
+    /// Returns whether a one-shot action completed.
     pub fn is_completed(&self) -> bool {
         self.state.load(Ordering::Acquire) == COMPLETED
     }
@@ -469,19 +475,23 @@ fn run_scheduled(inner: &RealSchedulerInner, mut scheduled: RealScheduled) {
 }
 
 #[derive(Clone, Default)]
+/// Deterministic scheduler whose clock advances only when explicitly requested.
 pub struct ManualScheduler {
     inner: Arc<Mutex<ManualState>>,
 }
 
 impl ManualScheduler {
+    /// Creates a scheduler at virtual time zero.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the current virtual time.
     pub fn now(&self) -> Duration {
         self.inner.lock().expect("manual scheduler poisoned").now
     }
 
+    /// Schedules one message for delivery after `delay` in virtual time.
     pub fn schedule_once<M>(&self, delay: Duration, target: ActorRef<M>, message: M) -> Cancellable
     where
         M: Send + 'static,
@@ -494,11 +504,13 @@ impl ManualScheduler {
         )
     }
 
+    /// Advances virtual time and runs every action due at or before the new time.
     pub fn advance(&self, amount: Duration) {
         let run_to = self.now() + amount;
         self.run_until(run_to);
     }
 
+    /// Runs actions due at the current virtual time without advancing the clock.
     pub fn run_due(&self) {
         self.run_until(self.now());
     }
@@ -537,6 +549,7 @@ impl ManualScheduler {
         }
     }
 
+    /// Returns the number of active scheduled actions.
     pub fn pending_count(&self) -> usize {
         self.inner
             .lock()

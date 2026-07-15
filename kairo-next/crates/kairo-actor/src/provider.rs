@@ -7,23 +7,35 @@ use crate::system::ActorSystem;
 /// Remoting can wrap this boundary later without making `kairo-actor` depend on
 /// a remote transport or cluster membership.
 pub trait ActorRefProvider: Send + Sync {
+    /// Resolves a canonical path as local, missing, or non-local.
     fn resolve(&self, path: &ActorPath) -> ActorRefResolveResult;
+    /// Returns the root guardian reference.
     fn root_guardian(&self) -> AnyActorRef;
+    /// Returns the user guardian reference.
     fn user_guardian(&self) -> AnyActorRef;
+    /// Returns the system guardian reference.
     fn system_guardian(&self) -> AnyActorRef;
+    /// Returns the temporary-actor guardian reference.
     fn temp_guardian(&self) -> AnyActorRef;
+    /// Returns the virtual dead-letters reference.
     fn dead_letters(&self) -> AnyActorRef;
+    /// Allocates a unique temporary path using `prefix`.
     fn temp_path(&self, prefix: &str) -> ActorPath;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Result of resolving a canonical actor path.
 pub enum ActorRefResolveResult {
+    /// A live or virtual actor owned by the local actor system.
     Local(AnyActorRef),
+    /// A local path for which no actor incarnation exists.
     Missing(AnyActorRef),
+    /// A path belonging to another actor-system address.
     NonLocal(ActorPath),
 }
 
 impl ActorRefResolveResult {
+    /// Returns the resolved or unresolved canonical path.
     pub fn path(&self) -> &ActorPath {
         match self {
             Self::Local(actor) | Self::Missing(actor) => actor.path(),
@@ -31,20 +43,24 @@ impl ActorRefResolveResult {
         }
     }
 
+    /// Returns whether the result identifies a local actor.
     pub fn is_local(&self) -> bool {
         matches!(self, Self::Local(_))
     }
 
+    /// Returns whether the local path is missing.
     pub fn is_missing(&self) -> bool {
         matches!(self, Self::Missing(_))
     }
 
+    /// Returns whether the path belongs to a non-local address.
     pub fn is_non_local(&self) -> bool {
         matches!(self, Self::NonLocal(_))
     }
 }
 
 #[derive(Debug, Clone)]
+/// Provider for local actor refs, guardians, and temporary paths.
 pub struct LocalActorRefProvider {
     system: ActorSystem,
 }
@@ -54,6 +70,7 @@ impl LocalActorRefProvider {
         Self { system }
     }
 
+    /// Returns the actor system served by this provider.
     pub fn system(&self) -> &ActorSystem {
         &self.system
     }

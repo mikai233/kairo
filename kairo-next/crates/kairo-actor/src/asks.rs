@@ -8,11 +8,17 @@ use crate::refs::{ActorRef, TerminationLatch};
 use crate::scheduler::Cancellable;
 use crate::system::ActorSystem;
 
+/// Result delivered to an actor after an ask completes or times out.
 pub type AskResult<M> = Result<M, AskError>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure produced by the actor ask pattern after request delivery.
 pub enum AskError {
-    Timeout { timeout: Duration },
+    /// No response arrived before the configured deadline.
+    Timeout {
+        /// Ask duration that elapsed.
+        timeout: Duration,
+    },
 }
 
 impl Display for AskError {

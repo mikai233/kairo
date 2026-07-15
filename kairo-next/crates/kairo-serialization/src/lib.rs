@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! Stable serialization contracts for messages that cross remote boundaries.
 //!
 //! Local actor messages do not need this crate. A local `ActorRef<M>` only

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! Procedural macros for Kairo actor protocols.
 //!
 //! This crate keeps macro support deliberately narrow. Local actor messages do

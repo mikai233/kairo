@@ -66,23 +66,27 @@ pub(crate) trait MailboxScheduler: Send + Sync + 'static {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Capacity policy for an actor's user-message mailbox lane.
 pub struct MailboxSettings {
     user_capacity: Option<usize>,
 }
 
 impl MailboxSettings {
+    /// Creates an unbounded user-message mailbox policy.
     pub fn unbounded() -> Self {
         Self {
             user_capacity: None,
         }
     }
 
+    /// Creates a user-message mailbox bounded to `user_capacity` messages.
     pub fn bounded(user_capacity: usize) -> Self {
         Self {
             user_capacity: Some(user_capacity),
         }
     }
 
+    /// Returns the user-message capacity, or `None` for an unbounded mailbox.
     pub fn user_capacity(&self) -> Option<usize> {
         self.user_capacity
     }

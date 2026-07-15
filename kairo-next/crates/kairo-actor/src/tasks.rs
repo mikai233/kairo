@@ -10,14 +10,17 @@ use crate::error::ActorError;
 use crate::refs::ActorRef;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Configuration for the actor-system task executor.
 pub struct TaskExecutorSettings {
     workers: usize,
     queue_capacity: usize,
 }
 
 impl TaskExecutorSettings {
+    /// Default maximum number of tasks waiting for an executor worker.
     pub const DEFAULT_QUEUE_CAPACITY: usize = 1_024;
 
+    /// Creates settings with an explicit worker count and queue capacity.
     pub fn new(workers: usize, queue_capacity: usize) -> Self {
         Self {
             workers,
@@ -25,20 +28,24 @@ impl TaskExecutorSettings {
         }
     }
 
+    /// Replaces the task-executor worker count.
     pub fn with_workers(mut self, workers: usize) -> Self {
         self.workers = workers;
         self
     }
 
+    /// Replaces the pending-task queue capacity.
     pub fn with_queue_capacity(mut self, queue_capacity: usize) -> Self {
         self.queue_capacity = queue_capacity;
         self
     }
 
+    /// Returns the task-executor worker count.
     pub fn workers(&self) -> usize {
         self.workers
     }
 
+    /// Returns the maximum number of pending tasks.
     pub fn queue_capacity(&self) -> usize {
         self.queue_capacity
     }
@@ -94,15 +101,18 @@ impl TaskScope {
     }
 }
 
+/// Handle used to observe and join an actor-system helper task.
 pub struct TaskHandle {
     completion: Arc<TaskCompletion>,
 }
 
 impl TaskHandle {
+    /// Returns whether the task has finished or panicked.
     pub fn is_finished(&self) -> bool {
         self.completion.is_finished()
     }
 
+    /// Waits for completion and propagates a task panic as the error value.
     pub fn join(self) -> thread::Result<()> {
         self.completion.join()
     }

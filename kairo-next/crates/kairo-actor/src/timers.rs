@@ -101,13 +101,16 @@ impl TimerState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Stable logical key used to replace, query, or cancel an actor timer.
 pub struct TimerKey(String);
 
 impl TimerKey {
+    /// Creates a timer key.
     pub fn new(key: impl Into<String>) -> Self {
         Self(key.into())
     }
 
+    /// Returns the string form of the key.
     pub fn as_str(&self) -> &str {
         &self.0
     }

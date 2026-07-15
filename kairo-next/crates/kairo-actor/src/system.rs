@@ -29,6 +29,7 @@ use crate::tasks::{TaskExecutor, TaskExecutorHandle, TaskExecutorSettings};
 pub use builder::ActorSystemBuilder;
 
 #[derive(Debug, Clone)]
+/// Owning handle for local actors, runtime workers, scheduling, and extensions.
 pub struct ActorSystem {
     name: String,
     address: Address,
@@ -57,30 +58,37 @@ pub(crate) struct ActorSystemInner {
 }
 
 impl ActorSystem {
+    /// Starts configuring an actor system with the given logical name.
     pub fn builder(name: impl Into<String>) -> ActorSystemBuilder {
         ActorSystemBuilder::new(name)
     }
 
+    /// Returns the logical actor-system name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Returns the actor-system address used as the root of local paths.
     pub fn address(&self) -> &Address {
         &self.address
     }
 
+    /// Returns the shared dead-letter journal.
     pub fn dead_letters(&self) -> DeadLetters {
         self.inner.dead_letters.clone()
     }
 
+    /// Returns the effective dispatcher settings.
     pub fn dispatcher_settings(&self) -> DispatcherSettings {
         self.inner.dispatcher_settings
     }
 
+    /// Returns the default mailbox settings for newly spawned actors.
     pub fn mailbox_settings(&self) -> MailboxSettings {
         self.inner.mailbox
     }
 
+    /// Returns the effective helper-task executor settings.
     pub fn task_executor_settings(&self) -> TaskExecutorSettings {
         self.inner.task_executor.settings()
     }
@@ -89,14 +97,17 @@ impl ActorSystem {
         self.inner.task_executor.handle()
     }
 
+    /// Returns the local type-indexed event stream.
     pub fn event_stream(&self) -> EventStream {
         self.inner.event_stream.clone()
     }
 
+    /// Returns the registry of actor-system extensions.
     pub fn extensions(&self) -> ExtensionRegistry {
         self.inner.extensions.clone()
     }
 
+    /// Returns the existing extension of type `T` or creates it exactly once.
     pub fn register_extension<T, F>(&self, create: F) -> Arc<T>
     where
         T: Extension,
@@ -105,6 +116,7 @@ impl ActorSystem {
         self.inner.extensions.register(self, create)
     }
 
+    /// Looks up a previously registered extension.
     pub fn extension<T>(&self) -> Result<Arc<T>, ActorError>
     where
         T: Extension,
@@ -112,6 +124,7 @@ impl ActorSystem {
         self.inner.extensions.extension()
     }
 
+    /// Returns whether an extension of type `T` has completed registration.
     pub fn has_extension<T>(&self) -> bool
     where
         T: Extension,
@@ -119,18 +132,22 @@ impl ActorSystem {
         self.inner.extensions.has_extension::<T>()
     }
 
+    /// Returns the actor-system local receptionist.
     pub fn receptionist(&self) -> Receptionist {
         self.inner.receptionist.clone()
     }
 
+    /// Returns the actor-system coordinated-shutdown coordinator.
     pub fn coordinated_shutdown(&self) -> CoordinatedShutdown {
         self.inner.coordinated_shutdown.clone()
     }
 
+    /// Returns the local actor-reference provider.
     pub fn provider(&self) -> LocalActorRefProvider {
         LocalActorRefProvider::new(self.clone())
     }
 
+    /// Runs coordinated shutdown and then terminates the local runtime.
     pub fn run_coordinated_shutdown(
         &self,
         reason: impl Into<String>,
@@ -140,6 +157,7 @@ impl ActorSystem {
         self.terminate(termination_timeout)
     }
 
+    /// Schedules one typed message for later delivery.
     pub fn schedule_once<M>(&self, delay: Duration, target: ActorRef<M>, message: M) -> Cancellable
     where
         M: Send + 'static,
@@ -247,18 +265,22 @@ impl ActorSystem {
         )
     }
 
+    /// Requests asynchronous stop of any local actor reference.
     pub fn stop<M: Send + 'static>(&self, actor: &ActorRef<M>) {
         actor.request_stop();
     }
 
+    /// Returns whether termination has started.
     pub fn is_terminating(&self) -> bool {
         self.inner.terminating.load(Ordering::Acquire)
     }
 
+    /// Returns whether all actors and runtime workers have terminated.
     pub fn is_terminated(&self) -> bool {
         self.inner.terminated.load(Ordering::Acquire)
     }
 
+    /// Stops user and system actors and joins runtime resources within `timeout`.
     pub fn terminate(&self, timeout: Duration) -> Result<(), ActorError> {
         self.inner.terminating.store(true, Ordering::Release);
         let deadline = Instant::now()
@@ -278,10 +300,12 @@ impl ActorSystem {
         Ok(())
     }
 
+    /// Creates a typed reference that always rejects sends as missing.
     pub fn missing_ref<M>(&self, path: impl Into<String>) -> ActorRef<M> {
         ActorRef::missing(ActorPath::new(path), self.inner.dead_letters.clone())
     }
 
+    /// Resolves an exact local actor path and message type.
     pub fn resolve_local<M>(&self, path: impl AsRef<str>) -> Option<ActorRef<M>>
     where
         M: Send + 'static,
@@ -289,6 +313,7 @@ impl ActorSystem {
         self.inner.registry.resolve_ref(path.as_ref())
     }
 
+    /// Resolves an exact local actor path or returns a missing reference.
     pub fn resolve_local_or_missing<M>(&self, path: impl Into<String>) -> ActorRef<M>
     where
         M: Send + 'static,
@@ -419,6 +444,7 @@ impl ActorSystem {
         self.watch_registered(subject, registration)
     }
 
+    /// Watches `subject` and delivers `message` to `watcher` on termination.
     pub fn watch_with<M, N>(
         &self,
         watcher: ActorRef<M>,
@@ -490,6 +516,7 @@ impl ActorSystem {
         self.watch_registered(subject, registration)
     }
 
+    /// Removes a typed death-watch registration.
     pub fn unwatch<M, N>(&self, watcher: &ActorRef<M>, subject: &ActorRef<N>)
     where
         M: Send + 'static,
@@ -498,6 +525,7 @@ impl ActorSystem {
         self.unwatch_path(watcher.path(), subject.path());
     }
 
+    /// Watches a path that may be local, remote, or not yet resolved.
     pub fn watch_path<M>(&self, watcher: ActorRef<M>, subject: ActorPath) -> Result<(), ActorError>
     where
         M: Send + 'static,
@@ -518,16 +546,21 @@ impl ActorSystem {
         self.inner.death_watch.watch(subject, registration)
     }
 
+    /// Removes a path-based death-watch registration.
     pub fn unwatch_path(&self, watcher: &ActorPath, subject: &ActorPath) {
         self.inner.death_watch.unwatch(subject, watcher);
     }
 
+    /// Reports a watched path as terminated to all registered watchers.
+    ///
+    /// Remoting providers use this boundary after observing remote termination.
     pub fn notify_watched_path_terminated(&self, subject: &ActorPath) {
         self.inner
             .death_watch
             .notify(subject, TerminationCause::Stopped);
     }
 
+    /// Reports every watched path at `address` as terminated.
     pub fn notify_watched_address_terminated(&self, address: &str) {
         self.inner.death_watch.notify_matching(
             |subject| subject.address().to_string() == address,

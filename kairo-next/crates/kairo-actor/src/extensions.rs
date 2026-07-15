@@ -5,11 +5,13 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::{ActorError, ActorSystem};
 
+/// Marker trait for thread-safe services stored once per actor system.
 pub trait Extension: Any + Send + Sync + 'static {}
 
 impl<T> Extension for T where T: Any + Send + Sync + 'static {}
 
 #[derive(Clone, Default)]
+/// Type-indexed registry of lazily created actor-system extensions.
 pub struct ExtensionRegistry {
     inner: Arc<ExtensionRegistryInner>,
 }
@@ -46,6 +48,7 @@ impl fmt::Debug for ExtensionRegistry {
 }
 
 impl ExtensionRegistry {
+    /// Returns the existing extension of type `T` or creates it exactly once.
     pub fn register<T, F>(&self, system: &ActorSystem, create: F) -> Arc<T>
     where
         T: Extension,
@@ -60,6 +63,7 @@ impl ExtensionRegistry {
             .expect("extension registry stored a value under the wrong TypeId")
     }
 
+    /// Looks up a previously registered extension by its concrete type.
     pub fn extension<T>(&self) -> Result<Arc<T>, ActorError>
     where
         T: Extension,
@@ -74,6 +78,7 @@ impl ExtensionRegistry {
             .map_err(|_| ActorError::ExtensionNotRegistered(type_name::<T>()))
     }
 
+    /// Returns whether an extension of type `T` has completed registration.
     pub fn has_extension<T>(&self) -> bool
     where
         T: Extension,

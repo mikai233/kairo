@@ -3,21 +3,32 @@ use crate::ActorPath;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Directive applied when an actor fails during startup or message processing.
 pub enum SupervisorStrategy {
+    /// Stop the failed actor.
     #[default]
     Stop,
+    /// Drop the failed message and continue with the current actor instance.
     Resume,
+    /// Recreate the actor and stop its existing children.
     Restart,
+    /// Recreate the actor while retaining existing child incarnations.
     RestartPreservingChildren,
+    /// Propagate the failure to the parent actor.
     Escalate,
+    /// Restart only while the configured restart budget permits it.
     RestartWithLimit {
+        /// Maximum restarts admitted during one window.
         max_restarts: usize,
+        /// Duration of the restart accounting window.
         within: Duration,
+        /// Whether existing children are stopped during restart.
         stop_children: bool,
     },
 }
 
 impl SupervisorStrategy {
+    /// Creates a bounded restart strategy that stops existing children.
     pub fn restart_with_limit(max_restarts: usize, within: Duration) -> Self {
         Self::RestartWithLimit {
             max_restarts,
@@ -26,10 +37,12 @@ impl SupervisorStrategy {
         }
     }
 
+    /// Creates an unbounded restart strategy that retains existing children.
     pub fn restart_preserving_children() -> Self {
         Self::RestartPreservingChildren
     }
 
+    /// Creates a bounded restart strategy that retains existing children.
     pub fn restart_with_limit_preserving_children(max_restarts: usize, within: Duration) -> Self {
         Self::RestartWithLimit {
             max_restarts,

@@ -11,6 +11,7 @@ use crate::runtime::schedule_actor;
 use super::ActorSystem;
 
 impl ActorSystem {
+    /// Spawns a named user actor beneath `/user`.
     pub fn spawn<A>(
         &self,
         name: impl AsRef<str>,

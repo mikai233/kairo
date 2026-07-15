@@ -11,6 +11,7 @@ use crate::path::ActorPath;
 use crate::refs::ActorRef;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+/// Exponential restart-delay and reset policy for [`BackoffSupervisor`].
 pub struct BackoffSupervisorSettings {
     min_backoff: Duration,
     max_backoff: Duration,
@@ -20,6 +21,7 @@ pub struct BackoffSupervisorSettings {
 }
 
 impl BackoffSupervisorSettings {
+    /// Creates validated settings with no jitter or restart limit.
     pub fn new(min_backoff: Duration, max_backoff: Duration) -> Result<Self, BackoffSettingsError> {
         validate_backoff(min_backoff, max_backoff)?;
         Ok(Self {
@@ -33,26 +35,32 @@ impl BackoffSupervisorSettings {
         })
     }
 
+    /// Returns the first restart delay.
     pub fn min_backoff(&self) -> Duration {
         self.min_backoff
     }
 
+    /// Returns the exponential-delay cap before jitter is applied.
     pub fn max_backoff(&self) -> Duration {
         self.max_backoff
     }
 
+    /// Returns the non-negative fractional jitter range.
     pub fn random_factor(&self) -> f64 {
         self.random_factor
     }
 
+    /// Returns the restart limit, or `None` for unlimited restarts.
     pub fn max_restarts(&self) -> Option<u32> {
         self.max_restarts
     }
 
+    /// Returns the restart-count reset policy.
     pub fn reset(&self) -> BackoffReset {
         self.reset
     }
 
+    /// Sets the non-negative fractional jitter added to each delay.
     pub fn with_random_factor(mut self, factor: f64) -> Result<Self, BackoffSettingsError> {
         if !factor.is_finite() || factor < 0.0 {
             return Err(BackoffSettingsError::InvalidRandomFactor { factor });
@@ -61,6 +69,7 @@ impl BackoffSupervisorSettings {
         Ok(self)
     }
 
+    /// Sets a restart limit; zero selects unlimited restarts.
     pub fn with_max_restarts(mut self, max_restarts: u32) -> Self {
         self.max_restarts = if max_restarts == 0 {
             None
@@ -70,6 +79,7 @@ impl BackoffSupervisorSettings {
         self
     }
 
+    /// Resets restart accounting after a child remains live for `after`.
     pub fn with_auto_reset_after(mut self, after: Duration) -> Result<Self, BackoffSettingsError> {
         if after < self.min_backoff || after > self.max_backoff {
             return Err(BackoffSettingsError::InvalidReset {
@@ -82,6 +92,7 @@ impl BackoffSupervisorSettings {
         Ok(self)
     }
 
+    /// Requires an explicit [`BackoffSupervisorMsg::Reset`] to reset accounting.
     pub fn with_manual_reset(mut self) -> Self {
         self.reset = BackoffReset::Manual;
         self
@@ -89,24 +100,41 @@ impl BackoffSupervisorSettings {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Policy for resetting the backoff supervisor restart count.
 pub enum BackoffReset {
-    Auto { after: Duration },
+    /// Reset after the child remains live for a duration.
+    Auto {
+        /// Required stable-running duration.
+        after: Duration,
+    },
+    /// Reset only when explicitly requested.
     Manual,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Invalid backoff-supervisor configuration.
 pub enum BackoffSettingsError {
+    /// The minimum restart delay was zero.
     MinBackoffIsZero,
+    /// The maximum delay was shorter than the minimum delay.
     MaxBackoffBeforeMin {
+        /// Configured minimum delay.
         min_backoff: Duration,
+        /// Configured maximum delay.
         max_backoff: Duration,
     },
+    /// The jitter factor was negative or not finite.
     InvalidRandomFactor {
+        /// Rejected jitter factor.
         factor: f64,
     },
+    /// Automatic reset duration fell outside the configured backoff range.
     InvalidReset {
+        /// Rejected reset duration.
         reset_after: Duration,
+        /// Configured minimum delay.
         min_backoff: Duration,
+        /// Configured maximum delay.
         max_backoff: Duration,
     },
 }
@@ -142,23 +170,35 @@ impl Display for BackoffSettingsError {
 
 impl std::error::Error for BackoffSettingsError {}
 
+/// Public control and forwarding protocol for a backoff supervisor.
 pub enum BackoffSupervisorMsg<M: Send + 'static> {
+    /// Forwards a message to the current child, or dead letters it while stopped.
     Tell(M),
+    /// Queries the current child reference.
     GetCurrentChild {
+        /// Recipient for the child snapshot.
         reply_to: ActorRef<CurrentChild<M>>,
     },
+    /// Queries the current restart count.
     GetRestartCount {
+        /// Recipient for the restart-count snapshot.
         reply_to: ActorRef<RestartCount>,
     },
+    /// Resets restart accounting when manual reset is configured.
     Reset,
+    /// Internal death-watch notification from the current child.
     #[doc(hidden)]
     ChildTerminated,
+    /// Internal delayed request to create a replacement child.
     #[doc(hidden)]
     StartChild {
+        /// Generation that prevents stale scheduled starts.
         token: u64,
     },
+    /// Internal automatic restart-count reset request.
     #[doc(hidden)]
     ResetRestartCount {
+        /// Restart count that must still be current.
         restart_count: u32,
     },
 }
@@ -189,27 +229,32 @@ impl<M: Send + 'static> fmt::Debug for BackoffSupervisorMsg<M> {
 }
 
 #[derive(Debug, Clone)]
+/// Snapshot of the backoff supervisor's current child.
 pub struct CurrentChild<M: Send + 'static> {
     child: Option<ActorRef<M>>,
 }
 
 impl<M: Send + 'static> CurrentChild<M> {
+    /// Returns the live child, or `None` during backoff.
     pub fn child(&self) -> Option<ActorRef<M>> {
         self.child.clone()
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Snapshot of the backoff supervisor restart count.
 pub struct RestartCount {
     count: u32,
 }
 
 impl RestartCount {
+    /// Returns the number of consecutive restarts since the last reset.
     pub fn count(&self) -> u32 {
         self.count
     }
 }
 
+/// Actor that recreates a stopped child with capped exponential backoff.
 pub struct BackoffSupervisor<A>
 where
     A: Actor,
@@ -227,6 +272,7 @@ impl<A> BackoffSupervisor<A>
 where
     A: Actor,
 {
+    /// Creates props for a supervisor that restarts its child after termination.
     pub fn on_stop<F>(
         child_name: impl Into<String>,
         child_factory: F,

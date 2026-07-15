@@ -18,10 +18,13 @@ use crate::timers::TimerEnvelope;
 
 pub(crate) use lifecycle::{LocalActorHandle, TerminationLatch};
 
+/// Typed destination that accepts messages without exposing its implementation.
 pub trait Recipient<M: Send + 'static> {
+    /// Attempts to enqueue `message` without blocking for processing.
     fn tell(&self, message: M) -> Result<(), SendError<M>>;
 }
 
+/// Typed, cloneable reference to one actor incarnation or message adapter.
 pub struct ActorRef<M> {
     pub(crate) path: ActorPath,
     pub(crate) target: ActorRefTarget<M>,
@@ -191,10 +194,15 @@ impl<M> fmt::Debug for ActorRef<M> {
 }
 
 impl<M: Send + 'static> ActorRef<M> {
+    /// Returns the canonical path and incarnation of this reference.
     pub fn path(&self) -> &ActorPath {
         &self.path
     }
 
+    /// Attempts to enqueue one user message.
+    ///
+    /// The call is non-blocking and returns ownership of the rejected message
+    /// through [`SendError`] when the actor is stopped, missing, or saturated.
     pub fn tell(&self, message: M) -> Result<(), SendError<M>> {
         if self.target.stopped.load(Ordering::Acquire) {
             self.dead_letters
@@ -238,16 +246,19 @@ impl<M: Send + 'static> ActorRef<M> {
         mailbox.prepend_user_messages(messages)
     }
 
+    /// Erases only the message type while retaining the actor path.
     pub fn as_any(&self) -> AnyActorRef {
         AnyActorRef {
             path: self.path.clone(),
         }
     }
 
+    /// Returns whether this reference can no longer accept messages.
     pub fn is_stopped(&self) -> bool {
         self.target.stopped.load(Ordering::Acquire)
     }
 
+    /// Waits for termination to complete up to `timeout`.
     pub fn wait_for_stop(&self, timeout: Duration) -> bool {
         self.target.terminated.wait(timeout)
     }
@@ -386,6 +397,7 @@ impl<M: Send + 'static> Recipient<M> for ActorRef<M> {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
+/// Message-type-erased actor identity used for paths and lifecycle signals.
 pub struct AnyActorRef {
     path: ActorPath,
 }
@@ -395,6 +407,7 @@ impl AnyActorRef {
         Self { path }
     }
 
+    /// Returns the canonical actor path.
     pub fn path(&self) -> &ActorPath {
         &self.path
     }
@@ -409,12 +422,14 @@ impl fmt::Debug for AnyActorRef {
 }
 
 #[derive(Debug, Clone)]
+/// Typed recipient that accepts and discards every message.
 pub struct IgnoreRef<M> {
     path: ActorPath,
     _message: PhantomData<fn(M)>,
 }
 
 impl<M> IgnoreRef<M> {
+    /// Creates an ignore recipient.
     pub fn new() -> Self {
         Self {
             path: ActorPath::new("kairo://local/ignore"),
@@ -422,6 +437,7 @@ impl<M> IgnoreRef<M> {
         }
     }
 
+    /// Returns the virtual ignore-recipient path.
     pub fn path(&self) -> &ActorPath {
         &self.path
     }

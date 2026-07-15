@@ -9,6 +9,7 @@ use crate::error::ActorError;
 use crate::path::ActorPath;
 use crate::refs::ActorRef;
 
+/// Typed logical key under which local service actors register.
 pub struct ServiceKey<M> {
     id: String,
     type_id: TypeId,
@@ -16,6 +17,7 @@ pub struct ServiceKey<M> {
 }
 
 impl<M: 'static> ServiceKey<M> {
+    /// Creates a key whose identity combines `id` with message type `M`.
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -24,6 +26,7 @@ impl<M: 'static> ServiceKey<M> {
         }
     }
 
+    /// Returns the logical service identifier.
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -63,24 +66,32 @@ impl<M> Hash for ServiceKey<M> {
     }
 }
 
+/// Snapshot of service instances currently registered for one key.
 pub struct Listing<M> {
     key: ServiceKey<M>,
     service_instances: Vec<ActorRef<M>>,
 }
 
 impl<M> Listing<M> {
+    /// Returns the queried service key.
     pub fn key(&self) -> &ServiceKey<M> {
         &self.key
     }
 
+    /// Returns the service instances visible to this local receptionist.
     pub fn service_instances(&self) -> &[ActorRef<M>] {
         &self.service_instances
     }
 
+    /// Returns all service instances in this listing.
+    ///
+    /// The local receptionist has no reachability filtering, so this is the
+    /// same collection as [`Self::service_instances`].
     pub fn all_service_instances(&self) -> &[ActorRef<M>] {
         &self.service_instances
     }
 
+    /// Returns whether this listing represents a registration change.
     pub fn services_were_added_or_removed(&self) -> bool {
         true
     }
@@ -104,16 +115,19 @@ impl<M> fmt::Debug for Listing<M> {
     }
 }
 
+/// Acknowledgement that a receptionist registration request was processed.
 pub struct Registered<M> {
     key: ServiceKey<M>,
     service_instance: ActorRef<M>,
 }
 
 impl<M> Registered<M> {
+    /// Returns the registered service key.
     pub fn key(&self) -> &ServiceKey<M> {
         &self.key
     }
 
+    /// Returns the registered service reference.
     pub fn service_instance(&self) -> &ActorRef<M> {
         &self.service_instance
     }
@@ -137,16 +151,19 @@ impl<M> fmt::Debug for Registered<M> {
     }
 }
 
+/// Acknowledgement that a receptionist deregistration request was processed.
 pub struct Deregistered<M> {
     key: ServiceKey<M>,
     service_instance: ActorRef<M>,
 }
 
 impl<M> Deregistered<M> {
+    /// Returns the deregistered service key.
     pub fn key(&self) -> &ServiceKey<M> {
         &self.key
     }
 
+    /// Returns the deregistered service reference.
     pub fn service_instance(&self) -> &ActorRef<M> {
         &self.service_instance
     }
@@ -171,6 +188,7 @@ impl<M> fmt::Debug for Deregistered<M> {
 }
 
 #[derive(Clone, Default)]
+/// Actor-system-local registry and discovery service for typed actor refs.
 pub struct Receptionist {
     inner: Arc<ReceptionistInner>,
 }
@@ -187,6 +205,9 @@ struct ReceptionistInner {
 }
 
 impl Receptionist {
+    /// Registers `service` under `key`.
+    ///
+    /// Returns `false` when that actor path is already registered.
     pub fn register<M>(&self, key: ServiceKey<M>, service: ActorRef<M>) -> bool
     where
         M: Send + 'static,
@@ -200,6 +221,7 @@ impl Receptionist {
         registered
     }
 
+    /// Registers a service and sends a [`Registered`] acknowledgement.
     pub fn register_with_ack<M>(
         &self,
         key: ServiceKey<M>,
@@ -223,6 +245,7 @@ impl Receptionist {
             .map_err(|error| ActorError::Message(error.to_string()))
     }
 
+    /// Removes one service registration.
     pub fn deregister<M>(&self, key: &ServiceKey<M>, service: &ActorRef<M>) -> bool
     where
         M: Send + 'static,
@@ -238,6 +261,7 @@ impl Receptionist {
         deregistered
     }
 
+    /// Deregisters a service and conditionally sends a [`Deregistered`] acknowledgement.
     pub fn deregister_with_ack<M>(
         &self,
         key: &ServiceKey<M>,
@@ -269,6 +293,7 @@ impl Receptionist {
             .map_err(|error| ActorError::Message(error.to_string()))
     }
 
+    /// Returns the current listing without subscribing for changes.
     pub fn find<M>(&self, key: &ServiceKey<M>) -> Listing<M>
     where
         M: Send + 'static,
@@ -278,6 +303,7 @@ impl Receptionist {
         bucket.listing()
     }
 
+    /// Sends the current listing to `reply_to` without subscribing it.
     pub fn find_with_reply<M>(
         &self,
         key: &ServiceKey<M>,
@@ -292,6 +318,9 @@ impl Receptionist {
             .map_err(|error| ActorError::Message(error.to_string()))
     }
 
+    /// Subscribes an actor to listings and immediately sends the current listing.
+    ///
+    /// Returns `false` when that subscriber path is already registered.
     pub fn subscribe<M>(&self, key: ServiceKey<M>, subscriber: ActorRef<Listing<M>>) -> bool
     where
         M: Send + 'static,

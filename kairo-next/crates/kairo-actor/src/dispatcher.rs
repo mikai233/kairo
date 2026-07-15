@@ -11,14 +11,17 @@ thread_local! {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Configuration for the actor-system mailbox dispatcher.
 pub struct DispatcherSettings {
     throughput: usize,
     workers: usize,
 }
 
 impl DispatcherSettings {
+    /// Default number of user messages processed during one mailbox activation.
     pub const DEFAULT_THROUGHPUT: usize = 5;
 
+    /// Creates settings with `throughput` and a worker per available CPU.
     pub fn new(throughput: usize) -> Self {
         Self {
             throughput,
@@ -26,15 +29,18 @@ impl DispatcherSettings {
         }
     }
 
+    /// Replaces the number of dispatcher worker threads.
     pub fn with_workers(mut self, workers: usize) -> Self {
         self.workers = workers;
         self
     }
 
+    /// Returns the maximum user messages processed per mailbox activation.
     pub fn throughput(&self) -> usize {
         self.throughput
     }
 
+    /// Returns the dispatcher worker-thread count.
     pub fn workers(&self) -> usize {
         self.workers
     }

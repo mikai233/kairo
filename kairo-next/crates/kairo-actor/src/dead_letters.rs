@@ -6,6 +6,7 @@ use crate::ActorPath;
 use crate::EventStream;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic record for a message that could not reach its recipient.
 pub struct DeadLetter {
     recipient: ActorPath,
     message_type: &'static str,
@@ -13,14 +14,17 @@ pub struct DeadLetter {
 }
 
 impl DeadLetter {
+    /// Returns the intended recipient path.
     pub fn recipient(&self) -> &ActorPath {
         &self.recipient
     }
 
+    /// Returns the Rust type name used only for local diagnostics.
     pub fn message_type(&self) -> &'static str {
         self.message_type
     }
 
+    /// Returns the delivery failure reason.
     pub fn reason(&self) -> &str {
         &self.reason
     }
@@ -33,6 +37,7 @@ struct DeadLettersInner {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Actor-system dead-letter journal and optional event-stream publisher.
 pub struct DeadLetters {
     inner: Arc<DeadLettersInner>,
     event_stream: Option<EventStream>,
@@ -54,6 +59,7 @@ impl DeadLetters {
         }
     }
 
+    /// Returns the number of recorded dead letters.
     pub fn len(&self) -> usize {
         self.inner
             .records
@@ -62,10 +68,12 @@ impl DeadLetters {
             .len()
     }
 
+    /// Returns whether no dead letters have been recorded.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// Returns a snapshot of all recorded dead letters.
     pub fn records(&self) -> Vec<DeadLetter> {
         self.inner
             .records
@@ -74,6 +82,7 @@ impl DeadLetters {
             .clone()
     }
 
+    /// Waits until at least `expected` records exist or `timeout` expires.
     pub fn wait_for_len(&self, expected: usize, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
         let mut records = self.inner.records.lock().expect("dead letters poisoned");

@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use crate::{ActorPath, ActorRef};
 
 #[derive(Clone, Default)]
+/// Local type-indexed publish/subscribe bus owned by an actor system.
 pub struct EventStream {
     inner: Arc<EventStreamInner>,
 }
@@ -37,6 +38,9 @@ impl fmt::Debug for EventStream {
 }
 
 impl EventStream {
+    /// Subscribes an actor to events of its message type.
+    ///
+    /// Returns `false` when the same actor path is already subscribed.
     pub fn subscribe<M>(&self, subscriber: ActorRef<M>) -> bool
     where
         M: Clone + Send + 'static,
@@ -66,6 +70,7 @@ impl EventStream {
         true
     }
 
+    /// Removes one actor from the channel for `M`.
     pub fn unsubscribe<M>(&self, subscriber: &ActorRef<M>) -> bool
     where
         M: Send + 'static,
@@ -87,6 +92,7 @@ impl EventStream {
         removed
     }
 
+    /// Removes one actor path from every event channel.
     pub fn unsubscribe_all<M>(&self, subscriber: &ActorRef<M>) -> bool
     where
         M: Send + 'static,
@@ -106,6 +112,7 @@ impl EventStream {
         removed
     }
 
+    /// Publishes a cloned event to every live subscriber of `M`.
     pub fn publish<M>(&self, event: M)
     where
         M: Clone + Send + 'static,
