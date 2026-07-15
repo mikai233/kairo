@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -11,29 +13,52 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Decoded initial contact paired with its validated remote origin.
 pub struct ClusterInitJoinRequest {
+    /// Canonical address derived from the remote daemon sender path.
     pub origin: Address,
+    /// Initial contact payload from the joining node.
     pub message: InitJoin,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Terminal notification that a seed reported incompatible configuration.
 pub struct ClusterSeedJoinIncompatible {
+    /// Seed address that rejected the joining configuration.
     pub target: Address,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Wire reply produced by the initial-contact responder.
 pub enum ClusterInitJoinResponse {
+    /// The seed is initialized and can receive a membership join request.
     Ack(InitJoinAck),
+    /// The seed is not currently initialized or joinable.
     Nack(InitJoinNack),
 }
 
 #[derive(Debug)]
+/// Failure while encoding, validating, or delivering seed-join traffic.
 pub enum ClusterSeedJoinWireError {
+    /// The claimed sender was not the cluster daemon path at its address.
     InvalidSenderPath(String),
-    MissingRemoteHost { address: String },
+    /// An address without both a remote host and port was used for seed traffic.
+    MissingRemoteHost {
+        /// Rejected address formatted for diagnostics.
+        address: String,
+    },
+    /// An inbound seed message omitted its remote sender identity.
     MissingSender,
-    Send { target: String, reason: String },
+    /// A remote outbound or local actor recipient rejected delivery.
+    Send {
+        /// Remote address or local handler description.
+        target: String,
+        /// Error reported by the delivery boundary.
+        reason: String,
+    },
+    /// The registry or actor-reference wire format rejected serialization.
     Serialization(kairo_serialization::SerializationError),
+    /// The inbound manifest is not an initial seed-contact message.
     UnsupportedManifest(String),
 }
 
@@ -70,6 +95,11 @@ impl From<kairo_serialization::SerializationError> for ClusterSeedJoinWireError 
 }
 
 #[derive(Clone)]
+/// Executes seed-join effects across local membership and remote daemon boundaries.
+///
+/// Contact, join, ack, and nack messages use registry serialization and carry
+/// the local cluster daemon as sender. Self-join and incompatibility effects
+/// remain typed local actor deliveries.
 pub struct ClusterSeedJoinWireOutbound {
     self_node: UniqueAddress,
     roles: Vec<String>,
@@ -80,6 +110,7 @@ pub struct ClusterSeedJoinWireOutbound {
 }
 
 impl ClusterSeedJoinWireOutbound {
+    /// Creates a seed-join effect executor for the local node incarnation.
     pub fn new(
         self_node: UniqueAddress,
         roles: Vec<String>,
@@ -98,6 +129,7 @@ impl ClusterSeedJoinWireOutbound {
         }
     }
 
+    /// Executes one effect emitted by [`crate::ClusterSeedJoinState`].
     pub fn send_effect(
         &self,
         effect: ClusterSeedJoinEffect,
@@ -132,6 +164,7 @@ impl ClusterSeedJoinWireOutbound {
         }
     }
 
+    /// Sends an initial-contact acknowledgement or nack to `target`.
     pub fn send_init_join_response(
         &self,
         target: &Address,
@@ -162,11 +195,13 @@ impl ClusterSeedJoinWireOutbound {
     }
 }
 
+/// Actor wrapper for [`ClusterSeedJoinWireOutbound`].
 pub struct ClusterSeedJoinWireOutboundActor {
     outbound: ClusterSeedJoinWireOutbound,
 }
 
 impl ClusterSeedJoinWireOutboundActor {
+    /// Creates an actor around `outbound`.
     pub fn new(outbound: ClusterSeedJoinWireOutbound) -> Self {
         Self { outbound }
     }
@@ -183,6 +218,11 @@ impl Actor for ClusterSeedJoinWireOutboundActor {
 }
 
 #[derive(Clone)]
+/// Validates and dispatches inbound initial seed-contact envelopes.
+///
+/// The remote sender must identify the membership daemon at a canonical remote
+/// address. Requests go to the responder; acknowledgements and nacks go to the
+/// active seed-join process with the validated origin attached.
 pub struct ClusterSeedJoinWireInbound {
     registry: Arc<Registry>,
     process: ActorRef<ClusterSeedJoinProcessMsg>,
@@ -190,6 +230,7 @@ pub struct ClusterSeedJoinWireInbound {
 }
 
 impl ClusterSeedJoinWireInbound {
+    /// Creates an inbound adapter for one seed-join process and request handler.
     pub fn new(
         registry: Arc<Registry>,
         process: ActorRef<ClusterSeedJoinProcessMsg>,
@@ -202,6 +243,7 @@ impl ClusterSeedJoinWireInbound {
         }
     }
 
+    /// Validates, decodes, and dispatches one remote seed-contact envelope.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<(), ClusterSeedJoinWireError> {
         let origin = sender_address(envelope.sender.as_ref())?;
         match envelope.message.manifest.as_str() {

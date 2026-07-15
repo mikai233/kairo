@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_actor::{
     Actor, ActorError, ActorRef, ActorResult, Address, Context, Recipient, SendError,
@@ -9,12 +11,19 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Local membership lifecycle visible to the initial seed-contact responder.
 pub enum ClusterInitJoinLifecycle {
+    /// The local cluster daemon has not joined membership and must nack contact.
     Uninitialized,
-    Initialized { self_status: MemberStatus },
+    /// The local daemon has membership state and may accept seed contact.
+    Initialized {
+        /// Current status of the local member.
+        self_status: MemberStatus,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Pure policy for replying to initial seed-contact requests.
 pub struct ClusterInitJoinResponderState {
     self_address: Address,
     local_config_digest: Option<Bytes>,
@@ -22,6 +31,10 @@ pub struct ClusterInitJoinResponderState {
 }
 
 impl ClusterInitJoinResponderState {
+    /// Creates an uninitialized responder for `self_address`.
+    ///
+    /// A missing digest disables configuration comparison and produces
+    /// [`ClusterConfigCheck::Unchecked`] after the node becomes joinable.
     pub fn new(self_address: Address, local_config_digest: Option<Bytes>) -> Self {
         Self {
             self_address,
@@ -30,14 +43,20 @@ impl ClusterInitJoinResponderState {
         }
     }
 
+    /// Returns the current local lifecycle view.
     pub fn lifecycle(&self) -> ClusterInitJoinLifecycle {
         self.lifecycle
     }
 
+    /// Replaces the local lifecycle view used for subsequent replies.
     pub fn set_lifecycle(&mut self, lifecycle: ClusterInitJoinLifecycle) {
         self.lifecycle = lifecycle;
     }
 
+    /// Builds the acknowledgement or nack for one validated contact request.
+    ///
+    /// Uninitialized, down, and exiting nodes nack. Other initialized states
+    /// acknowledge with the configured digest comparison result.
     pub fn respond(&self, request: &ClusterInitJoinRequest) -> ClusterInitJoinResponse {
         let accepts_join = matches!(
             self.lifecycle,
@@ -65,17 +84,22 @@ impl ClusterInitJoinResponderState {
 }
 
 #[derive(Debug, Clone)]
+/// Commands accepted by [`ClusterInitJoinResponder`].
 pub enum ClusterInitJoinResponderMsg {
+    /// Requests a reply to one validated initial contact.
     Request(ClusterInitJoinRequest),
+    /// Updates the local membership lifecycle used by reply policy.
     SetLifecycle(ClusterInitJoinLifecycle),
 }
 
 #[derive(Clone)]
+/// Typed adapter that forwards contact requests to a responder actor.
 pub struct ClusterInitJoinResponderPort {
     responder: ActorRef<ClusterInitJoinResponderMsg>,
 }
 
 impl ClusterInitJoinResponderPort {
+    /// Creates a forwarding port for `responder`.
     pub fn new(responder: ActorRef<ClusterInitJoinResponderMsg>) -> Self {
         Self { responder }
     }
@@ -93,12 +117,14 @@ impl Recipient<ClusterInitJoinRequest> for ClusterInitJoinResponderPort {
     }
 }
 
+/// Actor that applies seed-contact response policy and sends the wire reply.
 pub struct ClusterInitJoinResponder {
     state: ClusterInitJoinResponderState,
     outbound: ClusterSeedJoinWireOutbound,
 }
 
 impl ClusterInitJoinResponder {
+    /// Creates a responder from pure policy state and its wire outbound.
     pub fn new(
         state: ClusterInitJoinResponderState,
         outbound: ClusterSeedJoinWireOutbound,
@@ -106,6 +132,7 @@ impl ClusterInitJoinResponder {
         Self { state, outbound }
     }
 
+    /// Returns the responder's current pure policy state.
     pub fn state(&self) -> &ClusterInitJoinResponderState {
         &self.state
     }

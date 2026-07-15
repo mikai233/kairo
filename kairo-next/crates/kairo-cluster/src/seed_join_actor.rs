@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
@@ -12,6 +14,7 @@ const SEED_RETRY_TIMER: &str = "cluster-seed-join-retry";
 const SEED_TIMEOUT_TIMER: &str = "cluster-seed-join-timeout";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Timer and activation policy for [`ClusterSeedJoinProcess`].
 pub struct ClusterSeedJoinProcessSettings {
     retry_interval: Duration,
     seed_timeout: Duration,
@@ -20,6 +23,7 @@ pub struct ClusterSeedJoinProcessSettings {
 }
 
 impl ClusterSeedJoinProcessSettings {
+    /// Creates settings with automatic ticks and immediate activation enabled.
     pub fn new(
         retry_interval: Duration,
         seed_timeout: Duration,
@@ -46,27 +50,39 @@ impl ClusterSeedJoinProcessSettings {
         })
     }
 
+    /// Returns the interval between contact attempts.
     pub fn retry_interval(self) -> Duration {
         self.retry_interval
     }
 
+    /// Returns the interval used for first-seed self-formation and lost-welcome
+    /// recovery.
     pub fn seed_timeout(self) -> Duration {
         self.seed_timeout
     }
 
+    /// Returns whether the actor schedules retry and seed-timeout messages.
     pub fn automatic_ticks(self) -> bool {
         self.automatic_ticks
     }
 
+    /// Enables or disables actor-owned timers.
+    ///
+    /// Disabling timers permits deterministic tests or an external scheduler to
+    /// drive [`ClusterSeedJoinProcessMsg::RetryTick`] and
+    /// [`ClusterSeedJoinProcessMsg::SeedTimeoutTick`].
     pub fn with_automatic_ticks(mut self, automatic_ticks: bool) -> Self {
         self.automatic_ticks = automatic_ticks;
         self
     }
 
+    /// Returns whether actor startup activates seed contact immediately.
     pub fn start_immediately(self) -> bool {
         self.start_immediately
     }
 
+    /// Controls whether startup activates contact without an explicit start
+    /// message.
     pub fn with_start_immediately(mut self, start_immediately: bool) -> Self {
         self.start_immediately = start_immediately;
         self
@@ -85,11 +101,17 @@ impl Default for ClusterSeedJoinProcessSettings {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Invalid seed-join process timing configuration.
 pub enum ClusterSeedJoinProcessSettingsError {
+    /// The retry interval was zero.
     ZeroRetryInterval,
+    /// The seed timeout was zero.
     ZeroSeedTimeout,
+    /// The seed timeout expires before one retry interval can elapse.
     SeedTimeoutBeforeRetry {
+        /// Configured retry interval.
         retry_interval: Duration,
+        /// Configured seed timeout.
         seed_timeout: Duration,
     },
 }
@@ -117,32 +139,51 @@ impl Display for ClusterSeedJoinProcessSettingsError {
 impl Error for ClusterSeedJoinProcessSettingsError {}
 
 #[derive(Debug, Clone)]
+/// Commands accepted by [`ClusterSeedJoinProcess`].
 pub enum ClusterSeedJoinProcessMsg {
+    /// Activates a process configured not to start immediately.
     Start,
+    /// Applies a positive seed-contact reply.
     Ack {
+        /// Canonical address derived from the validated remote daemon sender.
         origin: kairo_actor::Address,
+        /// Decoded acknowledgement.
         message: InitJoinAck,
     },
+    /// Applies a negative seed-contact reply.
     Nack {
+        /// Canonical address derived from the validated remote daemon sender.
         origin: kairo_actor::Address,
+        /// Decoded negative acknowledgement.
         message: InitJoinNack,
     },
+    /// Completes a pending join after membership accepts a welcome.
     Welcome {
+        /// Canonical address of the node that supplied the welcome.
         from: kairo_actor::Address,
     },
+    /// Starts another seed-contact round.
     RetryTick,
+    /// Applies first-seed self-formation or lost-welcome recovery policy.
     SeedTimeoutTick,
+    /// Requests an immutable process snapshot.
     Snapshot {
+        /// Recipient of the current snapshot.
         reply_to: ActorRef<ClusterSeedJoinProcessSnapshot>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Observable seed-join process state.
 pub struct ClusterSeedJoinProcessSnapshot {
+    /// Current lifecycle phase.
     pub phase: ClusterSeedJoinPhase,
+    /// Number of contact rounds started.
     pub attempts: u32,
 }
 
+/// Actor wrapper that schedules and executes [`ClusterSeedJoinState`]
+/// transitions.
 pub struct ClusterSeedJoinProcess {
     state: ClusterSeedJoinState,
     effects: ActorRef<ClusterSeedJoinEffect>,
@@ -150,6 +191,7 @@ pub struct ClusterSeedJoinProcess {
 }
 
 impl ClusterSeedJoinProcess {
+    /// Creates a process that publishes state-machine effects to `effects`.
     pub fn new(
         state: ClusterSeedJoinState,
         effects: ActorRef<ClusterSeedJoinEffect>,
@@ -162,6 +204,7 @@ impl ClusterSeedJoinProcess {
         }
     }
 
+    /// Returns the process's current pure state.
     pub fn state(&self) -> &ClusterSeedJoinState {
         &self.state
     }

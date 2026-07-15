@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
@@ -7,26 +9,63 @@ use kairo_actor::Address;
 use crate::{ClusterConfigCheck, InitJoin, InitJoinAck, InitJoinNack};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Current phase of the deterministic seed-node join state machine.
 pub enum ClusterSeedJoinPhase {
+    /// Seed contact has not started.
     Ready,
+    /// Contact requests are outstanding for the configured non-self seeds.
     Contacting,
-    Joining { target: Address },
-    Complete { joined_to: Address },
-    Incompatible { target: Address },
+    /// An acknowledgement was accepted and a join request was sent.
+    Joining {
+        /// Seed address selected by the first accepted acknowledgement.
+        target: Address,
+    },
+    /// The node received a welcome or formed a new cluster by joining itself.
+    Complete {
+        /// Address through which the node joined the cluster.
+        joined_to: Address,
+    },
+    /// The first accepted acknowledgement reported incompatible configuration.
+    Incompatible {
+        /// Seed address that rejected the joining configuration.
+        target: Address,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Side effect emitted by [`ClusterSeedJoinState`] for runtime execution.
 pub enum ClusterSeedJoinEffect {
-    Contact { target: Address, message: InitJoin },
-    Join { target: Address },
+    /// Send an initial contact request to a seed node.
+    Contact {
+        /// Seed daemon address to contact.
+        target: Address,
+        /// Compatibility request to send.
+        message: InitJoin,
+    },
+    /// Send the membership join request to the selected seed.
+    Join {
+        /// Seed daemon address that accepted initial contact.
+        target: Address,
+    },
+    /// Form a new cluster by joining the local node.
     JoinSelf,
-    RejectIncompatible { target: Address },
+    /// Report a terminal configuration incompatibility.
+    RejectIncompatible {
+        /// Seed address that reported the incompatibility.
+        target: Address,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Invalid seed-node configuration.
 pub enum ClusterSeedJoinError {
+    /// No seed addresses were configured.
     EmptySeedNodes,
-    DuplicateSeedNode { address: Address },
+    /// A seed address appears more than once.
+    DuplicateSeedNode {
+        /// Repeated canonical address.
+        address: Address,
+    },
 }
 
 impl Display for ClusterSeedJoinError {
@@ -43,6 +82,11 @@ impl Display for ClusterSeedJoinError {
 impl Error for ClusterSeedJoinError {}
 
 #[derive(Debug, Clone)]
+/// Pure state machine for Pekko-style seed contact and cluster join selection.
+///
+/// Discovery supplies only these contact addresses. Membership becomes true
+/// through the emitted join effect and subsequent gossip, never through the
+/// seed list itself.
 pub struct ClusterSeedJoinState {
     self_address: Address,
     seed_nodes: Vec<Address>,
@@ -54,6 +98,8 @@ pub struct ClusterSeedJoinState {
 }
 
 impl ClusterSeedJoinState {
+    /// Creates a ready state after validating that `seed_nodes` is non-empty
+    /// and contains no duplicate canonical addresses.
     pub fn new(
         self_address: Address,
         seed_nodes: Vec<Address>,
@@ -85,22 +131,30 @@ impl ClusterSeedJoinState {
         })
     }
 
+    /// Returns the local node's canonical address.
     pub fn self_address(&self) -> &Address {
         &self.self_address
     }
 
+    /// Returns the ordered seed list; its first entry owns self-formation.
     pub fn seed_nodes(&self) -> &[Address] {
         &self.seed_nodes
     }
 
+    /// Returns the current lifecycle phase.
     pub fn phase(&self) -> &ClusterSeedJoinPhase {
         &self.phase
     }
 
+    /// Returns the number of contact rounds started so far.
     pub fn attempts(&self) -> u32 {
         self.attempts
     }
 
+    /// Starts seed contact once and returns the initial effects.
+    ///
+    /// A sole first seed joins itself immediately. Repeated calls after the
+    /// ready phase are ignored.
     pub fn start(&mut self) -> Vec<ClusterSeedJoinEffect> {
         if self.phase != ClusterSeedJoinPhase::Ready {
             return Vec::new();
@@ -114,6 +168,11 @@ impl ClusterSeedJoinState {
         self.begin_contact_attempt()
     }
 
+    /// Applies an acknowledgement from `origin`.
+    ///
+    /// Only the first acknowledgement from a configured contact while the
+    /// state is contacting is accepted. Compatible and unchecked replies emit
+    /// a join; an incompatible reply enters a terminal rejection phase.
     pub fn receive_ack(
         &mut self,
         origin: &Address,
@@ -142,6 +201,10 @@ impl ClusterSeedJoinState {
         }
     }
 
+    /// Applies an uninitialized response from `origin`.
+    ///
+    /// Duplicate and unknown responses are ignored. The first configured seed
+    /// joins itself once every other seed has replied with a nack.
     pub fn receive_nack(
         &mut self,
         origin: &Address,
@@ -164,6 +227,7 @@ impl ClusterSeedJoinState {
         }
     }
 
+    /// Starts another contact round when the current phase permits retries.
     pub fn retry(&mut self) -> Vec<ClusterSeedJoinEffect> {
         match &self.phase {
             ClusterSeedJoinPhase::Ready => self.start(),
@@ -175,6 +239,10 @@ impl ClusterSeedJoinState {
         }
     }
 
+    /// Handles expiry of the seed contact timeout.
+    ///
+    /// The first seed self-forms. Other nodes restart contact, including after
+    /// a join acknowledgement whose corresponding welcome was lost.
     pub fn seed_timeout(&mut self) -> Vec<ClusterSeedJoinEffect> {
         match &self.phase {
             ClusterSeedJoinPhase::Contacting if self.is_first_seed() => {
@@ -191,6 +259,9 @@ impl ClusterSeedJoinState {
         }
     }
 
+    /// Completes a pending join when `from` is the selected seed address.
+    ///
+    /// Returns whether the welcome advanced the state.
     pub fn receive_welcome(&mut self, from: &Address) -> bool {
         let ClusterSeedJoinPhase::Joining { target } = &self.phase else {
             return false;

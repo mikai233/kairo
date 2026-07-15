@@ -114,7 +114,10 @@ Status terms in this document mean:
   hard missing-documentation gate. The remote-envelope and typed membership
   wire adapters also hard-gate their canonical-path resolution,
   unique-incarnation validation, supported-command boundary, reply-route
-  ownership, and transient delivery-failure contracts.
+  ownership, and transient delivery-failure contracts. Seed contact now carries
+  the same hard gate across its pure retry/self-formation state machine, actor
+  timer policy, validated daemon wire boundary, and lifecycle-aware
+  acknowledgement responder.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed
