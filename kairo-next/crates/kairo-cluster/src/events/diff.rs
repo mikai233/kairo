@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{HashMap, HashSet};
 
 use super::{ClusterEvent, MemberEvent, ReachabilityEvent};
@@ -5,9 +7,16 @@ use crate::{
     Convergence, Gossip, LeaderSelection, Member, MemberStatus, ReachabilityStatus, UniqueAddress,
 };
 
+/// Derives ordered cluster-domain events from immutable gossip snapshots.
 pub struct ClusterEvents;
 
 impl ClusterEvents {
+    /// Returns observable changes from `old` to `new` in publication order.
+    ///
+    /// Tombstones are reported first, followed by removed members, member
+    /// transitions, unreachable and reachable members, leader changes, seen
+    /// convergence, and the complete reachability-table change. Events within
+    /// an unordered member or role set are sorted deterministically.
     pub fn diff(old: &Gossip, new: &Gossip, self_node: &UniqueAddress) -> Vec<ClusterEvent> {
         let mut events = Vec::new();
 
