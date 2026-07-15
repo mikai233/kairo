@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -13,13 +15,29 @@ use crate::{
     ShardStopped, remote_region_id,
 };
 
+/// Failure while validating, decoding, or delivering coordinator system traffic.
 #[derive(Debug)]
 pub enum ShardCoordinatorSystemInboundError {
+    /// A command that requires a reply or region identity omitted its sender.
     MissingSender(&'static str),
+    /// Stable system-message deserialization failed.
     Serialization(SerializationError),
-    Send { target: String, reason: String },
+    /// Delivery to the local typed coordinator mailbox failed.
+    Send {
+        /// Local coordinator actor path.
+        target: String,
+        /// Mailbox rejection reason.
+        reason: String,
+    },
+    /// The envelope manifest is not a coordinator system protocol message.
     UnsupportedManifest(String),
-    WrongRecipient { expected: String, actual: String },
+    /// The envelope targeted a different coordinator endpoint.
+    WrongRecipient {
+        /// Configured coordinator wire path.
+        expected: String,
+        /// Recipient path carried by the envelope.
+        actual: String,
+    },
 }
 
 impl Display for ShardCoordinatorSystemInboundError {
@@ -64,6 +82,13 @@ impl From<SerializationError> for ShardCoordinatorSystemInboundError {
     }
 }
 
+/// Dispatches stable remote sharding commands into a typed local coordinator.
+///
+/// The dispatcher validates the coordinator recipient before selecting a
+/// manifest-specific decoder. Commands that depend on remote sender identity
+/// reject missing sender metadata; registration and shutdown commands carry
+/// their region identity in their stable payloads. Replies and region control
+/// traffic leave through the supplied transport-neutral outbound recipient.
 #[derive(Clone)]
 pub struct ShardCoordinatorSystemInbound<M = ()>
 where
@@ -80,6 +105,7 @@ impl<M> ShardCoordinatorSystemInbound<M>
 where
     M: Send + 'static,
 {
+    /// Creates an inbound dispatcher from a concrete outbound recipient.
     pub fn new(
         coordinator: ActorRef<ShardCoordinatorMsg<M>>,
         coordinator_wire: ActorRefWireData,
@@ -89,6 +115,7 @@ where
         Self::from_arc(coordinator, coordinator_wire, registry, Arc::new(outbound))
     }
 
+    /// Creates an inbound dispatcher from a shared type-erased outbound recipient.
     pub fn from_arc(
         coordinator: ActorRef<ShardCoordinatorMsg<M>>,
         coordinator_wire: ActorRefWireData,
@@ -104,10 +131,12 @@ where
         }
     }
 
+    /// Returns the only accepted coordinator wire recipient.
     pub fn coordinator_wire(&self) -> &ActorRefWireData {
         &self.coordinator_wire
     }
 
+    /// Validates, decodes, and delivers one coordinator system envelope.
     pub fn receive(
         &self,
         envelope: RemoteEnvelope,
@@ -262,6 +291,7 @@ where
     }
 }
 
+/// Returns whether `manifest` belongs to the coordinator system endpoint.
 pub fn is_shard_coordinator_system_manifest(manifest: &str) -> bool {
     matches!(
         manifest,

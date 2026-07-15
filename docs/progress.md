@@ -199,6 +199,9 @@ Status terms in this document mean:
   Coordinator reply and shutdown bridges plus the remote-region wire-ref map
   now hard-gate sender/recipient identity, immediate delivery failure, ordered
   shutdown intent, stable region-id conversion, and stopped-region cleanup.
+  Coordinator and region system inbound dispatch now hard-gate endpoint
+  recipient checks, manifest routing, required sender identity, optional
+  decoder composition, typed mailbox delivery, and unsupported traffic.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
