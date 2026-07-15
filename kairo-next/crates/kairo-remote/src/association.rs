@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::{
     fmt::{self, Debug, Formatter},
     sync::Arc,
@@ -5,6 +7,10 @@ use std::{
 
 use crate::{RemoteError, Result};
 
+/// Lifecycle state and diagnostics for one remote actor-system association.
+///
+/// This value is transport-independent. Callers commonly share it behind a
+/// [`std::sync::Mutex`] so all outbound lanes observe the same terminal state.
 #[derive(Clone)]
 pub struct RemoteAssociation {
     remote_address: String,
@@ -12,39 +18,61 @@ pub struct RemoteAssociation {
     diagnostics: Option<Arc<dyn RemoteAssociationDiagnostics>>,
 }
 
+/// Lifecycle state of a remote association.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssociationState {
+    /// No handshake attempt has started.
     Idle,
+    /// A transport handshake is in progress.
     Handshaking,
+    /// The association may carry outbound messages.
     Active {
+        /// Remote actor-system incarnation learned from the handshake, if any.
         remote_uid: Option<u64>,
     },
+    /// The remote incarnation is rejected until a different incarnation is
+    /// established.
     Quarantined {
+        /// Rejected remote actor-system incarnation, if known.
         remote_uid: Option<u64>,
+        /// Diagnostic reason for quarantine.
         reason: String,
     },
+    /// The association is permanently closed.
     Closed {
+        /// First diagnostic reason that closed the association.
         reason: String,
     },
 }
 
+/// Operator-facing association lifecycle diagnostic.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteAssociationDiagnostic {
+    /// An association entered quarantine.
     Quarantined {
+        /// Canonical remote actor-system address.
         remote: String,
+        /// Quarantined remote incarnation, if known.
         remote_uid: Option<u64>,
+        /// Quarantine reason.
         reason: String,
     },
+    /// An association closed.
     Closed {
+        /// Canonical remote actor-system address.
         remote: String,
+        /// Close reason.
         reason: String,
     },
 }
 
+/// Observer for association quarantine and close diagnostics.
 pub trait RemoteAssociationDiagnostics: Send + Sync + 'static {
+    /// Records one association diagnostic.
     fn record(&self, diagnostic: RemoteAssociationDiagnostic);
 }
 
+/// Selects which association lifecycle events reach a diagnostics observer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RemoteAssociationDiagnosticFilter {
     quarantine_events: bool,
@@ -52,10 +80,12 @@ pub struct RemoteAssociationDiagnosticFilter {
 }
 
 impl RemoteAssociationDiagnosticFilter {
+    /// Creates a filter that enables or disables both lifecycle categories.
     pub fn new(quarantine_events: bool) -> Self {
         Self::with_categories(quarantine_events, quarantine_events)
     }
 
+    /// Creates a filter with independent quarantine and close controls.
     pub fn with_categories(quarantine_events: bool, close_events: bool) -> Self {
         Self {
             quarantine_events,
@@ -63,22 +93,27 @@ impl RemoteAssociationDiagnosticFilter {
         }
     }
 
+    /// Creates a filter that observes all association lifecycle events.
     pub fn all() -> Self {
         Self::with_categories(true, true)
     }
 
+    /// Creates a filter that disables association diagnostics.
     pub fn disabled() -> Self {
         Self::with_categories(false, false)
     }
 
+    /// Returns whether quarantine events are observed.
     pub fn quarantine_events(&self) -> bool {
         self.quarantine_events
     }
 
+    /// Returns whether close events are observed.
     pub fn close_events(&self) -> bool {
         self.close_events
     }
 
+    /// Returns whether this filter observes `diagnostic`.
     pub fn observes(&self, diagnostic: &RemoteAssociationDiagnostic) -> bool {
         match diagnostic {
             RemoteAssociationDiagnostic::Quarantined { .. } => self.quarantine_events,
@@ -86,6 +121,9 @@ impl RemoteAssociationDiagnosticFilter {
         }
     }
 
+    /// Applies this filter to a diagnostics observer.
+    ///
+    /// Returns `None` when all categories are disabled.
     pub fn wrap(
         self,
         diagnostics: Arc<dyn RemoteAssociationDiagnostics>,
@@ -130,6 +168,7 @@ where
 }
 
 impl RemoteAssociation {
+    /// Creates an idle association for a canonical remote address.
     pub fn new(remote_address: impl Into<String>) -> Self {
         Self {
             remote_address: remote_address.into(),
@@ -138,25 +177,35 @@ impl RemoteAssociation {
         }
     }
 
+    /// Attaches an observer for quarantine and close events.
     pub fn with_diagnostics(mut self, diagnostics: Arc<dyn RemoteAssociationDiagnostics>) -> Self {
         self.diagnostics = Some(diagnostics);
         self
     }
 
+    /// Returns the canonical remote actor-system address.
     pub fn remote_address(&self) -> &str {
         &self.remote_address
     }
 
+    /// Returns the current lifecycle state.
     pub fn state(&self) -> &AssociationState {
         &self.state
     }
 
+    /// Moves an idle association into handshaking.
+    ///
+    /// Calls in every other state are ignored.
     pub fn start_handshake(&mut self) {
         if matches!(self.state, AssociationState::Idle) {
             self.state = AssociationState::Handshaking;
         }
     }
 
+    /// Activates an idle, handshaking, or already active association.
+    ///
+    /// Quarantined and closed terminal states are never reopened by a late
+    /// activation.
     pub fn activate(&mut self, remote_uid: Option<u64>) {
         match &self.state {
             AssociationState::Idle
@@ -168,6 +217,7 @@ impl RemoteAssociation {
         }
     }
 
+    /// Quarantines the association and records the rejected incarnation.
     pub fn quarantine(&mut self, remote_uid: Option<u64>, reason: impl Into<String>) {
         let reason = reason.into();
         self.state = AssociationState::Quarantined {
@@ -181,6 +231,10 @@ impl RemoteAssociation {
         });
     }
 
+    /// Closes a non-terminal association and preserves the first terminal
+    /// reason.
+    ///
+    /// Quarantine is stronger than transport close and is therefore preserved.
     pub fn close(&mut self, reason: impl Into<String>) {
         if matches!(
             self.state,
@@ -198,6 +252,11 @@ impl RemoteAssociation {
         });
     }
 
+    /// Verifies that the association can currently accept an outbound send.
+    ///
+    /// Idle and handshaking associations allow sends so transport queues may
+    /// accept work while activation completes. Terminal states return their
+    /// specific association error.
     pub fn ensure_send_allowed(&self) -> Result<()> {
         match &self.state {
             AssociationState::Idle

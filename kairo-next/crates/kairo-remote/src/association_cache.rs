@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::{
     collections::BTreeMap,
     fmt::{self, Display, Formatter},
@@ -9,6 +11,11 @@ use kairo_serialization::{ActorRefWireData, RemoteEnvelope};
 
 use crate::{RemoteError, RemoteOutbound, Result};
 
+/// Canonical transport address shared by every actor reference on one remote
+/// actor system.
+///
+/// Actor paths and actor incarnations are deliberately excluded from this
+/// association cache key.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RemoteAssociationAddress {
     protocol: String,
@@ -18,6 +25,7 @@ pub struct RemoteAssociationAddress {
 }
 
 impl RemoteAssociationAddress {
+    /// Creates and validates a canonical remote association address.
     pub fn new(
         protocol: impl Into<String>,
         system: impl Into<String>,
@@ -42,6 +50,10 @@ impl RemoteAssociationAddress {
         Ok(address)
     }
 
+    /// Extracts the remote actor-system address from actor-reference wire data.
+    ///
+    /// Local-only references are rejected because they have no transport
+    /// association address.
     pub fn from_actor_ref(wire: &ActorRefWireData) -> Result<Self> {
         let Some(host) = wire.host() else {
             return Err(RemoteError::LocalAddress(wire.path().to_string()));
@@ -49,18 +61,22 @@ impl RemoteAssociationAddress {
         Self::new(wire.protocol(), wire.system(), host, wire.port())
     }
 
+    /// Returns the actor protocol, such as `kairo`.
     pub fn protocol(&self) -> &str {
         &self.protocol
     }
 
+    /// Returns the remote actor-system name.
     pub fn system(&self) -> &str {
         &self.system
     }
 
+    /// Returns the remote transport host.
     pub fn host(&self) -> &str {
         &self.host
     }
 
+    /// Returns the remote transport port, if present.
     pub fn port(&self) -> Option<u16> {
         self.port
     }
@@ -121,6 +137,10 @@ impl FromStr for RemoteAssociationAddress {
     }
 }
 
+/// Shared address-to-outbound routing table for remote associations.
+///
+/// Clones share the same table. Replacing or removing a route does not close it
+/// unless the method name explicitly includes `close`.
 #[derive(Clone, Default)]
 pub struct RemoteAssociationCache {
     routes: Arc<RemoteAssociationRoutes>,
@@ -134,6 +154,7 @@ pub(crate) struct RemoteAssociationCacheWeak {
 }
 
 impl RemoteAssociationCache {
+    /// Creates an empty association route cache.
     pub fn new() -> Self {
         Self::default()
     }
@@ -144,6 +165,9 @@ impl RemoteAssociationCache {
         }
     }
 
+    /// Inserts or replaces the outbound route for `address`.
+    ///
+    /// Returns the previous route without closing it.
     pub fn insert_route(
         &self,
         address: RemoteAssociationAddress,
@@ -155,6 +179,9 @@ impl RemoteAssociationCache {
             .insert(address, outbound)
     }
 
+    /// Extracts an association address from `wire` and inserts its route.
+    ///
+    /// Returns the previous route without closing it.
     pub fn insert_route_for_actor_ref(
         &self,
         wire: &ActorRefWireData,
@@ -164,6 +191,7 @@ impl RemoteAssociationCache {
         Ok(self.insert_route(address, outbound))
     }
 
+    /// Removes and returns the route for `address` without closing it.
     pub fn remove_route(
         &self,
         address: &RemoteAssociationAddress,
@@ -190,6 +218,10 @@ impl RemoteAssociationCache {
         routes.remove(address)
     }
 
+    /// Removes and closes the route for `address`.
+    ///
+    /// The outer `Option` indicates whether a route existed; the inner result
+    /// is the route's close result.
     pub fn remove_route_and_close(
         &self,
         address: &RemoteAssociationAddress,
@@ -198,6 +230,7 @@ impl RemoteAssociationCache {
         self.remove_route(address).map(|route| route.close(reason))
     }
 
+    /// Removes every route without closing them and returns the removed count.
     pub fn clear_routes(&self) -> usize {
         let mut routes = self
             .routes
@@ -208,6 +241,8 @@ impl RemoteAssociationCache {
         len
     }
 
+    /// Atomically removes every route, closes each one, and returns every close
+    /// result.
     pub fn clear_routes_and_close(&self, reason: &str) -> Vec<Result<()>> {
         let routes = std::mem::take(
             &mut *self
@@ -221,6 +256,7 @@ impl RemoteAssociationCache {
             .collect()
     }
 
+    /// Returns the number of installed association routes.
     pub fn route_count(&self) -> usize {
         self.routes
             .read()
@@ -228,6 +264,7 @@ impl RemoteAssociationCache {
             .len()
     }
 
+    /// Returns a sorted snapshot of installed association addresses.
     pub fn route_addresses(&self) -> Vec<RemoteAssociationAddress> {
         self.routes
             .read()
@@ -237,6 +274,7 @@ impl RemoteAssociationCache {
             .collect()
     }
 
+    /// Returns whether a route exists for `address`.
     pub fn contains_route(&self, address: &RemoteAssociationAddress) -> bool {
         self.routes
             .read()
@@ -244,6 +282,7 @@ impl RemoteAssociationCache {
             .contains_key(address)
     }
 
+    /// Extracts the association cache key for a recipient.
     pub fn address_for_recipient(
         &self,
         recipient: &ActorRefWireData,
@@ -251,6 +290,10 @@ impl RemoteAssociationCache {
         RemoteAssociationAddress::from_actor_ref(recipient)
     }
 
+    /// Resolves the outbound route for a recipient.
+    ///
+    /// Returns [`RemoteError::AssociationUnavailable`] when no route is
+    /// installed for the recipient's remote actor system.
     pub fn route_for_recipient(
         &self,
         recipient: &ActorRefWireData,
@@ -266,6 +309,8 @@ impl RemoteAssociationCache {
             })
     }
 
+    /// Resolves an envelope's recipient association and sends through its
+    /// current route.
     pub fn send_to_recipient(&self, envelope: RemoteEnvelope) -> Result<()> {
         let route = self.route_for_recipient(&envelope.recipient)?;
         route.send(envelope)

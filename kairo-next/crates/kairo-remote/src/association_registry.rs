@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex, RwLock},
@@ -5,8 +7,11 @@ use std::{
 
 use crate::{AssociationState, RemoteAssociation, RemoteAssociationAddress, RemoteError, Result};
 
+/// Shared mutable handle to one remote association lifecycle.
 pub type RemoteAssociationHandle = Arc<Mutex<RemoteAssociation>>;
 
+/// Registry that indexes remote associations by canonical address and learned
+/// actor-system incarnation.
 #[derive(Clone, Default)]
 pub struct RemoteAssociationRegistry {
     state: Arc<RwLock<RemoteAssociationRegistryState>>,
@@ -19,10 +24,13 @@ struct RemoteAssociationRegistryState {
 }
 
 impl RemoteAssociationRegistry {
+    /// Creates an empty association registry.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the existing association for `address` or creates one in the
+    /// handshaking state.
     pub fn association(&self, address: RemoteAssociationAddress) -> RemoteAssociationHandle {
         let mut state = self
             .state
@@ -39,6 +47,11 @@ impl RemoteAssociationRegistry {
             .clone()
     }
 
+    /// Completes a handshake and indexes the association by remote `uid`.
+    ///
+    /// A UID already owned by another address is rejected. A new UID may
+    /// replace a previously indexed closed or quarantined incarnation at the
+    /// same address, while an unidentified closed association remains terminal.
     pub fn complete_handshake(
         &self,
         address: RemoteAssociationAddress,
@@ -113,6 +126,7 @@ impl RemoteAssociationRegistry {
         Ok(association)
     }
 
+    /// Returns the association indexed by remote actor-system UID.
     pub fn association_by_uid(&self, uid: u64) -> Option<RemoteAssociationHandle> {
         let state = self
             .state
@@ -122,6 +136,7 @@ impl RemoteAssociationRegistry {
         state.by_address.get(address).cloned()
     }
 
+    /// Returns the association stored for a canonical remote address.
     pub fn association_for_address(
         &self,
         address: &RemoteAssociationAddress,
@@ -134,6 +149,7 @@ impl RemoteAssociationRegistry {
             .cloned()
     }
 
+    /// Returns the active or quarantined remote UID stored for `address`.
     pub fn uid_for_address(&self, address: &RemoteAssociationAddress) -> Option<u64> {
         let association = self.association_for_address(address)?;
         let association = association
@@ -142,6 +158,10 @@ impl RemoteAssociationRegistry {
         association_uid(association.state())
     }
 
+    /// Quarantines an association only when its current UID matches
+    /// `expected_uid`.
+    ///
+    /// Returns whether the matching incarnation was found and quarantined.
     pub fn quarantine_if_uid(
         &self,
         address: &RemoteAssociationAddress,
@@ -161,6 +181,7 @@ impl RemoteAssociationRegistry {
         true
     }
 
+    /// Returns a snapshot of all association handles indexed by address.
     pub fn all_associations(&self) -> Vec<RemoteAssociationHandle> {
         self.state
             .read()
@@ -171,6 +192,7 @@ impl RemoteAssociationRegistry {
             .collect()
     }
 
+    /// Returns the number of addresses with association handles.
     pub fn association_count(&self) -> usize {
         self.state
             .read()
@@ -179,6 +201,7 @@ impl RemoteAssociationRegistry {
             .len()
     }
 
+    /// Returns the number of learned UID-to-address indexes.
     pub fn uid_count(&self) -> usize {
         self.state
             .read()

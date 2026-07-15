@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::{Arc, Mutex, Weak};
 
 use crate::association_cache::RemoteAssociationCacheWeak;
@@ -7,6 +9,8 @@ use crate::{
     RemoteByteSink, RemoteLaneClassifier, RemoteOutbound, RemoteOutboundQueueSettings, Result,
 };
 
+/// Builds lane-aware outbound pipelines and installs them in an association
+/// route cache.
 #[derive(Clone)]
 pub struct RemoteAssociationRouteInstaller {
     cache: RemoteAssociationCache,
@@ -17,6 +21,8 @@ pub struct RemoteAssociationRouteInstaller {
 }
 
 impl RemoteAssociationRouteInstaller {
+    /// Creates an installer with the default lane classifier and direct stream
+    /// writers.
     pub fn new(cache: RemoteAssociationCache) -> Self {
         Self {
             cache,
@@ -27,30 +33,41 @@ impl RemoteAssociationRouteInstaller {
         }
     }
 
+    /// Replaces the lane classifier used by subsequently installed pipelines.
     pub fn with_classifier(mut self, classifier: RemoteLaneClassifier) -> Self {
         self.classifier = classifier;
         self
     }
 
+    /// Attaches lifecycle diagnostics to associations created outside a shared
+    /// registry.
     pub fn with_diagnostics(mut self, diagnostics: Arc<dyn RemoteAssociationDiagnostics>) -> Self {
         self.diagnostics = Some(diagnostics);
         self
     }
 
+    /// Uses a shared association registry for subsequently installed routes.
     pub fn with_association_registry(mut self, registry: RemoteAssociationRegistry) -> Self {
         self.association_registry = Some(registry);
         self
     }
 
+    /// Enables bounded queued writers with the supplied per-lane capacities.
     pub fn with_outbound_queue_settings(mut self, settings: RemoteOutboundQueueSettings) -> Self {
         self.queue_settings = Some(settings);
         self
     }
 
+    /// Returns the route cache updated by this installer.
     pub fn cache(&self) -> &RemoteAssociationCache {
         &self.cache
     }
 
+    /// Builds and installs a three-lane outbound stream pipeline for `address`.
+    ///
+    /// The returned registration owns the installed pipeline and records
+    /// whether an older route was replaced. Replaced routes are returned by the
+    /// cache internally but are not closed by this operation.
     pub fn insert_stream_pipeline(
         &self,
         address: RemoteAssociationAddress,
@@ -110,6 +127,7 @@ impl RemoteAssociationRouteInstaller {
         Ok(())
     }
 
+    /// Removes and closes the current route for `address`.
     pub fn remove_route(
         &self,
         address: &RemoteAssociationAddress,
@@ -120,6 +138,10 @@ impl RemoteAssociationRouteInstaller {
     }
 }
 
+/// Ownership token for one installed association route.
+///
+/// Removal compares route identity, so a stale registration cannot remove a
+/// newer replacement for the same address.
 #[derive(Clone)]
 pub struct RemoteAssociationRouteRegistration {
     cache: RemoteAssociationCache,
@@ -130,18 +152,25 @@ pub struct RemoteAssociationRouteRegistration {
 }
 
 impl RemoteAssociationRouteRegistration {
+    /// Returns the remote association address owned by this registration.
     pub fn address(&self) -> &RemoteAssociationAddress {
         &self.address
     }
 
+    /// Returns the installed outbound pipeline.
     pub fn pipeline(&self) -> &AssociationOutboundPipeline {
         &self.pipeline
     }
 
+    /// Returns whether installation replaced an existing cached route.
     pub fn replaced_existing_route(&self) -> bool {
         self.replaced
     }
 
+    /// Removes and closes this route only if it is still the cache's current
+    /// route for the address.
+    ///
+    /// Returns `false` when a newer route has replaced it.
     pub fn remove_route(&self, reason: &str) -> bool {
         let Some(route) = self
             .cache
@@ -153,6 +182,11 @@ impl RemoteAssociationRouteRegistration {
         true
     }
 
+    /// Closes the pipeline owned by this registration without removing a newer
+    /// replacement route.
+    ///
+    /// Returns `true` when this registration was still current and was removed
+    /// from the cache.
     pub fn close_owned_route(&self, reason: &str) -> bool {
         if self.remove_route(reason) {
             return true;

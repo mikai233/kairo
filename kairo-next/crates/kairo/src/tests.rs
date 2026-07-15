@@ -150,6 +150,10 @@ fn user_facing_crates_deny_missing_public_documentation() -> Result<(), Box<dyn 
 fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let documented_modules = [
+        "kairo-next/crates/kairo-remote/src/association.rs",
+        "kairo-next/crates/kairo-remote/src/association_cache.rs",
+        "kairo-next/crates/kairo-remote/src/association_registry.rs",
+        "kairo-next/crates/kairo-remote/src/association_routes.rs",
         "kairo-next/crates/kairo-remote/src/codec.rs",
         "kairo-next/crates/kairo-remote/src/frame.rs",
         "kairo-next/crates/kairo-remote/src/inbound.rs",
