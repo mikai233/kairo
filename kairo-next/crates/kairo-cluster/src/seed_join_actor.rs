@@ -16,6 +16,7 @@ pub struct ClusterSeedJoinProcessSettings {
     retry_interval: Duration,
     seed_timeout: Duration,
     automatic_ticks: bool,
+    start_immediately: bool,
 }
 
 impl ClusterSeedJoinProcessSettings {
@@ -41,6 +42,7 @@ impl ClusterSeedJoinProcessSettings {
             retry_interval,
             seed_timeout,
             automatic_ticks: true,
+            start_immediately: true,
         })
     }
 
@@ -60,6 +62,15 @@ impl ClusterSeedJoinProcessSettings {
         self.automatic_ticks = automatic_ticks;
         self
     }
+
+    pub fn start_immediately(self) -> bool {
+        self.start_immediately
+    }
+
+    pub fn with_start_immediately(mut self, start_immediately: bool) -> Self {
+        self.start_immediately = start_immediately;
+        self
+    }
 }
 
 impl Default for ClusterSeedJoinProcessSettings {
@@ -68,6 +79,7 @@ impl Default for ClusterSeedJoinProcessSettings {
             retry_interval: Duration::from_secs(1),
             seed_timeout: Duration::from_secs(5),
             automatic_ticks: true,
+            start_immediately: true,
         }
     }
 }
@@ -106,6 +118,7 @@ impl Error for ClusterSeedJoinProcessSettingsError {}
 
 #[derive(Debug, Clone)]
 pub enum ClusterSeedJoinProcessMsg {
+    Start,
     Ack {
         origin: kairo_actor::Address,
         message: InitJoinAck,
@@ -178,12 +191,11 @@ impl ClusterSeedJoinProcess {
             attempts: self.state.attempts(),
         }
     }
-}
 
-impl Actor for ClusterSeedJoinProcess {
-    type Msg = ClusterSeedJoinProcessMsg;
-
-    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+    fn activate(&mut self, ctx: &mut Context<ClusterSeedJoinProcessMsg>) -> ActorResult {
+        if self.state.phase() != &ClusterSeedJoinPhase::Ready {
+            return Ok(());
+        }
         let initial_effects = self.state.start();
         self.emit(initial_effects)?;
         if self.settings.automatic_ticks
@@ -207,9 +219,24 @@ impl Actor for ClusterSeedJoinProcess {
         }
         Ok(())
     }
+}
+
+impl Actor for ClusterSeedJoinProcess {
+    type Msg = ClusterSeedJoinProcessMsg;
+
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
+        if self.settings.start_immediately {
+            self.activate(ctx)?;
+        }
+        Ok(())
+    }
 
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         let effects = match msg {
+            ClusterSeedJoinProcessMsg::Start => {
+                self.activate(ctx)?;
+                Vec::new()
+            }
             ClusterSeedJoinProcessMsg::Ack { origin, message } => {
                 self.state.receive_ack(&origin, message)
             }

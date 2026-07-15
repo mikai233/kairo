@@ -186,7 +186,11 @@ pub struct ClusterMembershipWireInbound {
     membership: ActorRef<ClusterMembershipMsg>,
     seed_join_process: Option<ActorRef<ClusterSeedJoinProcessMsg>>,
     reply_routes: BTreeMap<String, ActorRef<ClusterMembershipMsg>>,
+    reply_route_factory: Option<Arc<ReplyRouteFactory>>,
 }
+
+type ReplyRouteFactory =
+    dyn Fn(&UniqueAddress) -> Result<ActorRef<ClusterMembershipMsg>, String> + Send + Sync;
 
 impl ClusterMembershipWireInbound {
     pub fn new(
@@ -200,6 +204,7 @@ impl ClusterMembershipWireInbound {
             membership,
             seed_join_process: None,
             reply_routes: BTreeMap::new(),
+            reply_route_factory: None,
         }
     }
 
@@ -214,6 +219,17 @@ impl ClusterMembershipWireInbound {
         route: ActorRef<ClusterMembershipMsg>,
     ) -> Self {
         self.reply_routes.insert(node.ordering_key(), route);
+        self
+    }
+
+    pub fn with_reply_route_factory<F>(mut self, factory: F) -> Self
+    where
+        F: Fn(&UniqueAddress) -> Result<ActorRef<ClusterMembershipMsg>, String>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.reply_route_factory = Some(Arc::new(factory));
         self
     }
 
@@ -252,7 +268,7 @@ impl ClusterMembershipWireInbound {
         match message.manifest.as_str() {
             Join::MANIFEST => {
                 let join = self.registry.deserialize::<Join>(message)?;
-                let reply_to = self.reply_route(&join.node);
+                let reply_to = self.reply_route(&join.node)?;
                 self.membership
                     .tell(ClusterMembershipMsg::Join { join, reply_to })
                     .map_err(|error| ClusterMembershipWireError::Send(error.reason().to_string()))
@@ -277,7 +293,7 @@ impl ClusterMembershipWireInbound {
             }
             GossipEnvelope::MANIFEST => {
                 let envelope = self.registry.deserialize::<GossipEnvelope>(message)?;
-                let reply_to = self.reply_route(&envelope.from);
+                let reply_to = self.reply_route(&envelope.from)?;
                 self.membership
                     .tell(ClusterMembershipMsg::Gossip {
                         envelope: Box::new(envelope),
@@ -291,8 +307,19 @@ impl ClusterMembershipWireInbound {
         }
     }
 
-    fn reply_route(&self, node: &UniqueAddress) -> Option<ActorRef<ClusterMembershipMsg>> {
-        self.reply_routes.get(&node.ordering_key()).cloned()
+    fn reply_route(
+        &self,
+        node: &UniqueAddress,
+    ) -> Result<Option<ActorRef<ClusterMembershipMsg>>, ClusterMembershipWireError> {
+        if let Some(route) = self.reply_routes.get(&node.ordering_key()) {
+            return Ok(Some(route.clone()));
+        }
+        match &self.reply_route_factory {
+            Some(factory) => factory(node)
+                .map(Some)
+                .map_err(ClusterMembershipWireError::Send),
+            None => Ok(None),
+        }
     }
 }
 

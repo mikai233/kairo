@@ -3312,3 +3312,38 @@ Consequences:
   payload-supplied address.
 - Rolling-version behavior can be extended by adding intentional codec versions
   rather than relying on Rust enum layout or type names.
+
+## ADR-0108: Cluster Daemon Materializes At Composed-Remoting Bind
+
+Status: Accepted
+
+Context:
+The cluster daemon needs the remoting runtime's effective canonical address,
+codec registry, shared outbound, and inbound control registration. Starting
+seed contact before bind would use an unknown port or send before configured
+seed routes exist. A second cluster listener would violate the composed runtime
+contract.
+
+Decision:
+`register_cluster_daemon` registers cluster control manifests on a
+`TcpRemoteActorRuntimeBuilder`. During bind its factory materializes the actor
+hierarchy `/system/cluster/core/daemon` and the daemon's publisher, membership,
+seed process, responder, and typed wire children using the effective runtime
+context. The seed process is created inactive. `ClusterDaemonRegistration::activate`
+dials configured seed addresses through the bound runtime and then sends the
+typed `Start` command. An empty configured seed list means the local canonical
+address is the sole seed and therefore self-forms.
+
+Membership inbound creates and caches typed per-`UniqueAddress` reply actors on
+first Join/Gossip contact so Welcome and talkback do not depend on predeclared
+members. Discovery and configured seeds still provide contact intent only;
+Join/Welcome gossip remains membership truth.
+
+Consequences:
+- Cluster control and business protocols share one listener, registry,
+  association cache, and outbound lifecycle.
+- No seed message is emitted before canonical bind and managed route setup.
+- The stable daemon path is represented by the real actor hierarchy as well as
+  validated envelope metadata.
+- Bootstrap activation is an explicit post-bind step until the public
+  ActorSystem extension owns both operations behind one builder call.

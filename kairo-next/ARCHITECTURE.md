@@ -1369,6 +1369,17 @@ current uninitialized/initialized lifecycle, and republishes whenever local
 gossip changes the self member status. This keeps seed admission synchronized
 with Join, Welcome, leader promotion, leave/exit, and downing transitions.
 
+`register_cluster_daemon` is the first composed bootstrap boundary. It installs
+the cluster manifests before remote bind; the bind-time factory receives the
+effective canonical address, registry, and shared outbound and materializes the
+real `/system/cluster/core/daemon` hierarchy with publisher, membership, seed
+process, responder, and wire children. The seed process starts in `Ready`.
+Post-bind activation first installs managed routes for configured contact
+addresses and then sends `Start`, preventing contact from racing canonical port
+selection or association setup. Membership inbound lazily creates and caches a
+typed outbound reply actor for each previously unknown `UniqueAddress`, so Join
+can always return Welcome without preconfigured membership routes.
+
 Membership transport:
 
 - `ClusterMembershipWireOutbound` serializes `Join`, `Welcome`, and

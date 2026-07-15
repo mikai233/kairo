@@ -76,7 +76,7 @@ pub struct ClusterSeedJoinWireOutbound {
     registry: Arc<Registry>,
     outbound: Arc<dyn RemoteOutbound>,
     membership: ActorRef<crate::ClusterMembershipMsg>,
-    incompatible: ActorRef<ClusterSeedJoinIncompatible>,
+    incompatible: Arc<dyn Recipient<ClusterSeedJoinIncompatible> + Send + Sync>,
 }
 
 impl ClusterSeedJoinWireOutbound {
@@ -86,7 +86,7 @@ impl ClusterSeedJoinWireOutbound {
         registry: Arc<Registry>,
         outbound: Arc<dyn RemoteOutbound>,
         membership: ActorRef<crate::ClusterMembershipMsg>,
-        incompatible: ActorRef<ClusterSeedJoinIncompatible>,
+        incompatible: impl Recipient<ClusterSeedJoinIncompatible> + Send + Sync + 'static,
     ) -> Self {
         Self {
             self_node,
@@ -94,7 +94,7 @@ impl ClusterSeedJoinWireOutbound {
             registry,
             outbound,
             membership,
-            incompatible,
+            incompatible: Arc::new(incompatible),
         }
     }
 

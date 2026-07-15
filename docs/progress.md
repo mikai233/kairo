@@ -285,8 +285,15 @@ with compatible, incompatible, or explicitly unchecked configuration results,
 and replies travel through the stable seed wire adapter. `ClusterMembership`
 now registers that responder and automatically republishes its lifecycle from
 the authoritative local gossip state, including uninitialized, `Joining`, `Up`,
-and `Down` transitions. Full daemon bootstrap must compose these actors and the
-shared remoting factory. Periodic gossip and coordinated leave remain the other
+and `Down` transitions. `register_cluster_daemon` now composes these actors with
+the shared remoting factory at bind time under the real
+`/system/cluster/core/daemon` hierarchy, using the
+effective canonical address, shared codec registry, and shared outbound. Its
+post-bind activation dials configured contacts before starting the seed process,
+and membership inbound lazily creates typed reply routes for unknown joining
+nodes. A two-runtime TCP test proves automatic InitJoin/Ack/Join/Welcome
+formation without injected membership snapshots. Periodic gossip, automatic
+leader convergence across the joined nodes, and coordinated leave remain the
 active Phase 3 work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
@@ -5910,6 +5917,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after composed cluster-daemon bootstrap:
+
+```bash
+cargo test -p kairo-cluster two_composed_runtimes_form_through_automatic_seed_contact --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo check --workspace --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after membership-owned seed admission lifecycle:
 

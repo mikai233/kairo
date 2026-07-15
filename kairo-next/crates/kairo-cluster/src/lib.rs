@@ -62,6 +62,7 @@ mod association_peers;
 mod cluster;
 mod codec;
 mod convergence;
+mod daemon_bootstrap;
 mod downing;
 mod downing_provider;
 mod event_publisher;
@@ -114,6 +115,10 @@ pub use codec::{
     WelcomeCodec, register_cluster_control_codecs, register_cluster_protocol_codecs,
 };
 pub use convergence::{Convergence, ConvergenceBlocker};
+pub use daemon_bootstrap::{
+    ClusterDaemonBootstrapError, ClusterDaemonBootstrapSettings, ClusterDaemonHandle,
+    ClusterDaemonRegistration, register_cluster_daemon,
+};
 pub use downing::{
     DowningDecision, DowningHook, DowningPlan, LeaseMajorityHook, LeaseMajorityLease,
     LeaseMajoritySettings, LeaseMajoritySettingsError, NoDowning, SplitBrainResolverHook,
