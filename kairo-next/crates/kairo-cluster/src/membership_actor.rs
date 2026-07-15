@@ -3,9 +3,10 @@ use std::collections::HashSet;
 use kairo_actor::{Actor, ActorRef, ActorResult, Address, Context};
 
 use crate::{
-    ClusterEventPublisherMsg, ClusterInitJoinLifecycle, ClusterInitJoinResponderMsg,
-    CurrentClusterState, DowningDecision, DowningPlan, DowningProviderMsg, Gossip, GossipEnvelope,
-    Join, LeaderSelection, Member, ReachabilityStatus, UniqueAddress, VectorClockOrdering, Welcome,
+    ClusterEventPublisherMsg, ClusterGossipProcessMsg, ClusterInitJoinLifecycle,
+    ClusterInitJoinResponderMsg, CurrentClusterState, DowningDecision, DowningPlan,
+    DowningProviderMsg, Gossip, GossipEnvelope, Join, LeaderSelection, Member, ReachabilityStatus,
+    UniqueAddress, VectorClockOrdering, Welcome,
 };
 
 #[derive(Debug, Clone)]
@@ -47,6 +48,9 @@ pub enum ClusterMembershipMsg {
     RegisterInitJoinResponder {
         responder: ActorRef<ClusterInitJoinResponderMsg>,
     },
+    RegisterGossipProcess {
+        process: ActorRef<ClusterGossipProcessMsg>,
+    },
     LeaderActionsTick,
     SendCurrentGossip {
         reply_to: ActorRef<Gossip>,
@@ -66,6 +70,7 @@ pub struct ClusterMembership {
     initialized: bool,
     downing_provider: Option<ActorRef<DowningProviderMsg>>,
     init_join_responder: Option<ActorRef<ClusterInitJoinResponderMsg>>,
+    gossip_process: Option<ActorRef<ClusterGossipProcessMsg>>,
     exiting_confirmed: HashSet<UniqueAddress>,
 }
 
@@ -85,6 +90,7 @@ impl ClusterMembership {
             initialized: false,
             downing_provider: None,
             init_join_responder: None,
+            gossip_process: None,
             exiting_confirmed: HashSet::new(),
         }
     }
@@ -245,6 +251,9 @@ impl ClusterMembership {
                 self.gossip
                     .update_members([member.with_status(crate::MemberStatus::Leaving)]),
             );
+            if let Some(process) = &self.gossip_process {
+                let _ = process.tell(ClusterGossipProcessMsg::Tick);
+            }
         }
     }
 
@@ -413,6 +422,9 @@ impl Actor for ClusterMembership {
             }
             ClusterMembershipMsg::RegisterInitJoinResponder { responder } => {
                 self.register_init_join_responder(responder);
+            }
+            ClusterMembershipMsg::RegisterGossipProcess { process } => {
+                self.gossip_process = Some(process);
             }
             ClusterMembershipMsg::LeaderActionsTick => self.run_leader_actions(),
             ClusterMembershipMsg::SendCurrentGossip { reply_to } => {

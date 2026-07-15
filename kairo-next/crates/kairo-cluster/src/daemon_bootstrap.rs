@@ -700,6 +700,11 @@ fn build_daemon_graph(
             }
         }),
     )?;
+    membership
+        .tell(ClusterMembershipMsg::RegisterGossipProcess {
+            process: gossip_process.clone(),
+        })
+        .map_err(|error| ActorError::Message(error.reason().to_string()))?;
     let wire = ClusterSeedJoinWireOutbound::new(
         self_node.clone(),
         c.roles.clone(),

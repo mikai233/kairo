@@ -464,6 +464,15 @@ fn leave_address_moves_member_to_leaving_idempotently() {
     let peer = node("peer", 2);
     let (membership, events) = spawn_membership(&kit, self_node, "membership");
     let gossip_probe = kit.create_probe::<Gossip>("leave-gossip").unwrap();
+    let gossip_process = kit
+        .create_probe::<ClusterGossipProcessMsg>("leave-gossip-process")
+        .unwrap();
+
+    membership
+        .tell(ClusterMembershipMsg::RegisterGossipProcess {
+            process: gossip_process.actor_ref(),
+        })
+        .unwrap();
 
     membership.tell(ClusterMembershipMsg::JoinSelf).unwrap();
     drain_events(&events);
@@ -489,6 +498,11 @@ fn leave_address_moves_member_to_leaving_idempotently() {
         })
         .unwrap();
 
+    assert!(matches!(
+        gossip_process.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterGossipProcessMsg::Tick
+    ));
+
     assert_eq!(
         gossip_probe
             .expect_msg(Duration::from_secs(1))
@@ -511,6 +525,9 @@ fn leave_address_moves_member_to_leaving_idempotently() {
         })
         .unwrap();
     events.expect_no_msg(Duration::from_millis(50)).unwrap();
+    gossip_process
+        .expect_no_msg(Duration::from_millis(50))
+        .unwrap();
 }
 
 #[test]

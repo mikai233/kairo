@@ -150,6 +150,9 @@ impl ClusterMembershipWireOutbound {
             ClusterMembershipMsg::RegisterInitJoinResponder { .. } => Err(
                 ClusterMembershipWireError::UnsupportedMessage("register-init-join-responder"),
             ),
+            ClusterMembershipMsg::RegisterGossipProcess { .. } => Err(
+                ClusterMembershipWireError::UnsupportedMessage("register-gossip-process"),
+            ),
             ClusterMembershipMsg::LeaderActionsTick => Err(
                 ClusterMembershipWireError::UnsupportedMessage("leader-actions-tick"),
             ),
