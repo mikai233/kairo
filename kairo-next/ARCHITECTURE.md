@@ -95,6 +95,7 @@ kairo
        -> kairo-actor
        -> kairo-cluster
        -> kairo-distributed-data
+       -> kairo-remote
        -> kairo-serialization
   -> kairo-cluster-tools
        -> kairo-actor
@@ -125,6 +126,9 @@ Rules:
   remoting as a source of cluster membership truth.
 - `kairo-cluster-sharding` consumes cluster events and actor refs; it must not
   mutate cluster membership directly.
+- `kairo-cluster-sharding` may register its stable manifests on the shared
+  `kairo-remote` runtime and derive routes from cluster events; transport state
+  must not create coordinator or region membership facts.
 - `kairo-examples` and `kairo-benchmarks` are leaf support crates. They may
   depend on the user-facing `kairo` facade to validate public workflows, but no
   runtime crate may depend on them.
@@ -1778,17 +1782,15 @@ src/
 
 ```rust
 let key = EntityTypeKey::<CounterCmd>::new("Counter");
-let sharding = ClusterSharding::get(&system);
+let sharding = ClusterSharding::get(&system)?;
 
 sharding.init(
-    Entity::new(key.clone(), |entity| {
-        Props::new(move || Counter::new(entity.id().to_owned()))
-    })
-    .with_role("backend")
+    Entity::new(key.clone(), |entity_id| Counter::new(entity_id))
+    .with_coordinator_role("backend")
     .with_stop_message(CounterCmd::Stop),
 )?;
 
-let counter = sharding.entity_ref_for(key, "counter-1");
+let counter = sharding.entity_ref_for(key, "counter-1")?;
 counter.tell(CounterCmd::Increment)?;
 ```
 
@@ -1807,6 +1809,26 @@ Types:
 
 `EntityRef<M>` is actor-ref-like but not watchable. It represents a logical
 entity that may passivate, move, or restart behind the scenes.
+
+The composed runtime is registered before the shared TCP listener binds.
+`RoutedShardEnvelope` remains ordinary traffic; registration, shard-home,
+hosting, shutdown, and handoff manifests use reliable ordered control
+delivery. One internal recipient-path router dispatches the shared stable
+manifests to type-specific handlers, so multiple entity types can coexist in
+one ActorSystem without making erased messages the user API. Type names are
+encoded into stable `/system` coordinator and region paths, and a duplicate
+type name with a different `M` is rejected.
+
+`ClusterSharding::init` currently requires an explicit stop message because
+the coordinator's host-shard and handoff transport are one lifecycle boundary.
+Every node starts a type-specific coordinator candidate, while membership age
+and the optional coordinator role select the active target. The per-type
+cluster connector updates remote coordinator and region targets before
+forwarding each membership snapshot/event to the region. This preserves
+membership as gossip-owned truth; transport reachability cannot create a
+region or coordinator candidate. Singleton-backed coordinator failover,
+role-based proxy-only regions, and distributed-data state recovery remain M9
+integration work.
 
 ### Region
 

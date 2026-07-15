@@ -511,7 +511,12 @@ where
             | GetShardHomePlan::Deferred { .. }
             | GetShardHomePlan::Ignored { .. } => return Ok(()),
         };
-        let Some(home_region) = self.remote_regions.wire_ref(&region).cloned() else {
+        let Some(home_region) = self
+            .remote_regions
+            .wire_ref(&region)
+            .cloned()
+            .or_else(|| ActorRefWireData::new(region).ok())
+        else {
             return Ok(());
         };
         reply

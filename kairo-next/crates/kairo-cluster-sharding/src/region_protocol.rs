@@ -7,13 +7,23 @@ use kairo_cluster::{ClusterEvent, CurrentClusterState};
 use crate::{
     BeginHandOffPlan, GetShardHome, GetShardHomePlan, HandOff, HandOffPlan, HostShardPlan,
     RegionDropReason, RegionId, RegionRegistrationStatus, RegionRouteDelivery, RegionRoutePlan,
-    ShardCoordinatorRemoteHome, ShardCoordinatorRemoteRegistrationAck, ShardDeliverPlan,
+    RegionRouteTarget, ShardCoordinatorMsg, ShardCoordinatorRemoteHome,
+    ShardCoordinatorRemoteRegistrationAck, ShardCoordinatorRemoteTarget, ShardDeliverPlan,
     ShardHandOffPlan, ShardHomePlan, ShardId, ShardMsg, ShardRegionRemoteControlReplyTarget,
     ShardRegionRuntime, ShardStarted, ShardStartedPlan, ShardStopped, ShardingEnvelope,
     ShardingError,
 };
+use kairo_cluster::UniqueAddress;
 
-pub enum ShardRegionMsg<M> {
+pub enum ShardRegionMsg<M>
+where
+    M: Send + 'static,
+{
+    SetClusterTargets {
+        local_coordinator: (UniqueAddress, ActorRef<ShardCoordinatorMsg<M>>),
+        remote_coordinators: Vec<ShardCoordinatorRemoteTarget>,
+        remote_regions: Vec<RegionRouteTarget<M>>,
+    },
     Route {
         shard: ShardId,
         message: ShardingEnvelope<M>,

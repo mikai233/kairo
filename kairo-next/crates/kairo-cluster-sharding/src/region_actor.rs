@@ -86,6 +86,19 @@ where
 
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
+            ShardRegionMsg::SetClusterTargets {
+                local_coordinator,
+                remote_coordinators,
+                remote_regions,
+            } => {
+                let discovery = self.coordinator_discovery.as_mut().ok_or_else(|| {
+                    ActorError::Message("cluster targets require coordinator discovery".to_string())
+                })?;
+                discovery.replace_targets(local_coordinator, remote_coordinators);
+                let mut transport = RegionRouteTransport::new();
+                transport.set_targets(remote_regions);
+                self.route_transport = Some(transport);
+            }
             ShardRegionMsg::Route {
                 shard,
                 message,

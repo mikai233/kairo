@@ -179,6 +179,26 @@ where
         self.selected.as_ref()
     }
 
+    pub fn replace_targets(
+        &mut self,
+        local: (UniqueAddress, ActorRef<ShardCoordinatorMsg<M>>),
+        remotes: impl IntoIterator<Item = ShardCoordinatorRemoteTarget>,
+    ) {
+        self.targets.clear();
+        let (node, coordinator) = local;
+        self.targets.insert(
+            node.ordering_key(),
+            RegionCoordinatorDiscoveryTarget::Local { node, coordinator },
+        );
+        for target in remotes {
+            let node = target.node().clone();
+            self.targets.insert(
+                node.ordering_key(),
+                RegionCoordinatorDiscoveryTarget::Remote { node, target },
+            );
+        }
+    }
+
     fn plan(
         &mut self,
         membership_change: CoordinatorDiscoveryChange,

@@ -79,6 +79,7 @@ mod entity_shard_actor;
 mod entity_type;
 mod envelope;
 mod errors;
+mod extension;
 mod extractor;
 mod handoff_transport;
 mod handoff_worker;
@@ -159,6 +160,11 @@ pub use entity_shard_actor::EntityShardActor;
 pub use entity_type::EntityTypeKey;
 pub use envelope::ShardingEnvelope;
 pub use errors::ShardingError;
+pub use extension::{
+    ClusterSharding, ClusterShardingBootstrapError, ClusterShardingRegistration,
+    ClusterShardingSettings, Entity, SHARDING_CONTROL_MANIFESTS, SHARDING_ORDINARY_MANIFESTS,
+    register_cluster_sharding,
+};
 pub use extractor::{EntityMessageExtractor, EntityMessageExtractorRouter, ExtractedEntityMessage};
 pub use handoff_transport::{
     HandoffDeliveryFailure, HandoffDeliveryReport, HandoffDeliveryTarget, HandoffRegionTarget,

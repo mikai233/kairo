@@ -3626,3 +3626,46 @@ Consequences:
 - A broader multi-type registration facade plus process and fault coverage
   remain later Phase 4 work; the legacy standalone TCP
   bootstrap remains a compatibility and focused-test boundary meanwhile.
+
+## ADR-0115: Cluster Sharding Uses Typed Type Registrations On One Runtime
+
+Status: Accepted
+
+Context:
+The sharding crate already contained typed regions, entity-backed shards,
+coordinator allocation, remote protocols, handoff, and remember-entity stores,
+but applications and tests assembled those components manually. All entity
+types share the same stable wire manifests, while a normal ActorSystem must be
+able to host more than one typed `EntityTypeKey<M>` without registering the
+same manifest repeatedly or exposing an erased message API.
+
+Decision:
+`register_cluster_sharding` registers `RoutedShardEnvelope` on the ordinary
+lane and the twelve coordinator/region manifests on reliable ordered control
+delivery before the shared TCP runtime binds. A single internal router selects
+the type-specific inbound handler by canonical recipient path. Type names are
+encoded into stable coordinator and region system paths; the internal registry
+uses `Any` only to recover an already initialized typed handle, while public
+traffic remains `EntityRef<M>`, `ActorRef<ShardingEnvelope<M>>`, and registered
+`RemoteMessage` codecs.
+
+Activation installs one non-generic `ClusterSharding` ActorSystem extension.
+`init` spawns a coordinator candidate, entity-backed region, envelope router,
+and membership connector for the type. The connector derives remote targets
+only from cluster snapshots/events and updates targets before forwarding the
+same membership fact to coordinator discovery. Initialization requires an
+explicit `M` stop message so host-shard dispatch and later handoff share a
+fully configured transport rather than recording allocations that cannot be
+started. Coordinator replies may reconstruct a local home only when its
+`RegionId` is itself valid canonical actor-ref wire data.
+
+Consequences:
+- Multiple typed entity kinds share one listener, association lifecycle, and
+  manifest router without a global business-message enum.
+- A remote requester can buffer, resolve a home on another node, forward the
+  encoded business message, and start the remote entity on demand.
+- Gossip membership remains the source of coordinator and region targets;
+  remoting does not create cluster truth.
+- Coordinator singleton failover/state recovery, proxy-only role placement,
+  composed remember stores, and process/fault acceptance remain later M9 and
+  Phase 4 checkpoints.

@@ -161,9 +161,10 @@ pub mod prelude {
     };
     #[cfg(feature = "cluster-sharding")]
     pub use kairo_cluster_sharding::{
-        DEFAULT_SHARD_COUNT, EntityRef, EntityTypeKey, ShardRegionActor, ShardRegionMsg,
-        ShardingEnvelope, ShardingEnvelopeRouter, ShardingError, default_shard_id_for,
-        shard_id_for, stable_hash_entity_id,
+        ClusterSharding, ClusterShardingBootstrapError, ClusterShardingRegistration,
+        ClusterShardingSettings, DEFAULT_SHARD_COUNT, Entity, EntityRef, EntityTypeKey,
+        ShardRegionActor, ShardRegionMsg, ShardingEnvelope, ShardingEnvelopeRouter, ShardingError,
+        default_shard_id_for, register_cluster_sharding, shard_id_for, stable_hash_entity_id,
     };
     #[cfg(feature = "cluster-tools")]
     pub use kairo_cluster_tools::{

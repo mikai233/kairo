@@ -2117,6 +2117,16 @@ fn prelude_exposes_distributed_data_entry_points() {
 fn prelude_exposes_sharding_entry_points() {
     use crate::prelude::*;
 
+    struct Account;
+
+    impl Actor for Account {
+        type Msg = String;
+
+        fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+            Ok(())
+        }
+    }
+
     let envelope = ShardingEnvelope::new("entity-1", "credit".to_string());
     let (entity_id, message) = envelope.into_parts();
     assert_eq!(entity_id, "entity-1");
@@ -2126,7 +2136,12 @@ fn prelude_exposes_sharding_entry_points() {
         default_shard_id_for("entity-1")
     );
     assert_ne!(stable_hash_entity_id("entity-1"), 0);
-    let _ = EntityTypeKey::<String>::new("Account");
+    let key = EntityTypeKey::<String>::new("Account");
+    let _ = Entity::new(key, |_| Account).with_stop_message("stop".to_string());
+    let _ = ClusterShardingSettings::default();
+    let _ = std::mem::size_of::<Option<ClusterSharding>>();
+    let _ = std::mem::size_of::<Option<ClusterShardingRegistration>>();
+    let _ = register_cluster_sharding;
     let _ = std::mem::size_of::<Option<EntityRef<String>>>();
     let _ = std::mem::size_of::<Option<ShardingEnvelopeRouter<String>>>();
     let _ = std::mem::size_of::<Option<ShardRegionActor<String>>>();

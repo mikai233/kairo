@@ -387,8 +387,23 @@ seconds, pinning the delta-only path. Remote consistency aggregation is
 composed as well: with both background propagation paths delayed, a third
 two-node test completes a majority write only after the peer applies and
 acknowledges it, then reads a locally missing key through majority read/merge.
-The next Phase 4 boundary is the cluster-sharding extension on this lifecycle;
-broader ddata type registration plus process/fault coverage remain open.
+Cluster sharding now shares that same lifecycle. `register_cluster_sharding`
+installs one recipient-path router before bind: routed business envelopes use
+the ordinary lane, while the twelve coordinator/region control manifests use
+reliable ordered control delivery. Post-bind activation installs one
+non-generic `ClusterSharding` ActorSystem extension whose `init` method keeps
+each `EntityTypeKey<M>` typed, spawns type-specific coordinator, region,
+router, and cluster-connector actors, and derives remote coordinator and region
+targets from real membership snapshots/events. `entity_ref_for` routes `M`
+through the local typed region without embedding the entity id in `M`. A real
+two-node test forms through seed contact, initializes two entity kinds on each
+node behind the shared manifest router, registers their regions with the
+oldest coordinator, allocates shards to the oldest node, drains the remote
+requester's buffers after `ShardHome`, and delivers both decoded business
+messages to their remote entity actors. Coordinator failover/recovery on the
+composed lifecycle, role-based proxy-only hosting, broader ddata type
+registration, cluster-tools composition, and process/fault coverage remain
+open.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.
