@@ -204,6 +204,10 @@ Status terms in this document mean:
   Delta propagation logs now hard-gate monotonic per-key versions, payload-free
   full-state fallback, bounded range grouping, deterministic round-robin peer
   selection, and all-current-replica cleanup semantics.
+  Removed-node pruning now hard-gates deterministic owner and performed-marker
+  merges, seen-by-all readiness, all-reachable dissemination clocks, inclusive
+  expiry, tick effects, and first-observation retention under duplicate removal
+  input.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

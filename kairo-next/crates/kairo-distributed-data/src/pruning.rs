@@ -1,22 +1,40 @@
+#![deny(missing_docs)]
+
+//! Removed-replica pruning metadata, dissemination tracking, and tick reports.
+//!
+//! Pruning waits on an all-reachable clock, disseminates an initialized marker,
+//! transfers removed-replica state once every live peer has seen it, and retains
+//! a performed marker long enough to suppress late data before expiry.
+
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{ReplicaId, ReplicatorKey};
 
+/// Disseminated lifecycle state for pruning one removed replica.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PruningState {
+    /// Pruning has an owner and is collecting acknowledgements from live peers.
     Initialized(PruningInitialized),
+    /// Pruning completed and its late-data suppression marker is retained.
     Performed(PruningPerformed),
 }
 
 impl PruningState {
+    /// Creates initialized pruning state owned by `owner`.
     pub fn initialized(owner: impl Into<ReplicaId>) -> Self {
         Self::Initialized(PruningInitialized::new(owner))
     }
 
+    /// Creates performed pruning state with an inclusive obsolete deadline.
     pub fn performed(obsolete_at_millis: u64) -> Self {
         Self::Performed(PruningPerformed::new(obsolete_at_millis))
     }
 
+    /// Records that `node` has observed initialized state.
+    ///
+    /// The owner and duplicate observations are ignored. Performed state is
+    /// unchanged.
     pub fn add_seen(&self, node: impl Into<ReplicaId>) -> Self {
         match self {
             Self::Initialized(initialized) => Self::Initialized(initialized.add_seen(node.into())),
@@ -24,6 +42,11 @@ impl PruningState {
         }
     }
 
+    /// Merges pruning states deterministically.
+    ///
+    /// Performed state dominates initialized state, and the later performed
+    /// deadline wins. Equal owners union their seen sets. Conflicting initialized
+    /// owners select the lexically smaller complete [`ReplicaId`].
     pub fn merge(&self, other: &Self) -> Self {
         match (self, other) {
             (Self::Performed(left), Self::Performed(right)) => {
@@ -41,11 +64,15 @@ impl PruningState {
         }
     }
 
+    /// Reports whether performed state is obsolete at `now_millis`.
+    ///
+    /// Initialized state is never obsolete.
     pub fn is_obsolete(&self, now_millis: u64) -> bool {
         matches!(self, Self::Performed(performed) if performed.is_obsolete(now_millis))
     }
 }
 
+/// Initialized pruning ownership and the live peers that have observed it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PruningInitialized {
     owner: ReplicaId,
@@ -53,6 +80,7 @@ pub struct PruningInitialized {
 }
 
 impl PruningInitialized {
+    /// Creates initialized state with an empty seen set.
     pub fn new(owner: impl Into<ReplicaId>) -> Self {
         Self {
             owner: owner.into(),
@@ -60,14 +88,20 @@ impl PruningInitialized {
         }
     }
 
+    /// Returns the replica responsible for performing pruning.
     pub fn owner(&self) -> &ReplicaId {
         &self.owner
     }
 
+    /// Returns observed peers in deterministic replica order.
     pub fn seen(&self) -> &BTreeSet<ReplicaId> {
         &self.seen
     }
 
+    /// Returns state that records `node` as having observed initialization.
+    ///
+    /// The owner is implicitly seen and is not stored. Duplicate observations
+    /// return an equal state.
     pub fn add_seen(&self, node: ReplicaId) -> Self {
         if node == self.owner || self.seen.contains(&node) {
             return self.clone();
@@ -81,6 +115,9 @@ impl PruningInitialized {
         }
     }
 
+    /// Reports whether every supplied live replica has observed initialization.
+    ///
+    /// The owner is treated as observed even if included in the iterator.
     pub fn is_seen_by_all<'a>(
         &self,
         live_replicas: impl IntoIterator<Item = &'a ReplicaId>,
@@ -108,56 +145,72 @@ impl PruningInitialized {
     }
 }
 
+/// Completed-pruning marker retained until an inclusive wall-clock deadline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PruningPerformed {
     obsolete_at_millis: u64,
 }
 
 impl PruningPerformed {
+    /// Creates a performed marker with an inclusive obsolete deadline.
     pub fn new(obsolete_at_millis: u64) -> Self {
         Self { obsolete_at_millis }
     }
 
+    /// Returns the inclusive obsolete deadline in Unix-epoch milliseconds.
     pub fn obsolete_at_millis(self) -> u64 {
         self.obsolete_at_millis
     }
 
+    /// Reports whether the marker is obsolete at `now_millis`.
     pub fn is_obsolete(self, now_millis: u64) -> bool {
         self.obsolete_at_millis <= now_millis
     }
 }
 
+/// Deterministically ordered pruning state indexed by removed replica.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PruningTable {
     states: BTreeMap<ReplicaId, PruningState>,
 }
 
 impl PruningTable {
+    /// Creates an empty pruning table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the number of removed-replica markers.
     pub fn len(&self) -> usize {
         self.states.len()
     }
 
+    /// Reports whether the table contains no markers.
     pub fn is_empty(&self) -> bool {
         self.states.is_empty()
     }
 
+    /// Returns all markers in deterministic removed-replica order.
     pub fn states(&self) -> &BTreeMap<ReplicaId, PruningState> {
         &self.states
     }
 
+    /// Returns the marker for `removed`.
     pub fn get(&self, removed: &ReplicaId) -> Option<&PruningState> {
         self.states.get(removed)
     }
 
+    /// Replaces `removed`'s marker with freshly initialized state.
+    ///
+    /// Returns whether the table changed.
     pub fn initialize(&mut self, removed: ReplicaId, owner: ReplicaId) -> bool {
         let next = PruningState::initialized(owner);
         self.set_state(removed, next)
     }
 
+    /// Marks one removed-replica entry as observed by `seen_by`.
+    ///
+    /// Returns `false` when the entry is absent or unchanged.
     pub fn mark_seen(&mut self, removed: &ReplicaId, seen_by: ReplicaId) -> bool {
         let Some(current) = self.states.get(removed).cloned() else {
             return false;
@@ -165,6 +218,9 @@ impl PruningTable {
         self.set_state(removed.clone(), current.add_seen(seen_by))
     }
 
+    /// Marks every initialized entry as observed by `seen_by`.
+    ///
+    /// Returns whether at least one marker changed.
     pub fn mark_all_seen_by(&mut self, seen_by: ReplicaId) -> bool {
         let mut changed = false;
         let removed_nodes = self.states.keys().cloned().collect::<Vec<_>>();
@@ -174,6 +230,7 @@ impl PruningTable {
         changed
     }
 
+    /// Returns initialized entries owned by `owner` and seen by all live replicas.
     pub fn ready_to_perform<'a>(
         &self,
         owner: &ReplicaId,
@@ -194,10 +251,16 @@ impl PruningTable {
             .collect()
     }
 
+    /// Replaces `removed`'s marker with performed state.
+    ///
+    /// Returns whether the table changed.
     pub fn mark_performed(&mut self, removed: ReplicaId, obsolete_at_millis: u64) -> bool {
         self.set_state(removed, PruningState::performed(obsolete_at_millis))
     }
 
+    /// Removes performed markers obsolete at or before `now_millis`.
+    ///
+    /// Returns removed replica identifiers in deterministic order.
     pub fn remove_obsolete_performed(&mut self, now_millis: u64) -> BTreeSet<ReplicaId> {
         let obsolete = self
             .states
@@ -210,6 +273,7 @@ impl PruningTable {
         obsolete
     }
 
+    /// Merges both tables using [`PruningState::merge`] for shared entries.
     pub fn merge(&self, other: &Self) -> Self {
         let mut states = other.states.clone();
         for (removed, this_state) in &self.states {
@@ -221,6 +285,7 @@ impl PruningTable {
         Self { states }
     }
 
+    /// Merges both tables and removes obsolete performed markers.
     pub fn merge_without_obsolete(&self, other: &Self, now_millis: u64) -> Self {
         let mut merged = self.merge(other);
         merged.remove_obsolete_performed(now_millis);
@@ -234,34 +299,50 @@ impl PruningTable {
     }
 }
 
+/// First-observation clock for removed replicas awaiting pruning initialization.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RemovedNodePruningTracker {
     removed_nodes: BTreeMap<ReplicaId, u64>,
 }
 
 impl RemovedNodePruningTracker {
+    /// Creates an empty removed-replica tracker.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns first-observation all-reachable clock values by replica.
     pub fn removed_nodes(&self) -> &BTreeMap<ReplicaId, u64> {
         &self.removed_nodes
     }
 
+    /// Reports whether `node` is awaiting or undergoing pruning.
     pub fn contains(&self, node: &ReplicaId) -> bool {
         self.removed_nodes.contains_key(node)
     }
 
+    /// Records the first observation of a removed replica.
+    ///
+    /// Duplicate observations preserve the original clock and return `false`.
     pub fn record_removed(&mut self, node: ReplicaId, all_reachable_time_nanos: u64) -> bool {
-        self.removed_nodes
-            .insert(node, all_reachable_time_nanos)
-            .is_none()
+        match self.removed_nodes.entry(node) {
+            Entry::Vacant(entry) => {
+                entry.insert(all_reachable_time_nanos);
+                true
+            }
+            Entry::Occupied(_) => false,
+        }
     }
 
+    /// Forgets a removed replica after its performed markers expire.
     pub fn forget_removed(&mut self, node: &ReplicaId) -> bool {
         self.removed_nodes.remove(node).is_some()
     }
 
+    /// Records CRDT contributors absent from known membership and prior removals.
+    ///
+    /// The local replica is never inferred as removed. Returns newly recorded
+    /// identifiers in deterministic order.
     pub fn record_unknown_modified_nodes<'a>(
         &mut self,
         modified_by: impl IntoIterator<Item = &'a ReplicaId>,
@@ -281,6 +362,11 @@ impl RemovedNodePruningTracker {
         recorded
     }
 
+    /// Returns replicas whose dissemination delay has strictly elapsed.
+    ///
+    /// The supplied all-reachable clock is expected to pause while any replica
+    /// is unreachable. Saturating subtraction prevents a regressed clock from
+    /// making a replica ready.
     pub fn ready_to_initialize(
         &self,
         all_reachable_time_nanos: u64,
@@ -296,19 +382,29 @@ impl RemovedNodePruningTracker {
     }
 }
 
+/// Cluster and clock snapshot used for one removed-node pruning pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemovedNodePruningTick {
+    /// Local replica that may own and perform pruning.
     pub self_replica: ReplicaId,
+    /// Current live remote replicas that must observe initialized markers.
     pub live_replicas: BTreeSet<ReplicaId>,
+    /// Current unreachable replicas; a non-empty set pauses the entire pass.
     pub unreachable_replicas: BTreeSet<ReplicaId>,
+    /// Monotonic nanoseconds accumulated only while all replicas were reachable.
     pub all_reachable_time_nanos: u64,
+    /// Required all-reachable dissemination delay before initialization.
     pub max_pruning_dissemination_nanos: u64,
+    /// Current wall-clock time in Unix-epoch milliseconds.
     pub now_millis: u64,
+    /// Retention duration for a newly performed marker.
     pub pruning_marker_ttl_millis: u64,
+    /// Whether the local replica currently leads the eligible replica set.
     pub is_leader: bool,
 }
 
 impl RemovedNodePruningTick {
+    /// Creates a performed marker using a saturating wall-clock deadline.
     pub fn pruning_performed(&self) -> PruningPerformed {
         PruningPerformed::new(
             self.now_millis
@@ -317,18 +413,27 @@ impl RemovedNodePruningTick {
     }
 }
 
+/// Deterministic effects and diagnostics from one pruning pass.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RemovedNodePruningTickReport {
+    /// Whether the pass was skipped because at least one replica was unreachable.
     pub skipped_unreachable: bool,
+    /// Removed replica identifiers newly inferred from stored CRDT state.
     pub collected_removed: BTreeSet<ReplicaId>,
+    /// Keys whose pruning markers were initialized.
     pub initialized: BTreeSet<ReplicatorKey>,
+    /// Keys whose removed-replica contributions were pruned.
     pub performed: BTreeSet<ReplicatorKey>,
+    /// Keys whose performed markers expired.
     pub obsolete_markers: BTreeSet<ReplicatorKey>,
+    /// Removed replica identifiers forgotten after marker expiry.
     pub forgotten_removed: BTreeSet<ReplicaId>,
+    /// Per-key CRDT pruning failures encountered during the pass.
     pub failures: Vec<RemovedNodePruningFailure>,
 }
 
 impl RemovedNodePruningTickReport {
+    /// Creates a report for a pass paused by unreachable replicas.
     pub fn skipped_unreachable() -> Self {
         Self {
             skipped_unreachable: true,
@@ -336,6 +441,7 @@ impl RemovedNodePruningTickReport {
         }
     }
 
+    /// Counts distinct keys changed by initialization, performed pruning, or expiry.
     pub fn changed_key_count(&self) -> usize {
         self.initialized
             .union(&self.performed)
@@ -345,10 +451,14 @@ impl RemovedNodePruningTickReport {
     }
 }
 
+/// Failure to transfer one removed replica's contribution for one key.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemovedNodePruningFailure {
+    /// Replicated-data key whose pruning failed.
     pub key: ReplicatorKey,
+    /// Removed replica whose contribution could not be pruned.
     pub removed: ReplicaId,
+    /// Diagnostic description returned by the CRDT.
     pub reason: String,
 }
 
@@ -377,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn pruning_state_merge_preserves_pekko_ordering_rules() {
+    fn pruning_state_merge_uses_deterministic_owner_and_performed_ordering() {
         let removed = replica("removed");
         let owner_a = replica("a");
         let owner_b = replica("b");
@@ -399,7 +509,9 @@ mod tests {
 
         let mut conflicting_owner = PruningTable::new();
         conflicting_owner.initialize(removed.clone(), owner_b);
+        let reverse_merged = conflicting_owner.merge(&merged);
         let merged = merged.merge(&conflicting_owner);
+        assert_eq!(merged, reverse_merged);
         let PruningState::Initialized(initialized) = merged.get(&removed).unwrap() else {
             panic!("expected initialized pruning state");
         };
@@ -455,6 +567,20 @@ mod tests {
         tracker.record_removed(removed.clone(), 10);
 
         assert!(tracker.ready_to_initialize(20, 10).is_empty());
+        assert_eq!(
+            tracker.ready_to_initialize(21, 10),
+            BTreeSet::from([removed])
+        );
+    }
+
+    #[test]
+    fn removed_node_tracker_preserves_first_observation_on_duplicate_record() {
+        let mut tracker = RemovedNodePruningTracker::new();
+        let removed = replica("removed");
+
+        assert!(tracker.record_removed(removed.clone(), 10));
+        assert!(!tracker.record_removed(removed.clone(), 20));
+        assert_eq!(tracker.removed_nodes().get(&removed), Some(&10));
         assert_eq!(
             tracker.ready_to_initialize(21, 10),
             BTreeSet::from([removed])

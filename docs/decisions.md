@@ -4285,3 +4285,30 @@ Consequences:
   converged `seen` set.
 - Membership remains gossip-based; this changes only failure handling for an
   existing peer route and introduces no authoritative store.
+
+## ADR-0134: Pruning Owner Conflicts Use Complete Replica Identity
+
+Status: Accepted
+
+Context:
+Pekko resolves conflicting initialized pruning owners by canonical actor-system
+address. Kairo's `ReplicaId` is a stable, opaque identity that includes the
+cluster incarnation UID in production and may be supplied by an explicit
+transport in tests. Comparing only a canonical address would require parsing an
+otherwise opaque public identifier and would not totally order two incarnations
+at the same address.
+
+Decision:
+Conflicting `PruningInitialized` states select the lexically smaller complete
+`ReplicaId`. Equal owners union their seen sets. Performed state continues to
+dominate initialized state, with the later obsolete deadline winning between
+performed markers.
+
+Consequences:
+- Pruning-state merge remains commutative and deterministic across replacement
+  incarnations and explicit transports.
+- The selected owner may differ from Pekko only when canonical addresses are
+  equal but incarnation identities differ; ordinary distinct-address clusters
+  retain the same deterministic lowest-owner intent.
+- `ReplicaId` remains opaque and no address parser becomes part of the
+  distributed-data contract.
