@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::{
     error::Error,
     fmt::{self, Display, Formatter},
@@ -19,12 +21,17 @@ struct ClusterControls {
 }
 
 #[derive(Debug, Clone)]
+/// Public typed facade for cluster observation and optional membership control.
+///
+/// [`Self::new`] creates an event-only facade. ActorSystem-installed cluster
+/// extensions also attach the one-shot join and membership control routes.
 pub struct Cluster {
     event_publisher: ActorRef<ClusterEventPublisherMsg>,
     controls: Option<ClusterControls>,
 }
 
 impl Cluster {
+    /// Creates an event-only facade backed by `event_publisher`.
     pub fn new(event_publisher: ActorRef<ClusterEventPublisherMsg>) -> Self {
         Self {
             event_publisher,
@@ -48,10 +55,12 @@ impl Cluster {
         }
     }
 
+    /// Returns the underlying typed event-publisher actor reference.
     pub fn event_publisher(&self) -> ActorRef<ClusterEventPublisherMsg> {
         self.event_publisher.clone()
     }
 
+    /// Returns the local node incarnation when membership controls are attached.
     pub fn self_node(&self) -> Result<&UniqueAddress, ClusterError> {
         self.controls
             .as_ref()
@@ -59,6 +68,7 @@ impl Cluster {
             .ok_or(ClusterError::ControlUnavailable)
     }
 
+    /// Begins graceful leave for the local member.
     pub fn leave_self(&self) -> Result<(), ClusterError> {
         let controls = self.controls()?;
         self.send_to_membership(ClusterMembershipMsg::Leave {
@@ -66,6 +76,10 @@ impl Cluster {
         })
     }
 
+    /// Starts the daemon-owned one-shot join flow through `address`.
+    ///
+    /// The address must use the local remoting protocol and must include a host
+    /// unless it is exactly the local canonical address.
     pub fn join(&self, address: kairo_actor::Address) -> Result<(), ClusterError> {
         let controls = self.controls()?;
         if address.protocol() != controls.self_node.address.protocol()
@@ -83,14 +97,17 @@ impl Cluster {
             })
     }
 
+    /// Requests graceful leave for the member at `address`.
     pub fn leave(&self, address: kairo_actor::Address) -> Result<(), ClusterError> {
         self.send_to_membership(ClusterMembershipMsg::Leave { address })
     }
 
+    /// Requests that the member at `address` be marked down.
     pub fn down(&self, address: kairo_actor::Address) -> Result<(), ClusterError> {
         self.send_to_membership(ClusterMembershipMsg::DownAddress { address })
     }
 
+    /// Subscribes to a current-state snapshot followed by cluster events.
     pub fn subscribe(
         &self,
         subscriber: ActorRef<ClusterSubscriptionEvent>,
@@ -98,6 +115,7 @@ impl Cluster {
         self.subscribe_with_initial_state(subscriber, ClusterSubscriptionInitialState::Snapshot)
     }
 
+    /// Subscribes to cluster events with an explicit initial-state mode.
     pub fn subscribe_with_initial_state(
         &self,
         subscriber: ActorRef<ClusterSubscriptionEvent>,
@@ -109,6 +127,7 @@ impl Cluster {
         })
     }
 
+    /// Subscribes to raw domain events, optionally replaying current state as events.
     pub fn subscribe_events(
         &self,
         subscriber: ActorRef<ClusterEvent>,
@@ -120,6 +139,7 @@ impl Cluster {
         })
     }
 
+    /// Removes a [`ClusterSubscriptionEvent`] subscription.
     pub fn unsubscribe(
         &self,
         subscriber: ActorRef<ClusterSubscriptionEvent>,
@@ -127,6 +147,7 @@ impl Cluster {
         self.send_to_publisher(ClusterEventPublisherMsg::UnsubscribeCluster { subscriber })
     }
 
+    /// Removes a raw [`ClusterEvent`] subscription.
     pub fn unsubscribe_events(
         &self,
         subscriber: ActorRef<ClusterEvent>,
@@ -134,6 +155,7 @@ impl Cluster {
         self.send_to_publisher(ClusterEventPublisherMsg::Unsubscribe { subscriber })
     }
 
+    /// Sends the latest full cluster snapshot to `reply_to` once.
     pub fn send_current_state(
         &self,
         reply_to: ActorRef<CurrentClusterState>,
@@ -165,12 +187,31 @@ impl Cluster {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure reported by the public cluster facade.
 pub enum ClusterError {
+    /// The facade was created without membership control routes.
     ControlUnavailable,
-    DaemonUnavailable { reason: String },
-    InvalidJoinAddress { address: String },
-    MembershipUnavailable { reason: String },
-    PublisherUnavailable { reason: String },
+    /// The cluster daemon actor route could not accept a join command.
+    DaemonUnavailable {
+        /// Error reported by the daemon actor route.
+        reason: String,
+    },
+    /// The requested join address cannot identify a compatible remote system.
+    InvalidJoinAddress {
+        /// Rejected address formatted for diagnostics.
+        address: String,
+    },
+    /// The membership actor route could not accept a leave or down command.
+    MembershipUnavailable {
+        /// Error reported by the membership actor route.
+        reason: String,
+    },
+    /// The event-publisher route could not accept a subscription or state
+    /// request.
+    PublisherUnavailable {
+        /// Error reported by the event-publisher route.
+        reason: String,
+    },
 }
 
 impl Display for ClusterError {

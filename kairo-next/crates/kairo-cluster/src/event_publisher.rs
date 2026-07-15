@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_actor::{Actor, ActorRef, ActorResult, Context};
@@ -12,48 +14,62 @@ pub use subscription::{
 use crate::{ClusterEvent, ClusterEvents, Gossip, UniqueAddress};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Optional backend-neutral diagnostic emitted by the cluster event publisher.
 pub enum ClusterDiagnostic {
+    /// Gossip changed and produced the listed ordered domain events.
     GossipStateChanged {
+        /// Membership state before the change.
         previous: Gossip,
+        /// Membership state after the change.
         current: Gossip,
+        /// Deterministic domain-event diff published for the change.
         events: Vec<ClusterEvent>,
     },
 }
 
+/// Sink for optional cluster runtime diagnostics.
 pub trait ClusterDiagnostics: Send + Sync + 'static {
+    /// Records one diagnostic observation.
     fn record(&self, diagnostic: ClusterDiagnostic);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Selects which optional cluster diagnostics reach a sink.
 pub struct ClusterDiagnosticFilter {
     gossip_state_changes: bool,
 }
 
 impl ClusterDiagnosticFilter {
+    /// Creates a filter that optionally observes gossip state changes.
     pub fn new(gossip_state_changes: bool) -> Self {
         Self {
             gossip_state_changes,
         }
     }
 
+    /// Creates a filter that observes every diagnostic category.
     pub fn all() -> Self {
         Self::new(true)
     }
 
+    /// Creates a filter that suppresses every diagnostic category.
     pub fn disabled() -> Self {
         Self::new(false)
     }
 
+    /// Returns whether gossip state-change diagnostics are enabled.
     pub fn gossip_state_changes(&self) -> bool {
         self.gossip_state_changes
     }
 
+    /// Returns whether `diagnostic` passes this filter.
     pub fn observes(&self, diagnostic: &ClusterDiagnostic) -> bool {
         match diagnostic {
             ClusterDiagnostic::GossipStateChanged { .. } => self.gossip_state_changes,
         }
     }
 
+    /// Wraps `diagnostics` with this filter, or returns `None` when disabled.
     pub fn wrap(
         self,
         diagnostics: Arc<dyn ClusterDiagnostics>,
@@ -98,28 +114,47 @@ where
 }
 
 #[derive(Debug, Clone)]
+/// Commands accepted by [`ClusterEventPublisher`].
 pub enum ClusterEventPublisherMsg {
+    /// Replaces the current gossip view and publishes its deterministic diff.
     PublishChanges(Gossip),
+    /// Publishes one explicit domain event without changing stored gossip.
     PublishEvent(ClusterEvent),
+    /// Adds a raw domain-event subscriber.
     Subscribe {
+        /// Actor that receives raw domain events.
         subscriber: ActorRef<ClusterEvent>,
+        /// Initial-state replay mode.
         initial_state: SubscriptionInitialState,
     },
+    /// Removes a raw domain-event subscriber.
     Unsubscribe {
+        /// Actor path whose subscription should be removed.
         subscriber: ActorRef<ClusterEvent>,
     },
+    /// Adds a snapshot-or-event subscriber.
     SubscribeCluster {
+        /// Actor that receives cluster subscription values.
         subscriber: ActorRef<ClusterSubscriptionEvent>,
+        /// Snapshot, event replay, or live-only initial mode.
         initial_state: ClusterSubscriptionInitialState,
     },
+    /// Removes a snapshot-or-event subscriber.
     UnsubscribeCluster {
+        /// Actor path whose subscription should be removed.
         subscriber: ActorRef<ClusterSubscriptionEvent>,
     },
+    /// Sends the latest full state to one recipient without subscribing it.
     SendCurrentState {
+        /// Recipient of the current cluster snapshot.
         reply_to: ActorRef<CurrentClusterState>,
     },
 }
 
+/// Actor that owns the latest gossip view and publishes cluster-domain changes.
+///
+/// Subscription registration is idempotent by actor path. Stopped subscribers
+/// are removed when a subsequent event delivery fails.
 pub struct ClusterEventPublisher {
     self_node: UniqueAddress,
     gossip: Gossip,
@@ -129,6 +164,7 @@ pub struct ClusterEventPublisher {
 }
 
 impl ClusterEventPublisher {
+    /// Creates an empty publisher whose leader calculations use `self_node`.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             self_node,
@@ -139,6 +175,7 @@ impl ClusterEventPublisher {
         }
     }
 
+    /// Attaches a backend-neutral diagnostics sink.
     pub fn with_diagnostics(mut self, diagnostics: Arc<dyn ClusterDiagnostics>) -> Self {
         self.diagnostics = Some(diagnostics);
         self
