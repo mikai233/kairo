@@ -214,6 +214,10 @@ Status terms in this document mean:
   The worker and remote handoff adapter now hard-gate the Pekko-aligned phase
   transitions, termination and timeout outcomes, nested shard identity checks,
   typed stop-message injection, and buffered-message drop accounting.
+  The coordinator runtime now hard-gates allocation, deferred home requests,
+  participant snapshots, rebalance completion, availability suppression, and
+  graceful region shutdown. Failed shutdown handoffs release the region for a
+  retry, and duplicate rebalance starts preserve existing deferred requesters.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
