@@ -192,6 +192,9 @@ Status terms in this document mean:
   majority-plus, minimum-cap, all-replica, and timeout contracts. Single-node
   majority-plus operations now correctly collapse to local completion, and
   symmetric constructors expose majority-plus with a minimum cap.
+  Data envelopes now hard-gate the full-state, delta, pruning metadata,
+  performed-marker expiry, and late removed-replica cleanup contracts used by
+  replicator state convergence.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

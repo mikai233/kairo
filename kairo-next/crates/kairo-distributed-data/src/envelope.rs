@@ -1,3 +1,12 @@
+#![deny(missing_docs)]
+
+//! Replicated data paired with removed-replica pruning metadata.
+//!
+//! An envelope keeps the CRDT value and its pruning state together while full
+//! states and deltas move through the replicator. Pruning-aware merges discard
+//! contributions from replicas whose pruning has already been performed, which
+//! prevents a late state from resurrecting removed-replica data.
+
 use std::collections::BTreeSet;
 
 use crate::{
@@ -6,6 +15,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A replicated value and the removed-replica pruning state that belongs to it.
 pub struct DataEnvelope<D> {
     data: D,
     pruning: PruningTable,
@@ -15,6 +25,7 @@ impl<D> DataEnvelope<D>
 where
     D: ReplicatedData,
 {
+    /// Wraps `data` with an empty pruning table.
     pub fn new(data: D) -> Self {
         Self {
             data,
@@ -22,26 +33,36 @@ where
         }
     }
 
+    /// Wraps `data` with an existing pruning table.
     pub fn with_pruning(data: D, pruning: PruningTable) -> Self {
         Self { data, pruning }
     }
 
+    /// Returns the replicated value.
     pub fn data(&self) -> &D {
         &self.data
     }
 
+    /// Returns the removed-replica pruning table.
     pub fn pruning(&self) -> &PruningTable {
         &self.pruning
     }
 
+    /// Consumes the envelope and returns only its replicated value.
     pub fn into_data(self) -> D {
         self.data
     }
 
+    /// Consumes the envelope and returns its value and pruning table.
     pub fn into_parts(self) -> (D, PruningTable) {
         (self.data, self.pruning)
     }
 
+    /// Merges both replicated values and both pruning tables.
+    ///
+    /// This merge does not expire obsolete performed markers or clean late
+    /// removed-replica contributions. Use [`Self::merge_pruned`] when `D`
+    /// supports removed-node pruning and a current time is available.
     pub fn merge(&self, other: &Self) -> Self {
         Self {
             data: self.data.merge(&other.data),
@@ -49,6 +70,7 @@ where
         }
     }
 
+    /// Merges a full replicated value while preserving this envelope's pruning table.
     pub fn merge_data(&self, other: &D) -> Self {
         Self {
             data: self.data.merge(other),
@@ -61,6 +83,7 @@ impl<D> DataEnvelope<D>
 where
     D: DeltaReplicatedData,
 {
+    /// Applies a CRDT delta while preserving this envelope's pruning table.
     pub fn merge_delta(&self, delta: &D::Delta) -> Self {
         Self {
             data: self.data.merge_delta(delta),
@@ -73,14 +96,20 @@ impl<D> DataEnvelope<D>
 where
     D: RemovedNodePruning,
 {
+    /// Returns every replica identifier still represented by the value.
     pub fn modified_by_replica_ids(&self) -> BTreeSet<ReplicaId> {
         self.data.modified_by_replica_ids()
     }
 
+    /// Reports whether the value still contains a contribution from `removed_replica`.
     pub fn need_pruning_from(&self, removed_replica: &ReplicaId) -> bool {
         self.data.need_pruning_from(removed_replica)
     }
 
+    /// Initializes pruning for `removed`, assigning `owner` to perform it.
+    ///
+    /// Existing pruning state for `removed` is replaced with a fresh initialized
+    /// marker whose seen set is empty.
     pub fn init_removed_node_pruning(&self, removed: ReplicaId, owner: ReplicaId) -> Self {
         let mut pruning = self.pruning.clone();
         pruning.initialize(removed, owner);
@@ -90,6 +119,15 @@ where
         }
     }
 
+    /// Transfers `removed`'s contribution to its pruning owner and marks completion.
+    ///
+    /// The envelope is returned unchanged unless `removed` currently has an
+    /// initialized pruning marker.
+    ///
+    /// # Errors
+    ///
+    /// Returns the CRDT's pruning error if its removed-replica contribution
+    /// cannot be transferred to the recorded owner.
     pub fn prune_removed_node(
         &self,
         removed: &ReplicaId,
@@ -105,6 +143,7 @@ where
         Ok(Self { data, pruning })
     }
 
+    /// Removes `removed`'s contribution from the value without changing metadata.
     pub fn pruning_cleanup(&self, removed: &ReplicaId) -> Self {
         Self {
             data: self.data.pruning_cleanup(removed),
@@ -112,6 +151,10 @@ where
         }
     }
 
+    /// Records `seen_by` on every initialized pruning marker.
+    ///
+    /// Performed markers are left unchanged, and the pruning owner is never
+    /// added to an initialized marker's seen set.
     pub fn add_pruning_seen(&self, seen_by: ReplicaId) -> Self {
         let mut pruning = self.pruning.clone();
         pruning.mark_all_seen_by(seen_by);
@@ -121,6 +164,10 @@ where
         }
     }
 
+    /// Removes performed markers whose obsolete deadline is at or before `now_millis`.
+    ///
+    /// Returns the updated envelope and the replica identifiers whose markers
+    /// were removed. The replicated value is not changed.
     pub fn remove_obsolete_pruning_performed(
         &self,
         now_millis: u64,
@@ -136,6 +183,11 @@ where
         )
     }
 
+    /// Merges envelopes with pruning cleanup and performed-marker expiry.
+    ///
+    /// Pruning tables are merged first and obsolete performed markers are
+    /// removed. Before the CRDT values merge, both sides are cleaned of every
+    /// removed-replica contribution that still has a retained performed marker.
     pub fn merge_pruned(&self, other: &Self, now_millis: u64) -> Self {
         let pruning = self
             .pruning
