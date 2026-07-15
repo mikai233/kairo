@@ -864,7 +864,10 @@ TCP association dialing:
   limit is checked against the declared length before allocation, and the
   five-second default read timeout rejects silent peers before their lane can
   enter association assembly; both limits are replaceable on the composed
-  runtime builder,
+  runtime builder. Invalid magic, unsupported versions, truncated bodies,
+  oversized declarations, and wrong-target handshakes are rejected per socket
+  without terminating the shared accept loop or installing identity/route
+  state,
 - `TcpAssociationAssemblySettings` bounds identity-keyed partial lane
   assemblies. The listener groups interleaved lanes by the complete remote
   address and UID, rejects duplicate lanes or concurrent incarnations for one

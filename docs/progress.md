@@ -192,10 +192,13 @@ not overwritten by late reader cleanup. A fresh validated handshake can now
 replace an identified closed route for the same peer UID without reviving the
 old handle, while quarantine remains terminal for that exact incarnation; a
 real TCP test proves both endpoints replace their handles and an existing typed
-remote ref delivers after explicit redial. Automatic reconnect scheduling,
-malformed-input, and process-level remoting coverage remain next. The older
-subsystem-specific TCP runtimes remain migration baselines until their higher
-runtime owners adopt the shared core.
+remote ref delivers after explicit redial. Malformed-handshake isolation now
+has real accept-loop coverage: bad magic, unsupported versions, oversized
+declarations, truncated bodies, and wrong-target identities are rejected
+without installing peer state or preventing a later valid peer from delivering.
+Automatic reconnect scheduling and process-level remoting coverage remain next.
+The older subsystem-specific TCP runtimes remain migration baselines until
+their higher runtime owners adopt the shared core.
 
 The reliable-delivery wire/state-machine layer and its composed runtime are now
 implemented: registered stable envelope/ack/nack codecs preserve a nested

@@ -378,6 +378,93 @@ fn tcp_listener_times_out_silent_handshake_before_lane_assembly() {
 }
 
 #[test]
+fn tcp_listener_isolates_malformed_handshakes_and_accepts_valid_peer() {
+    let (frame_tx, frame_rx) = mpsc::channel();
+    let handler = Arc::new(ChannelFrameHandler::new(frame_tx)) as Arc<dyn RemoteFrameHandler>;
+    let cache = RemoteAssociationCache::new();
+    let registry = RemoteAssociationRegistry::new();
+    let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone())
+        .with_association_registry(registry.clone());
+    let listener = TcpAssociationListener::bind(("127.0.0.1", 0), handler)
+        .unwrap()
+        .with_accept_poll_interval(Duration::from_millis(1))
+        .with_handshake_read_settings(
+            TcpHandshakeReadSettings::new(1_024, Duration::from_millis(50)).unwrap(),
+        );
+    let port = listener.local_addr().unwrap().port();
+    let receiver_address = association_address("receiver", port);
+    let listener = listener
+        .with_local_identity(receiver_address.clone(), 11)
+        .with_association_registry(registry.clone())
+        .with_route_installer(installer);
+    let listener_handle = listener.spawn_accept_loop().unwrap();
+
+    let malformed_handshakes = [
+        b"BAD!\x02\x00\x00\x00\x00".to_vec(),
+        b"KAH2\xff\x00\x00\x00\x00".to_vec(),
+        [b"KAH2\x02".as_slice(), &1_025_u32.to_be_bytes()].concat(),
+        [
+            b"KAH2\x02".as_slice(),
+            &4_u32.to_be_bytes(),
+            &[RemoteStreamId::Control.as_u8()],
+        ]
+        .concat(),
+        encode_tcp_association_handshake(&TcpAssociationHandshake::new(
+            RemoteStreamId::Control,
+            TcpAssociationIdentity::new(association_address("wrong-target", 25521), 21),
+            association_address("other", port),
+        ))
+        .unwrap()
+        .to_vec(),
+    ];
+    for bytes in malformed_handshakes {
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream.write_all(&bytes).unwrap();
+    }
+
+    let sender_address = association_address("sender", 25522);
+    let sender_cache = RemoteAssociationCache::new();
+    let sender_registry = RemoteAssociationRegistry::new();
+    let sender_installer = crate::RemoteAssociationRouteInstaller::new(sender_cache.clone())
+        .with_association_registry(sender_registry);
+    let dialer = TcpAssociationDialer::new(sender_installer)
+        .with_local_identity(sender_address.clone(), 22)
+        .with_handshake_response_required()
+        .with_connect_timeout(Duration::from_secs(1));
+    let registration = dialer.dial(receiver_address).unwrap();
+
+    sender_cache
+        .send(envelope_to("receiver", port, 64))
+        .unwrap();
+    let (_, frame) = frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let decoded = decode_remote_envelope_frame(frame).unwrap();
+    assert_eq!(decoded.message.payload, Bytes::from_static(&[64]));
+    assert_eq!(registry.association_count(), 1);
+    assert_eq!(cache.route_count(), 1);
+
+    registration.close_owned_route("malformed handshake test done");
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        let routes = cache.route_count();
+        (routes == 0)
+            .then_some(())
+            .ok_or_else(|| format!("expected receiver route cleanup, found {routes}"))
+    })
+    .unwrap();
+    listener_handle.stop();
+    drop(registration);
+    drop(sender_cache);
+    drop(dialer);
+    drop(cache);
+
+    let report = listener_handle.join().unwrap();
+    assert_eq!(report.accepted_associations, 1);
+    assert_eq!(
+        report.remote_identities,
+        vec![TcpAssociationIdentity::new(sender_address, 22)]
+    );
+}
+
+#[test]
 fn tcp_listener_completes_interleaved_peer_without_mixing_partial_lanes() {
     let (frame_tx, frame_rx) = mpsc::channel();
     let handler = Arc::new(ChannelFrameHandler::new(frame_tx)) as Arc<dyn RemoteFrameHandler>;
