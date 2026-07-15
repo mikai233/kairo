@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::io::{self, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Mutex;
@@ -9,6 +11,7 @@ use crate::{RemoteAssociationAddress, RemoteByteSink, RemoteError, RemoteStreamI
 
 use super::{TcpAssociationHandshake, TcpAssociationIdentity, encode_tcp_association_handshake};
 
+/// Thread-safe byte sink backed by one connected TCP lane stream.
 #[derive(Debug)]
 pub struct TcpRemoteByteSink {
     peer: String,
@@ -17,11 +20,23 @@ pub struct TcpRemoteByteSink {
 }
 
 impl TcpRemoteByteSink {
+    /// Connects an unhandshaken TCP stream to `address`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the address has no port, cannot be resolved, cannot
+    /// be connected within `timeout`, or cannot enable low-latency writes.
     pub fn connect(address: &RemoteAssociationAddress, timeout: Option<Duration>) -> Result<Self> {
         Self::connect_stream(address, timeout)
             .map(|stream| Self::from_stream(address.to_string(), stream))
     }
 
+    /// Connects a TCP lane and writes its association handshake.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for address resolution, connection setup, handshake
+    /// encoding, or handshake write failure.
     pub fn connect_handshaken(
         address: &RemoteAssociationAddress,
         local_identity: &TcpAssociationIdentity,
@@ -63,6 +78,7 @@ impl TcpRemoteByteSink {
         Ok(stream)
     }
 
+    /// Wraps an already-connected stream as a remote byte sink.
     pub fn from_stream(peer: impl Into<String>, stream: TcpStream) -> Self {
         Self {
             peer: peer.into(),
@@ -71,6 +87,7 @@ impl TcpRemoteByteSink {
         }
     }
 
+    /// Returns the peer label used in transport diagnostics.
     pub fn peer(&self) -> &str {
         &self.peer
     }

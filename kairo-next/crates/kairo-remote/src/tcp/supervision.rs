@@ -1,21 +1,27 @@
+#![deny(missing_docs)]
+
 use crate::RemoteStreamId;
 
+/// Restart limit applied to TCP association reader failures.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpAssociationReaderRestartSettings {
     max_restarts: Option<usize>,
 }
 
 impl TcpAssociationReaderRestartSettings {
+    /// Allows an unlimited number of restart decisions.
     pub fn unlimited() -> Self {
         Self { max_restarts: None }
     }
 
+    /// Stops readers after `max_restarts` restart decisions.
     pub fn max_restarts(max_restarts: usize) -> Self {
         Self {
             max_restarts: Some(max_restarts),
         }
     }
 
+    /// Returns the configured restart limit, or `None` when unlimited.
     pub fn max_restarts_limit(&self) -> Option<usize> {
         self.max_restarts
     }
@@ -27,18 +33,25 @@ impl Default for TcpAssociationReaderRestartSettings {
     }
 }
 
+/// Failure observed while joining TCP association reader threads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TcpAssociationReaderFailure {
+    /// One identified lane reader failed.
     Lane {
+        /// Lane whose reader failed.
         stream_id: RemoteStreamId,
+        /// Human-readable failure reason.
         reason: String,
     },
+    /// An association reader failed without lane identity.
     Association {
+        /// Human-readable failure reason.
         reason: String,
     },
 }
 
 impl TcpAssociationReaderFailure {
+    /// Creates a failure for one identified lane.
     pub fn lane(stream_id: RemoteStreamId, reason: impl Into<String>) -> Self {
         Self::Lane {
             stream_id,
@@ -46,12 +59,14 @@ impl TcpAssociationReaderFailure {
         }
     }
 
+    /// Creates an association-wide reader failure.
     pub fn association(reason: impl Into<String>) -> Self {
         Self::Association {
             reason: reason.into(),
         }
     }
 
+    /// Returns the human-readable failure reason.
     pub fn reason(&self) -> &str {
         match self {
             Self::Lane { reason, .. } | Self::Association { reason } => reason,
@@ -59,21 +74,31 @@ impl TcpAssociationReaderFailure {
     }
 }
 
+/// Policy decision produced for one TCP association reader failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TcpAssociationReaderSupervisionDecision {
+    /// Restart association readers after a failure.
     RestartInboundStreams {
+        /// Number of restart decisions issued so far.
         restart_count: usize,
+        /// Failure that triggered the decision.
         failure: TcpAssociationReaderFailure,
     },
+    /// Stop association readers because the restart limit was exhausted.
     StopInboundStreams {
+        /// Number of restarts completed before stopping.
         restart_count: usize,
+        /// Failure that exhausted the policy.
         failure: TcpAssociationReaderFailure,
     },
+    /// Ignore a failure observed after the supervisor was stopped.
     IgnoreWhileStopped {
+        /// Late failure that was ignored.
         failure: TcpAssociationReaderFailure,
     },
 }
 
+/// Stateful restart-policy evaluator for TCP association reader failures.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpAssociationReaderSupervisor {
     settings: TcpAssociationReaderRestartSettings,
@@ -82,6 +107,7 @@ pub struct TcpAssociationReaderSupervisor {
 }
 
 impl TcpAssociationReaderSupervisor {
+    /// Creates a running supervisor with the supplied restart policy.
     pub fn new(settings: TcpAssociationReaderRestartSettings) -> Self {
         Self {
             settings,
@@ -90,22 +116,27 @@ impl TcpAssociationReaderSupervisor {
         }
     }
 
+    /// Returns the configured restart policy.
     pub fn settings(&self) -> &TcpAssociationReaderRestartSettings {
         &self.settings
     }
 
+    /// Returns the number of restart decisions issued so far.
     pub fn restart_count(&self) -> usize {
         self.restart_count
     }
 
+    /// Returns whether this supervisor will no longer restart readers.
     pub fn is_stopped(&self) -> bool {
         self.stopped
     }
 
+    /// Stops this supervisor so later failures are ignored.
     pub fn stop(&mut self) {
         self.stopped = true;
     }
 
+    /// Records a failure and returns the corresponding policy decision.
     pub fn record_failure(
         &mut self,
         failure: TcpAssociationReaderFailure,

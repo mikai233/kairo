@@ -183,11 +183,14 @@ fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error:
         "kairo-next/crates/kairo-remote/src/stream_sink.rs",
         "kairo-next/crates/kairo-remote/src/system_inbound.rs",
         "kairo-next/crates/kairo-remote/src/tcp/handshake.rs",
+        "kairo-next/crates/kairo-remote/src/tcp/dialer.rs",
         "kairo-next/crates/kairo-remote/src/tcp/inbound/accepted.rs",
         "kairo-next/crates/kairo-remote/src/tcp/inbound/assembly.rs",
         "kairo-next/crates/kairo-remote/src/tcp/inbound/listener.rs",
         "kairo-next/crates/kairo-remote/src/tcp/inbound/reports.rs",
         "kairo-next/crates/kairo-remote/src/tcp/inbound/stream_reader.rs",
+        "kairo-next/crates/kairo-remote/src/tcp/sink.rs",
+        "kairo-next/crates/kairo-remote/src/tcp/supervision.rs",
         "kairo-next/crates/kairo-remote/src/transport.rs",
     ];
 

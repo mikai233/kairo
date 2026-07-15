@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,6 +13,7 @@ use super::{
     TcpRemoteByteSink,
 };
 
+/// Opens the three TCP lanes of an outbound association and installs its route.
 #[derive(Clone)]
 pub struct TcpAssociationDialer {
     installer: RemoteAssociationRouteInstaller,
@@ -21,6 +24,7 @@ pub struct TcpAssociationDialer {
 }
 
 impl TcpAssociationDialer {
+    /// Creates a dialer that publishes completed routes through `installer`.
     pub fn new(installer: RemoteAssociationRouteInstaller) -> Self {
         Self {
             installer,
@@ -31,16 +35,21 @@ impl TcpAssociationDialer {
         }
     }
 
+    /// Sets the timeout for each lane connection attempt.
     pub fn with_connect_timeout(mut self, timeout: Duration) -> Self {
         self.connect_timeout = Some(timeout);
         self
     }
 
+    /// Enables outbound handshakes using `local_address` and a zero UID.
+    ///
+    /// Use [`Self::with_local_identity`] when peer incarnation tracking is required.
     pub fn with_local_address(mut self, local_address: RemoteAssociationAddress) -> Self {
         self.local_identity = Some(TcpAssociationIdentity::new(local_address, 0));
         self
     }
 
+    /// Enables outbound handshakes using the local address and incarnation UID.
     pub fn with_local_identity(
         mut self,
         local_address: RemoteAssociationAddress,
@@ -50,20 +59,31 @@ impl TcpAssociationDialer {
         self
     }
 
+    /// Requires the peer to return and validate one handshake per lane.
+    ///
+    /// A local identity must also be configured before dialing.
     pub fn with_handshake_response_required(mut self) -> Self {
         self.handshake_response_required = true;
         self
     }
 
+    /// Sets resource limits for reading required handshake responses.
     pub fn with_handshake_read_settings(mut self, settings: TcpHandshakeReadSettings) -> Self {
         self.handshake_read_settings = settings;
         self
     }
 
+    /// Returns the route installer used by this dialer.
     pub fn installer(&self) -> &RemoteAssociationRouteInstaller {
         &self.installer
     }
 
+    /// Connects all three lanes and installs their outbound route.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for connection or handshake failure, invalid peer
+    /// identity, or route installation failure.
     pub fn dial(
         &self,
         address: RemoteAssociationAddress,
@@ -82,6 +102,15 @@ impl TcpAssociationDialer {
         )
     }
 
+    /// Connects all three lanes, installs their route, and spawns inbound readers.
+    ///
+    /// The returned reader handle owns the threads that consume frames arriving
+    /// on the bidirectional lane streams.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for connection or handshake failure, stream cloning,
+    /// invalid peer identity, or route installation failure.
     pub fn dial_with_reader(
         &self,
         address: RemoteAssociationAddress,
