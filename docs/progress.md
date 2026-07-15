@@ -6,16 +6,16 @@ As of 2026-07-15, `kairo-next` has broad component coverage across local
 actors, serialization, remoting, gossip state, distributed data, sharding, and
 cluster tools. The component depth and validation history are substantial, but
 the rewrite has not yet reached an M13-only hardening phase. The production
-actor execution model is now complete; one composed remoting boundary, the
-complete cluster daemon lifecycle, and the final public extension APIs still
-require foundational integration work.
+actor execution model and composed remoting boundary are now complete; the
+complete cluster daemon lifecycle and final public extension APIs still require
+foundational integration work.
 
-Current active stage: **foundation convergence before M13**, with Phase 1
-complete and Phase 2 composed remoting now active. M13 validation commands
-continue to run as regression gates, but passing those gates does not by itself
-mean that the M13 acceptance condition has been met. M13 begins only after the
-remaining architecture work can be treated as tuning and release hardening
-rather than replacement.
+Current active stage: **foundation convergence before M13**, with Phases 1 and
+2 complete and Phase 3 cluster daemon integration now active. M13 validation
+commands continue to run as regression gates, but passing those gates does not
+by itself mean that the M13 acceptance condition has been met. M13 begins only
+after the remaining architecture work can be treated as tuning and release
+hardening rather than replacement.
 
 Status terms in this document mean:
 
@@ -48,12 +48,13 @@ Status terms in this document mean:
   remote envelopes, and actor-ref serialization boundaries exist. Optional
   codec helpers and rolling-version fixtures remain, but the stable wire
   contract is already in place.
-- M4 remoting: in progress. Remote refs, provider composition, associations,
-  TCP transport, inbound/outbound delivery, remote watch, and focused socket
-  tests exist. Release acceptance still requires one ActorSystem-owned boundary
-  that can carry heterogeneous registered protocols, bounded non-blocking
-  outbound lanes, reliable ordered system-message delivery, and defensive
-  handshake/lifecycle limits.
+- M4 remoting: complete through the composed runtime boundary. One
+  ActorSystem-owned runtime carries heterogeneous registered protocols over
+  bounded non-blocking lanes, provides reliable ordered lifecycle delivery,
+  enforces defensive handshake and partial-assembly limits, automatically
+  redials managed peers without replaying ordinary messages, and passes
+  focused process-level delivery and bounded-shutdown tests. Cluster and other
+  extension adoption proceeds in Phases 3 and 4.
 - M5 gossip data model: near complete. Vector clocks, gossip, reachability,
   convergence, leader selection, and event diffing have strong pure-state test
   coverage without a central membership authority.
@@ -140,7 +141,7 @@ the baseline.
 
 ### Phase 2: Composed Remoting Runtime
 
-Status: **active**.
+Status: **complete**.
 
 Current checkpoint: ADR-0103 and ADR-0104 fix the composed runtime and reliable
 delivery contracts. `TcpRemoteActorRuntime` is now a non-generic lifecycle core
@@ -200,9 +201,17 @@ The focused process-level remoting gate now runs the public composed runtime in
 two OS processes with independent ActorSystems and codec registries, exchanges
 only the receiver's canonical TCP address and actor path, delivers a typed
 message through `RemoteActorRef<M>`, and completes bounded shutdown on both
-sides. Automatic reconnect scheduling remains next. The older subsystem-
-specific TCP runtimes remain migration baselines until their higher runtime
-owners adopt the shared core.
+sides. ADR-0106 now makes peer redial runtime-owned: `dial` records persistent
+intent even when its first attempt fails, one shared worker retries missing
+routes with configurable capped exponential backoff, and typed sends remain
+non-blocking at-most-once operations with no implicit replay. Real TCP tests
+prove recovery after route loss without rebuilding an actor ref, recovery after
+a failed initial dial, exact-UID quarantine across retries followed by new-UID
+admission, explicit disconnect without route resurrection, and bounded shutdown
+with pending intent. Concrete route closure preserves quarantine as the stronger
+terminal state. The Phase 2 exit gate is met. The older subsystem-specific TCP
+runtimes remain migration baselines until their higher runtime owners adopt the
+shared core during Phases 3 and 4.
 
 The reliable-delivery wire/state-machine layer and its composed runtime are now
 implemented: registered stable envelope/ack/nack codecs preserve a nested
@@ -244,6 +253,8 @@ metadata must remain stable and registry-driven. Record the final transport
 ownership and system-message delivery decisions before implementation.
 
 ### Phase 3: Complete M6 Cluster Runtime
+
+Status: **active**.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -5866,6 +5877,21 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 2 validation after composed-runtime managed peer redial:
+
+```bash
+cargo test -p kairo-remote --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features -- --test-threads=1
+git diff --check
+```
+
+All commands above pass. Two default-parallel workspace test attempts exposed
+three unrelated timing-sensitive actor/testkit tests; each passed immediately
+in isolation, and the complete single-thread workspace run passed. No remoting
+test failed in any validation run.
 
 Latest M13 validation refresh after cluster-tools non-remote peer rejection
 coverage:

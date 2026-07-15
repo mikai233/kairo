@@ -1,4 +1,5 @@
 use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -12,7 +13,7 @@ use kairo_serialization::{
 };
 use kairo_testkit::await_assert;
 
-use super::{TcpRemoteActorRuntime, TcpRemoteActorSystem};
+use super::{TcpRemoteActorRuntime, TcpRemoteActorSystem, TcpRemoteReconnectSettings};
 use crate::{
     AddressTerminated, AssociationState, RemoteAssociationAddress, RemoteAssociationCache,
     RemoteDeathWatchCommand, RemoteDeathWatchEffect, RemoteDeathWatchEffectObserver,
@@ -529,6 +530,317 @@ fn tcp_remote_runtime_reconnects_same_peer_incarnation_after_route_close() {
     sender_remote.shutdown().unwrap();
     let report = receiver_remote.shutdown().unwrap();
     assert_eq!(report.accepted_associations, 2);
+}
+
+#[test]
+fn tcp_remote_runtime_automatically_redials_managed_peer_after_route_close() {
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let sender = ActorSystem::builder("sender").build().unwrap();
+    let registry = registry();
+    let (received_tx, received_rx) = mpsc::channel();
+    let target = receiver
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
+    let reconnect_settings =
+        TcpRemoteReconnectSettings::new(Duration::from_millis(10), Duration::from_millis(40))
+            .unwrap();
+
+    let mut receiver_builder = TcpRemoteActorRuntime::builder(
+        receiver,
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    )
+    .with_reconnect_settings(reconnect_settings);
+    receiver_builder.register::<Ping>().unwrap();
+    let receiver_remote = receiver_builder.bind().unwrap();
+    let mut sender_builder =
+        TcpRemoteActorRuntime::builder(sender, registry, RemoteSettings::new("127.0.0.1", 0), 22)
+            .with_reconnect_settings(reconnect_settings);
+    sender_builder.register::<Ping>().unwrap();
+    let sender_remote = sender_builder.bind().unwrap();
+    let receiver_address = RemoteAssociationAddress::new(
+        "kairo",
+        "receiver",
+        receiver_remote.settings().canonical_hostname.clone(),
+        Some(receiver_remote.settings().canonical_port),
+    )
+    .unwrap();
+    let registration = sender_remote.dial(receiver_address.clone()).unwrap();
+    let first_association = registration.pipeline().association().clone();
+    let remote_target = sender_remote
+        .resolve::<Ping>(remote_path_for(
+            target.path().as_str(),
+            receiver_remote.settings(),
+        ))
+        .unwrap();
+
+    remote_target.tell(Ping { value: 31 }).unwrap();
+    assert_eq!(
+        received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        31
+    );
+    assert_eq!(sender_remote.managed_reconnect_peer_count(), 1);
+    registration.close_owned_route("test managed route loss");
+
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(1),
+        || -> Result<(), String> {
+            let Some(replacement) = sender_remote.association_registry().association_by_uid(11)
+            else {
+                return Err("replacement association is not indexed".to_string());
+            };
+            if sender_remote.association_cache().route_count() == 1
+                && !Arc::ptr_eq(&first_association, &replacement)
+            {
+                Ok(())
+            } else {
+                Err("managed peer route has not been replaced".to_string())
+            }
+        },
+    )
+    .unwrap();
+
+    remote_target.tell(Ping { value: 32 }).unwrap();
+    assert_eq!(
+        received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        32
+    );
+
+    assert!(
+        sender_remote
+            .disconnect(&receiver_address, "managed peer removed")
+            .unwrap()
+    );
+    await_route_count(sender_remote.association_cache(), 0);
+    await_route_count(receiver_remote.association_cache(), 0);
+    thread::sleep(Duration::from_millis(60));
+    assert_eq!(sender_remote.association_cache().route_count(), 0);
+    assert_eq!(sender_remote.managed_reconnect_peer_count(), 0);
+
+    sender_remote.shutdown().unwrap();
+    let report = receiver_remote.shutdown().unwrap();
+    assert_eq!(report.accepted_associations, 2);
+}
+
+#[test]
+fn tcp_remote_runtime_retries_failed_initial_managed_dial() {
+    let reserved = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let receiver_port = reserved.local_addr().unwrap().port();
+    drop(reserved);
+    let registry = registry();
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let sender = ActorSystem::builder("sender").build().unwrap();
+    let (received_tx, received_rx) = mpsc::channel();
+    let target = receiver
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
+    let reconnect_settings =
+        TcpRemoteReconnectSettings::new(Duration::from_millis(10), Duration::from_millis(40))
+            .unwrap();
+    let mut sender_builder = TcpRemoteActorRuntime::builder(
+        sender,
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        22,
+    )
+    .with_reconnect_settings(reconnect_settings);
+    sender_builder.register::<Ping>().unwrap();
+    let sender_remote = sender_builder.bind().unwrap();
+    let receiver_address =
+        RemoteAssociationAddress::new("kairo", "receiver", "127.0.0.1", Some(receiver_port))
+            .unwrap();
+
+    assert!(sender_remote.dial(receiver_address.clone()).is_err());
+    assert_eq!(sender_remote.managed_reconnect_peer_count(), 1);
+    assert_eq!(sender_remote.association_cache().route_count(), 0);
+
+    let mut receiver_builder = TcpRemoteActorRuntime::builder(
+        receiver,
+        registry,
+        RemoteSettings::new("127.0.0.1", receiver_port),
+        11,
+    )
+    .with_reconnect_settings(reconnect_settings);
+    receiver_builder.register::<Ping>().unwrap();
+    let receiver_remote = receiver_builder.bind().unwrap();
+    await_route_count(sender_remote.association_cache(), 1);
+    await_route_count(receiver_remote.association_cache(), 1);
+    let remote_target = sender_remote
+        .resolve::<Ping>(remote_path_for(
+            target.path().as_str(),
+            receiver_remote.settings(),
+        ))
+        .unwrap();
+
+    remote_target.tell(Ping { value: 41 }).unwrap();
+    assert_eq!(
+        received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        41
+    );
+
+    sender_remote
+        .disconnect(&receiver_address, "initial dial retry test done")
+        .unwrap();
+    sender_remote.shutdown().unwrap();
+    let report = receiver_remote.shutdown().unwrap();
+    assert_eq!(report.accepted_associations, 1);
+}
+
+#[test]
+fn tcp_remote_runtime_shutdown_cancels_pending_managed_redial() {
+    let reserved = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let receiver_port = reserved.local_addr().unwrap().port();
+    drop(reserved);
+
+    let sender_system = ActorSystem::builder("sender").build().unwrap();
+    let reconnect_settings =
+        TcpRemoteReconnectSettings::new(Duration::from_secs(10), Duration::from_secs(10)).unwrap();
+    let mut sender_builder = TcpRemoteActorRuntime::builder(
+        sender_system,
+        registry(),
+        RemoteSettings::new("127.0.0.1", 0),
+        22,
+    )
+    .with_reconnect_settings(reconnect_settings);
+    sender_builder.register::<Ping>().unwrap();
+    let sender_remote = sender_builder.bind().unwrap();
+    let receiver_address =
+        RemoteAssociationAddress::new("kairo", "receiver", "127.0.0.1", Some(receiver_port))
+            .unwrap();
+
+    assert!(sender_remote.dial(receiver_address).is_err());
+    assert_eq!(sender_remote.managed_reconnect_peer_count(), 1);
+    sender_remote
+        .shutdown_with_timeout(Duration::from_secs(1))
+        .unwrap();
+}
+
+#[test]
+fn tcp_remote_runtime_redial_preserves_quarantine_until_new_uid() {
+    let receiver_system = ActorSystem::builder("receiver").build().unwrap();
+    let sender_system = ActorSystem::builder("sender").build().unwrap();
+    let registry = registry();
+    let reconnect_settings =
+        TcpRemoteReconnectSettings::new(Duration::from_millis(10), Duration::from_millis(40))
+            .unwrap();
+    let mut receiver_builder = TcpRemoteActorRuntime::builder(
+        receiver_system.clone(),
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    )
+    .with_reconnect_settings(reconnect_settings);
+    receiver_builder.register::<Ping>().unwrap();
+    let receiver_remote = receiver_builder.bind().unwrap();
+    let receiver_port = receiver_remote.settings().canonical_port;
+    let receiver_address =
+        RemoteAssociationAddress::new("kairo", "receiver", "127.0.0.1", Some(receiver_port))
+            .unwrap();
+    let mut sender_builder = TcpRemoteActorRuntime::builder(
+        sender_system,
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        22,
+    )
+    .with_reconnect_settings(reconnect_settings);
+    sender_builder.register::<Ping>().unwrap();
+    let sender_remote = sender_builder.bind().unwrap();
+    sender_remote.dial(receiver_address.clone()).unwrap();
+
+    assert!(sender_remote.association_registry().quarantine_if_uid(
+        &receiver_address,
+        11,
+        "test exact incarnation quarantine"
+    ));
+    await_route_count(sender_remote.association_cache(), 0);
+    thread::sleep(Duration::from_millis(80));
+    assert_eq!(sender_remote.association_cache().route_count(), 0);
+    assert!(matches!(
+        sender_remote
+            .association_registry()
+            .association_for_address(&receiver_address)
+            .unwrap()
+            .lock()
+            .expect("association mutex poisoned")
+            .state(),
+        AssociationState::Quarantined {
+            remote_uid: Some(11),
+            ..
+        }
+    ));
+
+    receiver_remote.shutdown().unwrap();
+    receiver_system.terminate(Duration::from_secs(1)).unwrap();
+
+    let replacement_system = ActorSystem::builder("receiver").build().unwrap();
+    let (received_tx, received_rx) = mpsc::channel();
+    let replacement_target = replacement_system
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
+    let mut replacement_builder = TcpRemoteActorRuntime::builder(
+        replacement_system.clone(),
+        registry,
+        RemoteSettings::new("127.0.0.1", receiver_port),
+        12,
+    )
+    .with_reconnect_settings(reconnect_settings);
+    replacement_builder.register::<Ping>().unwrap();
+    let replacement_remote = replacement_builder.bind().unwrap();
+
+    await_assert(
+        Duration::from_secs(2),
+        Duration::from_millis(1),
+        || -> Result<(), String> {
+            if sender_remote.association_cache().route_count() == 1
+                && sender_remote
+                    .association_registry()
+                    .association_by_uid(12)
+                    .is_some()
+            {
+                Ok(())
+            } else {
+                Err("new receiver UID has not completed managed redial".to_string())
+            }
+        },
+    )
+    .unwrap();
+    let remote_target = sender_remote
+        .resolve::<Ping>(remote_path_for(
+            replacement_target.path().as_str(),
+            replacement_remote.settings(),
+        ))
+        .unwrap();
+    remote_target.tell(Ping { value: 51 }).unwrap();
+    assert_eq!(
+        received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        51
+    );
+
+    sender_remote
+        .disconnect(&receiver_address, "quarantine redial test done")
+        .unwrap();
+    sender_remote.shutdown().unwrap();
+    replacement_remote.shutdown().unwrap();
+    replacement_system
+        .terminate(Duration::from_secs(1))
+        .unwrap();
 }
 
 #[test]

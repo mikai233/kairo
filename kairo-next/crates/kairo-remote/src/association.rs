@@ -182,7 +182,10 @@ impl RemoteAssociation {
     }
 
     pub fn close(&mut self, reason: impl Into<String>) {
-        if matches!(self.state, AssociationState::Closed { .. }) {
+        if matches!(
+            self.state,
+            AssociationState::Quarantined { .. } | AssociationState::Closed { .. }
+        ) {
             return;
         }
         let reason = reason.into();
@@ -268,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn association_blocks_send_after_close_or_quarantine() {
+    fn association_quarantine_remains_stronger_than_transport_close() {
         let mut association = RemoteAssociation::new("kairo://sys@127.0.0.1:25520");
         association.start_handshake();
         association.activate(Some(7));
@@ -283,8 +286,15 @@ mod tests {
         association.close("transport stopped");
         assert!(matches!(
             association.ensure_send_allowed(),
-            Err(RemoteError::AssociationClosed { .. })
+            Err(RemoteError::AssociationQuarantined { .. })
         ));
+        assert_eq!(
+            association.state(),
+            &AssociationState::Quarantined {
+                remote_uid: Some(7),
+                reason: "uid mismatch".to_string(),
+            }
+        );
     }
 
     #[test]

@@ -51,6 +51,9 @@ pub enum RemoteError {
     /// TCP lane-assembly resource settings were zero or otherwise unusable.
     #[error("invalid tcp association assembly settings: {0}")]
     InvalidTcpAssociationAssemblySettings(String),
+    /// TCP route reconnect settings were zero or otherwise unusable.
+    #[error("invalid tcp reconnect settings: {0}")]
+    InvalidTcpReconnectSettings(String),
     /// The association is closed and cannot accept more outbound traffic.
     #[error("remote association with `{remote}` is closed: {reason}")]
     AssociationClosed { remote: String, reason: String },

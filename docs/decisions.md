@@ -3211,3 +3211,53 @@ Consequences:
   parallel association state can remain active.
 - The stable handshake encoding is reused in both directions; no Rust type or
   layout detail is added to the wire contract.
+
+## ADR-0106: The Composed Runtime Owns Bounded Peer Redial
+
+Status: Accepted
+
+Context:
+Closing a failed route and allowing a fresh same-UID handshake fixes the
+association state transition, but callers still have to notice transport loss
+and invoke `dial` again. Pekko keeps outbound association intent above an
+individual stream and lazily restarts failed streams with bounded restart
+policy. Kairo's higher cluster, distributed-data, and cluster-tools connectors
+already model desired peers separately from concrete routes. The composed
+runtime needs the same ownership without making a typed actor send block on a
+socket reconnect or silently replaying ordinary at-most-once messages.
+
+Decision:
+`TcpRemoteActorRuntime::dial` records persistent intent for the complete remote
+association address before attempting the synchronous initial dial. The call
+still returns that attempt's success or error immediately. One runtime-owned
+worker, shared by all managed peers, observes missing routes and retries them;
+there is no worker per actor ref, message, lane, or peer. Retry delay grows
+exponentially from a configurable non-zero minimum and is capped by a
+configurable maximum. A successful route resets its attempt count.
+
+Typed `tell` never performs or waits for reconnect. An ordinary message that
+finds no route still fails at-most-once and is not retained for replay. Reliable
+system messages continue to use ADR-0104's separate bounded retention and UID-
+scoped sequencing. Every retry performs the full lane handshake, so the
+association registry remains the authority for accepting a same-UID transport
+replacement, rejecting a quarantined UID, or admitting a new incarnation.
+Closing a concrete transport route preserves `Quarantined` as the stronger
+terminal state instead of replacing it with `Closed`.
+
+A route registration represents one concrete connection, not the persistent
+peer intent. Closing that registration therefore permits automatic redial.
+`TcpRemoteActorRuntime::disconnect` is the permanent operation: it first clears
+the managed-peer intent and then removes and closes the current route. Runtime
+shutdown clears all intents, wakes and joins the retry owner before listener and
+route teardown, and rejects or closes any attempt that completes after its
+intent was removed.
+
+Consequences:
+- Route recovery no longer depends on callers polling reader handles or
+  rebuilding typed remote refs.
+- Failed ordinary sends remain visible and are never converted into implicit
+  durable delivery.
+- Retry work is bounded to one runtime owner and capped backoff, while complete
+  handshakes preserve quarantine and incarnation rules.
+- Higher distributed connectors can migrate their peer intent into the shared
+  runtime instead of owning parallel transport retry loops.

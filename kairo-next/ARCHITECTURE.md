@@ -914,8 +914,8 @@ TCP association dialing:
   registry and ActorSystem, dials over TCP, delivers through `RemoteActorRef<M>`,
   and both processes complete bounded shutdown without shared runtime state,
 - `TcpRemoteActorRuntime::shutdown_with_timeout` stops the runtime-owned
-  reliable-delivery scheduler and remote death-watch actors before clearing
-  outbound association routes and
+  managed-redial worker, reliable-delivery scheduler, and remote death-watch
+  actors before clearing outbound association routes and
   stopping the TCP listener, joins dialing-side lane readers after route
   shutdown, and preserves the shutdown ordering shape Pekko uses for remoting
   internals before transport shutdown,
@@ -935,12 +935,22 @@ TCP association dialing:
   the first terminal reason, so shutdown is not overwritten by a late reader,
 - a fresh validated handshake replaces a previously identified `Closed`
   registry handle, including for the same peer UID, without reopening the old
-  handle. This permits an explicitly redialed live process to restore its route
+  handle. This permits a redialed live process to restore its route
   while preserving terminal-handle semantics. A quarantined UID remains
   rejected until a new incarnation UID arrives, and an unidentified closed
   entry cannot be revived,
-- automatic reconnect scheduling/backoff and richer provider lifecycle
-  ownership remain separate integration work.
+- `TcpRemoteActorRuntime::dial` records persistent peer intent before its
+  synchronous first attempt. One runtime-owned worker retries missing managed
+  routes with configurable bounded exponential backoff; retries perform the
+  complete identity handshake and therefore cannot bypass exact-UID
+  quarantine. Typed `tell` remains non-blocking and does not reconnect or
+  replay an ordinary at-most-once message. `disconnect` removes persistent
+  intent before closing the concrete route, and runtime shutdown cancels all
+  pending intents and joins the worker before transport teardown,
+- closing a concrete route cannot downgrade `Quarantined` association state to
+  `Closed`; quarantine remains the stronger terminal state until a validated
+  handshake supplies a different incarnation UID. Higher distributed runtime
+  owners adopting the composed boundary remains separate integration work.
 
 Outbound lanes:
 

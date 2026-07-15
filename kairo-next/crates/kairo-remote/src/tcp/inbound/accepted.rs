@@ -136,6 +136,10 @@ impl TcpAssociationReaderHandle {
         Ok(report.read)
     }
 
+    pub(crate) fn is_finished(&self) -> bool {
+        self.joins.iter().all(|reader| reader.join.is_finished())
+    }
+
     pub fn join_after_stop(self) -> TcpAssociationSupervisedReadReport {
         let mut supervisor = TcpAssociationReaderSupervisor::default();
         supervisor.stop();

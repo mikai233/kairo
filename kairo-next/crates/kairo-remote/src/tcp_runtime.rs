@@ -23,9 +23,14 @@ use crate::{
     RemoteError, RemoteLaneClassifier, RemoteOutbound, RemoteOutboundQueueSettings, RemoteSettings,
     RemoteStreamId, ResolvedActorRef, Result, TcpAssociationAssemblySettings, TcpAssociationDialer,
     TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
-    TcpAssociationReaderHandle, TcpAssociationStreamReader, TcpHandshakeReadSettings,
-    UnwatchRemote, WatchRemote, is_remote_death_watch_manifest,
+    TcpAssociationReaderHandle, TcpHandshakeReadSettings, UnwatchRemote, WatchRemote,
+    is_remote_death_watch_manifest,
 };
+
+mod reconnect;
+
+pub use reconnect::TcpRemoteReconnectSettings;
+use reconnect::{ReconnectResources, TcpRemoteReconnectManager};
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 const TCP_REMOTE_SHUTDOWN_REASON: &str = "tcp remote actor system shutdown";
@@ -33,6 +38,14 @@ const TCP_REMOTE_SHUTDOWN_REASON: &str = "tcp remote actor system shutdown";
 struct RuntimeSystemActorRefs<'a> {
     reliable_delivery: &'a ActorRef<ReliableSystemRuntimeCommand>,
     death_watch: &'a ActorRef<RemoteDeathWatchCommand>,
+}
+
+struct RuntimeTransportRefs<'a> {
+    association_cache: &'a RemoteAssociationCache,
+    reconnect: &'a Arc<TcpRemoteReconnectManager>,
+    listener: &'a Arc<Mutex<Option<TcpAssociationListenerHandle>>>,
+    outbound_readers: &'a Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
+    outbound_pipelines: &'a Arc<Mutex<Vec<AssociationOutboundPipeline>>>,
 }
 
 /// One non-generic TCP remoting lifecycle for an ActorSystem.
@@ -46,7 +59,8 @@ pub struct TcpRemoteActorRuntime {
     outbound: Arc<dyn RemoteOutbound>,
     provider: RemoteActorRefProvider,
     dialer: TcpAssociationDialer,
-    inbound: Arc<ActorSystemRemoteInboundRegistry>,
+    reconnect_settings: TcpRemoteReconnectSettings,
+    reconnect: Arc<TcpRemoteReconnectManager>,
     reliable_delivery: Arc<ReliableSystemDeliveryRuntime>,
     reliable_delivery_actor: ActorRef<ReliableSystemRuntimeCommand>,
     outbound_readers: Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
@@ -109,6 +123,7 @@ pub struct TcpRemoteActorRuntimeBuilder {
     outbound_queue_settings: RemoteOutboundQueueSettings,
     handshake_read_settings: TcpHandshakeReadSettings,
     association_assembly_settings: TcpAssociationAssemblySettings,
+    reconnect_settings: TcpRemoteReconnectSettings,
     reliable_delivery_settings: ReliableSystemDeliverySettings,
     reliable_delivery_observer: Arc<dyn ReliableSystemDeliveryObserver>,
     reliable_manifests: HashSet<String>,
@@ -218,6 +233,7 @@ impl TcpRemoteActorRuntime {
             outbound_queue_settings: RemoteOutboundQueueSettings::default(),
             handshake_read_settings: TcpHandshakeReadSettings::default(),
             association_assembly_settings: TcpAssociationAssemblySettings::default(),
+            reconnect_settings: TcpRemoteReconnectSettings::default(),
             reliable_delivery_settings: ReliableSystemDeliverySettings::default(),
             reliable_delivery_observer: Arc::new(IgnoreReliableSystemDeliveryFailures),
             reliable_manifests: default_reliable_manifests(),
@@ -247,6 +263,11 @@ impl TcpRemoteActorRuntimeBuilder {
         settings: TcpAssociationAssemblySettings,
     ) -> Self {
         self.association_assembly_settings = settings;
+        self
+    }
+
+    pub fn with_reconnect_settings(mut self, settings: TcpRemoteReconnectSettings) -> Self {
+        self.reconnect_settings = settings;
         self
     }
 
@@ -363,6 +384,7 @@ impl TcpRemoteActorRuntimeBuilder {
             outbound_queue_settings,
             handshake_read_settings,
             association_assembly_settings,
+            reconnect_settings,
             reliable_delivery_settings,
             reliable_delivery_observer,
             reliable_manifests,
@@ -477,6 +499,20 @@ impl TcpRemoteActorRuntimeBuilder {
             .with_handshake_response_required()
             .with_handshake_read_settings(handshake_read_settings)
             .with_connect_timeout(effective_settings.connect_timeout_or_default());
+        let outbound_readers = Arc::new(Mutex::new(Vec::new()));
+        let outbound_pipelines = Arc::new(Mutex::new(Vec::new()));
+        let reconnect = Arc::new(TcpRemoteReconnectManager::new(
+            reconnect_settings,
+            ReconnectResources::new(
+                dialer.clone(),
+                association_cache.clone(),
+                association_registry.clone(),
+                inbound.clone(),
+                reliable_delivery.clone(),
+                Arc::clone(&outbound_readers),
+                Arc::clone(&outbound_pipelines),
+            ),
+        ));
         let provider = RemoteActorRefProvider::with_actor_system(
             system.clone(),
             effective_settings.clone(),
@@ -494,11 +530,12 @@ impl TcpRemoteActorRuntimeBuilder {
             outbound,
             provider,
             dialer,
-            inbound,
+            reconnect_settings,
+            reconnect,
             reliable_delivery,
             reliable_delivery_actor,
-            outbound_readers: Arc::new(Mutex::new(Vec::new())),
-            outbound_pipelines: Arc::new(Mutex::new(Vec::new())),
+            outbound_readers,
+            outbound_pipelines,
             death_watch,
             listener: Arc::new(Mutex::new(Some(listener))),
         })
@@ -554,21 +591,27 @@ impl TcpRemoteActorRuntime {
         &self,
         address: RemoteAssociationAddress,
     ) -> Result<RemoteAssociationRouteRegistration> {
-        let reader = TcpAssociationStreamReader::new(Arc::new(ReliableSystemInboundHandler::new(
-            self.reliable_delivery.clone(),
-            self.inbound.clone() as Arc<dyn crate::RemoteFrameHandler>,
-            address.clone(),
-        )));
-        let (registration, reader_handle) = self.dialer.dial_with_reader(address, reader)?;
-        self.outbound_pipelines
-            .lock()
-            .expect("tcp remote actor system outbound pipelines lock poisoned")
-            .push(registration.pipeline().clone());
-        self.outbound_readers
-            .lock()
-            .expect("tcp remote actor system outbound readers lock poisoned")
-            .push(reader_handle);
-        Ok(registration)
+        self.reconnect.dial(address)
+    }
+
+    pub fn reconnect_settings(&self) -> TcpRemoteReconnectSettings {
+        self.reconnect_settings
+    }
+
+    pub fn managed_reconnect_peer_count(&self) -> usize {
+        self.reconnect.managed_peer_count()
+    }
+
+    pub fn disconnect(&self, address: &RemoteAssociationAddress, reason: &str) -> Result<bool> {
+        let removed_intent = self.reconnect.disconnect(address);
+        let Some(closed) = self
+            .association_cache
+            .remove_route_and_close(address, reason)
+        else {
+            return Ok(removed_intent);
+        };
+        closed?;
+        Ok(true)
     }
 
     pub fn resolve<N>(&self, path: impl Into<String>) -> Result<RemoteActorRef<N>>
@@ -656,10 +699,13 @@ impl TcpRemoteActorRuntime {
                 reliable_delivery: &self.reliable_delivery_actor,
                 death_watch: &self.death_watch,
             },
-            &self.association_cache,
-            &self.listener,
-            &self.outbound_readers,
-            &self.outbound_pipelines,
+            RuntimeTransportRefs {
+                association_cache: &self.association_cache,
+                reconnect: &self.reconnect,
+                listener: &self.listener,
+                outbound_readers: &self.outbound_readers,
+                outbound_pipelines: &self.outbound_pipelines,
+            },
             timeout,
         )
     }
@@ -675,6 +721,7 @@ impl TcpRemoteActorRuntime {
         let death_watch = self.death_watch.clone();
         let reliable_delivery_actor = self.reliable_delivery_actor.clone();
         let association_cache = self.association_cache.clone();
+        let reconnect = Arc::clone(&self.reconnect);
         let listener = Arc::clone(&self.listener);
         let outbound_readers = Arc::clone(&self.outbound_readers);
         let outbound_pipelines = Arc::clone(&self.outbound_pipelines);
@@ -686,10 +733,13 @@ impl TcpRemoteActorRuntime {
                         reliable_delivery: &reliable_delivery_actor,
                         death_watch: &death_watch,
                     },
-                    &association_cache,
-                    &listener,
-                    &outbound_readers,
-                    &outbound_pipelines,
+                    RuntimeTransportRefs {
+                        association_cache: &association_cache,
+                        reconnect: &reconnect,
+                        listener: &listener,
+                        outbound_readers: &outbound_readers,
+                        outbound_pipelines: &outbound_pipelines,
+                    },
                     timeout,
                 )
                 .map(|_| ())
@@ -702,39 +752,44 @@ impl TcpRemoteActorRuntime {
 fn shutdown_runtime(
     system: &ActorSystem,
     system_actors: RuntimeSystemActorRefs<'_>,
-    association_cache: &RemoteAssociationCache,
-    listener: &Arc<Mutex<Option<TcpAssociationListenerHandle>>>,
-    outbound_readers: &Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
-    outbound_pipelines: &Arc<Mutex<Vec<AssociationOutboundPipeline>>>,
+    transport: RuntimeTransportRefs<'_>,
     timeout: Duration,
 ) -> Result<TcpAssociationListenerReport> {
+    let reconnect_stopped = transport.reconnect.stop_until(Instant::now() + timeout);
     system.stop(system_actors.reliable_delivery);
     system.stop(system_actors.death_watch);
     let reliable_delivery_stopped = system_actors.reliable_delivery.wait_for_stop(timeout);
     let death_watch_stopped = system_actors.death_watch.wait_for_stop(timeout);
-    for result in association_cache.clear_routes_and_close(TCP_REMOTE_SHUTDOWN_REASON) {
+    for result in transport
+        .association_cache
+        .clear_routes_and_close(TCP_REMOTE_SHUTDOWN_REASON)
+    {
         result?;
     }
-    let listener = listener
+    let listener = transport
+        .listener
         .lock()
         .expect("tcp remote actor system listener lock poisoned")
         .take();
 
     let Some(listener) = listener else {
-        if !reliable_delivery_stopped || !death_watch_stopped {
+        if !reconnect_stopped || !reliable_delivery_stopped || !death_watch_stopped {
             return Err(RemoteError::Inbound(
-                "remote system actors did not stop during tcp shutdown".to_string(),
+                "remote reconnect worker or system actors did not stop during tcp shutdown"
+                    .to_string(),
             ));
         }
         return Ok(empty_listener_report());
     };
 
     listener.stop();
-    outbound_pipelines
+    transport
+        .outbound_pipelines
         .lock()
         .expect("tcp remote actor system outbound pipelines lock poisoned")
         .clear();
-    let outbound_readers = outbound_readers
+    let outbound_readers = transport
+        .outbound_readers
         .lock()
         .expect("tcp remote actor system outbound readers lock poisoned")
         .drain(..)
@@ -743,13 +798,16 @@ fn shutdown_runtime(
         let _ = reader.join_after_stop_until(Instant::now());
     }
     let listener_report = listener.join();
-    for result in association_cache.clear_routes_and_close(TCP_REMOTE_SHUTDOWN_REASON) {
+    for result in transport
+        .association_cache
+        .clear_routes_and_close(TCP_REMOTE_SHUTDOWN_REASON)
+    {
         result?;
     }
 
-    if !reliable_delivery_stopped || !death_watch_stopped {
+    if !reconnect_stopped || !reliable_delivery_stopped || !death_watch_stopped {
         return Err(RemoteError::Inbound(
-            "remote system actors did not stop during tcp shutdown".to_string(),
+            "remote reconnect worker or system actors did not stop during tcp shutdown".to_string(),
         ));
     }
 
