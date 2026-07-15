@@ -163,7 +163,7 @@ impl Actor for ShardingCounter {
 
 struct ShardingTcpDemoNode {
     system: ActorSystem,
-    _runtime: TcpRemoteActorRuntime,
+    runtime: TcpRemoteActorRuntime,
     cluster: ClusterDaemonHandle,
     sharding: Arc<ClusterSharding>,
     ddata: DistributedDataHandle<ORSet<String>>,
@@ -263,7 +263,7 @@ impl ShardingTcpDemoNode {
 
         Ok(Self {
             system,
-            _runtime: runtime,
+            runtime,
             cluster,
             sharding,
             ddata,
@@ -323,6 +323,17 @@ impl ShardingTcpDemoNode {
                     .then_some(()))
             },
             "cluster gossip convergence",
+        )
+    }
+
+    fn wait_for_peer_routes(&self, count: usize, timeout: Duration) -> DemoResult<()> {
+        wait_until(
+            timeout,
+            || {
+                let route_count = self.runtime.association_cache().route_count();
+                Ok((route_count >= count).then_some(()))
+            },
+            format!("{count} active remoting peer routes"),
         )
     }
 
@@ -411,6 +422,9 @@ pub fn run_three_node_sharding_acceptance() -> DemoResult<ThreeNodeShardingObser
     let scenario = (|| -> DemoResult<ThreeNodeShardingObservation> {
         for node in [&node_a, &node_b, &node_c] {
             node.wait_for_up_members(3, Duration::from_secs(5))?;
+        }
+        for node in [&node_a, &node_b, &node_c] {
+            node.wait_for_peer_routes(2, Duration::from_secs(5))?;
         }
         node_b.wait_for_remembered_entities(&entity_ids, Duration::from_secs(4))?;
         node_c.wait_for_remembered_entities(&entity_ids, Duration::from_secs(4))?;

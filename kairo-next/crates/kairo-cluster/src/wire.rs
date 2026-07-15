@@ -184,9 +184,12 @@ impl Actor for ClusterMembershipWireOutboundActor {
     type Msg = ClusterMembershipMsg;
 
     fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
-        self.outbound
-            .send_membership(msg)
-            .map_err(|error| ActorError::Message(error.to_string()))
+        match self.outbound.send_membership(msg) {
+            // Membership delivery is retried by seed join and gossip. A transient
+            // association failure must not permanently stop a cached reply route.
+            Ok(()) | Err(ClusterMembershipWireError::Send(_)) => Ok(()),
+            Err(error) => Err(ActorError::Message(error.to_string())),
+        }
     }
 }
 

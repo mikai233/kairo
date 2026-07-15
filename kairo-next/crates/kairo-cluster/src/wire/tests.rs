@@ -1,7 +1,8 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use kairo_actor::{ActorRef, Address, Props};
+use kairo_actor::{ActorRef, Address, Props, Recipient, SendError};
 use kairo_serialization::{Manifest, Registry, RemoteMessage, SerializedMessage};
 use kairo_testkit::ActorSystemTestKit;
 
@@ -25,6 +26,21 @@ fn node(system: &str, uid: u64) -> UniqueAddress {
 
 fn member(unique_address: UniqueAddress, status: MemberStatus) -> Member {
     Member::new(unique_address, Vec::new()).with_status(status)
+}
+
+#[derive(Clone)]
+struct FailingRecipient {
+    attempts: Arc<AtomicUsize>,
+}
+
+impl Recipient<ClusterSerializedMembership> for FailingRecipient {
+    fn tell(
+        &self,
+        message: ClusterSerializedMembership,
+    ) -> Result<(), SendError<ClusterSerializedMembership>> {
+        self.attempts.fetch_add(1, Ordering::Relaxed);
+        Err(SendError::new(message, "association unavailable"))
+    }
 }
 
 fn spawn_membership(
@@ -145,6 +161,50 @@ fn wire_outbound_serializes_join_welcome_and_gossip_for_target_node() {
             .sequence_nr,
         7
     );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn wire_outbound_actor_survives_transient_transport_failure() {
+    let kit = ActorSystemTestKit::new("cluster-wire-outbound-failure").unwrap();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let outbound = ClusterMembershipWireOutbound::new(
+        node("peer", 2),
+        registry(),
+        FailingRecipient {
+            attempts: attempts.clone(),
+        },
+    );
+    let outbound_actor = kit
+        .system()
+        .spawn(
+            "wire-outbound",
+            Props::new(move || ClusterMembershipWireOutboundActor::new(outbound.clone())),
+        )
+        .unwrap();
+
+    let gossip = || ClusterMembershipMsg::Gossip {
+        envelope: Box::new(GossipEnvelope {
+            from: node("self", 1),
+            to: node("peer", 2),
+            sequence_nr: 1,
+            gossip: Gossip::from_members([member(node("self", 1), MemberStatus::Up)]),
+        }),
+        reply_to: None,
+    };
+    outbound_actor.tell(gossip()).unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while attempts.load(Ordering::Relaxed) < 1 && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    outbound_actor.tell(gossip()).unwrap();
+    while attempts.load(Ordering::Relaxed) < 2 && std::time::Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+
+    assert_eq!(attempts.load(Ordering::Relaxed), 2);
+    assert!(!outbound_actor.is_stopped());
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
