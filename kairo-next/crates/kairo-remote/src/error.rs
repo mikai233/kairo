@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use kairo_serialization::SerializationError;
 
 /// Result type used by remote APIs.
@@ -22,13 +24,26 @@ pub enum RemoteError {
     Outbound(String),
     /// A bounded association lane could not accept another frame immediately.
     #[error("remote {lane} lane queue is full at capacity {capacity}")]
-    OutboundLaneQueueFull { lane: String, capacity: usize },
+    OutboundLaneQueueFull {
+        /// Lowercase transport lane name.
+        lane: String,
+        /// Configured bounded queue capacity.
+        capacity: usize,
+    },
     /// A lane writer has closed and rejects further frames.
     #[error("remote {lane} lane writer is closed: {reason}")]
-    OutboundLaneClosed { lane: String, reason: String },
+    OutboundLaneClosed {
+        /// Lowercase transport lane name.
+        lane: String,
+        /// Diagnostic reason the writer closed.
+        reason: String,
+    },
     /// The bounded reliable-system retention buffer is full.
     #[error("reliable system delivery buffer is full at capacity {capacity}")]
-    ReliableSystemBufferFull { capacity: usize },
+    ReliableSystemBufferFull {
+        /// Configured maximum number of retained system messages.
+        capacity: usize,
+    },
     /// Reliable delivery metadata did not match the active association state.
     #[error("invalid reliable system delivery transition: {0}")]
     InvalidReliableSystemDelivery(String),
@@ -56,20 +71,36 @@ pub enum RemoteError {
     InvalidTcpReconnectSettings(String),
     /// The association is closed and cannot accept more outbound traffic.
     #[error("remote association with `{remote}` is closed: {reason}")]
-    AssociationClosed { remote: String, reason: String },
+    AssociationClosed {
+        /// Canonical remote actor-system address.
+        remote: String,
+        /// First terminal close reason.
+        reason: String,
+    },
     /// The association is quarantined and cannot accept more outbound traffic.
     #[error("remote association with `{remote}` is quarantined: {reason}")]
-    AssociationQuarantined { remote: String, reason: String },
+    AssociationQuarantined {
+        /// Canonical remote actor-system address.
+        remote: String,
+        /// Quarantine reason.
+        reason: String,
+    },
     /// No outbound association route is installed for the remote address.
     #[error("no remote association route for `{remote}`")]
-    AssociationUnavailable { remote: String },
+    AssociationUnavailable {
+        /// Canonical remote actor-system address.
+        remote: String,
+    },
     /// A remote UID is already bound to a different association address.
     #[error(
         "remote association UID collision for `{uid}`: existing `{existing}`, attempted `{attempted}`"
     )]
     AssociationUidCollision {
+        /// Remote actor-system incarnation claimed by both addresses.
         uid: u64,
+        /// Canonical address already indexed for the UID.
         existing: String,
+        /// Canonical address attempting to claim the UID.
         attempted: String,
     },
 }
