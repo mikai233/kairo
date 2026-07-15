@@ -129,6 +129,70 @@ fn local_singleton_manager_spawns_child_when_oldest() {
 }
 
 #[test]
+fn local_singleton_manager_sends_only_remote_handover_effects_to_transport_sink() {
+    let self_node = node("local-singleton-next", 2);
+    let previous = node("local-singleton-previous", 1);
+    let (_tracker, observation) = SingletonOldestTracker::from_members(
+        self_node.clone(),
+        SingletonScope::all(),
+        [
+            member(previous.clone(), MemberStatus::Up, 1),
+            member(self_node.clone(), MemberStatus::Up, 2),
+        ],
+    );
+    let kit = ActorSystemTestKit::new("local-singleton-remote-effects").unwrap();
+    let started = kit.create_probe::<&'static str>("started").unwrap();
+    let stopped = kit.create_probe::<&'static str>("stopped").unwrap();
+    let remote_effects = kit
+        .create_probe::<Vec<SingletonManagerEffect>>("remote-effects")
+        .unwrap();
+    let manager = kit
+        .system()
+        .spawn(
+            "manager",
+            LocalSingletonManagerActor::<LocalSingletonProbe>::props_with_remote_effect_sink(
+                self_node.clone(),
+                "singleton",
+                {
+                    let started = started.actor_ref();
+                    let stopped = stopped.actor_ref();
+                    move || {
+                        let started = started.clone();
+                        let stopped = stopped.clone();
+                        Props::new(move || LocalSingletonProbe { started, stopped })
+                    }
+                },
+                LocalSingletonProbeMsg::Stop,
+                SingletonManagerSettings::default(),
+                remote_effects.actor_ref(),
+            ),
+        )
+        .unwrap();
+
+    manager
+        .tell(LocalSingletonManagerMsg::ApplyInitialObservation {
+            observation,
+            reply_to: None,
+        })
+        .unwrap();
+    manager
+        .tell(LocalSingletonManagerMsg::ApplyOldestChange {
+            change: SingletonOldestChange::OldestChanged(Some(self_node)),
+            reply_to: None,
+        })
+        .unwrap();
+
+    remote_effects
+        .expect_msg_eq(
+            vec![SingletonManagerEffect::SendHandOverToMe { to: previous }],
+            Duration::from_millis(500),
+        )
+        .unwrap();
+    started.expect_no_msg(Duration::from_millis(30)).unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn local_singleton_manager_stops_child_before_handover_done() {
     let node_a = node("local-singleton-oldest", 1);
     let node_b = node("local-singleton-new", 2);

@@ -164,6 +164,40 @@ fn remote_inbound_delivers_takeover_to_manager_actor_ref() {
 }
 
 #[test]
+fn local_manager_remote_inbound_delivers_handover_to_typed_manager() {
+    let kit = ActorSystemTestKit::new("local-singleton-manager-remote-in").unwrap();
+    let registry = registry();
+    let self_node = node("next", 2);
+    let previous = node("previous", 1);
+    let manager = kit
+        .create_probe::<crate::LocalSingletonManagerMsg<String>>("manager")
+        .unwrap();
+    let inbound = LocalSingletonManagerRemoteInbound::new(
+        self_node.clone(),
+        registry.clone(),
+        manager.actor_ref(),
+    );
+    let envelope = RemoteEnvelope::new(
+        recipient_for(&self_node),
+        None,
+        registry
+            .serialize(&SingletonHandOverToMe {
+                from: previous.clone(),
+            })
+            .unwrap(),
+    );
+
+    inbound.receive(envelope).unwrap();
+
+    assert!(matches!(
+        manager.expect_msg(Duration::from_secs(1)).unwrap(),
+        crate::LocalSingletonManagerMsg::HandOverToMe { from, reply_to: None }
+            if from == previous
+    ));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn remote_inbound_rejects_wrong_recipient_and_unknown_manifest() {
     let kit = ActorSystemTestKit::new("singleton-manager-remote-reject").unwrap();
     let registry = registry();

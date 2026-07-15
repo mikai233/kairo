@@ -424,6 +424,13 @@ publish from the peer through the shared association. The pubsub actors expose
 the bridge this composition needs: a mediator mirrors local topic, group, and
 logical-path mutations into its gossip actor, while accepted known-peer deltas
 return through a typed sink for merge into the mediator routing registry.
+The singleton foundation now also closes its typed remote-manager seam:
+`LocalSingletonManagerActor<A>` can send only remote handover/takeover effects
+to a transport sink while retaining child lifecycle effects locally, and
+`LocalSingletonManagerRemoteInbound<M>` decodes the four stable control
+messages directly into the typed local manager protocol. Shared-runtime
+registration, oldest-tracker composition, proxy discovery, and real handover
+remain the next singleton checkpoint.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.

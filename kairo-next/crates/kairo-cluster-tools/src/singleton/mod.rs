@@ -24,6 +24,6 @@ pub use proxy::{
 };
 pub use proxy_target::SingletonProxyTarget;
 pub use remote::{
-    DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, SingletonManagerRemoteError,
-    SingletonManagerRemoteInbound, SingletonManagerRemoteOutbound,
+    DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, LocalSingletonManagerRemoteInbound,
+    SingletonManagerRemoteError, SingletonManagerRemoteInbound, SingletonManagerRemoteOutbound,
 };

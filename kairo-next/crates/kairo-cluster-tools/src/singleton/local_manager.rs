@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use kairo_actor::{Actor, ActorPath, ActorRef, ActorResult, Context, Props};
+use kairo_actor::{Actor, ActorPath, ActorRef, ActorResult, Context, Props, Recipient};
 use kairo_cluster::UniqueAddress;
 
 use crate::{
@@ -18,6 +18,7 @@ where
     runtime: SingletonManagerRuntime,
     settings: SingletonManagerSettings,
     effect_sink: Option<ActorRef<Vec<SingletonManagerEffect>>>,
+    remote_effect_sink: Option<Arc<dyn Recipient<Vec<SingletonManagerEffect>> + Send + Sync>>,
     singleton_name: String,
     singleton_props: Arc<dyn Fn() -> Props<A> + Send + Sync>,
     termination_message: A::Msg,
@@ -42,6 +43,7 @@ where
             runtime: SingletonManagerRuntime::new(self_node),
             settings: SingletonManagerSettings::default(),
             effect_sink: None,
+            remote_effect_sink: None,
             singleton_name: singleton_name.into(),
             singleton_props: Arc::new(singleton_props),
             termination_message,
@@ -59,11 +61,12 @@ where
         F: Fn() -> Props<A> + Send + Sync + 'static,
     {
         let singleton_name = singleton_name.into();
-        let singleton_props = Arc::new(singleton_props);
+        let singleton_props = Arc::new(singleton_props) as Arc<dyn Fn() -> Props<A> + Send + Sync>;
         Props::new(move || Self {
             runtime: SingletonManagerRuntime::new(self_node),
             settings: SingletonManagerSettings::default(),
             effect_sink: None,
+            remote_effect_sink: None,
             singleton_name,
             singleton_props,
             termination_message: termination_message.clone(),
@@ -88,8 +91,37 @@ where
             runtime: SingletonManagerRuntime::new(self_node),
             settings,
             effect_sink: Some(effect_sink.clone()),
+            remote_effect_sink: None,
             singleton_name,
             singleton_props,
+            termination_message: termination_message.clone(),
+            singleton: None,
+        })
+    }
+
+    pub fn props_with_remote_effect_sink<F, R>(
+        self_node: UniqueAddress,
+        singleton_name: impl Into<String>,
+        singleton_props: F,
+        termination_message: A::Msg,
+        settings: SingletonManagerSettings,
+        remote_effect_sink: R,
+    ) -> Props<Self>
+    where
+        F: Fn() -> Props<A> + Send + Sync + 'static,
+        R: Recipient<Vec<SingletonManagerEffect>> + Send + Sync + 'static,
+    {
+        let singleton_name = singleton_name.into();
+        let singleton_props = Arc::new(singleton_props) as Arc<dyn Fn() -> Props<A> + Send + Sync>;
+        let remote_effect_sink = Arc::new(remote_effect_sink)
+            as Arc<dyn Recipient<Vec<SingletonManagerEffect>> + Send + Sync>;
+        Props::new(move || Self {
+            runtime: SingletonManagerRuntime::new(self_node.clone()),
+            settings: settings.clone(),
+            effect_sink: None,
+            remote_effect_sink: Some(Arc::clone(&remote_effect_sink)),
+            singleton_name: singleton_name.clone(),
+            singleton_props: Arc::clone(&singleton_props),
             termination_message: termination_message.clone(),
             singleton: None,
         })
@@ -108,6 +140,16 @@ where
             && let Some(effect_sink) = &self.effect_sink
         {
             let _ = effect_sink.tell(effects.clone());
+        }
+        let remote_effects: Vec<_> = effects
+            .iter()
+            .filter(|effect| is_remote_effect(effect))
+            .cloned()
+            .collect();
+        if !remote_effects.is_empty()
+            && let Some(remote_effect_sink) = &self.remote_effect_sink
+        {
+            let _ = remote_effect_sink.tell(remote_effects);
         }
         reply_effects(reply_to, effects);
     }
@@ -190,6 +232,16 @@ where
         }
         Ok(())
     }
+}
+
+fn is_remote_effect(effect: &SingletonManagerEffect) -> bool {
+    matches!(
+        effect,
+        SingletonManagerEffect::SendHandOverToMe { .. }
+            | SingletonManagerEffect::SendHandOverInProgress { .. }
+            | SingletonManagerEffect::SendHandOverDone { .. }
+            | SingletonManagerEffect::SendTakeOverFromMe { .. }
+    )
 }
 
 pub enum LocalSingletonManagerMsg<M: Send + 'static> {

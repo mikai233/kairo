@@ -116,13 +116,13 @@ pub use shared_remote_runtime::{
 };
 pub use singleton::{
     DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, LocalSingletonManagerActor, LocalSingletonManagerMsg,
-    LocalSingletonManagerSnapshot, SingletonManagerActor, SingletonManagerEffect,
-    SingletonManagerMsg, SingletonManagerRemoteError, SingletonManagerRemoteInbound,
-    SingletonManagerRemoteOutbound, SingletonManagerRuntime, SingletonManagerSettings,
-    SingletonManagerSettingsError, SingletonManagerSnapshot, SingletonManagerState,
-    SingletonOldestChange, SingletonOldestObservation, SingletonOldestTracker, SingletonProxyActor,
-    SingletonProxyMsg, SingletonProxySettings, SingletonProxySettingsError, SingletonProxySnapshot,
-    SingletonProxyTarget, SingletonScope,
+    LocalSingletonManagerRemoteInbound, LocalSingletonManagerSnapshot, SingletonManagerActor,
+    SingletonManagerEffect, SingletonManagerMsg, SingletonManagerRemoteError,
+    SingletonManagerRemoteInbound, SingletonManagerRemoteOutbound, SingletonManagerRuntime,
+    SingletonManagerSettings, SingletonManagerSettingsError, SingletonManagerSnapshot,
+    SingletonManagerState, SingletonOldestChange, SingletonOldestObservation,
+    SingletonOldestTracker, SingletonProxyActor, SingletonProxyMsg, SingletonProxySettings,
+    SingletonProxySettingsError, SingletonProxySnapshot, SingletonProxyTarget, SingletonScope,
 };
 pub use system_inbound::{
     ClusterToolsSystemInbound, ClusterToolsSystemInboundError, is_cluster_tools_system_manifest,

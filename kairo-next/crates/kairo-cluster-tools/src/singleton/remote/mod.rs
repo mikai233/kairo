@@ -1,5 +1,6 @@
 mod error;
 mod inbound;
+mod local_inbound;
 mod outbound;
 
 use kairo_cluster::UniqueAddress;
@@ -7,6 +8,7 @@ use kairo_serialization::ActorRefWireData;
 
 pub use self::error::SingletonManagerRemoteError;
 pub use self::inbound::SingletonManagerRemoteInbound;
+pub use self::local_inbound::LocalSingletonManagerRemoteInbound;
 pub use self::outbound::SingletonManagerRemoteOutbound;
 
 pub const DEFAULT_SINGLETON_MANAGER_REMOTE_PATH: &str = "/system/singleton/manager";

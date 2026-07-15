@@ -2176,8 +2176,10 @@ Design:
   `TakeOverFromMe` carry the sender `UniqueAddress`,
 - remote manager handover envelopes are addressed to
   `/system/singleton/manager`; outbound adapters interpret manager effects and
-  inbound adapters validate the recipient path before dispatching into the
-  actor-backed manager protocol,
+  inbound adapters validate the recipient path before dispatching into either
+  the planner actor or the typed `LocalSingletonManagerActor<A>` protocol; the
+  typed manager applies child start/stop effects locally and forwards only the
+  four remote handover/takeover effects to its configured transport sink,
 - on leaving/exiting/down, singleton stops or moves.
 
 Singleton must consume cluster events only. It must not have a separate
