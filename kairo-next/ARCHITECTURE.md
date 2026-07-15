@@ -2243,6 +2243,22 @@ Cluster-tools inbound routing:
   readers can dispatch decoded cluster-tools frames without each subsystem
   owning its own stream reader.
 
+Composed distributed pubsub:
+
+- `register_distributed_pubsub<M>` registers the four stable pubsub manifests
+  on the shared control lane before bind and materializes the mediator, gossip
+  actor, and cluster connector at `/system/pubsub`,
+- `DistributedPubSubExtension<M>` is the typed ActorSystem entry point; one
+  registration owns the stable pubsub manifest/path namespace for one
+  `RemoteMessage` protocol `M`, while local mediator traffic remains typed and
+  does not require an erased global message enum,
+- the connector subscribes to the real cluster snapshot and later member
+  events, adds role-eligible Up/WeaklyUp peers, removes Left/Downed/Removed
+  peers and their buckets, schedules fixed-delay gossip, and never treats an
+  association as membership evidence,
+- mediator, gossip, and connector actors stop before cluster shutdown; the
+  shared remoting runtime retains listener and association ownership.
+
 Cluster-tools TCP runtime:
 
 - `ClusterToolsTcpAssociationRuntime<M>` is the configured-peer socket runtime

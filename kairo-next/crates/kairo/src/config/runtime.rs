@@ -696,6 +696,17 @@ impl ClusterToolsConfig {
     }
 
     #[cfg(feature = "cluster-tools")]
+    /// Builds settings for the shared-runtime distributed-pubsub extension.
+    pub fn to_distributed_pubsub_settings(
+        &self,
+    ) -> Result<kairo_cluster_tools::DistributedPubSubSettings, ConfigError> {
+        self.validate()?;
+        Ok(kairo_cluster_tools::DistributedPubSubSettings::default()
+            .with_gossip_interval(self.pubsub_gossip_interval)
+            .with_max_delta_entries(self.pubsub_max_delta_entries))
+    }
+
+    #[cfg(feature = "cluster-tools")]
     /// Builds a configured pubsub gossip actor for the supplied node.
     pub fn to_pubsub_gossip_actor(
         &self,

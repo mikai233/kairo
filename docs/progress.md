@@ -409,11 +409,21 @@ of the ActorSystem-owned remoting runtime and constructs the existing inbound
 router with the effective canonical node plus shared association cache. A live
 socket test carries pubsub status, serialized pubsub business delivery, and
 singleton handover through one shared association into their actor boundaries.
-Public singleton/pubsub extensions and authoritative cluster-event connectors
-remain open. The pubsub actors now also expose the bridge those extensions
-need: a mediator can mirror local topic, group, and logical-path mutations into
-its gossip actor, while the gossip actor forwards accepted known-peer deltas
-through a typed sink for merge into the mediator's routing registry.
+The public singleton extension and its authoritative cluster-event connector
+remain open. Distributed pubsub is now composed:
+`register_distributed_pubsub<M>` installs its four manifests on the shared
+control lane, materializes the typed mediator, gossip actor, and cluster
+connector after bind, and activation exposes `DistributedPubSubExtension<M>`.
+The connector derives role-eligible peers only from authoritative cluster
+snapshots/events, schedules fixed-delay gossip, and removes departed peers and
+registry buckets. Existing format-neutral/TOML cluster-tools gossip interval
+and delta limits now project directly to the extension settings. A real
+two-ActorSystem test forms through seed contact,
+converges a remote subscription through gossip, and delivers a serialized
+publish from the peer through the shared association. The pubsub actors expose
+the bridge this composition needs: a mediator mirrors local topic, group, and
+logical-path mutations into its gossip actor, while accepted known-peer deltas
+return through a typed sink for merge into the mediator routing registry.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.

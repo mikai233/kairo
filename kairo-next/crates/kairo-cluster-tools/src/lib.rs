@@ -10,6 +10,12 @@
 //! caches while cluster truth remains gossip plus local failure-detector
 //! observations.
 //!
+//! Composed applications can call [`register_distributed_pubsub`] before the
+//! shared remote runtime binds and activate the resulting registration after
+//! the cluster extension. [`DistributedPubSubExtension<M>`] then exposes one
+//! typed mediator whose peers and gossip routes follow authoritative cluster
+//! snapshots and member events without a second listener.
+//!
 //! Remote cluster-tools messages use stable
 //! [`RemoteMessage`](kairo_serialization::RemoteMessage) manifests, serializer
 //! ids, and registered codecs. Singleton handover messages and distributed
@@ -55,6 +61,7 @@
 //! than in the crate root.
 
 mod codec;
+mod extension;
 mod protocol;
 mod pubsub;
 mod remote_tcp;
@@ -75,6 +82,12 @@ pub use codec::{
     PUBSUB_STATUS_SERIALIZER_ID, SINGLETON_HAND_OVER_DONE_SERIALIZER_ID,
     SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID, SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID,
     SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID, register_cluster_tools_protocol_codecs,
+};
+pub use extension::{
+    DistributedPubSubBootstrapError, DistributedPubSubConnectorMsg,
+    DistributedPubSubConnectorSnapshot, DistributedPubSubExtension, DistributedPubSubHandle,
+    DistributedPubSubRegistration, DistributedPubSubSettings, PUBSUB_SYSTEM_MANIFESTS,
+    register_distributed_pubsub,
 };
 pub use protocol::{
     PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope, PubSubStatus, SingletonHandOverDone,

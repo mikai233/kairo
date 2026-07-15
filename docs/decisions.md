@@ -3700,3 +3700,40 @@ Consequences:
 - The legacy standalone cluster-tools TCP bootstrap remains a focused-test and
   compatibility boundary while public singleton/pubsub extensions and their
   cluster-event connectors are composed in later checkpoints.
+
+## ADR-0117: Distributed Pubsub Is A Typed Shared-Runtime Extension
+
+Status: Accepted
+
+Context:
+The pubsub mediator, gossip state, stable wire adapters, and shared inbound seam
+were independently runnable, but applications still had to assemble them and
+manually supply peers. Pekko's mediator subscribes to cluster membership,
+gossips only with known eligible nodes, removes departed buckets, and owns one
+dynamic user-message namespace. Kairo must preserve those observable
+membership and convergence semantics without adopting an untyped `Any` API or
+binding another transport.
+
+Decision:
+`register_distributed_pubsub<M>` registers the four stable pubsub manifests on
+the control lane of the existing `TcpRemoteActorRuntimeBuilder`. Its bind-time
+factory spawns the typed mediator, gossip actor, and a connector that consumes
+the real cluster snapshot and later member events. The connector adds
+role-eligible Up/WeaklyUp peers, removes Left/Downed/Removed peers, drives a
+fixed-delay gossip tick, and forwards accepted deltas into the mediator routing
+registry. Activation installs `DistributedPubSubExtension<M>` and orders all
+three actors before cluster shutdown.
+
+One registration owns `/system/pubsub` and the common publish/path envelope
+manifests for one configured `RemoteMessage` type `M` per ActorSystem. Local
+messages remain typed and serialization-free; broad heterogeneous pubsub would
+require an explicit stable inner-manifest router rather than a global Rust
+message enum or type erasure at the user boundary.
+
+Consequences:
+- Subscription convergence and remote publish delivery now run through the
+  same cluster-derived associations as actor remoting and membership.
+- Transport reachability cannot add a pubsub peer or recreate a removed
+  incarnation; cluster membership remains authoritative.
+- The typed extension is coherent for one application protocol today, while a
+  future multi-protocol router remains an explicit wire/API enhancement.

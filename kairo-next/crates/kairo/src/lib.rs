@@ -168,10 +168,14 @@ pub mod prelude {
     };
     #[cfg(feature = "cluster-tools")]
     pub use kairo_cluster_tools::{
-        CLUSTER_TOOLS_SYSTEM_MANIFESTS, DistributedPubSubMediatorActor,
-        DistributedPubSubMediatorMsg, LocalPubSub, LocalSingletonManagerActor,
-        LocalSingletonManagerMsg, SingletonManagerSettings, SingletonProxyActor, SingletonProxyMsg,
-        SingletonScope, TopicName, TopicPublishMode, register_cluster_tools_system_inbound,
+        CLUSTER_TOOLS_SYSTEM_MANIFESTS, DistributedPubSubBootstrapError,
+        DistributedPubSubConnectorMsg, DistributedPubSubConnectorSnapshot,
+        DistributedPubSubExtension, DistributedPubSubHandle, DistributedPubSubMediatorActor,
+        DistributedPubSubMediatorMsg, DistributedPubSubRegistration, DistributedPubSubSettings,
+        LocalPubSub, LocalSingletonManagerActor, LocalSingletonManagerMsg, PUBSUB_SYSTEM_MANIFESTS,
+        SingletonManagerSettings, SingletonProxyActor, SingletonProxyMsg, SingletonScope,
+        TopicName, TopicPublishMode, register_cluster_tools_system_inbound,
+        register_distributed_pubsub,
     };
     #[cfg(feature = "distributed-data")]
     pub use kairo_distributed_data::{

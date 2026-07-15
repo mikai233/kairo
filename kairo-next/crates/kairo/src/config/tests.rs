@@ -1826,6 +1826,16 @@ max_delta_entries = 7
         .unwrap();
     assert_eq!(gossip.registry().self_node(), &self_node);
     assert_eq!(gossip.max_delta_entries(), 7);
+    let pubsub_settings = settings
+        .cluster
+        .tools
+        .to_distributed_pubsub_settings()
+        .unwrap();
+    assert_eq!(
+        pubsub_settings.gossip_interval(),
+        Duration::from_millis(250)
+    );
+    assert_eq!(pubsub_settings.max_delta_entries(), 7);
 
     fn node(name: &str, uid: u64) -> UniqueAddress {
         UniqueAddress::new(

@@ -2168,10 +2168,18 @@ fn prelude_exposes_cluster_tools_entry_points() {
     assert_eq!(topic.as_str(), "events");
     assert_eq!(SingletonScope::for_role("backend").role(), Some("backend"));
     assert_eq!(CLUSTER_TOOLS_SYSTEM_MANIFESTS.len(), 8);
+    assert_eq!(PUBSUB_SYSTEM_MANIFESTS.len(), 4);
+    assert_eq!(
+        DistributedPubSubSettings::default().gossip_interval(),
+        std::time::Duration::from_secs(1)
+    );
     let _ = TopicPublishMode::Broadcast;
     let _ = std::mem::size_of::<Option<LocalPubSub<String>>>();
     let _ = std::mem::size_of::<Option<DistributedPubSubMediatorActor<String>>>();
     let _ = std::mem::size_of::<Option<DistributedPubSubMediatorMsg<String>>>();
+    let _ = std::mem::size_of::<Option<DistributedPubSubExtension<PreludeRemoteMsg>>>();
+    let _ = std::mem::size_of::<Option<DistributedPubSubHandle<PreludeRemoteMsg>>>();
+    let _ = std::mem::size_of::<Option<DistributedPubSubRegistration<PreludeRemoteMsg>>>();
     let _ = std::mem::size_of::<Option<LocalSingletonManagerActor<NoopSingleton>>>();
     let _ = std::mem::size_of::<Option<LocalSingletonManagerMsg<String>>>();
     let _ = std::mem::size_of::<Option<SingletonProxyActor<String>>>();
