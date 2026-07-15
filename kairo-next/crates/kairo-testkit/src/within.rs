@@ -89,7 +89,9 @@ pub enum WithinError<E> {
     Assertion(E),
     /// The block returned successfully after the shared deadline elapsed.
     Timeout {
+        /// Configured maximum duration for the block.
         timeout: Duration,
+        /// Actual duration observed when the block returned.
         elapsed: Duration,
     },
 }

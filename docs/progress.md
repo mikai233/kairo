@@ -55,9 +55,10 @@ Status terms in this document mean:
   `Terminated` instead of `ChildFailed`.
 - M3 serialization and message metadata: mostly complete. Stable
   `RemoteMessage` metadata, derive support, codec registration, manifests,
-  remote envelopes, and actor-ref serialization boundaries exist. Optional
-  codec helpers and rolling-version fixtures remain, but the stable wire
-  contract is already in place.
+  remote envelopes, and actor-ref serialization boundaries exist.
+  Bidirectional v1/v2 process fixtures now prove codec-owned backward and
+  explicitly forward-compatible migration over the real remoting boundary;
+  optional codec helpers and broader compatibility fixtures remain.
 - M4 remoting: complete through the composed runtime boundary. One
   ActorSystem-owned runtime carries heterogeneous registered protocols over
   bounded non-blocking lanes, provides reliable ordered lifecycle delivery,
@@ -144,17 +145,20 @@ Status terms in this document mean:
 - M12 examples, migration, and documentation: substantial implementation.
   Examples, migration guidance, README feature maps, workspace doctests,
   rustdoc warning gates, and compile-tested public API snippets exist. The
-  `cluster_sharding_tcp` example now provides the final three-node acceptance
-  workflow through the `kairo` facade and real composed membership; other
-  distributed examples retain narrower diagnostic/bootstrap roles.
+  recommended `kairo` facade and public `kairo-testkit` utility surface now
+  deny missing public documentation. The `cluster_sharding_tcp` example
+  provides the final three-node acceptance workflow through that facade and
+  real composed membership; other distributed examples retain narrower
+  diagnostic/bootstrap roles.
 - M13 hardening and release readiness: active as the remaining phase. Its
   validation, documentation, dependency audit, and benchmark scaffolding
   now include a declared Rust 1.88 MSRV, Linux/Windows/macOS stable test
   coverage, release-mode benchmark smoke, and verified release archives for
   every public crate. Process-level remoting now also proves bidirectional
   v1/v2 compatibility through the stable serializer-id/manifest contract and
-  codec-owned schema migration; final sign-off focuses on release quality
-  rather than replacement architecture.
+  codec-owned schema migration, while the facade and testkit now enforce
+  complete public-item documentation; final sign-off focuses on release
+  quality rather than replacement architecture.
 
 ## Execution Plan Before M13
 

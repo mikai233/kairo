@@ -20,10 +20,15 @@ pub struct DiagnosticCounters {
 /// A point-in-time view of [`DiagnosticCounters`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DiagnosticCounterSnapshot {
+    /// Number of inbound remote payloads that could not be deserialized.
     pub remote_serialization_failures: u64,
+    /// Number of deserialized remote messages that could not be delivered.
     pub remote_delivery_failures: u64,
+    /// Number of remote association quarantine observations.
     pub association_quarantine_events: u64,
+    /// Number of remote association close observations.
     pub association_close_events: u64,
+    /// Number of cluster gossip state-change observations.
     pub cluster_gossip_state_changes: u64,
 }
 
@@ -38,10 +43,12 @@ pub struct DiagnosticTextSink<F> {
 }
 
 impl DiagnosticCounters {
+    /// Creates counters initialized to zero.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Reads every counter into one point-in-time snapshot.
     pub fn snapshot(&self) -> DiagnosticCounterSnapshot {
         DiagnosticCounterSnapshot {
             remote_serialization_failures: self
@@ -66,10 +73,13 @@ impl<F> DiagnosticTextSink<F>
 where
     F: Fn(String) + Send + Sync + 'static,
 {
+    /// Creates an exporter that forwards each rendered diagnostic line to
+    /// `sink`.
     pub fn new(sink: F) -> Self {
         Self { sink }
     }
 
+    /// Returns the caller-provided sink closure.
     pub fn into_inner(self) -> F {
         self.sink
     }

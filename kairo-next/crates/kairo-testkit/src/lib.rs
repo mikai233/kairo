@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! Deterministic test utilities for local actor workflows.
 //!
 //! `kairo-testkit` keeps tests inside Kairo's typed actor model. A

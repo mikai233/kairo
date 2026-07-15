@@ -25,26 +25,44 @@ pub enum MultiNodeError {
     ManualTimeDisabled(String),
     /// A node entered a different barrier while another named barrier is active.
     WrongBarrier {
+        /// Name of the currently active barrier.
         expected: String,
+        /// Name of the barrier the node attempted to enter.
         actual: String,
+        /// Stable name of the node that entered out of order.
         node: String,
     },
     /// The same node entered the same active barrier more than once.
-    DuplicateBarrierArrival { name: String, node: String },
+    DuplicateBarrierArrival {
+        /// Name of the active barrier.
+        name: String,
+        /// Stable name of the node with the duplicate arrival.
+        node: String,
+    },
     /// A blocking barrier wait timed out before every node arrived.
     BarrierTimeout {
+        /// Name of the barrier that timed out.
         name: String,
+        /// Stable name of the node whose wait expired.
         node: String,
+        /// Maximum duration spent waiting for all participants.
         timeout: Duration,
+        /// Nodes that entered the barrier before the timeout.
         arrived: BTreeSet<String>,
+        /// Nodes that had not entered when the timeout expired.
         remaining: BTreeSet<String>,
     },
     /// A previous wrong-order barrier entry failed the active barrier sequence.
     BarrierFailed {
+        /// Name of the barrier that could not complete.
         name: String,
+        /// Stable name of the node observing the failure.
         node: String,
+        /// Description of the earlier sequence failure.
         reason: String,
+        /// Nodes that entered the barrier before it failed.
         arrived: BTreeSet<String>,
+        /// Nodes that had not entered when it failed.
         remaining: BTreeSet<String>,
     },
     /// The shared barrier state lock was poisoned by a panic in another thread.
@@ -704,6 +722,11 @@ impl MultiNodeTestKit {
     }
 }
 
+/// One named local actor-system participant in a [`MultiNodeTestKit`].
+///
+/// A node owns its actor-system testkit and, when configured, its manual-time
+/// controller. Obtain nodes through [`MultiNodeTestKit::node`] rather than
+/// constructing them directly.
 #[derive(Debug)]
 pub struct MultiNode {
     name: String,
@@ -746,17 +769,23 @@ impl MultiNode {
     }
 }
 
+/// Snapshot returned when entering or waiting at a named multi-node barrier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MultiNodeBarrierStatus {
     /// The barrier is active and not every node has arrived.
     Waiting {
+        /// Name of the active barrier.
         name: String,
+        /// Nodes that have entered the barrier.
         arrived: BTreeSet<String>,
+        /// Nodes that have not yet entered the barrier.
         remaining: BTreeSet<String>,
     },
     /// The barrier completed after every participant arrived.
     Passed {
+        /// Name of the completed barrier.
         name: String,
+        /// Complete set of participating node names.
         participants: BTreeSet<String>,
     },
 }

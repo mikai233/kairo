@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! Facade crate for Kairo Next.
 //!
 //! `kairo` is the user-facing entry point for the Rust-first rewrite. It keeps
@@ -133,6 +135,11 @@ pub use kairo_serialization as serialization;
 #[cfg(feature = "testkit")]
 pub use kairo_testkit as testkit;
 
+/// Common typed actor and enabled subsystem APIs for application code.
+///
+/// This is the recommended import surface for normal Kairo applications.
+/// Lower-level protocols and test fixtures remain available from their
+/// feature-gated facade modules or focused crates.
 pub mod prelude {
     #[cfg(all(feature = "config", feature = "cluster"))]
     pub use crate::config::ConfiguredDowningHook;

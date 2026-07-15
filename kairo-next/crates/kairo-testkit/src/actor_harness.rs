@@ -182,7 +182,12 @@ impl<M: Send + 'static> ActorHarness<M> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorHarnessError {
     /// The subject actor did not stop before the timeout expired.
-    StopTimeout { actor: String, timeout: Duration },
+    StopTimeout {
+        /// Stable actor path that remained live.
+        actor: String,
+        /// Maximum duration spent waiting for termination.
+        timeout: Duration,
+    },
 }
 
 impl Display for ActorHarnessError {

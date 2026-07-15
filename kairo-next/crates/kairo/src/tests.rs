@@ -124,6 +124,26 @@ fn root_workspace_members_stay_on_kairo_next() -> Result<(), Box<dyn std::error:
 }
 
 #[test]
+fn user_facing_crates_deny_missing_public_documentation() -> Result<(), Box<dyn std::error::Error>>
+{
+    let repo_root = repo_root()?;
+    let user_facing_crates = [
+        "kairo-next/crates/kairo/src/lib.rs",
+        "kairo-next/crates/kairo-testkit/src/lib.rs",
+    ];
+
+    for relative_path in user_facing_crates {
+        let source = std::fs::read_to_string(repo_root.join(relative_path))?.replace("\r\n", "\n");
+        assert!(
+            source.starts_with("#![deny(missing_docs)]\n"),
+            "{relative_path} must keep missing public documentation as a hard error"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn publishable_workspace_dependencies_keep_registry_versions()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
