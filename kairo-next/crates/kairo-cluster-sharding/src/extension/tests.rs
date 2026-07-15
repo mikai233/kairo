@@ -6,6 +6,7 @@ use kairo_cluster::{
     DeadlineFailureDetectorSettings, Gossip, HeartbeatSenderSettings, MemberStatus,
     register_cluster_daemon, register_cluster_protocol_codecs,
 };
+use kairo_cluster_tools::{ClusterSingletonSettings, register_cluster_tools_protocol_codecs};
 use kairo_remote::{RemoteSettings, TcpRemoteReconnectSettings, register_remote_protocol_codecs};
 use kairo_serialization::{MessageCodec, SerializationError, SerializationRegistry};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
@@ -78,6 +79,34 @@ impl ComposedShardingNode {
         registry: Arc<Registry>,
         type_key: EntityTypeKey<TestMessage>,
     ) -> Self {
+        Self::start_with_singleton(
+            system, node_uid, remote_uid, seed_nodes, registry, type_key, true,
+        )
+    }
+
+    fn start_direct(
+        system: &str,
+        node_uid: u64,
+        remote_uid: u64,
+        seed_nodes: Vec<kairo_actor::Address>,
+        registry: Arc<Registry>,
+        type_key: EntityTypeKey<TestMessage>,
+    ) -> Self {
+        Self::start_with_singleton(
+            system, node_uid, remote_uid, seed_nodes, registry, type_key, false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn start_with_singleton(
+        system: &str,
+        node_uid: u64,
+        remote_uid: u64,
+        seed_nodes: Vec<kairo_actor::Address>,
+        registry: Arc<Registry>,
+        type_key: EntityTypeKey<TestMessage>,
+        use_singleton: bool,
+    ) -> Self {
         let kit = ActorSystemTestKit::new(system).unwrap();
         let mut builder = TcpRemoteActorRuntime::builder(
             kit.system().clone(),
@@ -110,12 +139,23 @@ impl ComposedShardingNode {
                 ),
         )
         .unwrap();
-        let sharding_registration = register_cluster_sharding(
-            &mut builder,
-            cluster_registration.clone(),
-            ClusterShardingSettings::default()
-                .with_registration_retry_interval(Duration::from_millis(20)),
-        )
+        let sharding_settings = ClusterShardingSettings::default()
+            .with_registration_retry_interval(Duration::from_millis(20));
+        let sharding_registration = if use_singleton {
+            register_cluster_sharding_with_singleton(
+                &mut builder,
+                cluster_registration.clone(),
+                sharding_settings,
+                ClusterSingletonSettings::default()
+                    .with_route_refresh_interval(Duration::from_millis(10)),
+            )
+        } else {
+            register_cluster_sharding(
+                &mut builder,
+                cluster_registration.clone(),
+                sharding_settings,
+            )
+        }
         .unwrap();
         let runtime = builder.bind().unwrap();
         let cluster = cluster_registration.activate(&runtime).unwrap();
@@ -215,6 +255,7 @@ fn registry() -> Arc<Registry> {
     let mut registry = Registry::new();
     register_remote_protocol_codecs(&mut registry).unwrap();
     register_cluster_protocol_codecs(&mut registry).unwrap();
+    register_cluster_tools_protocol_codecs(&mut registry).unwrap();
     register_sharding_protocol_codecs(&mut registry).unwrap();
     registry
         .register::<TestMessage, _>(TestMessageCodec)
@@ -257,7 +298,42 @@ fn settings_reject_zero_capacities_and_intervals() {
 }
 
 #[test]
-fn composed_extension_routes_entity_message_to_remote_shard_home() {
+fn direct_registration_retains_single_node_coordinator_compatibility() {
+    let type_key = EntityTypeKey::new("direct-account");
+    let node = ComposedShardingNode::start_direct(
+        "sharding-direct",
+        10,
+        110,
+        Vec::new(),
+        registry(),
+        type_key.clone(),
+    );
+    await_assert(Duration::from_secs(2), Duration::from_millis(10), || {
+        let state = node.coordinator_state();
+        (!state.allocations.is_empty())
+            .then_some(())
+            .ok_or_else(|| format!("direct coordinator has not registered its region: {state:?}"))
+    })
+    .unwrap();
+
+    node.sharding
+        .entity_ref_for(type_key, "direct-1")
+        .unwrap()
+        .tell(TestMessage("local".to_string()))
+        .unwrap();
+    await_assert(Duration::from_secs(2), Duration::from_millis(10), || {
+        let received = node.received.lock().unwrap().clone();
+        received
+            .contains(&("direct-1".to_string(), "local".to_string()))
+            .then_some(())
+            .ok_or_else(|| format!("direct coordinator route has not delivered: {received:?}"))
+    })
+    .unwrap();
+    node.shutdown();
+}
+
+#[test]
+fn composed_extension_routes_remote_entities_and_recovers_after_coordinator_handover() {
     let registry = registry();
     let type_key = EntityTypeKey::new("account");
     let seed = ComposedShardingNode::start(
@@ -326,6 +402,67 @@ fn composed_extension_routes_entity_message_to_remote_shard_home() {
         );
     }
     assert!(peer.received.lock().unwrap().is_empty());
+
+    seed.cluster.cluster().leave_self().unwrap();
+    await_assert(Duration::from_secs(4), Duration::from_millis(25), || {
+        let state = peer.coordinator_state();
+        (!state.allocations.is_empty())
+            .then_some(())
+            .ok_or_else(|| {
+                format!("successor coordinator has not registered its region: {state:?}")
+            })
+    })
+    .unwrap();
+
+    let previous_shard = crate::default_shard_id_for("account-7");
+    let successor_entity = (0_u32..)
+        .map(|index| format!("account-after-handover-{index}"))
+        .find(|entity_id| crate::default_shard_id_for(entity_id) != previous_shard)
+        .unwrap();
+    let successor_shard = crate::default_shard_id_for(&successor_entity);
+    peer.sharding
+        .entity_ref_for(type_key, successor_entity.clone())
+        .unwrap()
+        .tell(TestMessage("after-handover".to_string()))
+        .unwrap();
+    let successor_delivery = await_assert(
+        Duration::from_secs(3),
+        Duration::from_millis(10),
+        || {
+            let expected = (successor_entity.clone(), "after-handover".to_string());
+            let seed_received = seed.received.lock().unwrap().clone();
+            let peer_received = peer.received.lock().unwrap().clone();
+            (seed_received.contains(&expected) || peer_received.contains(&expected))
+                .then_some(())
+                .ok_or_else(|| {
+                    format!(
+                        "no region has received the post-handover message: seed={seed_received:?}, peer={peer_received:?}"
+                    )
+                })
+        },
+    );
+    if let Err(error) = successor_delivery {
+        panic!(
+            "{error}; successor coordinator={:?}; successor region={:?}; seed received={:?}",
+            peer.coordinator_state(),
+            peer.region_state(),
+            seed.received.lock().unwrap()
+        );
+    }
+    await_assert(Duration::from_secs(2), Duration::from_millis(10), || {
+        let state = peer.coordinator_state();
+        state
+            .allocations
+            .values()
+            .any(|shards| shards.contains(&successor_shard))
+            .then_some(())
+            .ok_or_else(|| {
+                format!(
+                    "successor coordinator has not allocated shard {successor_shard}: {state:?}"
+                )
+            })
+    })
+    .unwrap();
 
     peer.shutdown();
     seed.shutdown();

@@ -10,6 +10,7 @@ where
         msg: ShardCoordinatorMsg<M>,
     ) -> ActorResult {
         match msg {
+            ShardCoordinatorMsg::Terminate => ctx.stop(ctx.myself()),
             ShardCoordinatorMsg::RememberStoreLoadResult { result } => {
                 self.apply_remember_store_load(ctx, result)?;
                 ctx.unstash_all()

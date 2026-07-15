@@ -82,10 +82,15 @@ Status terms in this document mean:
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
   stores, remote routes, `ShardRegionBootstrap`, and focused multi-node tests
-  exist. The final cluster-integrated extension and acceptance demo remain open.
+  exist. The cluster-integrated extension now runs each entity-type coordinator
+  through the public cluster-singleton lifecycle and recovers fresh allocation
+  after oldest-node handover. Durable coordinator allocation recovery and the
+  final acceptance demo remain open.
 - M10 cluster tools: substantial component coverage. Singleton and pubsub
-  state, remote delivery, TCP peer runtime, and examples exist; composed
-  cluster lifecycle validation remains open.
+  state, remote delivery, TCP peer runtime, examples, and composed public
+  extensions exist. Real two-node tests cover pubsub convergence, named
+  singleton handover, local-protocol handover, and sharding coordinator use;
+  broader role-scoped and fault validation remains open.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -400,9 +405,17 @@ two-node test forms through seed contact, initializes two entity kinds on each
 node behind the shared manifest router, registers their regions with the
 oldest coordinator, allocates shards to the oldest node, drains the remote
 requester's buffers after `ShardHome`, and delivers both decoded business
-messages to their remote entity actors. Coordinator failover/recovery on the
-composed lifecycle, role-based proxy-only hosting, broader ddata type
-registration, and process/fault coverage remain open. Cluster tools now have
+messages to their remote entity actors. The public
+`register_cluster_sharding_with_singleton` path now composes singleton
+registration and activation. Each stable sharding coordinator endpoint
+forwards the local-only `ShardCoordinatorMsg<M>` protocol through
+`ClusterSingleton::init_local`, so only one live coordinator actor runs per
+entity type without making that enum a wire contract. The same two-node test
+now makes the oldest node leave, observes the successor coordinator register
+regions, allocates a previously unseen shard, and delivers its entity message.
+Durable coordinator allocation recovery, role-based proxy-only hosting,
+broader ddata type registration, and process/fault coverage remain open.
+Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
 of the ActorSystem-owned remoting runtime and constructs the existing inbound
@@ -6053,13 +6066,15 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after composed ddata consistency:
+Latest Phase 4 validation after cluster-singleton-owned sharding coordinator
+handover:
 
 ```bash
-cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo-cluster-sharding --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo check --workspace --all-targets --all-features
-cargo clippy -p kairo-distributed-data -p kairo --all-targets --all-features -- -D warnings
+cargo check -p kairo --no-default-features --features cluster-sharding
+cargo clippy -p kairo-cluster-sharding -p kairo-cluster-tools -p kairo --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```

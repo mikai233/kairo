@@ -140,6 +140,7 @@ where
         interval: Duration,
     },
     StopRebalanceTimer,
+    Terminate,
     GetState {
         reply_to: ActorRef<CoordinatorStateSnapshot>,
     },
@@ -309,6 +310,7 @@ where
                 self.rebalance_interval = None;
                 ctx.cancel_timer(REBALANCE_TIMER_KEY);
             }
+            ShardCoordinatorMsg::Terminate => ctx.stop(ctx.myself())?,
             ShardCoordinatorMsg::GetState { reply_to } => {
                 let _ = reply_to.tell(CoordinatorStateSnapshot::from(&self.runtime));
             }

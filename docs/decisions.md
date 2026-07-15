@@ -3785,3 +3785,41 @@ Consequences:
   singleton can route remotely; local actor delivery remains typed.
 - FNV-1a path hashing is a wire-visible compatibility rule and must not be
   replaced with `DefaultHasher` or another process-dependent hash.
+
+## ADR-0119: Sharding Owns Stable Coordinator Endpoints Over Cluster Singleton
+
+Status: Accepted
+
+Context:
+Pekko hosts each shard coordinator below a cluster-singleton manager, while
+regions address a stable coordinator protocol. Kairo's `ShardCoordinatorMsg<M>`
+contains local typed refs, replies, and business stop messages, so making that
+enum a `RemoteMessage` would violate the stable wire contract and local-message
+rules. Spawning one coordinator candidate on every node also leaves ownership
+outside the public cluster-tools lifecycle.
+
+Decision:
+`kairo-cluster-sharding` depends on the public `kairo-cluster-tools` API.
+`register_cluster_sharding_with_singleton` composes and activates
+`ClusterSingleton` before `ClusterSharding`. For each entity type, sharding
+registers a role-scoped `Singleton<ShardCoordinatorActor<M>>` through
+`ClusterSingleton::init_local` and retains the existing stable sharding
+coordinator endpoint. That endpoint forwards decoded local coordinator commands
+to `ClusterSingletonRef<ShardCoordinatorMsg<M>>`; only the four singleton
+handover controls cross the singleton wire boundary, while remote region and
+coordinator traffic continues to use sharding's explicit manifests and codecs.
+
+The lower-level `register_cluster_sharding` path keeps direct coordinator
+construction when no singleton extension is installed. This remains useful for
+single-node and focused compatibility tests, but composed distributed sharding
+uses the singleton registration helper.
+
+Consequences:
+- Oldest-node handover changes the live coordinator actor without changing the
+  documented sharding recipient path or exposing actor incarnation UIDs.
+- Sharding coordinator roles map directly to singleton eligibility scope.
+- A successor coordinator can rebuild live region registrations and serve new
+  allocations; durable recovery of prior allocations remains a separate store
+  and lifecycle concern.
+- Enabling the facade's `cluster-sharding` feature also enables cluster tools,
+  matching the runtime dependency used by distributed coordinator placement.

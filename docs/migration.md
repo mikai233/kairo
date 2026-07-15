@@ -27,7 +27,7 @@ configuration loading. Distributed layers are opt-in:
 | `remote` | `actor`, `serialization`, remote refs and associations |
 | `cluster` | `remote`, gossip membership and downing hooks |
 | `distributed-data` | `cluster`, CRDT replication |
-| `cluster-sharding` | `cluster`, `distributed-data`, entity routing |
+| `cluster-sharding` | `cluster`, `distributed-data`, `cluster-tools`, entity routing |
 | `cluster-tools` | `cluster`, `distributed-data`, singleton and pubsub |
 | `testkit` | local actor test utilities without distributed runtime layers |
 | `full` | every public facade feature for integration checks |

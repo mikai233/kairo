@@ -163,7 +163,7 @@ pub use errors::ShardingError;
 pub use extension::{
     ClusterSharding, ClusterShardingBootstrapError, ClusterShardingRegistration,
     ClusterShardingSettings, Entity, SHARDING_CONTROL_MANIFESTS, SHARDING_ORDINARY_MANIFESTS,
-    register_cluster_sharding,
+    register_cluster_sharding, register_cluster_sharding_with_singleton,
 };
 pub use extractor::{EntityMessageExtractor, EntityMessageExtractorRouter, ExtractedEntityMessage};
 pub use handoff_transport::{

@@ -33,9 +33,9 @@ const FACADE_FEATURE_EXPECTATIONS: [(&str, &str, &str); 8] = [
         "distributed data must build on cluster membership",
     ),
     (
-        "cluster-sharding = [\"cluster\", \"distributed-data\", \"dep:kairo-cluster-sharding\"]",
-        "| `cluster-sharding` | `cluster`, `distributed-data`, entity routing |",
-        "cluster sharding must build on cluster and distributed-data support",
+        "cluster-sharding = [\"cluster\", \"distributed-data\", \"cluster-tools\", \"dep:kairo-cluster-sharding\"]",
+        "| `cluster-sharding` | `cluster`, `distributed-data`, `cluster-tools`, entity routing |",
+        "cluster sharding must build on cluster, distributed-data, and singleton support",
     ),
     (
         "cluster-tools = [\"cluster\", \"distributed-data\", \"dep:kairo-cluster-tools\"]",
@@ -334,9 +334,9 @@ fn distributed_crates_keep_architecture_dependency_boundaries()
             "kairo-distributed-data may consume cluster and remote routes but must not depend on sharding or tools",
         ),
         (
-            "kairo-cluster-sharding",
-            &["kairo-cluster-tools"],
-            "kairo-cluster-sharding must not depend on cluster tools private shortcuts",
+            "kairo-cluster-tools",
+            &["kairo-cluster-sharding"],
+            "kairo-cluster-tools must remain below sharding so singleton integration does not form a cycle",
         ),
     ];
 
@@ -351,6 +351,16 @@ fn distributed_crates_keep_architecture_dependency_boundaries()
             );
         }
     }
+
+    let sharding_manifest = std::fs::read_to_string(
+        next_crates
+            .join("kairo-cluster-sharding")
+            .join("Cargo.toml"),
+    )?;
+    assert!(
+        sharding_manifest.contains("kairo-cluster-tools = { workspace = true }"),
+        "cluster sharding must use the public cluster-tools crate for coordinator singleton placement"
+    );
 
     Ok(())
 }

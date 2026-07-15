@@ -143,6 +143,7 @@ dependencies = [
  "bytes",
  "kairo-actor",
  "kairo-cluster",
+ "kairo-cluster-tools",
  "kairo-distributed-data",
  "kairo-remote",
  "kairo-serialization",

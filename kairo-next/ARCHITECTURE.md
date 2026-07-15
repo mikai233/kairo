@@ -94,6 +94,7 @@ kairo
   -> kairo-cluster-sharding
        -> kairo-actor
        -> kairo-cluster
+       -> kairo-cluster-tools
        -> kairo-distributed-data
        -> kairo-remote
        -> kairo-serialization
@@ -129,6 +130,9 @@ Rules:
 - `kairo-cluster-sharding` may register its stable manifests on the shared
   `kairo-remote` runtime and derive routes from cluster events; transport state
   must not create coordinator or region membership facts.
+- `kairo-cluster-sharding` may use the public `kairo-cluster-tools` singleton
+  extension to own coordinator placement. Sharding retains its own stable wire
+  protocol and must not serialize its local coordinator actor enum.
 - `kairo-examples` and `kairo-benchmarks` are leaf support crates. They may
   depend on the user-facing `kairo` facade to validate public workflows, but no
   runtime crate may depend on them.
@@ -1880,6 +1884,13 @@ Implementation shape:
   `ClusterEvent` member changes, filters members by coordinator role/status,
   and computes Pekko-style oldest-first likely coordinator candidates before
   actor-ref or remote-target registration is wired into the region actor.
+- `register_cluster_sharding_with_singleton` composes singleton registration
+  and activation before sharding activation. Each entity type keeps its stable
+  `/system/sharding-{type}-coordinator` endpoint, while that endpoint forwards
+  typed local coordinator commands through `ClusterSingleton::init_local` to
+  the one live coordinator actor. The ordinary `register_cluster_sharding`
+  path retains direct local coordinator construction for compatibility and
+  focused single-node use when the singleton extension is absent.
 - Region coordinator-discovery wiring maps those likely coordinator nodes to
   typed local coordinator refs for the current vertical slice, refreshes the
   region's registration target when the selected coordinator changes, and
@@ -2206,6 +2217,9 @@ Composed cluster singleton:
   protocol must remain local-only; ownership and handover still use the stable
   remote control protocol, while the subsystem supplies its own explicit wire
   adapter instead of forcing the internal enum to implement `RemoteMessage`,
+- cluster sharding uses that local-protocol mode: singleton controls cross the
+  shared reliable lane, while stable sharding commands continue to enter the
+  sharding-owned coordinator endpoint and wire decoder,
 - multiple logical names share one listener and manifest router, with a fixed
   documented FNV-1a 64-bit name token selecting isolated manager, proxy,
   delivery, and connector paths,

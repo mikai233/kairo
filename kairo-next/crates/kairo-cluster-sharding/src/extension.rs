@@ -12,6 +12,10 @@ use kairo_cluster::{
     Cluster, ClusterDaemonRegistration, ClusterEvent, ClusterExtension, ClusterSubscriptionEvent,
     ClusterSubscriptionInitialState, Member, MemberEvent, UniqueAddress,
 };
+use kairo_cluster_tools::{
+    ClusterSingleton, ClusterSingletonBootstrapError, ClusterSingletonRef,
+    ClusterSingletonRegistration, ClusterSingletonSettings, Singleton, register_cluster_singleton,
+};
 use kairo_remote::{
     RemoteEnvelopeHandler, RemoteError, RemoteOutboundRecipient, TcpRemoteActorRuntime,
     TcpRemoteActorRuntimeBuilder, TcpRemoteActorRuntimeContext,
@@ -187,6 +191,7 @@ pub enum ClusterShardingBootstrapError {
     InvalidSettings(&'static str),
     NotMaterialized,
     Remote(RemoteError),
+    Singleton(ClusterSingletonBootstrapError),
     TypeMismatch {
         type_name: String,
     },
@@ -210,6 +215,7 @@ impl Display for ClusterShardingBootstrapError {
                 write!(f, "cluster sharding has not been materialized by bind")
             }
             Self::Remote(error) => write!(f, "{error}"),
+            Self::Singleton(error) => write!(f, "{error}"),
             Self::TypeMismatch { type_name } => write!(
                 f,
                 "sharded entity type `{type_name}` was initialized with a different message type"
@@ -235,6 +241,12 @@ impl From<ActorError> for ClusterShardingBootstrapError {
 impl From<RemoteError> for ClusterShardingBootstrapError {
     fn from(error: RemoteError) -> Self {
         Self::Remote(error)
+    }
+}
+
+impl From<ClusterSingletonBootstrapError> for ClusterShardingBootstrapError {
+    fn from(error: ClusterSingletonBootstrapError) -> Self {
+        Self::Singleton(error)
     }
 }
 
@@ -303,6 +315,7 @@ struct ShardingRuntimeResources {
 pub struct ClusterShardingRegistration {
     settings: ClusterShardingSettings,
     resources: Arc<Mutex<Option<ShardingRuntimeResources>>>,
+    singleton: Option<ClusterSingletonRegistration>,
 }
 
 impl Clone for ClusterShardingRegistration {
@@ -310,6 +323,7 @@ impl Clone for ClusterShardingRegistration {
         Self {
             settings: self.settings.clone(),
             resources: Arc::clone(&self.resources),
+            singleton: self.singleton.clone(),
         }
     }
 }
@@ -320,6 +334,9 @@ impl ClusterShardingRegistration {
         runtime: &TcpRemoteActorRuntime,
     ) -> Result<Arc<ClusterSharding>, ClusterShardingBootstrapError> {
         ClusterExtension::get(runtime.system())?;
+        if let Some(singleton) = self.singleton.as_ref() {
+            singleton.activate(runtime)?;
+        }
         let resources = self
             .resources
             .lock()
@@ -357,7 +374,20 @@ pub fn register_cluster_sharding(
     Ok(ClusterShardingRegistration {
         settings,
         resources,
+        singleton: None,
     })
+}
+
+pub fn register_cluster_sharding_with_singleton(
+    builder: &mut TcpRemoteActorRuntimeBuilder,
+    cluster: ClusterDaemonRegistration,
+    settings: ClusterShardingSettings,
+    singleton_settings: ClusterSingletonSettings,
+) -> Result<ClusterShardingRegistration, ClusterShardingBootstrapError> {
+    let singleton = register_cluster_singleton(builder, cluster.clone(), singleton_settings)?;
+    let mut sharding = register_cluster_sharding(builder, cluster, settings)?;
+    sharding.singleton = Some(singleton);
+    Ok(sharding)
 }
 
 fn materialize_resources(
@@ -394,6 +424,26 @@ where
     _region: ActorRef<ShardRegionMsg<M>>,
     _coordinator: ActorRef<ShardCoordinatorMsg<M>>,
     _connector: ActorRef<ClusterShardingConnectorMsg>,
+}
+
+struct SingletonCoordinatorEndpoint<M>
+where
+    M: Clone + Send + 'static,
+{
+    singleton: ClusterSingletonRef<ShardCoordinatorMsg<M>>,
+}
+
+impl<M> Actor for SingletonCoordinatorEndpoint<M>
+where
+    M: Clone + Send + 'static,
+{
+    type Msg = ShardCoordinatorMsg<M>;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, message: Self::Msg) -> ActorResult {
+        self.singleton
+            .tell(message)
+            .map_err(|error| ActorError::Message(error.reason().to_string()))
+    }
 }
 
 pub struct ClusterSharding {
@@ -442,24 +492,57 @@ impl ClusterSharding {
             &names.coordinator_path,
             &type_name,
         )?;
-        let discovery_settings = match entity.coordinator_role {
-            Some(role) => CoordinatorDiscoverySettings::default().with_required_role(role),
+        let discovery_settings = match entity.coordinator_role.as_ref() {
+            Some(role) => CoordinatorDiscoverySettings::default().with_required_role(role.clone()),
             None => CoordinatorDiscoverySettings::default(),
         };
         let discovery = crate::RegionCoordinatorDiscoveryConfig::new(
             discovery_settings,
             self.settings.registration_retry_interval,
         );
-        let coordinator = self.resources.system.spawn_system(
-            names.coordinator_name.clone(),
-            ShardCoordinatorActor::<M>::props_with_handoff(
-                CoordinatorState::new(),
-                LeastShardAllocationStrategy::default(),
-                stop_message.clone(),
-                self.settings.handoff_timeout,
-                crate::HandoffTransport::new(),
-            ),
-        )?;
+        let coordinator = match ClusterSingleton::get(&self.resources.system) {
+            Ok(singletons) => {
+                let coordinator_stop = Arc::new(Mutex::new(stop_message.clone()));
+                let handoff_timeout = self.settings.handoff_timeout;
+                let mut singleton = Singleton::new(
+                    format!("sharding-coordinator-{type_name}"),
+                    move || {
+                        ShardCoordinatorActor::<M>::props_with_handoff(
+                            CoordinatorState::new(),
+                            LeastShardAllocationStrategy::default(),
+                            coordinator_stop
+                                .lock()
+                                .expect("sharding coordinator stop message poisoned")
+                                .clone(),
+                            handoff_timeout,
+                            crate::HandoffTransport::new(),
+                        )
+                    },
+                    ShardCoordinatorMsg::Terminate,
+                );
+                if let Some(role) = entity.coordinator_role.as_ref() {
+                    singleton = singleton.with_role(role.clone());
+                }
+                let singleton = singletons.init_local(singleton)?;
+                self.resources.system.spawn_system(
+                    names.coordinator_name.clone(),
+                    Props::new(move || SingletonCoordinatorEndpoint {
+                        singleton: singleton.clone(),
+                    }),
+                )?
+            }
+            Err(ActorError::ExtensionNotRegistered(_)) => self.resources.system.spawn_system(
+                names.coordinator_name.clone(),
+                ShardCoordinatorActor::<M>::props_with_handoff(
+                    CoordinatorState::new(),
+                    LeastShardAllocationStrategy::default(),
+                    stop_message.clone(),
+                    self.settings.handoff_timeout,
+                    crate::HandoffTransport::new(),
+                ),
+            )?,
+            Err(error) => return Err(error.into()),
+        };
         let discovery =
             discovery.with_local_coordinator(self.resources.self_node.clone(), coordinator.clone());
         let remote_coordinator_transport = RegionRemoteCoordinatorTransport::from_arc(

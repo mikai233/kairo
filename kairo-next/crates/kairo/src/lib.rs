@@ -164,7 +164,8 @@ pub mod prelude {
         ClusterSharding, ClusterShardingBootstrapError, ClusterShardingRegistration,
         ClusterShardingSettings, DEFAULT_SHARD_COUNT, Entity, EntityRef, EntityTypeKey,
         ShardRegionActor, ShardRegionMsg, ShardingEnvelope, ShardingEnvelopeRouter, ShardingError,
-        default_shard_id_for, register_cluster_sharding, shard_id_for, stable_hash_entity_id,
+        default_shard_id_for, register_cluster_sharding, register_cluster_sharding_with_singleton,
+        shard_id_for, stable_hash_entity_id,
     };
     #[cfg(feature = "cluster-tools")]
     pub use kairo_cluster_tools::{
