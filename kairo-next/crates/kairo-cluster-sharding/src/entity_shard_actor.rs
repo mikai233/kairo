@@ -1,3 +1,6 @@
+#![deny(missing_docs)]
+//! Concrete shard actor that owns typed entity children and distributed remember storage.
+
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Duration;
 
@@ -13,6 +16,13 @@ use crate::{
     ShardSnapshot,
 };
 
+/// Actor-backed shard that turns lifecycle plans into typed entity-child effects.
+///
+/// Each entity identifier maps to one UID-bearing child incarnation created by
+/// [`EntityActorFactory`]. The actor delivers business messages, watches child
+/// termination, replays passivation buffers, restarts remembered entities,
+/// coordinates handoff completion, and optionally owns a distributed-data
+/// remember-store child. Stale termination from an older incarnation is ignored.
 pub struct EntityShardActor<M>
 where
     M: Clone + Send + 'static,
@@ -36,6 +46,10 @@ impl<M> EntityShardActor<M>
 where
     M: Clone + Send + 'static,
 {
+    /// Creates an initialized entity-owning shard with remembering disabled.
+    ///
+    /// `buffer_capacity` is the shard-wide limit across all per-entity FIFO
+    /// buffers. `entity_factory` creates local children on first delivery.
     pub fn new(
         shard_id: impl Into<ShardId>,
         buffer_capacity: usize,
@@ -53,6 +67,11 @@ where
         }
     }
 
+    /// Creates an initialized planner-mode shard with remembering enabled.
+    ///
+    /// This mode does not create a store. Callers must acknowledge returned
+    /// remember updates with [`ShardMsg::RememberUpdateDone`]. Recovered or
+    /// unexpectedly terminated remembered entities are started as real children.
     pub fn new_with_remember_entities(
         shard_id: impl Into<ShardId>,
         buffer_capacity: usize,
@@ -70,6 +89,11 @@ where
         }
     }
 
+    /// Creates a shard that owns a distributed-data remember-store child.
+    ///
+    /// The store partitions keys by `type_name` and shard, performs ORSet
+    /// operations as `replica_id` through `replicator`, and uses `timeout` for
+    /// load and update asks. Store failure stops the shard for parent recovery.
     #[allow(clippy::too_many_arguments)]
     pub fn new_with_ddata_remember_store(
         type_name: impl Into<String>,
@@ -95,6 +119,7 @@ where
         }
     }
 
+    /// Builds props for an initialized entity-owning shard without remembering.
     pub fn props(
         shard_id: impl Into<ShardId>,
         buffer_capacity: usize,
@@ -104,6 +129,7 @@ where
         Props::new(move || Self::new(shard_id, buffer_capacity, entity_factory))
     }
 
+    /// Builds props for planner-mode remember-entity orchestration.
     pub fn props_with_remember_entities(
         shard_id: impl Into<ShardId>,
         buffer_capacity: usize,
@@ -115,6 +141,7 @@ where
         })
     }
 
+    /// Builds props for a shard with an owned distributed-data remember store.
     #[allow(clippy::too_many_arguments)]
     pub fn props_with_ddata_remember_store(
         type_name: impl Into<String>,

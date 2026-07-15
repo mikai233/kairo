@@ -302,6 +302,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
         "kairo-next/crates/kairo-cluster-sharding/src/entity_factory.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/entity_ref.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/entity_router.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/entity_shard_actor.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/entity_type.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/envelope.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/extractor.rs",

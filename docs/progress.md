@@ -230,6 +230,9 @@ Status terms in this document mean:
   Entity-child death watch now carries the canonical UID-bearing child path and
   rejects stale termination from a prior incarnation before touching the
   replacement child or its runtime state.
+  The concrete entity-shard actor now hard-gates typed child construction,
+  UID-aware death watch, passivation replay, remembered restart, distributed
+  remember-store ownership, and entity-stopper handoff completion.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
