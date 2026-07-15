@@ -323,6 +323,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
         "kairo-next/crates/kairo-cluster-sharding/src/region_remote_coordinator.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_remote_coordinator_transport.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_remote_handoff.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/region_runtime.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_system_inbound.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/shard_store.rs",
     ];

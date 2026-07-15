@@ -218,6 +218,9 @@ Status terms in this document mean:
   participant snapshots, rebalance completion, availability suppression, and
   graceful region shutdown. Failed shutdown handoffs release the region for a
   retry, and duplicate rebalance starts preserve existing deferred requesters.
+  The region runtime now hard-gates its bidirectional home cache, globally
+  bounded per-shard FIFO buffers, local startup, remote forwarding, region-stop
+  cleanup, and Pekko-aligned begin-handoff and reorder-prevention contracts.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
