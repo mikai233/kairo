@@ -668,6 +668,15 @@ impl ClusterToolsConfig {
             })
     }
 
+    #[cfg(feature = "cluster-tools")]
+    /// Builds settings for the shared-runtime cluster-singleton extension.
+    pub fn to_cluster_singleton_settings(
+        &self,
+    ) -> Result<kairo_cluster_tools::ClusterSingletonSettings, ConfigError> {
+        Ok(kairo_cluster_tools::ClusterSingletonSettings::default()
+            .with_manager_settings(self.to_singleton_manager_settings()?))
+    }
+
     /// Returns the validated singleton handover retry interval.
     pub fn to_singleton_hand_over_retry_interval(&self) -> Result<Duration, ConfigError> {
         reject_zero_duration(

@@ -439,7 +439,11 @@ message enum. The connector derives oldest ownership and remote routes only
 from real cluster snapshots/events and forwards decoded remote envelopes to
 the live UID-bearing child. A real two-ActorSystem test initializes two names
 per node, routes both from the peer to the oldest node, then proves both hand
-over after the oldest leaves.
+over after the oldest leaves. The `kairo` facade now re-exports the composed
+singleton registration, extension, typed definition/ref, settings, connector
+diagnostics, and stable envelope metadata. Existing TOML cluster-tools
+handover settings project directly into `ClusterSingletonSettings` through
+`ClusterToolsConfig::to_cluster_singleton_settings`.
 Singleton oldest tracking now advances on `Left`/`Exited` rather than waiting
 for `Removed`, so the manager state machine can perform its takeover handshake
 while the cluster association is deliberately still retained. Focused coverage

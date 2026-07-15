@@ -1806,6 +1806,17 @@ max_delta_entries = 7
         Duration::from_millis(125)
     );
     assert!(manager_settings.automatic_hand_over_retries());
+    let singleton_settings = settings
+        .cluster
+        .tools
+        .to_cluster_singleton_settings()
+        .unwrap();
+    assert_eq!(
+        singleton_settings
+            .manager_settings()
+            .hand_over_retry_interval(),
+        Duration::from_millis(125)
+    );
     assert_eq!(
         settings.cluster.tools.to_pubsub_gossip_interval().unwrap(),
         Duration::from_millis(250)
