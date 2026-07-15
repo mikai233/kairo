@@ -321,6 +321,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
         "kairo-next/crates/kairo-cluster-sharding/src/region_coordinator_discovery.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_discovery_subscriber.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_protocol.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/region_transport.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_registration.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_remote/error.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_remote/inbound.rs",

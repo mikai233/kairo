@@ -265,6 +265,10 @@ Status terms in this document mean:
   contracts. A failed shard partition read is retained so later reads and
   updates cannot treat partial recovery as complete, and explicit large key
   counts no longer narrow through `i32` or risk a modulo panic.
+  The region route transport now hard-gates its typed local/remote recipient
+  targets, optional local death-watch references, target replacement, and
+  lossless missing-target/send-failure outcomes that return the envelope for
+  buffering or retry.
   The low-level coordinator bootstrap helper now hard-gates its matched state
   and local handoff-target construction, duplicate-region rejection, borrowed
   inspection, and consuming decomposition contracts.
