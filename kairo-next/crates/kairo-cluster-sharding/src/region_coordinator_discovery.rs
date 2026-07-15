@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -10,6 +12,11 @@ use crate::{
     ShardCoordinatorRemoteTarget, ShardCoordinatorRemoteTargetError,
 };
 
+/// Configuration for mapping eligible cluster members to coordinator targets.
+///
+/// Local targets carry typed coordinator refs; remote targets carry stable
+/// wire recipients. Discovery only selects members for which a target has
+/// been configured.
 pub struct RegionCoordinatorDiscoveryConfig<M>
 where
     M: Send + 'static,
@@ -23,6 +30,7 @@ impl<M> RegionCoordinatorDiscoveryConfig<M>
 where
     M: Send + 'static,
 {
+    /// Creates an empty target map with membership settings and retry cadence.
     pub fn new(settings: CoordinatorDiscoverySettings, retry_interval: Duration) -> Self {
         Self {
             settings,
@@ -31,6 +39,7 @@ where
         }
     }
 
+    /// Adds a local typed coordinator target and returns the updated config.
     pub fn with_local_coordinator(
         mut self,
         node: UniqueAddress,
@@ -40,6 +49,7 @@ where
         self
     }
 
+    /// Adds or replaces the local target for `node`.
     pub fn add_local_coordinator(
         &mut self,
         node: UniqueAddress,
@@ -51,11 +61,13 @@ where
         );
     }
 
+    /// Adds a remote coordinator target and returns the updated config.
     pub fn with_remote_coordinator(mut self, target: ShardCoordinatorRemoteTarget) -> Self {
         self.add_remote_coordinator(target);
         self
     }
 
+    /// Adds a remote target built from an explicit stable recipient path.
     pub fn with_remote_coordinator_path(
         mut self,
         node: UniqueAddress,
@@ -66,6 +78,7 @@ where
         Ok(self)
     }
 
+    /// Adds a remote target at [`DEFAULT_SHARD_COORDINATOR_REMOTE_PATH`].
     pub fn with_default_remote_coordinator(
         self,
         node: UniqueAddress,
@@ -73,6 +86,7 @@ where
         self.with_remote_coordinator_path(node, DEFAULT_SHARD_COORDINATOR_REMOTE_PATH)
     }
 
+    /// Adds or replaces the remote target for its cluster node.
     pub fn add_remote_coordinator(&mut self, target: ShardCoordinatorRemoteTarget) {
         let node = target.node().clone();
         self.targets.insert(
@@ -81,10 +95,12 @@ where
         );
     }
 
+    /// Returns the candidate eligibility settings.
     pub fn settings(&self) -> &CoordinatorDiscoverySettings {
         &self.settings
     }
 
+    /// Returns the interval used to retry registration after target selection.
     pub fn retry_interval(&self) -> Duration {
         self.retry_interval
     }
@@ -135,6 +151,12 @@ where
     }
 }
 
+/// Selects a configured local or remote coordinator as cluster membership changes.
+///
+/// Selection follows [`CoordinatorDiscoveryState::coordinator_candidates`]
+/// and therefore remains usable while the oldest singleton location is
+/// leaving. A changed selection produces a fresh registration plan; an
+/// unchanged selection preserves the current registration session.
 pub struct RegionCoordinatorDiscovery<M>
 where
     M: Send + 'static,
@@ -149,6 +171,7 @@ impl<M> RegionCoordinatorDiscovery<M>
 where
     M: Send + 'static,
 {
+    /// Creates discovery state from `config`.
     pub fn new(config: RegionCoordinatorDiscoveryConfig<M>) -> Self {
         Self {
             discovery: CoordinatorDiscoveryState::new(config.settings),
@@ -158,6 +181,7 @@ where
         }
     }
 
+    /// Replaces the membership projection and plans any registration change.
     pub fn apply_snapshot(
         &mut self,
         state: &CurrentClusterState,
@@ -166,19 +190,25 @@ where
         self.plan(membership_change)
     }
 
+    /// Applies one cluster event and plans any registration change.
     pub fn apply_event(&mut self, event: &ClusterEvent) -> RegionCoordinatorDiscoveryPlan<M> {
         let membership_change = self.discovery.apply_event(event);
         self.plan(membership_change)
     }
 
+    /// Returns likely coordinator nodes in contact order.
     pub fn candidates(&self) -> Vec<UniqueAddress> {
         self.discovery.coordinator_candidates()
     }
 
+    /// Returns the node selected by the most recent membership update.
     pub fn selected(&self) -> Option<&UniqueAddress> {
         self.selected.as_ref()
     }
 
+    /// Replaces all configured targets without recomputing selection.
+    ///
+    /// The next snapshot or event produces the plan for the replacement map.
     pub fn replace_targets(
         &mut self,
         local: (UniqueAddress, ActorRef<ShardCoordinatorMsg<M>>),
@@ -269,16 +299,28 @@ where
     }
 }
 
+/// Registration effects produced by one region discovery update.
+///
+/// At most one of [`Self::registration`] and [`Self::remote_target`] is set.
+/// Both remain empty when selection is unchanged or no configured target is
+/// eligible.
 pub struct RegionCoordinatorDiscoveryPlan<M>
 where
     M: Send + 'static,
 {
+    /// Oldest eligible membership transition observed by discovery.
     pub membership_change: CoordinatorDiscoveryChange,
+    /// Previously selected configured coordinator node.
     pub previous_selected: Option<UniqueAddress>,
+    /// Newly selected configured coordinator node.
     pub selected: Option<UniqueAddress>,
+    /// Whether the selected configured target changed.
     pub registration_changed: bool,
+    /// Fresh local registration config when a local target was selected.
     pub registration: Option<RegionRegistrationConfig<M>>,
+    /// Fresh remote registration target when a remote target was selected.
     pub remote_target: Option<ShardCoordinatorRemoteTarget>,
+    /// Retry cadence paired with [`Self::remote_target`].
     pub remote_retry_interval: Option<Duration>,
 }
 

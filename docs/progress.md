@@ -185,6 +185,9 @@ Status terms in this document mean:
   registration, shard-home, two-phase handoff, shutdown, and remote entity
   routing contracts under hard missing-documentation gates; regression tests
   pin every manifest, version, and serializer id.
+  Coordinator discovery now hard-gates its role filtering, age ordering,
+  departing-oldest successor fan-out, configured-target selection, and
+  local-versus-remote registration plan contracts.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator

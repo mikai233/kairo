@@ -289,6 +289,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
         "kairo-next/crates/kairo-cluster-sharding/src/codec/routing.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/codec/shard.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/codec/shutdown.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/coordinator_discovery.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/entity_factory.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/entity_ref.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/entity_router.rs",
@@ -297,6 +298,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
         "kairo-next/crates/kairo-cluster-sharding/src/extractor.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/hashing.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/protocol.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/region_coordinator_discovery.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/shard_store.rs",
     ];
 

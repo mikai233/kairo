@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
@@ -5,32 +7,42 @@ use kairo_cluster::{
     ClusterEvent, CurrentClusterState, Member, MemberEvent, MemberStatus, UniqueAddress,
 };
 
+/// Role constraints used when locating eligible shard-coordinator nodes.
+///
+/// A candidate must advertise every configured role.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CoordinatorDiscoverySettings {
     required_roles: BTreeSet<String>,
 }
 
 impl CoordinatorDiscoverySettings {
+    /// Creates settings from the roles every coordinator candidate must have.
     pub fn new(required_roles: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self {
             required_roles: required_roles.into_iter().map(Into::into).collect(),
         }
     }
 
+    /// Adds one required coordinator role.
     pub fn with_required_role(mut self, role: impl Into<String>) -> Self {
         self.required_roles.insert(role.into());
         self
     }
 
+    /// Returns all roles required of a coordinator candidate.
     pub fn required_roles(&self) -> &BTreeSet<String> {
         &self.required_roles
     }
 }
 
+/// Describes how a membership update changed the oldest eligible node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoordinatorDiscoveryChange {
+    /// Oldest eligible node before the update.
     pub previous_oldest: Option<UniqueAddress>,
+    /// Oldest eligible node after the update.
     pub current_oldest: Option<UniqueAddress>,
+    /// Whether the oldest eligible node changed.
     pub coordinator_moved: bool,
 }
 
@@ -56,6 +68,12 @@ impl CoordinatorDiscoveryChange {
     }
 }
 
+/// Membership projection used to locate likely shard-coordinator nodes.
+///
+/// Candidates have every required role, are `Up`, `Leaving`, or `Exiting`,
+/// and are ordered by cluster age. Keeping departing nodes until removal lets
+/// regions contact both the old singleton location and its likely successor
+/// while coordinator ownership moves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoordinatorDiscoveryState {
     settings: CoordinatorDiscoverySettings,
@@ -63,6 +81,7 @@ pub struct CoordinatorDiscoveryState {
 }
 
 impl CoordinatorDiscoveryState {
+    /// Creates an empty membership projection with `settings`.
     pub fn new(settings: CoordinatorDiscoverySettings) -> Self {
         Self {
             settings,
@@ -70,10 +89,14 @@ impl CoordinatorDiscoveryState {
         }
     }
 
+    /// Returns the candidate eligibility settings.
     pub fn settings(&self) -> &CoordinatorDiscoverySettings {
         &self.settings
     }
 
+    /// Replaces the membership projection from a cluster snapshot.
+    ///
+    /// Returns the resulting oldest-candidate transition.
     pub fn apply_snapshot(&mut self, state: &CurrentClusterState) -> CoordinatorDiscoveryChange {
         let previous_oldest = self.oldest().cloned();
         self.members = state
@@ -86,6 +109,9 @@ impl CoordinatorDiscoveryState {
         CoordinatorDiscoveryChange::from_oldest_change(previous_oldest, self.oldest().cloned())
     }
 
+    /// Applies one cluster event to the membership projection.
+    ///
+    /// Non-membership events leave discovery unchanged.
     pub fn apply_event(&mut self, event: &ClusterEvent) -> CoordinatorDiscoveryChange {
         let previous_oldest = self.oldest().cloned();
         match event {
@@ -103,6 +129,7 @@ impl CoordinatorDiscoveryState {
         CoordinatorDiscoveryChange::from_oldest_change(previous_oldest, self.oldest().cloned())
     }
 
+    /// Returns all eligible members in oldest-first order.
     pub fn candidates(&self) -> Vec<UniqueAddress> {
         self.members_by_age()
             .into_iter()
@@ -110,6 +137,12 @@ impl CoordinatorDiscoveryState {
             .collect()
     }
 
+    /// Returns the likely live coordinator locations in contact order.
+    ///
+    /// Starting at the oldest member, discovery retains departing candidates
+    /// through the first `Up` member and reverses that prefix. This preserves
+    /// Pekko's ability to contact a newly started successor promptly while
+    /// still trying the departing coordinator locations.
     pub fn coordinator_candidates(&self) -> Vec<UniqueAddress> {
         let mut candidates = Vec::new();
         for member in self.members_by_age() {
@@ -121,12 +154,14 @@ impl CoordinatorDiscoveryState {
         candidates
     }
 
+    /// Returns the oldest eligible member, if one is known.
     pub fn oldest(&self) -> Option<&UniqueAddress> {
         self.members_by_age()
             .first()
             .map(|member| &member.unique_address)
     }
 
+    /// Returns whether no eligible members are known.
     pub fn is_empty(&self) -> bool {
         self.members.is_empty()
     }
