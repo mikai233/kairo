@@ -1,22 +1,39 @@
+#![deny(missing_docs)]
+
 use std::collections::{HashMap, HashSet};
 
 use crate::UniqueAddress;
 
+/// One observer's or the cluster's aggregate view of a subject's reachability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReachabilityStatus {
+    /// No negative observation is recorded.
     Reachable,
+    /// At least one observer currently considers the subject unreachable.
     Unreachable,
+    /// At least one observer considers the subject permanently terminated.
     Terminated,
 }
 
+/// Versioned reachability observation owned by one cluster member.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReachabilityRecord {
+    /// Member whose local failure detector produced the observation.
     pub observer: UniqueAddress,
+    /// Member being observed.
     pub subject: UniqueAddress,
+    /// Observed state.
     pub status: ReachabilityStatus,
+    /// Observer-row version at which this record was written.
     pub version: u64,
 }
 
+/// Immutable, observer-versioned cluster reachability table.
+///
+/// Each observer exclusively advances its row. Merge selects the complete row
+/// at the newest observer version, which avoids combining observations from
+/// different points in that observer's history. Reachable is implicit, so an
+/// all-reachable table contains no records.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Reachability {
     records: Vec<ReachabilityRecord>,
@@ -24,10 +41,15 @@ pub struct Reachability {
 }
 
 impl Reachability {
+    /// Creates an all-reachable table with no observer versions.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Reconstructs a table from explicit records and observer-row versions.
+    ///
+    /// This is intended for validated wire and persistence boundaries; callers
+    /// are responsible for providing at most one record per observer/subject.
     pub fn from_parts(
         records: impl IntoIterator<Item = ReachabilityRecord>,
         versions: impl IntoIterator<Item = (UniqueAddress, u64)>,
@@ -38,34 +60,47 @@ impl Reachability {
         }
     }
 
+    /// Returns every explicit reachability record.
     pub fn records(&self) -> &[ReachabilityRecord] {
         &self.records
     }
 
+    /// Returns the complete observer-row version table.
     pub fn versions(&self) -> &HashMap<UniqueAddress, u64> {
         &self.versions
     }
 
+    /// Returns an observer's row version, or zero when it has no history.
     pub fn version(&self, observer: &UniqueAddress) -> u64 {
         self.versions.get(observer).copied().unwrap_or(0)
     }
 
+    /// Returns whether no negative observation is recorded for any subject.
     pub fn is_all_reachable(&self) -> bool {
         self.records.is_empty()
     }
 
+    /// Returns a table where `observer` reports `subject` unreachable.
     pub fn unreachable(&self, observer: UniqueAddress, subject: UniqueAddress) -> Self {
         self.change(observer, subject, ReachabilityStatus::Unreachable)
     }
 
+    /// Returns a table where `observer` reports `subject` reachable.
+    ///
+    /// When this clears the observer's final negative observation, its explicit
+    /// record row is pruned while the advanced row version is retained.
     pub fn reachable(&self, observer: UniqueAddress, subject: UniqueAddress) -> Self {
         self.change(observer, subject, ReachabilityStatus::Reachable)
     }
 
+    /// Returns a table where `observer` reports `subject` terminated.
+    ///
+    /// Terminated records are terminal for that observer/subject pair.
     pub fn terminated(&self, observer: UniqueAddress, subject: UniqueAddress) -> Self {
         self.change(observer, subject, ReachabilityStatus::Terminated)
     }
 
+    /// Returns one observer's status for one subject, defaulting to reachable.
     pub fn status(&self, observer: &UniqueAddress, subject: &UniqueAddress) -> ReachabilityStatus {
         self.records
             .iter()
@@ -74,6 +109,9 @@ impl Reachability {
             .unwrap_or(ReachabilityStatus::Reachable)
     }
 
+    /// Returns the aggregate status reported for `subject`.
+    ///
+    /// Terminated dominates unreachable, which dominates implicit reachable.
     pub fn status_of(&self, subject: &UniqueAddress) -> ReachabilityStatus {
         if self.records.iter().any(|record| {
             &record.subject == subject && record.status == ReachabilityStatus::Terminated
@@ -88,6 +126,7 @@ impl Reachability {
         }
     }
 
+    /// Returns subjects reported unreachable but not terminated by any observer.
     pub fn all_unreachable(&self) -> HashSet<UniqueAddress> {
         let terminated: HashSet<_> = self
             .records
@@ -103,6 +142,7 @@ impl Reachability {
             .collect()
     }
 
+    /// Returns every subject with an unreachable or terminated observation.
     pub fn all_unreachable_or_terminated(&self) -> HashSet<UniqueAddress> {
         self.records
             .iter()
@@ -116,6 +156,7 @@ impl Reachability {
             .collect()
     }
 
+    /// Returns every member that owns at least one negative observation row.
     pub fn all_observers(&self) -> HashSet<UniqueAddress> {
         self.records
             .iter()
@@ -129,6 +170,9 @@ impl Reachability {
             .collect()
     }
 
+    /// Merges tables by choosing the newest complete row for each allowed observer.
+    ///
+    /// Records whose observer or subject is absent from `allowed` are discarded.
     pub fn merge(&self, allowed: &HashSet<UniqueAddress>, other: &Self) -> Self {
         let mut records = Vec::new();
         let mut versions = self.versions.clone();
@@ -156,6 +200,7 @@ impl Reachability {
         Self { records, versions }
     }
 
+    /// Removes records and observer versions involving any member in `removed`.
     pub fn remove(&self, removed: &HashSet<UniqueAddress>) -> Self {
         let records = self
             .records

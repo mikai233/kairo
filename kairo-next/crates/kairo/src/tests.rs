@@ -213,8 +213,10 @@ fn cluster_pure_state_modules_deny_missing_docs() -> Result<(), Box<dyn std::err
     let repo_root = repo_root()?;
     let documented_modules = [
         "kairo-next/crates/kairo-cluster/src/convergence.rs",
+        "kairo-next/crates/kairo-cluster/src/gossip.rs",
         "kairo-next/crates/kairo-cluster/src/leader.rs",
         "kairo-next/crates/kairo-cluster/src/member.rs",
+        "kairo-next/crates/kairo-cluster/src/reachability.rs",
         "kairo-next/crates/kairo-cluster/src/vector_clock.rs",
     ];
 

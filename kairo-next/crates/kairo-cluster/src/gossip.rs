@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{HashMap, HashSet};
 
 use bytes::Bytes;
@@ -5,8 +7,13 @@ use sha1::{Digest, Sha1};
 
 use crate::{Member, MemberStatus, Reachability, UniqueAddress, VectorClock, VectorClockNode};
 
+/// Logical removal timestamp retained in a gossip tombstone.
 pub type Timestamp = u64;
 
+/// Immutable cluster membership state disseminated through gossip.
+///
+/// Membership facts, reachability, seen acknowledgements, causal history, and
+/// removal tombstones are merged without a central source of cluster truth.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Gossip {
     members: Vec<Member>,
@@ -17,10 +24,12 @@ pub struct Gossip {
 }
 
 impl Gossip {
+    /// Creates empty cluster gossip.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Creates gossip from members normalized by unique address and merge priority.
     pub fn from_members(members: impl IntoIterator<Item = Member>) -> Self {
         Self {
             members: normalize_members(members),
@@ -28,6 +37,9 @@ impl Gossip {
         }
     }
 
+    /// Reconstructs a complete gossip snapshot from explicit component state.
+    ///
+    /// Member entries are normalized into deterministic unique-address order.
     pub fn from_parts(
         members: impl IntoIterator<Item = Member>,
         seen: impl IntoIterator<Item = UniqueAddress>,
@@ -44,20 +56,24 @@ impl Gossip {
         }
     }
 
+    /// Returns live members in deterministic unique-address order.
     pub fn members(&self) -> &[Member] {
         &self.members
     }
 
+    /// Returns the live membership fact for `node`.
     pub fn member(&self, node: &UniqueAddress) -> Option<&Member> {
         self.members
             .iter()
             .find(|member| &member.unique_address == node)
     }
 
+    /// Returns whether `node` is present in the live member set.
     pub fn has_member(&self, node: &UniqueAddress) -> bool {
         self.member(node).is_some()
     }
 
+    /// Returns members that have acknowledged the current gossip version.
     pub fn seen_by(&self) -> &HashSet<UniqueAddress> {
         &self.seen
     }
@@ -78,24 +94,29 @@ impl Gossip {
         Bytes::copy_from_slice(&Sha1::digest(addresses.as_bytes()))
     }
 
+    /// Returns the observer-versioned reachability table.
     pub fn reachability(&self) -> &Reachability {
         &self.reachability
     }
 
+    /// Returns the causal version of this gossip state.
     pub fn version(&self) -> &VectorClock {
         &self.version
     }
 
+    /// Returns removal tombstones that prevent stale member reintroduction.
     pub fn tombstones(&self) -> &HashMap<UniqueAddress, Timestamp> {
         &self.tombstones
     }
 
+    /// Returns gossip with `node`'s causal clock dimension incremented.
     pub fn increment_version(&self, node: &UniqueAddress) -> Self {
         let mut changed = self.clone();
         changed.version = changed.version.increment(vclock_node(node));
         changed
     }
 
+    /// Adds or deterministically merges one membership fact.
     pub fn add_member(&self, member: Member) -> Self {
         let mut members = self.members.clone();
         members.push(member);
@@ -105,6 +126,9 @@ impl Gossip {
         }
     }
 
+    /// Replaces existing membership facts for the supplied unique addresses.
+    ///
+    /// Entries for nodes not already in this gossip are ignored.
     pub fn update_members(&self, changed_members: impl IntoIterator<Item = Member>) -> Self {
         let changed_members: HashMap<_, _> = changed_members
             .into_iter()
@@ -132,6 +156,7 @@ impl Gossip {
         }
     }
 
+    /// Marks the current version as seen by `node`.
     pub fn seen(&self, node: UniqueAddress) -> Self {
         if self.seen.contains(&node) {
             return self.clone();
@@ -144,6 +169,10 @@ impl Gossip {
         }
     }
 
+    /// Unions another snapshot's seen acknowledgements into this gossip.
+    ///
+    /// This operation is used only when both snapshots describe the same causal
+    /// version; it does not merge membership or reachability.
     pub fn merge_seen(&self, other: &Self) -> Self {
         let mut seen = self.seen.clone();
         seen.extend(other.seen.iter().cloned());
@@ -153,6 +182,7 @@ impl Gossip {
         }
     }
 
+    /// Replaces the seen table with only `node`.
     pub fn only_seen(&self, node: UniqueAddress) -> Self {
         Self {
             seen: HashSet::from([node]),
@@ -160,6 +190,7 @@ impl Gossip {
         }
     }
 
+    /// Clears all seen acknowledgements.
     pub fn clear_seen(&self) -> Self {
         Self {
             seen: HashSet::new(),
@@ -167,6 +198,7 @@ impl Gossip {
         }
     }
 
+    /// Replaces this snapshot's reachability table.
     pub fn with_reachability(&self, reachability: Reachability) -> Self {
         Self {
             reachability,
@@ -174,6 +206,7 @@ impl Gossip {
         }
     }
 
+    /// Marks a live member down and clears that member's seen acknowledgement.
     pub fn mark_down(&self, node: &UniqueAddress) -> Self {
         let members = self
             .members
@@ -196,6 +229,10 @@ impl Gossip {
         }
     }
 
+    /// Removes a live member and records a tombstone at `timestamp`.
+    ///
+    /// Seen, reachability, and the member's vector-clock dimension are pruned so
+    /// a stale concurrent snapshot cannot reintroduce the removed incarnation.
     pub fn remove(&self, node: &UniqueAddress, timestamp: Timestamp) -> Self {
         let removed = HashSet::from([node.clone()]);
         let members = self
@@ -217,6 +254,11 @@ impl Gossip {
         }
     }
 
+    /// Merges concurrent gossip membership, reachability, clocks, and tombstones.
+    ///
+    /// Tombstones suppress stale members, later member statuses win, reachability
+    /// keeps the newest complete observer row, and the resulting seen table is
+    /// empty because no member has acknowledged the newly merged version.
     pub fn merge(&self, other: &Self) -> Self {
         let mut tombstones = self.tombstones.clone();
         tombstones.extend(other.tombstones.clone());
