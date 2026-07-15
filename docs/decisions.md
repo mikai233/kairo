@@ -4312,3 +4312,28 @@ Consequences:
   retain the same deterministic lowest-owner intent.
 - `ReplicaId` remains opaque and no address parser becomes part of the
   distributed-data contract.
+
+## ADR-0135: Delta Selection And Cleanup Cadences Are Independently Composable
+
+Status: Accepted
+
+Context:
+Pekko's delta propagation selector uses one gossip-interval divisor for both
+the number of peer slices per full-state gossip interval and the retained-entry
+cleanup cadence. Kairo exposes the version-selection log separately from the
+publication loop so tests, custom transports, and composed runtimes can reuse
+either component without requiring the other.
+
+Decision:
+`DeltaPropagationLog::with_gossip_interval_divisor` controls only deterministic
+peer-slice selection. `DeltaPropagationLoop::with_cleanup_every_ticks` controls
+only retained-entry cleanup after publication. Both defaults remain five ticks,
+preserving Pekko's default cadence. Each setting is clamped to at least one,
+and a loop tick always collects and publishes before checking cleanup.
+
+Consequences:
+- The composed runtime retains Pekko's default selection and cleanup rhythm.
+- Custom loops may clean more or less often without changing which peers are
+  selected on a tick.
+- Empty collection attempts still advance the counter and can trigger cleanup,
+  matching Pekko's selector behavior.

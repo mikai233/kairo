@@ -204,6 +204,9 @@ Status terms in this document mean:
   Delta propagation logs now hard-gate monotonic per-key versions, payload-free
   full-state fallback, bounded range grouping, deterministic round-robin peer
   selection, and all-current-replica cleanup semantics.
+  The delta propagation loop now hard-gates collection-before-publication,
+  empty-tick counting, post-publication cleanup cadence, skipped reports, and
+  transport diagnostics.
   Removed-node pruning now hard-gates deterministic owner and performed-marker
   merges, seen-by-all readiness, all-reachable dissemination clocks, inclusive
   expiry, tick effects, and first-observation retention under duplicate removal

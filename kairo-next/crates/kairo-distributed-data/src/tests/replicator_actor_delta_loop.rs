@@ -1,5 +1,57 @@
 use super::*;
 
+struct RecordingDeltaSink {
+    published_sizes: mpsc::Sender<usize>,
+}
+
+impl DeltaPropagationSink<GCounter> for RecordingDeltaSink {
+    fn publish(
+        &self,
+        propagations: BTreeMap<ReplicaId, crate::DeltaPropagation<GCounter>>,
+    ) -> DeltaTransportReport {
+        self.published_sizes.send(propagations.len()).unwrap();
+        DeltaTransportReport::empty()
+    }
+}
+
+#[test]
+fn delta_loop_counts_empty_ticks_and_cleans_after_publication() {
+    let (published_sizes, published_rx) = mpsc::channel();
+    let delta_loop = DeltaPropagationLoop::new(RecordingDeltaSink { published_sizes })
+        .with_cleanup_every_ticks(2);
+    let key = ReplicatorKey::new("counter");
+    let mut log = DeltaPropagationLog::new([]);
+    log.record_delta(key.clone(), Some(delta_counter("local", 1)));
+
+    let first = delta_loop.run_tick(&mut log);
+
+    assert_eq!(first.propagation_count(), 1);
+    assert!(!first.cleaned_delta_entries());
+    assert!(log.has_delta_entries(&key));
+    assert_eq!(published_rx.recv().unwrap(), 0);
+
+    let second = delta_loop.run_tick(&mut log);
+
+    assert_eq!(second.propagation_count(), 2);
+    assert!(second.cleaned_delta_entries());
+    assert!(!log.has_delta_entries(&key));
+    assert_eq!(published_rx.recv().unwrap(), 0);
+}
+
+#[test]
+fn delta_loop_clamps_cleanup_cadence_and_skipped_report_is_inert() {
+    let (published_sizes, _published_rx) = mpsc::channel();
+    let delta_loop = DeltaPropagationLoop::new(RecordingDeltaSink { published_sizes })
+        .with_cleanup_every_ticks(0);
+
+    assert_eq!(delta_loop.cleanup_every_ticks(), 1);
+    let skipped = DeltaPropagationTickReport::skipped(7);
+    assert_eq!(skipped.propagation_count(), 7);
+    assert!(!skipped.cleaned_delta_entries());
+    assert!(skipped.transport().is_success());
+    assert!(skipped.transport().sent_to().is_empty());
+}
+
 #[test]
 fn replicator_actor_collects_delta_propagations_from_local_updates() {
     let system = ActorSystem::builder("ddata-replicator-delta")
