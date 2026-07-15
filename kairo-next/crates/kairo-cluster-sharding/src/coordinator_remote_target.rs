@@ -1,10 +1,18 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 
 use kairo_cluster::UniqueAddress;
 use kairo_serialization::{ActorRefWireData, SerializationError};
 
+/// Default stable remote actor path of a shard coordinator endpoint.
 pub const DEFAULT_SHARD_COORDINATOR_REMOTE_PATH: &str = "/system/sharding/coordinator";
 
+/// Cluster node paired with its stable remote coordinator recipient.
+///
+/// The recipient must be remotely addressable. The node identity remains
+/// available for membership-driven target selection while the wire ref is
+/// used by transport-neutral sharding protocol bridges.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShardCoordinatorRemoteTarget {
     node: UniqueAddress,
@@ -12,6 +20,7 @@ pub struct ShardCoordinatorRemoteTarget {
 }
 
 impl ShardCoordinatorRemoteTarget {
+    /// Creates a target from an already validated remote actor-ref wire value.
     pub fn new(
         node: UniqueAddress,
         recipient: ActorRefWireData,
@@ -24,6 +33,7 @@ impl ShardCoordinatorRemoteTarget {
         Ok(Self { node, recipient })
     }
 
+    /// Derives a target recipient from `node` and an absolute actor path.
     pub fn for_node(
         node: UniqueAddress,
         recipient_path: impl AsRef<str>,
@@ -32,19 +42,28 @@ impl ShardCoordinatorRemoteTarget {
         Self::new(node, recipient)
     }
 
+    /// Returns the cluster node that owns this coordinator endpoint.
     pub fn node(&self) -> &UniqueAddress {
         &self.node
     }
 
+    /// Returns the stable remote coordinator recipient.
     pub fn recipient(&self) -> &ActorRefWireData {
         &self.recipient
     }
 }
 
+/// Failure to construct a remotely addressable coordinator target.
 #[derive(Debug)]
 pub enum ShardCoordinatorRemoteTargetError {
+    /// The supplied actor path was not absolute.
     InvalidRecipientPath(String),
-    MissingRemoteHost { node: String },
+    /// The cluster node or recipient did not contain a remote host.
+    MissingRemoteHost {
+        /// Deterministic identity of the node that cannot be addressed remotely.
+        node: String,
+    },
+    /// Constructing the stable actor-ref wire value failed.
     Serialization(SerializationError),
 }
 
@@ -75,6 +94,7 @@ impl From<SerializationError> for ShardCoordinatorRemoteTargetError {
     }
 }
 
+/// Builds a stable coordinator wire recipient under a cluster node's address.
 pub fn coordinator_recipient_for_node(
     node: &UniqueAddress,
     recipient_path: &str,

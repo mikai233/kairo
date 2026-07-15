@@ -191,6 +191,9 @@ Status terms in this document mean:
   Local and remote region registration sessions and the composed remote
   coordinator transport likewise hard-gate retry ownership, stale-ack
   rejection, shard-home conversion, and shutdown-notification contracts.
+  Stable remote coordinator target construction and the transport-neutral
+  registration/shard-home bridges now hard-gate recipient validation, sender
+  metadata, retry ownership, wire decoding, and immediate delivery failures.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator

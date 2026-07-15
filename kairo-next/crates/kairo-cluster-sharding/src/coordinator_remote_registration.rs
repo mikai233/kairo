@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -8,11 +10,26 @@ use kairo_serialization::{
 
 use crate::{Register, RegisterAck, ShardCoordinatorRemoteTarget};
 
+/// Failure while sending or decoding the remote registration protocol.
 #[derive(Debug)]
 pub enum ShardCoordinatorRemoteRegistrationError {
+    /// Stable message serialization or deserialization failed.
     Serialization(SerializationError),
-    Send { target: String, reason: String },
-    WrongRecipient { expected: String, actual: String },
+    /// The outbound transport rejected a registration envelope.
+    Send {
+        /// Stable coordinator recipient path.
+        target: String,
+        /// Transport rejection reason.
+        reason: String,
+    },
+    /// A registration reply targeted a different region.
+    WrongRecipient {
+        /// Configured region recipient path.
+        expected: String,
+        /// Recipient path carried by the envelope.
+        actual: String,
+    },
+    /// The inbound envelope did not carry [`RegisterAck::MANIFEST`].
     UnsupportedManifest(String),
 }
 
@@ -55,6 +72,11 @@ impl From<SerializationError> for ShardCoordinatorRemoteRegistrationError {
     }
 }
 
+/// Outbound bridge for stable remote region registration requests.
+///
+/// The region wire ref is both the [`Register`] payload and the default
+/// envelope sender so the coordinator can reply to the same stable endpoint.
+/// Retrying delivery remains the region actor's responsibility.
 #[derive(Clone)]
 pub struct ShardCoordinatorRemoteRegistrationOutbound {
     target: ShardCoordinatorRemoteTarget,
@@ -65,6 +87,7 @@ pub struct ShardCoordinatorRemoteRegistrationOutbound {
 }
 
 impl ShardCoordinatorRemoteRegistrationOutbound {
+    /// Creates a bridge from a concrete outbound envelope recipient.
     pub fn new(
         target: ShardCoordinatorRemoteTarget,
         region: ActorRefWireData,
@@ -74,6 +97,7 @@ impl ShardCoordinatorRemoteRegistrationOutbound {
         Self::from_arc(target, region, registry, Arc::new(outbound))
     }
 
+    /// Creates a bridge from a shared type-erased outbound recipient.
     pub fn from_arc(
         target: ShardCoordinatorRemoteTarget,
         region: ActorRefWireData,
@@ -90,23 +114,28 @@ impl ShardCoordinatorRemoteRegistrationOutbound {
         }
     }
 
+    /// Returns the selected remote coordinator target.
     pub fn target(&self) -> &ShardCoordinatorRemoteTarget {
         &self.target
     }
 
+    /// Returns the region identity encoded in registration requests.
     pub fn region(&self) -> &ActorRefWireData {
         &self.region
     }
 
+    /// Returns the envelope sender metadata used for registration requests.
     pub fn sender(&self) -> Option<&ActorRefWireData> {
         self.sender.as_ref()
     }
 
+    /// Overrides the default region sender metadata.
     pub fn with_sender(mut self, sender: Option<ActorRefWireData>) -> Self {
         self.sender = sender;
         self
     }
 
+    /// Serializes and enqueues one stable [`Register`] request.
     pub fn register(&self) -> Result<(), ShardCoordinatorRemoteRegistrationError> {
         let register = Register {
             region: self.region.clone(),
@@ -142,12 +171,16 @@ impl Recipient<ShardCoordinatorRemoteTarget> for ShardCoordinatorRemoteRegistrat
     }
 }
 
+/// Decoded remote registration acknowledgement and its envelope sender.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShardCoordinatorRemoteRegistrationAck {
+    /// Coordinator sender metadata carried by the remote envelope.
     pub sender: Option<ActorRefWireData>,
+    /// Coordinator wire ref advertised by the [`RegisterAck`] payload.
     pub coordinator: ActorRefWireData,
 }
 
+/// Inbound bridge for registration replies addressed to one region endpoint.
 #[derive(Clone)]
 pub struct ShardCoordinatorRemoteRegistrationInbound {
     region: ActorRefWireData,
@@ -155,14 +188,17 @@ pub struct ShardCoordinatorRemoteRegistrationInbound {
 }
 
 impl ShardCoordinatorRemoteRegistrationInbound {
+    /// Creates a decoder for replies addressed to `region`.
     pub fn new(region: ActorRefWireData, registry: Arc<Registry>) -> Self {
         Self { region, registry }
     }
 
+    /// Returns the only accepted region recipient.
     pub fn region(&self) -> &ActorRefWireData {
         &self.region
     }
 
+    /// Validates and decodes one stable [`RegisterAck`] envelope.
     pub fn receive(
         &self,
         envelope: RemoteEnvelope,

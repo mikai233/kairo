@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -8,11 +10,26 @@ use kairo_serialization::{
 
 use crate::{GetShardHome, ShardCoordinatorRemoteTarget, ShardHome, ShardId};
 
+/// Failure while sending or decoding the remote shard-home protocol.
 #[derive(Debug)]
 pub enum ShardCoordinatorRemoteHomeError {
+    /// Stable message serialization or deserialization failed.
     Serialization(SerializationError),
-    Send { target: String, reason: String },
-    WrongRecipient { expected: String, actual: String },
+    /// The outbound transport rejected a shard-home request envelope.
+    Send {
+        /// Stable coordinator recipient path.
+        target: String,
+        /// Transport rejection reason.
+        reason: String,
+    },
+    /// A shard-home reply targeted a different region.
+    WrongRecipient {
+        /// Configured region recipient path.
+        expected: String,
+        /// Recipient path carried by the envelope.
+        actual: String,
+    },
+    /// The inbound envelope did not carry [`ShardHome::MANIFEST`].
     UnsupportedManifest(String),
 }
 
@@ -55,6 +72,11 @@ impl From<SerializationError> for ShardCoordinatorRemoteHomeError {
     }
 }
 
+/// Outbound bridge for stable remote shard-home requests.
+///
+/// The region wire ref is the default envelope sender so the coordinator can
+/// route [`ShardHome`] replies back to the requesting region. Retry and
+/// buffered-delivery policy remain owned by the region actor.
 #[derive(Clone)]
 pub struct ShardCoordinatorRemoteHomeOutbound {
     target: ShardCoordinatorRemoteTarget,
@@ -65,6 +87,7 @@ pub struct ShardCoordinatorRemoteHomeOutbound {
 }
 
 impl ShardCoordinatorRemoteHomeOutbound {
+    /// Creates a bridge from a concrete outbound envelope recipient.
     pub fn new(
         target: ShardCoordinatorRemoteTarget,
         region: ActorRefWireData,
@@ -74,6 +97,7 @@ impl ShardCoordinatorRemoteHomeOutbound {
         Self::from_arc(target, region, registry, Arc::new(outbound))
     }
 
+    /// Creates a bridge from a shared type-erased outbound recipient.
     pub fn from_arc(
         target: ShardCoordinatorRemoteTarget,
         region: ActorRefWireData,
@@ -90,23 +114,28 @@ impl ShardCoordinatorRemoteHomeOutbound {
         }
     }
 
+    /// Returns the selected remote coordinator target.
     pub fn target(&self) -> &ShardCoordinatorRemoteTarget {
         &self.target
     }
 
+    /// Returns the requesting region's stable wire identity.
     pub fn region(&self) -> &ActorRefWireData {
         &self.region
     }
 
+    /// Returns the envelope sender metadata used for requests.
     pub fn sender(&self) -> Option<&ActorRefWireData> {
         self.sender.as_ref()
     }
 
+    /// Overrides the default region sender metadata.
     pub fn with_sender(mut self, sender: Option<ActorRefWireData>) -> Self {
         self.sender = sender;
         self
     }
 
+    /// Builds, serializes, and enqueues a lookup for `shard_id`.
     pub fn request_shard_home(
         &self,
         shard_id: impl Into<ShardId>,
@@ -116,6 +145,7 @@ impl ShardCoordinatorRemoteHomeOutbound {
         })
     }
 
+    /// Serializes and enqueues an existing shard-home request.
     pub fn send_request(
         &self,
         request: GetShardHome,
@@ -142,13 +172,18 @@ impl Recipient<GetShardHome> for ShardCoordinatorRemoteHomeOutbound {
     }
 }
 
+/// Decoded remote shard-home reply and its envelope sender.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShardCoordinatorRemoteHome {
+    /// Coordinator sender metadata carried by the remote envelope.
     pub sender: Option<ActorRefWireData>,
+    /// Stable shard identifier whose home was resolved.
     pub shard_id: ShardId,
+    /// Stable wire ref of the region that owns the shard.
     pub region: ActorRefWireData,
 }
 
+/// Inbound bridge for shard-home replies addressed to one region endpoint.
 #[derive(Clone)]
 pub struct ShardCoordinatorRemoteHomeInbound {
     region: ActorRefWireData,
@@ -156,14 +191,17 @@ pub struct ShardCoordinatorRemoteHomeInbound {
 }
 
 impl ShardCoordinatorRemoteHomeInbound {
+    /// Creates a decoder for replies addressed to `region`.
     pub fn new(region: ActorRefWireData, registry: Arc<Registry>) -> Self {
         Self { region, registry }
     }
 
+    /// Returns the only accepted region recipient.
     pub fn region(&self) -> &ActorRefWireData {
         &self.region
     }
 
+    /// Validates and decodes one stable [`ShardHome`] envelope.
     pub fn receive(
         &self,
         envelope: RemoteEnvelope,
