@@ -4,6 +4,9 @@ use kairo_actor::{ActorError, ActorSystem, DeadLetter};
 
 use crate::{ManualTime, TestProbe};
 
+const DEFAULT_TEST_DISPATCHER_WORKERS: usize = 2;
+const DEFAULT_TEST_TASK_EXECUTOR_WORKERS: usize = 1;
+
 /// Actor-system owner for deterministic local actor tests.
 ///
 /// `ActorSystemTestKit` scopes one [`ActorSystem`] to a test, provides typed
@@ -17,13 +20,35 @@ pub struct ActorSystemTestKit {
 }
 
 impl ActorSystemTestKit {
-    /// Creates a test kit with a real local [`ActorSystem`].
+    /// Creates a test kit with a real, bounded-worker local [`ActorSystem`].
     ///
     /// Use this for tests that should exercise normal scheduling, mailbox,
     /// event-stream, receptionist, and lifecycle behavior without manual time.
+    /// The test runtime uses two dispatcher workers and one task-executor worker
+    /// so parallel test cases do not multiply the host's logical CPU count into
+    /// an excessive number of threads.
     pub fn new(name: impl Into<String>) -> Result<Self, ActorError> {
+        Self::with_runtime_workers(
+            name,
+            DEFAULT_TEST_DISPATCHER_WORKERS,
+            DEFAULT_TEST_TASK_EXECUTOR_WORKERS,
+        )
+    }
+
+    /// Creates a test kit with explicit dispatcher and task-executor worker counts.
+    ///
+    /// This is useful for process-level tests that create several actor systems
+    /// concurrently and need to bound their aggregate thread usage.
+    pub fn with_runtime_workers(
+        name: impl Into<String>,
+        dispatcher_workers: usize,
+        task_executor_workers: usize,
+    ) -> Result<Self, ActorError> {
         Ok(Self {
-            system: ActorSystem::builder(name).build()?,
+            system: ActorSystem::builder(name)
+                .dispatcher_workers(dispatcher_workers)
+                .task_executor_workers(task_executor_workers)
+                .build()?,
         })
     }
 
@@ -35,6 +60,8 @@ impl ActorSystemTestKit {
     pub fn with_manual_time(name: impl Into<String>) -> Result<(Self, ManualTime), ActorError> {
         let manual_time = ManualTime::new();
         let system = ActorSystem::builder(name)
+            .dispatcher_workers(DEFAULT_TEST_DISPATCHER_WORKERS)
+            .task_executor_workers(DEFAULT_TEST_TASK_EXECUTOR_WORKERS)
             .manual_scheduler(manual_time.scheduler())
             .build()?;
         Ok((Self { system }, manual_time))

@@ -14,6 +14,27 @@ impl Actor for UnitActor {
 struct TestEvent(&'static str);
 
 #[test]
+fn actor_system_testkit_uses_bounded_default_workers() {
+    let kit = ActorSystemTestKit::new("testkit-default-workers").expect("system should build");
+
+    assert_eq!(kit.system().dispatcher_settings().workers(), 2);
+    assert_eq!(kit.system().task_executor_settings().workers(), 1);
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
+fn actor_system_testkit_configures_bounded_runtime_workers() {
+    let kit = ActorSystemTestKit::with_runtime_workers("testkit-bounded-workers", 2, 1)
+        .expect("system should build");
+
+    assert_eq!(kit.system().dispatcher_settings().workers(), 2);
+    assert_eq!(kit.system().task_executor_settings().workers(), 1);
+    kit.shutdown(Duration::from_secs(1))
+        .expect("system should terminate");
+}
+
+#[test]
 fn actor_system_testkit_event_probe_receives_typed_event_stream_publications() {
     let kit = ActorSystemTestKit::new("testkit-event-probe").expect("system should build");
     let probe = kit
