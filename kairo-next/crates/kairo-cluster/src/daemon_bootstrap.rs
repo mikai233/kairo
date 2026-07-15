@@ -11,6 +11,7 @@ use kairo_remote::{
 };
 use kairo_serialization::ActorRefWireData;
 
+use crate::leave_coordinator::{ClusterLeaveCoordinator, register_cluster_coordinated_shutdown};
 use crate::{
     CLUSTER_SYSTEM_MANIFESTS, Cluster, ClusterEventPublisher, ClusterGossipProcess,
     ClusterGossipProcessMsg, ClusterGossipProcessSettings, ClusterGossipState,
@@ -38,6 +39,7 @@ pub struct ClusterDaemonBootstrapSettings {
     seed_process: ClusterSeedJoinProcessSettings,
     gossip_process: ClusterGossipProcessSettings,
     heartbeat_sender: HeartbeatSenderSettings,
+    shutdown_timeout: Duration,
 }
 
 impl ClusterDaemonBootstrapSettings {
@@ -50,6 +52,7 @@ impl ClusterDaemonBootstrapSettings {
             seed_process: ClusterSeedJoinProcessSettings::default(),
             gossip_process: ClusterGossipProcessSettings::default(),
             heartbeat_sender: HeartbeatSenderSettings::default(),
+            shutdown_timeout: Duration::from_secs(10),
         }
     }
     pub fn with_seed_nodes(mut self, value: Vec<kairo_actor::Address>) -> Self {
@@ -74,6 +77,10 @@ impl ClusterDaemonBootstrapSettings {
     }
     pub fn with_heartbeat_sender_settings(mut self, value: HeartbeatSenderSettings) -> Self {
         self.heartbeat_sender = value;
+        self
+    }
+    pub fn with_shutdown_timeout(mut self, value: Duration) -> Self {
+        self.shutdown_timeout = value;
         self
     }
 }
@@ -244,13 +251,21 @@ pub fn register_cluster_daemon(
             membership,
             gossip_process,
             heartbeat_sender,
+            leave_coordinator,
             seed_process,
             responder,
         } = ready;
+        register_cluster_coordinated_shutdown(
+            context.system(),
+            root.clone(),
+            leave_coordinator,
+            factory_settings.shutdown_timeout,
+        )
+        .map_err(|error| RemoteError::Inbound(error.to_string()))?;
         let daemon = ClusterDaemonHandle {
             root,
-            self_node,
-            cluster: Cluster::new(publisher),
+            self_node: self_node.clone(),
+            cluster: Cluster::with_membership(publisher, self_node.clone(), membership.clone()),
             daemon,
             membership,
             gossip_process,
@@ -288,6 +303,7 @@ struct DaemonReady {
     membership: ActorRef<ClusterMembershipMsg>,
     gossip_process: ActorRef<ClusterGossipProcessMsg>,
     heartbeat_sender: ActorRef<HeartbeatSenderMsg>,
+    leave_coordinator: ActorRef<crate::leave_coordinator::ClusterLeaveCoordinatorMsg>,
     seed_process: ActorRef<ClusterSeedJoinProcessMsg>,
     responder: ActorRef<ClusterInitJoinResponderMsg>,
 }
@@ -426,6 +442,25 @@ fn build_daemon_graph(
             let r = c.roles.clone();
             let p = publisher.clone();
             move || ClusterMembership::new(n, r, p)
+        }),
+    )?;
+    let leave_coordinator = ctx.spawn(
+        "leave-coordinator",
+        Props::new({
+            let cluster = Cluster::new(publisher.clone());
+            let node = self_node.clone();
+            let membership = membership.clone();
+            let registry = c.registry.clone();
+            let outbound = c.outbound.clone();
+            move || {
+                ClusterLeaveCoordinator::new(
+                    cluster.clone(),
+                    node.clone(),
+                    membership.clone(),
+                    registry.clone(),
+                    outbound.clone(),
+                )
+            }
         }),
     )?;
     let heartbeat_sender = c
@@ -596,6 +631,7 @@ fn build_daemon_graph(
         membership,
         gossip_process,
         heartbeat_sender,
+        leave_coordinator,
         seed_process,
         responder,
     })
@@ -655,6 +691,24 @@ mod tests {
             seed_nodes: Vec<kairo_actor::Address>,
             registry: Arc<Registry>,
         ) -> Self {
+            Self::start_with_acceptable_pause(
+                system,
+                node_uid,
+                remote_uid,
+                seed_nodes,
+                registry,
+                Duration::from_millis(45),
+            )
+        }
+
+        fn start_with_acceptable_pause(
+            system: &str,
+            node_uid: u64,
+            remote_uid: u64,
+            seed_nodes: Vec<kairo_actor::Address>,
+            registry: Arc<Registry>,
+            acceptable_pause: Duration,
+        ) -> Self {
             let kit = ActorSystemTestKit::new(system).unwrap();
             let mut builder = TcpRemoteActorRuntime::builder(
                 kit.system().clone(),
@@ -682,12 +736,13 @@ mod tests {
                             5,
                             DeadlineFailureDetectorSettings::new(
                                 Duration::from_millis(15),
-                                Duration::from_millis(45),
+                                acceptable_pause,
                             )
                             .unwrap(),
                         )
                         .with_heartbeat_expected_response_after(Duration::from_millis(10)),
-                    ),
+                    )
+                    .with_shutdown_timeout(Duration::from_secs(3)),
             )
             .unwrap();
             let runtime = builder.bind().unwrap();
@@ -1028,6 +1083,68 @@ mod tests {
         .unwrap();
 
         peer.shutdown();
+        seed.shutdown();
+    }
+
+    #[test]
+    fn composed_coordinated_shutdown_removes_leaving_peer_gracefully() {
+        let registry = registry();
+        let acceptable_pause = Duration::from_secs(5);
+        let seed = ComposedNode::start_with_acceptable_pause(
+            "daemon-leave-seed",
+            61,
+            6061,
+            vec![],
+            registry.clone(),
+            acceptable_pause,
+        );
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.handle.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "leave seed has not formed".to_string())
+        })
+        .unwrap();
+        let peer = ComposedNode::start_with_acceptable_pause(
+            "daemon-leave-peer",
+            62,
+            6062,
+            vec![seed.handle.self_node().address.clone()],
+            registry,
+            acceptable_pause,
+        );
+        let peer_node = peer.handle.self_node().clone();
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let seed_gossip = seed.gossip();
+            let peer_gossip = peer.gossip();
+            [seed.handle.self_node(), &peer_node]
+                .into_iter()
+                .all(|node| {
+                    seed_gossip.member(node).map(|member| member.status) == Some(MemberStatus::Up)
+                        && peer_gossip.member(node).map(|member| member.status)
+                            == Some(MemberStatus::Up)
+                })
+                .then_some(())
+                .ok_or_else(|| "leaving pair has not converged to Up".to_string())
+        })
+        .unwrap();
+
+        peer.handle.cluster().leave_self().unwrap();
+        assert!(peer.handle.root().wait_for_stop(Duration::from_secs(3)));
+
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let gossip = seed.gossip();
+            (!gossip.has_member(&peer_node) && gossip.tombstones().contains_key(&peer_node))
+                .then_some(())
+                .ok_or_else(|| "confirmed exiting peer has not been removed".to_string())
+        })
+        .unwrap();
+
+        peer.runtime.shutdown().unwrap();
+        peer.kit.shutdown(Duration::from_secs(1)).unwrap();
         seed.shutdown();
     }
 }

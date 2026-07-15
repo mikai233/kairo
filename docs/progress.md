@@ -60,10 +60,12 @@ Status terms in this document mean:
   coverage without a central membership authority.
 - M6 cluster runtime and membership protocol: in progress. Membership actors,
   join/welcome handling, heartbeat, downing hooks, remote envelopes, and TCP
-  peer bootstrap components exist. The acceptance gap is the integrated daemon
-  flow: seed contact, `InitJoin` acknowledgement, `GossipStatus`, periodic
-  gossip, automatic convergence to `Up`, leave to `Removed`, and coordinated
-  shutdown exercised without manually publishing membership snapshots.
+  peer bootstrap components exist. The composed daemon now proves seed contact,
+  `InitJoin` acknowledgement, periodic gossip, automatic convergence to `Up`,
+  heartbeat reachability/recovery, and graceful leave to `Removed` without
+  injected membership snapshots. The remaining acceptance gap is the final
+  ActorSystem cluster extension with explicit join ownership and broader
+  process-level incarnation/shutdown validation.
 - M7 distributed data: substantial component coverage. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. Product acceptance remains
@@ -309,8 +311,15 @@ Composed peer ownership retains reconnect intent for unreachable members so a
 later heartbeat response can mark them reachable again. TCP tests prove healthy
 three-node heartbeat exchange, automatic `Unreachable` gossip after peer loss,
 and automatic `Reachable` recovery after managed reconnection. Coordinated
-leave and the cohesive public cluster operations remain the active Phase 3
-work.
+shutdown now drives self through `Leaving` and convergence-owned `Exiting`,
+sends `ExitingConfirmed` over the shared control lane, and stops the cluster
+root only after those phases. A two-runtime test uses a five-second detector
+deadline to prove the surviving leader removes and tombstones the exiting peer
+through confirmation rather than failure detection; the test enters this path
+through public `Cluster::leave_self()`, which starts phased shutdown when self
+observes `Exiting`. The controlled `Cluster` facade now exposes self identity,
+leave, down, current state, and event subscription. Explicit join ownership in
+the final ActorSystem cluster extension remains the active Phase 3 work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -3816,11 +3825,13 @@ Implemented:
   in a focused submodule instead of being embedded in the actor implementation.
 - Cluster event-publisher tests now live in a focused sibling test module
   instead of the production event-publisher actor file.
-- `kairo-cluster::Cluster` provides the first public cluster subscription
-  facade over the event publisher, including snapshot-first typed subscriptions
-  through `ClusterSubscriptionEvent`, replay-as-events subscriptions,
-  event-only subscriptions, unsubscribe, current-state requests, and explicit
-  publisher-unavailable errors.
+- `kairo-cluster::Cluster` provides the public typed cluster facade over the
+  composed membership owner and event publisher, including self identity,
+  leave, down, snapshot-first typed subscriptions through
+  `ClusterSubscriptionEvent`, replay-as-events subscriptions, event-only
+  subscriptions, unsubscribe, current-state requests, and explicit unavailable
+  control/publisher errors. Legacy event-only instances reject membership
+  controls explicitly.
 - `kairo-cluster::ClusterMembership` provides the first actor-backed membership
   slice: self-join bootstrapping, remote join handling with `Welcome`, gossip
   envelope merge and talkback, reachability observations, explicit downing,
@@ -3839,9 +3850,10 @@ Implemented:
 - Cluster heartbeat, join, welcome, and gossip envelope codecs now reject
   unread trailing bytes after decoding the expected stable wire fields.
 - `kairo-cluster` now has a focused transport-neutral membership wire bridge
-  that maps typed join, welcome, and gossip membership messages to serialized
-  stable cluster protocol payloads with target-node routing metadata, routes
-  inbound serialized payloads into the actor-backed membership state machine,
+  that maps typed join, welcome, gossip, leave, down, and exiting-confirmation
+  messages to serialized stable cluster protocol payloads with target-node
+  routing metadata, routes inbound serialized payloads into the actor-backed
+  membership state machine,
   and uses an actor-backed outbound adapter for welcome/gossip talkback replies
   without adding socket transport or a central membership authority.
 - Cluster membership wire bridge tests now live in a focused sibling test
@@ -5933,6 +5945,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after composed graceful leave:
+
+```bash
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo check --workspace --all-targets --all-features
+cargo clippy -p kairo -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after composed heartbeat reachability:
 

@@ -5,9 +5,9 @@ use kairo_serialization::{ActorRefWireData, RemoteEnvelope, RemoteMessage};
 use crate::{
     ClusterGossipWireInbound, ClusterMembershipWireInbound, ClusterSeedJoinWireInbound,
     DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH,
-    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, GossipEnvelope, GossipStatus, Heartbeat,
-    HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound, HeartbeatRsp, InitJoin,
-    InitJoinAck, InitJoinNack, Join, UniqueAddress, Welcome,
+    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, Down, ExitingConfirmed, GossipEnvelope, GossipStatus,
+    Heartbeat, HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound, HeartbeatRsp,
+    InitJoin, InitJoinAck, InitJoinNack, Join, Leave, UniqueAddress, Welcome,
 };
 
 use super::ClusterSystemInboundError;
@@ -73,7 +73,12 @@ impl ClusterSystemInbound {
                     .receive(envelope)?;
                 Ok(())
             }
-            Join::MANIFEST | Welcome::MANIFEST | GossipEnvelope::MANIFEST => {
+            Join::MANIFEST
+            | Welcome::MANIFEST
+            | GossipEnvelope::MANIFEST
+            | Leave::MANIFEST
+            | Down::MANIFEST
+            | ExitingConfirmed::MANIFEST => {
                 validate_recipient(
                     &self.self_node,
                     DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH,
@@ -151,6 +156,9 @@ pub fn is_cluster_system_manifest(manifest: &str) -> bool {
             | GossipStatus::MANIFEST
             | Heartbeat::MANIFEST
             | HeartbeatRsp::MANIFEST
+            | Leave::MANIFEST
+            | Down::MANIFEST
+            | ExitingConfirmed::MANIFEST
     )
 }
 

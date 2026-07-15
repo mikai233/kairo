@@ -7,9 +7,10 @@ use kairo_testkit::ActorSystemTestKit;
 
 use super::*;
 use crate::{
-    ClusterEvent, ClusterEventPublisher, ClusterEventPublisherMsg, GOSSIP_ENVELOPE_SERIALIZER_ID,
-    Gossip, JOIN_SERIALIZER_ID, Member, MemberStatus, SubscriptionInitialState,
-    WELCOME_SERIALIZER_ID, register_cluster_protocol_codecs,
+    ClusterEvent, ClusterEventPublisher, ClusterEventPublisherMsg, EXITING_CONFIRMED_SERIALIZER_ID,
+    ExitingConfirmed, GOSSIP_ENVELOPE_SERIALIZER_ID, Gossip, JOIN_SERIALIZER_ID,
+    LEAVE_SERIALIZER_ID, Member, MemberStatus, SubscriptionInitialState, WELCOME_SERIALIZER_ID,
+    register_cluster_protocol_codecs,
 };
 
 fn registry() -> Arc<Registry> {
@@ -145,6 +146,84 @@ fn wire_outbound_serializes_join_welcome_and_gossip_for_target_node() {
         7
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn wire_outbound_serializes_leave_and_exiting_confirmation_controls() {
+    let kit = ActorSystemTestKit::new("cluster-wire-leave-outbound").unwrap();
+    let registry = registry();
+    let leaving = node("leaving", 1);
+    let target = node("leader", 2);
+    let outbound_probe = kit
+        .create_probe::<ClusterSerializedMembership>("leave-wire-out")
+        .unwrap();
+    let outbound = ClusterMembershipWireOutbound::new(
+        target.clone(),
+        registry.clone(),
+        outbound_probe.actor_ref(),
+    );
+
+    outbound
+        .send_membership(ClusterMembershipMsg::Leave {
+            address: leaving.address.clone(),
+        })
+        .unwrap();
+    let leave = outbound_probe.expect_msg(Duration::from_secs(1)).unwrap();
+    assert_eq!(leave.target, target);
+    assert_eq!(leave.message.serializer_id, LEAVE_SERIALIZER_ID);
+    assert_eq!(
+        registry
+            .deserialize::<Leave>(leave.message)
+            .unwrap()
+            .address,
+        leaving.address
+    );
+
+    outbound
+        .send_membership(ClusterMembershipMsg::ExitingConfirmed {
+            node: leaving.clone(),
+        })
+        .unwrap();
+    let confirmation = outbound_probe.expect_msg(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        confirmation.message.serializer_id,
+        EXITING_CONFIRMED_SERIALIZER_ID
+    );
+    assert_eq!(
+        registry
+            .deserialize::<ExitingConfirmed>(confirmation.message)
+            .unwrap()
+            .node,
+        leaving
+    );
+}
+
+#[test]
+fn wire_inbound_delivers_exiting_confirmation_to_membership() {
+    let kit = ActorSystemTestKit::new("cluster-wire-exiting-confirmed-inbound").unwrap();
+    let registry = registry();
+    let leader = node("leader", 2);
+    let leaving = node("leaving", 1);
+    let membership = kit
+        .create_probe::<ClusterMembershipMsg>("membership")
+        .unwrap();
+    let inbound =
+        ClusterMembershipWireInbound::new(leader, registry.clone(), membership.actor_ref());
+
+    inbound
+        .receive_message(
+            registry
+                .serialize(&ExitingConfirmed {
+                    node: leaving.clone(),
+                })
+                .unwrap(),
+        )
+        .unwrap();
+
+    assert!(matches!(
+        membership.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterMembershipMsg::ExitingConfirmed { node } if node == leaving
+    ));
 }
 
 #[test]

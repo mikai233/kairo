@@ -6,22 +6,68 @@ use std::{
 use kairo_actor::ActorRef;
 
 use crate::{
-    ClusterEvent, ClusterEventPublisherMsg, ClusterSubscriptionEvent,
-    ClusterSubscriptionInitialState, CurrentClusterState, SubscriptionInitialState,
+    ClusterEvent, ClusterEventPublisherMsg, ClusterMembershipMsg, ClusterSubscriptionEvent,
+    ClusterSubscriptionInitialState, CurrentClusterState, SubscriptionInitialState, UniqueAddress,
 };
+
+#[derive(Debug, Clone)]
+struct ClusterControls {
+    self_node: UniqueAddress,
+    membership: ActorRef<ClusterMembershipMsg>,
+}
 
 #[derive(Debug, Clone)]
 pub struct Cluster {
     event_publisher: ActorRef<ClusterEventPublisherMsg>,
+    controls: Option<ClusterControls>,
 }
 
 impl Cluster {
     pub fn new(event_publisher: ActorRef<ClusterEventPublisherMsg>) -> Self {
-        Self { event_publisher }
+        Self {
+            event_publisher,
+            controls: None,
+        }
+    }
+
+    pub(crate) fn with_membership(
+        event_publisher: ActorRef<ClusterEventPublisherMsg>,
+        self_node: UniqueAddress,
+        membership: ActorRef<ClusterMembershipMsg>,
+    ) -> Self {
+        Self {
+            event_publisher,
+            controls: Some(ClusterControls {
+                self_node,
+                membership,
+            }),
+        }
     }
 
     pub fn event_publisher(&self) -> ActorRef<ClusterEventPublisherMsg> {
         self.event_publisher.clone()
+    }
+
+    pub fn self_node(&self) -> Result<&UniqueAddress, ClusterError> {
+        self.controls
+            .as_ref()
+            .map(|controls| &controls.self_node)
+            .ok_or(ClusterError::ControlUnavailable)
+    }
+
+    pub fn leave_self(&self) -> Result<(), ClusterError> {
+        let controls = self.controls()?;
+        self.send_to_membership(ClusterMembershipMsg::Leave {
+            address: controls.self_node.address.clone(),
+        })
+    }
+
+    pub fn leave(&self, address: kairo_actor::Address) -> Result<(), ClusterError> {
+        self.send_to_membership(ClusterMembershipMsg::Leave { address })
+    }
+
+    pub fn down(&self, address: kairo_actor::Address) -> Result<(), ClusterError> {
+        self.send_to_membership(ClusterMembershipMsg::DownAddress { address })
     }
 
     pub fn subscribe(
@@ -81,16 +127,38 @@ impl Cluster {
                 reason: error.reason().to_string(),
             })
     }
+
+    fn controls(&self) -> Result<&ClusterControls, ClusterError> {
+        self.controls
+            .as_ref()
+            .ok_or(ClusterError::ControlUnavailable)
+    }
+
+    fn send_to_membership(&self, message: ClusterMembershipMsg) -> Result<(), ClusterError> {
+        self.controls()?.membership.tell(message).map_err(|error| {
+            ClusterError::MembershipUnavailable {
+                reason: error.reason().to_string(),
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClusterError {
+    ControlUnavailable,
+    MembershipUnavailable { reason: String },
     PublisherUnavailable { reason: String },
 }
 
 impl Display for ClusterError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ControlUnavailable => {
+                write!(f, "cluster membership controls are unavailable")
+            }
+            Self::MembershipUnavailable { reason } => {
+                write!(f, "cluster membership actor is unavailable: {reason}")
+            }
             Self::PublisherUnavailable { reason } => {
                 write!(f, "cluster event publisher is unavailable: {reason}")
             }
@@ -249,6 +317,42 @@ mod tests {
                 reason: "actor is stopped".to_string()
             }
         );
+    }
+
+    #[test]
+    fn controlled_facade_exposes_self_leave_and_down_operations() {
+        let kit = ActorSystemTestKit::new("cluster-facade-controls").unwrap();
+        let self_node = node("self", 1);
+        let peer = node("peer", 2);
+        let publisher = spawn_publisher(&kit, self_node.clone(), "publisher");
+        let membership = kit
+            .create_probe::<ClusterMembershipMsg>("membership")
+            .unwrap();
+        let cluster =
+            Cluster::with_membership(publisher, self_node.clone(), membership.actor_ref());
+
+        assert_eq!(cluster.self_node().unwrap(), &self_node);
+        cluster.leave_self().unwrap();
+        assert!(matches!(
+            membership.expect_msg(Duration::from_secs(1)).unwrap(),
+            ClusterMembershipMsg::Leave { address } if address == self_node.address
+        ));
+        cluster.down(peer.address.clone()).unwrap();
+        assert!(matches!(
+            membership.expect_msg(Duration::from_secs(1)).unwrap(),
+            ClusterMembershipMsg::DownAddress { address } if address == peer.address
+        ));
+    }
+
+    #[test]
+    fn event_only_facade_rejects_membership_controls() {
+        let kit = ActorSystemTestKit::new("cluster-facade-event-only").unwrap();
+        let self_node = node("self", 1);
+        let publisher = spawn_publisher(&kit, self_node, "publisher");
+        let cluster = Cluster::new(publisher);
+
+        assert_eq!(cluster.self_node(), Err(ClusterError::ControlUnavailable));
+        assert_eq!(cluster.leave_self(), Err(ClusterError::ControlUnavailable));
     }
 
     fn spawn_publisher(

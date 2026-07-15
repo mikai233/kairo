@@ -5,11 +5,11 @@ use kairo_remote::{
 use kairo_serialization::RemoteMessage;
 
 use crate::{
-    ClusterSystemInbound, GossipEnvelope, GossipStatus, Heartbeat, HeartbeatRsp, InitJoin,
-    InitJoinAck, InitJoinNack, Join, UniqueAddress, Welcome,
+    ClusterSystemInbound, Down, ExitingConfirmed, GossipEnvelope, GossipStatus, Heartbeat,
+    HeartbeatRsp, InitJoin, InitJoinAck, InitJoinNack, Join, Leave, UniqueAddress, Welcome,
 };
 
-pub const CLUSTER_SYSTEM_MANIFESTS: [&str; 9] = [
+pub const CLUSTER_SYSTEM_MANIFESTS: [&str; 12] = [
     InitJoin::MANIFEST,
     InitJoinAck::MANIFEST,
     InitJoinNack::MANIFEST,
@@ -19,6 +19,9 @@ pub const CLUSTER_SYSTEM_MANIFESTS: [&str; 9] = [
     GossipStatus::MANIFEST,
     Heartbeat::MANIFEST,
     HeartbeatRsp::MANIFEST,
+    Leave::MANIFEST,
+    Down::MANIFEST,
+    ExitingConfirmed::MANIFEST,
 ];
 
 /// Registers cluster control traffic with an ActorSystem-owned remote runtime.

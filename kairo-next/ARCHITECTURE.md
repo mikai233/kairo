@@ -1379,9 +1379,10 @@ gossip changes the self member status. This keeps seed admission synchronized
 with Join, Welcome, leader promotion, leave/exit, and downing transitions.
 
 `register_cluster_daemon` is the first composed bootstrap boundary. It installs
-the cluster manifests before remote bind; the bind-time factory receives the
-effective canonical address, registry, and shared outbound and materializes the
-real `/system/cluster/core/daemon` hierarchy with publisher, membership, seed
+all twelve cluster control manifests before remote bind; the bind-time factory
+receives the effective canonical address, registry, and shared outbound and
+materializes the real `/system/cluster/core/daemon` hierarchy with publisher,
+membership, seed
 process, responder, and wire children. The seed process starts in `Ready`.
 Post-bind activation first installs managed routes for configured contact
 addresses and then sends `Start`, preventing contact from racing canonical port
@@ -1391,8 +1392,9 @@ can always return Welcome without preconfigured membership routes.
 
 Membership transport:
 
-- `ClusterMembershipWireOutbound` serializes `Join`, `Welcome`, and
-  `GossipEnvelope` using stable cluster protocol codecs before transport.
+- `ClusterMembershipWireOutbound` serializes `Join`, `Welcome`,
+  `GossipEnvelope`, `Leave`, `Down`, and `ExitingConfirmed` using stable cluster
+  protocol codecs before transport.
 - `ClusterMembershipRemoteEnvelopeOutbound` wraps those serialized payloads in
   `RemoteEnvelope` metadata addressed to `/system/cluster/core/daemon` on the
   target node.
@@ -1416,8 +1418,9 @@ Membership transport:
   `ClusterSystemInbound`; composed ActorSystems should use the shared remoting
   registration while higher cluster runtime ownership is migrated.
 - Cluster TCP runtime traffic uses a cluster lane classifier so seed contact,
-  `Join`, `Welcome`, `GossipEnvelope`, `GossipStatus`, `Heartbeat`, and
-  `HeartbeatRsp` all travel on the control/system lane.
+  `Join`, `Welcome`, `GossipEnvelope`, `GossipStatus`, `Heartbeat`,
+  `HeartbeatRsp`, `Leave`, `Down`, and `ExitingConfirmed` all travel on the
+  control/system lane.
 - `ClusterAssociationPeerState` is the pure cluster-derived association
   planner. It consumes `CurrentClusterState` snapshots and cluster events,
   excludes self, preserves peers only from membership state, and emits explicit
@@ -1525,6 +1528,31 @@ Leader actions after convergence:
 4. Remove confirmed exiting members.
 5. Assign monotonically increasing `up_number`.
 6. Bump vector clock, clear seen, mark self seen, publish events.
+
+Graceful leave and coordinated shutdown:
+
+1. `Cluster::leave(address)` and `Cluster::leave_self()` send a typed command
+   to the authoritative membership actor; they never mutate the event publisher
+   or transport route set directly.
+2. `ClusterMembership` changes an eligible matching incarnation from
+   `Joining`, `WeaklyUp`, or `Up` to `Leaving`. Repeated leave commands and
+   commands for absent or already-leaving members are no-ops.
+3. The `cluster-leave` coordinated-shutdown phase waits until self is
+   `Leaving`, `Exiting`, `Down`, or absent. The `cluster-exiting` phase then
+   waits for convergence-driven `Exiting` (or the down/removed fallbacks). If
+   an explicit public leave reaches `Exiting` before shutdown has started, the
+   coordinator starts the same phased shutdown automatically.
+4. `cluster-exiting-done` sends refreshable best-effort `ExitingConfirmed`
+   messages to the remaining members. Their membership actors retain the
+   confirmation until a leader can remove that `Exiting` incarnation on
+   convergence.
+5. `cluster-shutdown` stops the complete `/system/cluster` root and waits for
+   its children before later ActorSystem/transport termination phases proceed.
+
+The composed `Cluster` handle exposes self identity, leave, down, current-state
+queries, and event subscription from one typed facade. Explicit join remains a
+daemon/bootstrap lifecycle operation until the final ActorSystem cluster
+extension owns bind and activation.
 
 Downing:
 

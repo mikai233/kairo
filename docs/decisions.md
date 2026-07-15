@@ -3475,3 +3475,52 @@ Consequences:
   removal; reconnect backoff and transport quarantine remain remoting concerns.
 - Membership truth stays gossip plus local observations, not transport route
   state or discovery.
+
+## ADR-0112: Graceful Leave Is A Phased Gossip Transition
+
+Status: Accepted
+
+Context:
+Kairo already modeled `Leaving`, `Exiting`, convergence, exiting confirmation,
+and the standard coordinated-shutdown phase names, but the composed daemon did
+not connect them. Stopping the cluster root directly made every planned exit
+look like a failure-detector event and left the stable `Leave`, `Down`, and
+`ExitingConfirmed` codecs outside the shared control manifest router.
+
+Decision:
+`ClusterMembership` owns address-based leave and down commands. Leave changes
+only eligible matching members to `Leaving`; the existing leader action remains
+the sole owner of `Leaving -> Exiting` and removal after convergence. Membership
+also retains incarnation-specific `ExitingConfirmed` facts and supplies them to
+leader actions until the member disappears.
+
+The composed daemon owns a typed leave coordinator subscribed to the current
+membership view. Synchronous coordinated-shutdown tasks communicate with that
+actor through completion channels: `cluster-leave` initiates and waits for
+leaving, `cluster-exiting` waits for the convergence transition,
+`cluster-exiting-done` sends confirmation, and `cluster-shutdown` stops and
+waits for the cluster root. This keeps gossip mutation on actor turns while
+allowing the existing synchronous shutdown runner to enforce its phase order.
+When a public leave reaches self `Exiting` before shutdown is running, the
+coordinator starts that same phase sequence from an ActorSystem-owned task; it
+does not block its receive turn on shutdown tasks that message it back.
+
+`Leave`, `Down`, and `ExitingConfirmed` join the nine existing manifests in the
+shared cluster control router. Exit confirmation is best-effort and is sent to
+all remaining members instead of Pekko's two potential-leader optimization;
+only the current leader can act on it, and sending to all avoids duplicating
+leader-candidate routing policy in the shutdown coordinator.
+
+The controlled `Cluster` facade exposes self identity plus leave and down next
+to its existing state and subscription operations. Event-only `Cluster`
+instances used by legacy connectors reject control operations explicitly.
+
+Consequences:
+- A healthy leaving node is removed and tombstoned without waiting for failure
+  detection or manual downing.
+- Cluster actors stop before later transport and ActorSystem termination phases,
+  while remoting remains the owner of listener shutdown.
+- Repeated leave is idempotent, and a lost confirmation retains Pekko's fallback:
+  the exiting node can still be removed after it becomes unreachable.
+- Explicit join remains a bootstrap operation until the final ActorSystem
+  cluster extension consolidates bind, activation, and public lifecycle access.

@@ -77,6 +77,7 @@ mod heartbeat_remote;
 mod init_join_responder;
 mod leader;
 mod leader_actions;
+mod leave_coordinator;
 mod member;
 mod membership_actor;
 mod protocol;

@@ -1,4 +1,6 @@
-use kairo_actor::{Actor, ActorRef, ActorResult, Context};
+use std::collections::HashSet;
+
+use kairo_actor::{Actor, ActorRef, ActorResult, Address, Context};
 
 use crate::{
     ClusterEventPublisherMsg, ClusterInitJoinLifecycle, ClusterInitJoinResponderMsg,
@@ -26,7 +28,16 @@ pub enum ClusterMembershipMsg {
         observer: UniqueAddress,
         subject: UniqueAddress,
     },
+    Leave {
+        address: Address,
+    },
     Down {
+        node: UniqueAddress,
+    },
+    DownAddress {
+        address: Address,
+    },
+    ExitingConfirmed {
         node: UniqueAddress,
     },
     ApplyDowningDecision(DowningDecision),
@@ -55,6 +66,7 @@ pub struct ClusterMembership {
     initialized: bool,
     downing_provider: Option<ActorRef<DowningProviderMsg>>,
     init_join_responder: Option<ActorRef<ClusterInitJoinResponderMsg>>,
+    exiting_confirmed: HashSet<UniqueAddress>,
 }
 
 impl ClusterMembership {
@@ -73,6 +85,7 @@ impl ClusterMembership {
             initialized: false,
             downing_provider: None,
             init_join_responder: None,
+            exiting_confirmed: HashSet::new(),
         }
     }
 
@@ -214,6 +227,45 @@ impl ClusterMembership {
         }
     }
 
+    fn leave(&mut self, address: &Address) {
+        let Some(member) = self
+            .gossip
+            .members()
+            .iter()
+            .find(|member| &member.unique_address.address == address)
+            .cloned()
+        else {
+            return;
+        };
+        if matches!(
+            member.status,
+            crate::MemberStatus::Joining | crate::MemberStatus::WeaklyUp | crate::MemberStatus::Up
+        ) {
+            self.update_latest_gossip(
+                self.gossip
+                    .update_members([member.with_status(crate::MemberStatus::Leaving)]),
+            );
+        }
+    }
+
+    fn down_address(&mut self, address: &Address) {
+        if let Some(node) = self
+            .gossip
+            .members()
+            .iter()
+            .find(|member| &member.unique_address.address == address)
+            .map(|member| member.unique_address.clone())
+        {
+            self.down(&node);
+        }
+    }
+
+    fn exiting_confirmed(&mut self, node: UniqueAddress) {
+        if self.gossip.has_member(&node) {
+            self.exiting_confirmed.insert(node);
+        }
+    }
+
     fn apply_downing_decision(&mut self, decision: DowningDecision) {
         let plan = DowningPlan::from_decision(decision, &self.gossip, &self.self_node);
         let changed = plan.apply_to(&self.gossip, &self.self_node);
@@ -245,11 +297,17 @@ impl ClusterMembership {
             &self.gossip,
             &self.self_node,
             removal_timestamp,
-            [],
-        ) && outcome.changed()
-        {
-            self.gossip = outcome.gossip;
-            self.publish_current_gossip();
+            self.exiting_confirmed.iter().cloned(),
+        ) {
+            let changed = outcome.changed();
+            if changed {
+                self.gossip = outcome.gossip;
+            }
+            self.exiting_confirmed
+                .retain(|node| self.gossip.has_member(node));
+            if changed {
+                self.publish_current_gossip();
+            }
         }
     }
 
@@ -343,7 +401,10 @@ impl Actor for ClusterMembership {
             ClusterMembershipMsg::MarkReachable { observer, subject } => {
                 self.mark_reachable(observer, subject);
             }
+            ClusterMembershipMsg::Leave { address } => self.leave(&address),
             ClusterMembershipMsg::Down { node } => self.down(&node),
+            ClusterMembershipMsg::DownAddress { address } => self.down_address(&address),
+            ClusterMembershipMsg::ExitingConfirmed { node } => self.exiting_confirmed(node),
             ClusterMembershipMsg::ApplyDowningDecision(decision) => {
                 self.apply_downing_decision(decision);
             }

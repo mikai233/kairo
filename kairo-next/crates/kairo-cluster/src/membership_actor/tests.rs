@@ -458,6 +458,110 @@ fn down_marks_member_down_and_publishes_event() {
 }
 
 #[test]
+fn leave_address_moves_member_to_leaving_idempotently() {
+    let kit = ActorSystemTestKit::new("cluster-membership-leave").unwrap();
+    let self_node = node("self", 1);
+    let peer = node("peer", 2);
+    let (membership, events) = spawn_membership(&kit, self_node, "membership");
+    let gossip_probe = kit.create_probe::<Gossip>("leave-gossip").unwrap();
+
+    membership.tell(ClusterMembershipMsg::JoinSelf).unwrap();
+    drain_events(&events);
+    membership
+        .tell(ClusterMembershipMsg::Join {
+            join: Join {
+                node: peer.clone(),
+                roles: Vec::new(),
+            },
+            reply_to: None,
+        })
+        .unwrap();
+    drain_events(&events);
+
+    membership
+        .tell(ClusterMembershipMsg::Leave {
+            address: peer.address.clone(),
+        })
+        .unwrap();
+    membership
+        .tell(ClusterMembershipMsg::SendCurrentGossip {
+            reply_to: gossip_probe.actor_ref(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        gossip_probe
+            .expect_msg(Duration::from_secs(1))
+            .unwrap()
+            .member(&peer)
+            .map(|member| member.status),
+        Some(MemberStatus::Leaving)
+    );
+    expect_event(&events, |event| {
+        matches!(
+            event,
+            ClusterEvent::Member(MemberEvent::Left(member))
+                if member.unique_address == peer
+        )
+    });
+    drain_events(&events);
+    membership
+        .tell(ClusterMembershipMsg::Leave {
+            address: peer.address.clone(),
+        })
+        .unwrap();
+    events.expect_no_msg(Duration::from_millis(50)).unwrap();
+}
+
+#[test]
+fn leader_removes_confirmed_exiting_member() {
+    let kit = ActorSystemTestKit::new("cluster-membership-exiting-confirmed").unwrap();
+    let self_node = node("a", 1);
+    let peer = node("b", 2);
+    let (membership, events) = spawn_membership(&kit, self_node.clone(), "membership");
+    let gossip_probe = kit.create_probe::<Gossip>("confirmed-gossip").unwrap();
+    let converged = Gossip::from_members([
+        member(self_node.clone(), MemberStatus::Up),
+        member(peer.clone(), MemberStatus::Exiting),
+    ])
+    .seen(self_node.clone())
+    .seen(peer.clone())
+    .increment_version(&peer);
+
+    membership
+        .tell(ClusterMembershipMsg::Welcome(Box::new(Welcome {
+            from: peer.clone(),
+            gossip: converged,
+        })))
+        .unwrap();
+    drain_events(&events);
+    membership
+        .tell(ClusterMembershipMsg::ExitingConfirmed { node: peer.clone() })
+        .unwrap();
+    membership
+        .tell(ClusterMembershipMsg::LeaderActionsTick)
+        .unwrap();
+    membership
+        .tell(ClusterMembershipMsg::SendCurrentGossip {
+            reply_to: gossip_probe.actor_ref(),
+        })
+        .unwrap();
+
+    let gossip = gossip_probe.expect_msg(Duration::from_secs(1)).unwrap();
+    assert!(!gossip.has_member(&peer));
+    assert!(gossip.tombstones().contains_key(&peer));
+    expect_event(&events, |event| {
+        matches!(
+            event,
+            ClusterEvent::Member(MemberEvent::Removed {
+                member,
+                previous_status: MemberStatus::Exiting,
+            }) if member.unique_address == peer
+        )
+    });
+}
+
+#[test]
 fn reachability_updates_publish_unreachable_and_reachable_events() {
     let kit = ActorSystemTestKit::new("cluster-membership-reachability").unwrap();
     let self_node = node("self", 1);

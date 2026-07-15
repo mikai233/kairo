@@ -9,9 +9,9 @@ use kairo_testkit::ActorSystemTestKit;
 use super::*;
 use crate::{
     ClusterGossipProcessMsg, ClusterGossipWireInbound, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
-    DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, GossipStatus,
-    Heartbeat, HeartbeatRsp, InitJoin, Join, UniqueAddress, VectorClock,
-    register_cluster_protocol_codecs,
+    DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH,
+    ExitingConfirmed, GossipStatus, Heartbeat, HeartbeatRsp, InitJoin, Join, Leave, UniqueAddress,
+    VectorClock, register_cluster_protocol_codecs,
 };
 
 fn registry() -> Arc<Registry> {
@@ -38,6 +38,8 @@ fn cluster_system_manifest_helper_matches_seed_membership_and_heartbeat_protocol
     assert!(is_cluster_system_manifest(GossipStatus::MANIFEST));
     assert!(is_cluster_system_manifest(Heartbeat::MANIFEST));
     assert!(is_cluster_system_manifest(HeartbeatRsp::MANIFEST));
+    assert!(is_cluster_system_manifest(Leave::MANIFEST));
+    assert!(is_cluster_system_manifest(ExitingConfirmed::MANIFEST));
     assert!(!is_cluster_system_manifest(
         "kairo.cluster-tools.pubsub.status"
     ));

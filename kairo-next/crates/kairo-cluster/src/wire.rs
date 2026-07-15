@@ -6,7 +6,8 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Recipient};
 use kairo_serialization::{Registry, RemoteMessage, SerializationError, SerializedMessage};
 
 use crate::{
-    ClusterMembershipMsg, ClusterSeedJoinProcessMsg, GossipEnvelope, Join, UniqueAddress, Welcome,
+    ClusterMembershipMsg, ClusterSeedJoinProcessMsg, Down, ExitingConfirmed, GossipEnvelope, Join,
+    Leave, UniqueAddress, Welcome,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +121,13 @@ impl ClusterMembershipWireOutbound {
             ClusterMembershipMsg::Welcome(welcome) => self.send_remote_message(welcome.as_ref()),
             ClusterMembershipMsg::Gossip { envelope, .. } => {
                 self.send_remote_message(envelope.as_ref())
+            }
+            ClusterMembershipMsg::Leave { address } => self.send_remote_message(&Leave { address }),
+            ClusterMembershipMsg::DownAddress { address } => {
+                self.send_remote_message(&Down { address })
+            }
+            ClusterMembershipMsg::ExitingConfirmed { node } => {
+                self.send_remote_message(&ExitingConfirmed { node })
             }
             ClusterMembershipMsg::JoinSelf => {
                 Err(ClusterMembershipWireError::UnsupportedMessage("join-self"))
@@ -298,6 +306,30 @@ impl ClusterMembershipWireInbound {
                     .tell(ClusterMembershipMsg::Gossip {
                         envelope: Box::new(envelope),
                         reply_to,
+                    })
+                    .map_err(|error| ClusterMembershipWireError::Send(error.reason().to_string()))
+            }
+            Leave::MANIFEST => {
+                let leave = self.registry.deserialize::<Leave>(message)?;
+                self.membership
+                    .tell(ClusterMembershipMsg::Leave {
+                        address: leave.address,
+                    })
+                    .map_err(|error| ClusterMembershipWireError::Send(error.reason().to_string()))
+            }
+            Down::MANIFEST => {
+                let down = self.registry.deserialize::<Down>(message)?;
+                self.membership
+                    .tell(ClusterMembershipMsg::DownAddress {
+                        address: down.address,
+                    })
+                    .map_err(|error| ClusterMembershipWireError::Send(error.reason().to_string()))
+            }
+            ExitingConfirmed::MANIFEST => {
+                let confirmation = self.registry.deserialize::<ExitingConfirmed>(message)?;
+                self.membership
+                    .tell(ClusterMembershipMsg::ExitingConfirmed {
+                        node: confirmation.node,
                     })
                     .map_err(|error| ClusterMembershipWireError::Send(error.reason().to_string()))
             }
