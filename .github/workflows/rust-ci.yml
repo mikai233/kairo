@@ -86,6 +86,15 @@ jobs:
       - name: Build workspace docs with warnings denied
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
 
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Assemble and verify publishable crates
+        run: cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks
+
   benchmarks:
     name: Benchmark Smoke
     runs-on: ubuntu-latest

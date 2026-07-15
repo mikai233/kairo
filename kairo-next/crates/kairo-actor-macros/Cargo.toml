@@ -1,5 +1,6 @@
 [package]
 name = "kairo-actor-macros"
+description = "Derive macros for stable Kairo remote-message metadata"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

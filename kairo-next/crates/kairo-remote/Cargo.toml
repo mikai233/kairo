@@ -1,5 +1,6 @@
 [package]
 name = "kairo-remote"
+description = "Typed remote actor references and TCP associations for Kairo"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

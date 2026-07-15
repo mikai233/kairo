@@ -1,5 +1,6 @@
 [package]
 name = "kairo-actor"
+description = "Typed synchronous actor runtime for Kairo"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

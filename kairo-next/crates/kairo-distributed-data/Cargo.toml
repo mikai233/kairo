@@ -1,5 +1,6 @@
 [package]
 name = "kairo-distributed-data"
+description = "Typed CRDT replication over Kairo cluster membership"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

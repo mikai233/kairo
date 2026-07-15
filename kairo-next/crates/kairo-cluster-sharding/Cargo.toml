@@ -1,5 +1,6 @@
 [package]
 name = "kairo-cluster-sharding"
+description = "Typed distributed entity routing and shard coordination for Kairo"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

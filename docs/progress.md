@@ -150,8 +150,9 @@ Status terms in this document mean:
 - M13 hardening and release readiness: active as the remaining phase. Its
   validation, documentation, dependency audit, and benchmark scaffolding
   now include a declared Rust 1.88 MSRV, Linux/Windows/macOS stable test
-  coverage, and release-mode benchmark smoke; final sign-off focuses on release
-  quality rather than replacement architecture.
+  coverage, release-mode benchmark smoke, and verified release archives for
+  every public crate; final sign-off focuses on release quality rather than
+  replacement architecture.
 
 ## Execution Plan Before M13
 
@@ -623,9 +624,9 @@ hashing and `EntityRef<M>` remain the user boundary.
 
 Only after Phases 1-4 meet their exit gates, finish API review, feature gates,
 release-mode benchmarks, batching and tuning, platform/MSRV CI coverage,
-process crash and network-fault tests, documentation convergence, and legacy
-removal planning. Remaining M13 issues must be release issues rather than
-foundational architecture gaps.
+package verification, process crash and network-fault tests, documentation
+convergence, and legacy removal planning. Remaining M13 issues must be release
+issues rather than foundational architecture gaps.
 
 ## Commit And Progress Discipline
 
@@ -648,6 +649,18 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- Latest M13 release-readiness refresh after making all ten public crates
+  independently archivable as one versioned workspace release set:
+
+  ```bash
+  cargo +1.88.0 check --workspace --all-targets --all-features
+  cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks
+  cargo fmt --all -- --check
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  cargo test --workspace --all-targets --all-features
+  git diff --check
+  ```
 
 - Latest M13 release-readiness refresh after declaring the Rust 1.88 MSRV,
   expanding stable tests to Linux/Windows/macOS, and moving benchmark smoke to

@@ -17,6 +17,15 @@ All active Kairo crates inherit the workspace `MIT` license. The examples and
 benchmark crates are marked `publish = false`; they still inherit the same
 license metadata for local builds and documentation.
 
+Every publishable crate has a package description, and internal workspace
+dependencies combine a registry version with their local path. This lets Cargo
+assemble and verify the complete release set in dependency order while normal
+development continues to use local sources:
+
+```bash
+cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks
+```
+
 Active workspace members:
 
 ```text
@@ -96,3 +105,5 @@ active dependency surface.
   remote message contracts.
 - The M13 benchmark runner uses the standard library timing APIs instead of a
   new benchmarking dependency.
+- The complete public crate set passes Cargo's archive assembly and build
+  verification; private example and benchmark support crates are excluded.

@@ -11,15 +11,15 @@ license = "MIT"
 repository = "https://github.com/mikai233/kairo"
 
 [workspace.dependencies]
-kairo-actor = { path = "kairo-next/crates/kairo-actor" }
-kairo-actor-macros = { path = "kairo-next/crates/kairo-actor-macros" }
-kairo-serialization = { path = "kairo-next/crates/kairo-serialization" }
-kairo-remote = { path = "kairo-next/crates/kairo-remote" }
-kairo-cluster = { path = "kairo-next/crates/kairo-cluster" }
-kairo-distributed-data = { path = "kairo-next/crates/kairo-distributed-data" }
-kairo-cluster-tools = { path = "kairo-next/crates/kairo-cluster-tools" }
-kairo-cluster-sharding = { path = "kairo-next/crates/kairo-cluster-sharding" }
-kairo-testkit = { path = "kairo-next/crates/kairo-testkit" }
+kairo-actor = { version = "0.1.0", path = "kairo-next/crates/kairo-actor" }
+kairo-actor-macros = { version = "0.1.0", path = "kairo-next/crates/kairo-actor-macros" }
+kairo-serialization = { version = "0.1.0", path = "kairo-next/crates/kairo-serialization" }
+kairo-remote = { version = "0.1.0", path = "kairo-next/crates/kairo-remote" }
+kairo-cluster = { version = "0.1.0", path = "kairo-next/crates/kairo-cluster" }
+kairo-distributed-data = { version = "0.1.0", path = "kairo-next/crates/kairo-distributed-data" }
+kairo-cluster-tools = { version = "0.1.0", path = "kairo-next/crates/kairo-cluster-tools" }
+kairo-cluster-sharding = { version = "0.1.0", path = "kairo-next/crates/kairo-cluster-sharding" }
+kairo-testkit = { version = "0.1.0", path = "kairo-next/crates/kairo-testkit" }
 bytes = "1.11"
 sha1 = "0.10"
 thiserror = "2.0"

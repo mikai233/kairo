@@ -1,5 +1,6 @@
 [package]
 name = "kairo-cluster-tools"
+description = "Cluster singleton and distributed pubsub tools for Kairo"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

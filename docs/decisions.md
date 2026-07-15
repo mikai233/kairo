@@ -4129,3 +4129,32 @@ Consequences:
   and socket regressions on Windows and macOS.
 - Raising the MSRV is a reviewed compatibility decision and must update the
   workspace metadata, CI toolchain, public documentation, and this decision.
+
+## ADR-0129: Public Crates Package as One Versioned Workspace Set
+
+Status: Accepted
+
+Context:
+The M13 public facade and runtime crates used path-only internal dependencies.
+That works for local workspace builds, but Cargo rejects release archives whose
+dependencies have no registry version. Individual facade packaging also cannot
+verify unpublished internal crates from crates.io before the coordinated first
+release.
+
+Decision:
+Every publishable internal workspace dependency combines the current `0.1.0`
+registry version requirement with its local path, and every public crate
+supplies a package description. Release readiness packages the ten
+public crates together with `cargo package --workspace --all-features`,
+excluding the private examples and benchmark crates. Cargo therefore stages
+the dependency graph in publish order and verifies each generated archive
+against staged local crates.
+
+Consequences:
+- Local builds continue resolving workspace sources through `path` while crate
+  archives contain registry-compatible dependency requirements.
+- All publishable crate versions must move together until an intentional
+  independent-versioning decision replaces this policy.
+- CI catches missing metadata, undeclared dependency versions, archive content
+  errors, and builds that only succeed from the repository checkout.
+- Actual registry publication remains a separate authorized release action.

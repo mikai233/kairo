@@ -433,6 +433,7 @@ cargo test --doc --workspace --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks
 cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 ```
 

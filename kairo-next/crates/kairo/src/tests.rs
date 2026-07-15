@@ -54,7 +54,7 @@ const FACADE_FEATURE_EXPECTATIONS: [(&str, &str, &str); 8] = [
     ),
 ];
 
-const M13_VALIDATION_GATE_EXPECTATIONS: [(&str, &str); 9] = [
+const M13_VALIDATION_GATE_EXPECTATIONS: [(&str, &str); 10] = [
     (
         "cargo fmt --all -- --check",
         "formatting must remain a release-readiness gate",
@@ -88,6 +88,10 @@ const M13_VALIDATION_GATE_EXPECTATIONS: [(&str, &str); 9] = [
         "workspace rustdoc warnings must remain denied",
     ),
     (
+        "cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks",
+        "every public crate must assemble and verify from its release archive",
+    ),
+    (
         "KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all",
         "M13 benchmark smoke coverage must exercise optimized release builds in CI",
     ),
@@ -115,6 +119,37 @@ fn root_workspace_members_stay_on_kairo_next() -> Result<(), Box<dyn std::error:
         !root_manifest.contains("path = \"crates/"),
         "workspace dependencies must not point at legacy crates/"
     );
+
+    Ok(())
+}
+
+#[test]
+fn publishable_workspace_dependencies_keep_registry_versions()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let root_manifest =
+        std::fs::read_to_string(repo_root.join("Cargo.toml"))?.replace("\r\n", "\n");
+    let publishable_dependencies = [
+        "kairo-actor",
+        "kairo-actor-macros",
+        "kairo-serialization",
+        "kairo-remote",
+        "kairo-cluster",
+        "kairo-distributed-data",
+        "kairo-cluster-tools",
+        "kairo-cluster-sharding",
+        "kairo-testkit",
+    ];
+
+    for crate_name in publishable_dependencies {
+        let dependency = format!(
+            "{crate_name} = {{ version = \"0.1.0\", path = \"kairo-next/crates/{crate_name}\" }}"
+        );
+        assert!(
+            root_manifest.contains(&dependency),
+            "workspace dependency `{crate_name}` must combine a registry version with its local path so public crates can be packaged together"
+        );
+    }
 
     Ok(())
 }
@@ -226,6 +261,17 @@ fn active_crates_inherit_workspace_release_metadata_and_support_crates_stay_priv
             assert!(
                 manifest.contains("publish = false"),
                 "{} must remain a private support crate, not a published runtime surface",
+                manifest_path.display()
+            );
+        } else {
+            assert!(
+                manifest.contains("description = \""),
+                "{} must describe its public package surface",
+                manifest_path.display()
+            );
+            assert!(
+                !manifest.contains("publish = false"),
+                "{} must remain available to the workspace package gate",
                 manifest_path.display()
             );
         }

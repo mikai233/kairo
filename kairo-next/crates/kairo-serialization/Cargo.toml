@@ -1,5 +1,6 @@
 [package]
 name = "kairo-serialization"
+description = "Stable manifests, codec registration, and wire envelopes for Kairo"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
