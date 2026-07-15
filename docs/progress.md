@@ -64,8 +64,10 @@ Status terms in this document mean:
   bounded non-blocking lanes, provides reliable ordered lifecycle delivery,
   enforces defensive handshake and partial-assembly limits, automatically
   redials managed peers without replaying ordinary messages, and passes
-  focused process-level delivery and bounded-shutdown tests. Cluster and other
-  extension adoption proceeds in Phases 3 and 4.
+  focused process-level delivery and bounded-shutdown tests. Its implicit
+  shutdown budget now has a three-second floor and outlives configured connect
+  attempts so reconnect work cannot consume the complete system-actor stop
+  budget. Cluster and other extension adoption proceeds in Phases 3 and 4.
 - M5 gossip data model: near complete. Vector clocks, gossip, reachability,
   convergence, leader selection, and event diffing have strong pure-state test
   coverage without a central membership authority.
@@ -655,6 +657,19 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- Latest M13 remoting shutdown hardening validates that the implicit shutdown
+  budget outlives configured TCP connect attempts and survives repeated
+  distributed-data partition/heal teardown:
+
+  ```bash
+  cargo test -p kairo-remote default_shutdown_budget_outlives_configured_connect_attempts --all-targets --all-features
+  cargo test -p kairo-distributed-data composed_replicas_merge_divergent_updates_after_partition_heals --all-targets --all-features # 10 stress runs
+  cargo test -p kairo-examples --test sharding_tcp_acceptance --all-features -- --nocapture
+  cargo fmt --all -- --check
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  git diff --check
+  ```
 
 - Latest M13 validation refresh after bidirectional v1/v2 process-remoting
   compatibility coverage and hardening testkit partial-timeout scheduling

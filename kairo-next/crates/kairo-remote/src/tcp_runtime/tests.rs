@@ -13,7 +13,10 @@ use kairo_serialization::{
 };
 use kairo_testkit::await_assert;
 
-use super::{TcpRemoteActorRuntime, TcpRemoteActorSystem, TcpRemoteReconnectSettings};
+use super::{
+    TcpRemoteActorRuntime, TcpRemoteActorSystem, TcpRemoteReconnectSettings,
+    default_shutdown_timeout,
+};
 use crate::{
     AddressTerminated, AssociationState, RemoteAssociationAddress, RemoteAssociationCache,
     RemoteDeathWatchCommand, RemoteDeathWatchEffect, RemoteDeathWatchEffectObserver,
@@ -32,6 +35,21 @@ impl RemoteMessage for Ping {
 }
 
 struct PingCodec;
+
+#[test]
+fn default_shutdown_budget_outlives_configured_connect_attempts() {
+    let default_settings = RemoteSettings::new("127.0.0.1", 0);
+    assert_eq!(
+        default_shutdown_timeout(&default_settings),
+        Duration::from_secs(3)
+    );
+
+    let long_connect = default_settings.with_connect_timeout(Duration::from_secs(5));
+    assert_eq!(
+        default_shutdown_timeout(&long_connect),
+        Duration::from_secs(6)
+    );
+}
 
 impl MessageCodec<Ping> for PingCodec {
     fn serializer_id(&self) -> u32 {

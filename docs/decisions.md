@@ -4158,3 +4158,32 @@ Consequences:
 - CI catches missing metadata, undeclared dependency versions, archive content
   errors, and builds that only succeed from the repository checkout.
 - Actual registry publication remains a separate authorized release action.
+
+## ADR-0130: Default Remoting Shutdown Outlives TCP Connect Attempts
+
+Status: Accepted
+
+Context:
+`TcpRemoteActorRuntime::shutdown` used a fixed one-second timeout, equal to the
+default TCP connect timeout. During a reconnect attempt, that dial could consume
+the complete shutdown budget before the reconnect worker and remote system
+actors were joined. Under full workspace load this surfaced as a nondeterministic
+distributed-data shutdown failure. Pekko similarly gives complete remoting
+termination a larger budget than its individual flush operations.
+
+Decision:
+The implicit TCP remoting shutdown budget has a three-second floor. When an
+application configures a longer connect timeout, the shutdown budget becomes
+that connect timeout plus one second. Explicit `shutdown_with_timeout` calls
+continue to use the caller's exact budget.
+
+Consequences:
+- An ordinary shutdown has time for one in-flight connect attempt to finish and
+  still stop the reconnect worker, reliable-delivery actor, and remote-watch
+  actor.
+- Custom long connect timeouts no longer make the default shutdown budget
+  internally inconsistent.
+- Callers that require a stricter or more generous bound retain explicit
+  control through `shutdown_with_timeout` and coordinated-shutdown settings.
+- The default may wait longer before reporting a genuinely stuck remoting
+  shutdown, but it still remains bounded.

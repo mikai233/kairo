@@ -32,8 +32,17 @@ mod reconnect;
 pub use reconnect::TcpRemoteReconnectSettings;
 use reconnect::{ReconnectResources, TcpRemoteReconnectManager};
 
-const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
+const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const CONNECT_TIMEOUT_SHUTDOWN_SLACK: Duration = Duration::from_secs(1);
 const TCP_REMOTE_SHUTDOWN_REASON: &str = "tcp remote actor system shutdown";
+
+fn default_shutdown_timeout(settings: &RemoteSettings) -> Duration {
+    DEFAULT_SHUTDOWN_TIMEOUT.max(
+        settings
+            .connect_timeout_or_default()
+            .saturating_add(CONNECT_TIMEOUT_SHUTDOWN_SLACK),
+    )
+}
 
 struct RuntimeSystemActorRefs<'a> {
     reliable_delivery: &'a ActorRef<ReliableSystemRuntimeCommand>,
@@ -514,7 +523,7 @@ impl TcpRemoteActorRuntimeBuilder {
         for protocol in protocols {
             if let Err(error) = protocol(&context, &mut inbound) {
                 system.stop(&death_watch);
-                death_watch.wait_for_stop(DEFAULT_SHUTDOWN_TIMEOUT);
+                death_watch.wait_for_stop(default_shutdown_timeout(&effective_settings));
                 return Err(error);
             }
         }
@@ -743,7 +752,8 @@ impl TcpRemoteActorRuntime {
     }
 
     pub fn shutdown(self) -> Result<TcpAssociationListenerReport> {
-        self.shutdown_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
+        let timeout = default_shutdown_timeout(&self.settings);
+        self.shutdown_with_timeout(timeout)
     }
 
     pub fn shutdown_with_timeout(self, timeout: Duration) -> Result<TcpAssociationListenerReport> {
