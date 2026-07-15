@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -33,6 +35,10 @@ const READY_TIMEOUT: Duration = Duration::from_secs(2);
 const MANUAL_JOIN_TIMER: &str = "cluster-manual-join";
 
 #[derive(Debug, Clone)]
+/// Settings used to materialize the cluster daemon actor graph on a remote runtime.
+///
+/// Registration is deliberately separate from activation: the remote runtime must bind first so
+/// the daemon can derive its canonical address before peer management or seed contact begins.
 pub struct ClusterDaemonBootstrapSettings {
     node_uid: u64,
     seed_nodes: Vec<kairo_actor::Address>,
@@ -46,6 +52,10 @@ pub struct ClusterDaemonBootstrapSettings {
 }
 
 impl ClusterDaemonBootstrapSettings {
+    /// Creates settings for the node incarnation identified by `node_uid`.
+    ///
+    /// The node initially has no roles, accepts an empty compatibility digest, uses the default
+    /// seed/gossip/heartbeat policies, and automatically joins after activation.
     pub fn new(node_uid: u64) -> Self {
         Self {
             node_uid,
@@ -59,34 +69,48 @@ impl ClusterDaemonBootstrapSettings {
             auto_join: true,
         }
     }
+    /// Sets the ordered seed addresses contacted during automatic join.
+    ///
+    /// An empty list makes the local node the only seed, allowing it to form a new cluster.
     pub fn with_seed_nodes(mut self, value: Vec<kairo_actor::Address>) -> Self {
         self.seed_nodes = value;
         self
     }
+    /// Sets the roles advertised by the local cluster member.
     pub fn with_roles(mut self, value: Vec<String>) -> Self {
         self.roles = value;
         self
     }
+    /// Sets the configuration compatibility digest exchanged during seed contact.
+    ///
+    /// `None` disables compatibility checking for incoming join attempts.
     pub fn with_config_digest(mut self, value: Option<Bytes>) -> Self {
         self.config_digest = value;
         self
     }
+    /// Sets retry and startup timing for the seed-join process.
     pub fn with_seed_process_settings(mut self, value: ClusterSeedJoinProcessSettings) -> Self {
         self.seed_process = value;
         self
     }
+    /// Sets periodic gossip and status-negotiation timing.
     pub fn with_gossip_process_settings(mut self, value: ClusterGossipProcessSettings) -> Self {
         self.gossip_process = value;
         self
     }
+    /// Sets heartbeat receiver selection and failure-detector timing.
     pub fn with_heartbeat_sender_settings(mut self, value: HeartbeatSenderSettings) -> Self {
         self.heartbeat_sender = value;
         self
     }
+    /// Sets the deadline allowed for coordinated cluster leave during system shutdown.
     pub fn with_shutdown_timeout(mut self, value: Duration) -> Self {
         self.shutdown_timeout = value;
         self
     }
+    /// Enables or disables configured seed join when the registration is activated.
+    ///
+    /// Disabling this leaves join ownership with the public cluster facade.
     pub fn with_auto_join(mut self, value: bool) -> Self {
         self.auto_join = value;
         self
@@ -94,9 +118,13 @@ impl ClusterDaemonBootstrapSettings {
 }
 
 #[derive(Debug)]
+/// Failure returned while registering, materializing, or activating the cluster daemon.
 pub enum ClusterDaemonBootstrapError {
+    /// Actor creation or delivery failed.
     Actor(ActorError),
+    /// Activation was attempted before remote bind materialized the daemon graph.
     NotMaterialized,
+    /// Remote-runtime registration, address conversion, or dialing failed.
     Remote(RemoteError),
 }
 
@@ -122,6 +150,7 @@ impl From<RemoteError> for ClusterDaemonBootstrapError {
 }
 
 #[derive(Clone)]
+/// Typed access to the actors and public facade owned by one materialized cluster daemon.
 pub struct ClusterDaemonHandle {
     root: ActorRef<()>,
     self_node: UniqueAddress,
@@ -134,44 +163,62 @@ pub struct ClusterDaemonHandle {
     responder: ActorRef<ClusterInitJoinResponderMsg>,
 }
 impl ClusterDaemonHandle {
+    /// Returns the `/system/cluster` guardian actor.
     pub fn root(&self) -> &ActorRef<()> {
         &self.root
     }
+    /// Returns the canonical address and incarnation UID of the local member.
     pub fn self_node(&self) -> &UniqueAddress {
         &self.self_node
     }
+    /// Returns the public cluster operations and subscription facade.
     pub fn cluster(&self) -> &Cluster {
         &self.cluster
     }
+    /// Returns the actor that owns the local membership gossip state.
     pub fn membership(&self) -> &ActorRef<ClusterMembershipMsg> {
         &self.membership
     }
+    /// Returns the actor that drives periodic gossip exchange.
     pub fn gossip_process(&self) -> &ActorRef<ClusterGossipProcessMsg> {
         &self.gossip_process
     }
+    /// Returns the actor that schedules heartbeat probes and failure detection.
     pub fn heartbeat_sender(&self) -> &ActorRef<HeartbeatSenderMsg> {
         &self.heartbeat_sender
     }
+    /// Returns the actor that owns configured seed-contact retries.
     pub fn seed_process(&self) -> &ActorRef<ClusterSeedJoinProcessMsg> {
         &self.seed_process
     }
+    /// Returns the actor that acknowledges compatible incoming seed contacts.
     pub fn responder(&self) -> &ActorRef<ClusterInitJoinResponderMsg> {
         &self.responder
     }
 }
 
 #[derive(Clone)]
+/// Deferred cluster-daemon registration produced before the remote runtime binds.
+///
+/// Binding materializes the actor graph and stores its handle. Activation then connects peer
+/// management, dials configured seeds, optionally starts joining, and installs the ActorSystem
+/// cluster extension.
 pub struct ClusterDaemonRegistration {
     settings: ClusterDaemonBootstrapSettings,
     handle: Arc<Mutex<Option<ClusterDaemonHandle>>>,
 }
 impl ClusterDaemonRegistration {
+    /// Returns the materialized daemon handle, or `None` before remote bind completes.
     pub fn handle(&self) -> Option<ClusterDaemonHandle> {
         self.handle
             .lock()
             .expect("cluster daemon handle poisoned")
             .clone()
     }
+    /// Activates peer management and join processing on the bound `runtime`.
+    ///
+    /// Configured seeds other than the local address are dialed before automatic join is started.
+    /// The resulting cluster facade is registered as the ActorSystem's cluster extension.
     pub fn activate(
         &self,
         runtime: &TcpRemoteActorRuntime,
@@ -216,6 +263,11 @@ fn remote_address_for(
     RemoteAssociationAddress::new(address.protocol(), address.system(), host, address.port())
 }
 
+/// Registers cluster control manifests and a deferred daemon graph with a remote runtime builder.
+///
+/// The builder's bind step derives the effective canonical address, spawns the fixed
+/// `/system/cluster/core/daemon` hierarchy, and installs one inbound router for all cluster control
+/// traffic. Call [`ClusterDaemonRegistration::activate`] after the runtime has been bound.
 pub fn register_cluster_daemon(
     builder: &mut TcpRemoteActorRuntimeBuilder,
     settings: ClusterDaemonBootstrapSettings,

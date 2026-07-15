@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use kairo_actor::Address;
 use kairo_remote::{
     RemoteAssociationCache, RemoteError, Result as RemoteResult, TcpRemoteActorRuntimeBuilder,
@@ -9,6 +11,10 @@ use crate::{
     HeartbeatRsp, InitJoin, InitJoinAck, InitJoinNack, Join, Leave, UniqueAddress, Welcome,
 };
 
+/// Stable manifests routed through the shared cluster control handler.
+///
+/// Registration reserves this complete set on the remote runtime so cluster traffic and business
+/// protocols can share one listener and association cache without competing handlers.
 pub const CLUSTER_SYSTEM_MANIFESTS: [&str; 12] = [
     InitJoin::MANIFEST,
     InitJoinAck::MANIFEST,

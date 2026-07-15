@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_remote::{RemoteError, RemoteFrameHandler, RemoteStreamId, decode_remote_envelope_frame};
 use kairo_serialization::{ActorRefWireData, RemoteEnvelope, RemoteMessage};
@@ -13,6 +15,11 @@ use crate::{
 use super::ClusterSystemInboundError;
 
 #[derive(Clone)]
+/// Manifest-aware router for cluster control envelopes received on the shared remote listener.
+///
+/// Every recognized manifest is validated against its fixed canonical system-actor path before
+/// dispatch. Handlers are optional so composed runtimes can install protocols incrementally, but
+/// receiving a recognized manifest without its handler is an explicit error.
 pub struct ClusterSystemInbound {
     self_node: UniqueAddress,
     gossip: Option<ClusterGossipWireInbound>,
@@ -23,6 +30,7 @@ pub struct ClusterSystemInbound {
 }
 
 impl ClusterSystemInbound {
+    /// Creates an empty router for the exact local node incarnation.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             self_node,
@@ -34,31 +42,37 @@ impl ClusterSystemInbound {
         }
     }
 
+    /// Installs the membership command and gossip-envelope handler.
     pub fn with_membership(mut self, inbound: ClusterMembershipWireInbound) -> Self {
         self.membership = Some(inbound);
         self
     }
 
+    /// Installs the gossip-status negotiation handler.
     pub fn with_gossip(mut self, inbound: ClusterGossipWireInbound) -> Self {
         self.gossip = Some(inbound);
         self
     }
 
+    /// Installs the heartbeat request handler.
     pub fn with_heartbeat_receiver(mut self, inbound: HeartbeatRemoteReceiverInbound) -> Self {
         self.heartbeat_receiver = Some(inbound);
         self
     }
 
+    /// Installs the heartbeat response handler.
     pub fn with_heartbeat_response(mut self, inbound: HeartbeatRemoteResponseInbound) -> Self {
         self.heartbeat_response = Some(inbound);
         self
     }
 
+    /// Installs the seed-contact request and acknowledgement handler.
     pub fn with_seed_join(mut self, inbound: ClusterSeedJoinWireInbound) -> Self {
         self.seed_join = Some(inbound);
         self
     }
 
+    /// Validates and dispatches one decoded remote envelope by stable manifest.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<(), ClusterSystemInboundError> {
         match envelope.message.manifest.as_str() {
             InitJoin::MANIFEST | InitJoinAck::MANIFEST | InitJoinNack::MANIFEST => {
@@ -144,6 +158,7 @@ impl RemoteFrameHandler for ClusterSystemInbound {
     }
 }
 
+/// Returns whether `manifest` belongs to the stable cluster control protocol.
 pub fn is_cluster_system_manifest(manifest: &str) -> bool {
     matches!(
         manifest,

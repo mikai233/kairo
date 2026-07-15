@@ -218,6 +218,7 @@ fn cluster_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::err
         "kairo-next/crates/kairo-cluster/src/codec/mod.rs",
         "kairo-next/crates/kairo-cluster/src/cluster.rs",
         "kairo-next/crates/kairo-cluster/src/convergence.rs",
+        "kairo-next/crates/kairo-cluster/src/daemon_bootstrap.rs",
         "kairo-next/crates/kairo-cluster/src/downing.rs",
         "kairo-next/crates/kairo-cluster/src/downing/lease_majority.rs",
         "kairo-next/crates/kairo-cluster/src/downing_provider.rs",
@@ -249,6 +250,9 @@ fn cluster_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::err
         "kairo-next/crates/kairo-cluster/src/seed_join.rs",
         "kairo-next/crates/kairo-cluster/src/seed_join_actor.rs",
         "kairo-next/crates/kairo-cluster/src/seed_join_wire.rs",
+        "kairo-next/crates/kairo-cluster/src/shared_remote_runtime.rs",
+        "kairo-next/crates/kairo-cluster/src/system_inbound/error.rs",
+        "kairo-next/crates/kairo-cluster/src/system_inbound/router.rs",
         "kairo-next/crates/kairo-cluster/src/vector_clock.rs",
         "kairo-next/crates/kairo-cluster/src/wire.rs",
     ];

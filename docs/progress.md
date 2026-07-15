@@ -129,6 +129,10 @@ Status terms in this document mean:
   central typed membership actor protocol now hard-gates its gossip ownership,
   join/welcome validation, observer-owned reachability updates, replacement
   incarnation handling, lifecycle registrations, and leader-action boundary.
+  Daemon registration and activation, the fixed actor graph handles, shared
+  cluster-control manifest registration, and recipient-validating inbound
+  dispatch now also deny missing public documentation, preserving bind-before-
+  activation ownership and explicit protocol-handler failures.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed
