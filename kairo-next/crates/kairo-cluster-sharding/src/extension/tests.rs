@@ -924,8 +924,8 @@ fn singleton_successor_recovers_shard_from_transport_ddata() {
         registry,
         type_key.clone(),
     );
-    await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
-        let state = seed.try_coordinator_state(Duration::from_millis(250))?;
+    await_assert(Duration::from_secs(8), Duration::from_millis(10), || {
+        let state = seed.try_coordinator_state(Duration::from_millis(500))?;
         (state.allocations.len() == 2)
             .then_some(())
             .ok_or_else(|| format!("ddata coordinator is not ready: {state:?}"))

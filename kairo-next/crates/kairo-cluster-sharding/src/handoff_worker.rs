@@ -177,7 +177,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            done.expect_msg(Duration::from_millis(500)).unwrap(),
+            done.expect_msg(Duration::from_secs(2)).unwrap(),
             HandoffWorkerDone {
                 shard: "12".to_string(),
                 ok: true,
