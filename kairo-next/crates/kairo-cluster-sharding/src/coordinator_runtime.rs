@@ -346,6 +346,9 @@ impl CoordinatorRuntime {
         }
 
         if !ok {
+            if let Some(region) = self.state.shard_home(&shard) {
+                self.graceful_shutdown_regions.remove(region);
+            }
             let pending_requesters = self.clear_rebalance(&shard);
             return Ok(RebalanceCompletionPlan::TimedOut {
                 shard,

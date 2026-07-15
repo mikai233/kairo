@@ -464,6 +464,30 @@ fn coordinator_runtime_timeout_clears_rebalance_without_deallocating() {
 }
 
 #[test]
+fn coordinator_runtime_failed_graceful_shutdown_can_be_retried() {
+    let mut runtime = coordinator_runtime_with_regions(["region-a"]);
+    runtime
+        .apply_event(CoordinatorEvent::ShardHomeAllocated {
+            shard: "1".to_string(),
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    assert!(matches!(
+        runtime.plan_region_shutdown("region-a"),
+        RegionShutdownPlan::Started { .. }
+    ));
+
+    assert!(matches!(
+        runtime.complete_rebalance("1", false).unwrap(),
+        RebalanceCompletionPlan::TimedOut { .. }
+    ));
+    assert!(matches!(
+        runtime.plan_region_shutdown("region-a"),
+        RegionShutdownPlan::Started { .. }
+    ));
+}
+
+#[test]
 fn coordinator_runtime_completion_without_in_progress_rebalance_is_ignored() {
     let mut runtime = coordinator_runtime_with_regions(["region-a"]);
     runtime
