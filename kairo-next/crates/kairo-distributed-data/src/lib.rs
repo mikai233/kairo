@@ -93,6 +93,7 @@ mod remote_association_inbound;
 mod remote_envelope;
 mod remote_reply;
 mod remote_request;
+mod remote_request_registry;
 mod remote_targets;
 mod remote_tcp;
 mod replica;
@@ -192,8 +193,8 @@ pub use envelope::DataEnvelope;
 pub use errors::{ConsistencyError, CrdtError};
 pub use extension::{
     DDATA_SYSTEM_MANIFESTS, DistributedDataBootstrapError, DistributedDataExtension,
-    DistributedDataHandle, DistributedDataRegistration, DistributedDataSettings,
-    register_distributed_data,
+    DistributedDataHandle, DistributedDataRegistration, DistributedDataRuntimeBuilder,
+    DistributedDataSettings, register_distributed_data,
 };
 pub use gcounter::GCounter;
 pub use gossip::{
@@ -241,10 +242,13 @@ pub use remote_reply::{
     ReplicatorRemoteReplyError, ReplicatorRemoteReplyInbound, ReplicatorRemoteReplyOutbound,
 };
 pub use remote_request::{ReplicatorRemoteRequestError, ReplicatorRemoteRequestInbound};
+pub use remote_request_registry::{
+    ReplicatorRemoteRequestRegistrationError, ReplicatorRemoteRequestRegistry,
+};
 pub use remote_targets::{
     DEFAULT_REPLICATOR_REMOTE_PATH, ReplicatorRemoteRouteRegistrationReport,
     ReplicatorRemoteRouteTargets, ReplicatorRemoteTargetError,
-    ReplicatorRemoteTargetRegistrationReport,
+    ReplicatorRemoteTargetRegistrationReport, replicator_remote_path_for_manifest,
 };
 pub use remote_tcp::{
     ReplicatorTcpAssociationRuntime, replicator_actor_ref_for, tcp_association_identity_for,

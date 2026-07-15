@@ -24,6 +24,7 @@ pub enum ReplicatorRemoteRequestError {
     MissingSender(&'static str),
     Spawn(String),
     Send(String),
+    UnknownRecipient(String),
     UnsupportedManifest(String),
 }
 
@@ -39,6 +40,12 @@ impl Display for ReplicatorRemoteRequestError {
                 write!(f, "remote replicator reply actor spawn failed: {reason}")
             }
             Self::Send(reason) => write!(f, "remote replicator request delivery failed: {reason}"),
+            Self::UnknownRecipient(path) => {
+                write!(
+                    f,
+                    "no replicated-data family owns remote recipient `{path}`"
+                )
+            }
             Self::UnsupportedManifest(manifest) => {
                 write!(
                     f,
@@ -76,6 +83,7 @@ where
     codecs: ReplicatorWireCodecs<D>,
     outbound: Arc<dyn Recipient<ReplicatorRemoteEnvelope> + Send + Sync>,
     next_reply_actor: AtomicU64,
+    reply_actor_prefix: String,
 }
 
 impl<D> ReplicatorRemoteRequestInbound<D>
@@ -101,6 +109,7 @@ where
             codecs,
             outbound: Arc::new(outbound),
             next_reply_actor: AtomicU64::new(0),
+            reply_actor_prefix: "ddata-remote".to_string(),
         }
     }
 
@@ -122,11 +131,17 @@ where
             codecs,
             outbound,
             next_reply_actor: AtomicU64::new(0),
+            reply_actor_prefix: "ddata-remote".to_string(),
         }
     }
 
     pub fn recipient(&self) -> &ActorRefWireData {
         self.envelope.recipient()
+    }
+
+    pub fn with_reply_actor_prefix(mut self, value: impl Into<String>) -> Self {
+        self.reply_actor_prefix = value.into();
+        self
     }
 
     pub fn receive_from(
@@ -284,7 +299,7 @@ where
 
     fn next_reply_name(&self, kind: &str) -> String {
         let id = self.next_reply_actor.fetch_add(1, Ordering::Relaxed);
-        format!("ddata-remote-{kind}-reply-{id}")
+        format!("{}-{kind}-reply-{id}", self.reply_actor_prefix)
     }
 }
 

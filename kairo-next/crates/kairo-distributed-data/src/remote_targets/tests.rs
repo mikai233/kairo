@@ -8,6 +8,18 @@ use kairo_remote::{RemoteAssociationAddress, RemoteAssociationCache, RemoteOutbo
 use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage};
 
 use super::*;
+
+#[test]
+fn family_path_uses_documented_fnv1a_manifest_token() {
+    assert_eq!(
+        replicator_remote_path_for_manifest("kairo.ddata.gcounter").unwrap(),
+        "/system/ddata-12852b5274ed2a86"
+    );
+    assert!(matches!(
+        replicator_remote_path_for_manifest("  "),
+        Err(ReplicatorRemoteTargetError::InvalidDataManifest)
+    ));
+}
 use crate::{
     AggregationTransport, DataEnvelope, DeltaPropagationLog, DeltaPropagationTransport,
     DeltaReplicatedData, GCounter, GCounterCodec, ReadAggregationPlan, ReadAggregatorState,

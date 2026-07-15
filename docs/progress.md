@@ -15,8 +15,8 @@ work.
 Current active stage: **foundation convergence before M13**, with Phases 1-3
 complete and Phase 4 distributed integration now active. The three-node final
 acceptance workflow now passes through the public composed runtime. Remaining
-Phase 4 work is broader distributed-data type registration and healed-partition
-depth, rather than the sharding or cluster-tools architecture itself. M13
+Phase 4 work is healed-partition depth, rather than the distributed-data,
+sharding, or cluster-tools architecture itself. M13
 begins only after those remaining gaps can be treated as tuning and release
 hardening rather than replacement.
 
@@ -86,8 +86,11 @@ Status terms in this document mean:
   same test proves pruning pauses while the crashed replica is unreachable,
   then collapses its GCounter contribution into the leader after removal,
   disseminates the performed marker, and cleans the removed replica on both
-  survivors without changing the total. Broader typed data registration and
-  healed network-partition acceptance remain open.
+  survivors without changing the total. One shared ddata runtime now accepts
+  multiple typed CRDT families, routes each through a stable manifest-derived
+  remote path, and proves two families with the same key string converge
+  independently across two nodes. Healed network-partition acceptance remains
+  open.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
@@ -407,10 +410,18 @@ observations; discovery supplies contact addresses only.
 
 Status: **active**.
 
-Current checkpoint: distributed data now registers its ten stable manifests on
-the ordinary lane of the composed remoting runtime, materializes
-`/system/ddata` after the cluster daemon at bind, and installs one typed
-`DistributedDataExtension<D>` after activation. Its cluster connector derives
+Current checkpoint: distributed data now registers its ten stable manifests
+once on the ordinary lane of the composed remoting runtime. A pre-bind
+`DistributedDataRuntimeBuilder` accepts multiple typed CRDT families and
+materializes each family at a stable
+`/system/ddata-{fnv1a64(data-manifest)}` path after the cluster daemon binds.
+One shared path registry dispatches remote requests into the matching typed
+receiver, while activation installs an independent
+`DistributedDataExtension<D>` for every family. A real two-node test registers
+`GCounter` and `GSet<String>` on each ActorSystem and proves that both families
+converge independently while using the same key string. Duplicate manifests,
+duplicate Rust data types, path collisions, and unknown recipients fail
+explicitly. Each cluster connector derives
 remote gossip targets and sender-to-`ReplicaId` validation from authoritative
 cluster snapshots/events while sharing the remoting association cache; it does
 not bind a second listener or infer membership from transport. A real
@@ -494,8 +505,9 @@ entity ids share that one typed ddata registration. Ddata-backed coordinator
 singleton failover is also covered: the future owner first observes the shard
 id in its local replica, the oldest node leaves, and the successor coordinator
 restores the allocation without another entity request. Broader ddata type
-registration outside this sharding composition and process/fault coverage
-remain open. The public sharding settings now also apply a non-zero periodic
+registration outside this sharding composition is now closed by the shared
+typed-family runtime; process/fault coverage remains open. The public sharding
+settings now also apply a non-zero periodic
 rebalance interval to every direct or singleton coordinator incarnation, so
 new regions can trigger the existing handoff state machine instead of leaving
 earlier allocations permanently concentrated. The runnable
@@ -508,8 +520,7 @@ next command. The Phase 4 three-node acceptance exit gate is therefore met,
 and distributed data now has a same-runtime crash/down survivor-quorum
 scenario. Singleton now also has a same-runtime abrupt-oldest recovery
 scenario, and pubsub has a same-runtime crashed-subscriber cleanup scenario.
-Broader ddata type registration and healed-partition coverage remain the active
-gate.
+Healed-partition coverage remains the active gate.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane

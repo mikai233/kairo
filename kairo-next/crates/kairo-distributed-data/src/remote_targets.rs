@@ -13,9 +13,31 @@ use crate::{
 };
 
 pub const DEFAULT_REPLICATOR_REMOTE_PATH: &str = "/system/ddata";
+const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+const FNV_PRIME: u64 = 0x100000001b3;
+
+/// Returns the stable remote recipient path owned by one CRDT data manifest.
+///
+/// The lowercase fixed-width token is FNV-1a 64-bit over the manifest's UTF-8
+/// bytes. This path shape is part of the distributed-data wire contract.
+pub fn replicator_remote_path_for_manifest(
+    manifest: &str,
+) -> Result<String, ReplicatorRemoteTargetError> {
+    if manifest.trim().is_empty() {
+        return Err(ReplicatorRemoteTargetError::InvalidDataManifest);
+    }
+    let token = manifest
+        .as_bytes()
+        .iter()
+        .fold(FNV_OFFSET_BASIS, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
+        });
+    Ok(format!("/system/ddata-{token:016x}"))
+}
 
 #[derive(Debug)]
 pub enum ReplicatorRemoteTargetError {
+    InvalidDataManifest,
     InvalidRecipientPath(String),
     MissingRemoteHost { node: ReplicaId },
     Serialization(SerializationError),
@@ -24,6 +46,9 @@ pub enum ReplicatorRemoteTargetError {
 impl Display for ReplicatorRemoteTargetError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidDataManifest => {
+                write!(f, "replicator CRDT data manifest must not be blank")
+            }
             Self::InvalidRecipientPath(path) => {
                 write!(
                     f,
