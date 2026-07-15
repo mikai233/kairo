@@ -3957,6 +3957,6 @@ Consequences:
   ddata extension without a second endpoint or dynamic CRDT envelope.
 - The coordinator pays ORSet metadata overhead for an add-only key in exchange
   for preserving one typed transport registration.
-- A real two-node test now observes the entity id on the non-owner replica
-  before region failure and recovery; coordinator singleton failover over this
-  store remains a separate acceptance gate.
+- Real two-node tests observe both entity and coordinator shard-id state on the
+  future owner before region failure or oldest-node departure, then prove the
+  corresponding shard/entity recovery without another business request.

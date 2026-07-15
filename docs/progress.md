@@ -94,8 +94,10 @@ Status terms in this document mean:
   test runs one node-local ORSet ddata extension per ActorSystem, waits until
   the remembered entity delta reaches the non-owner replica, crashes the owner
   region, and proves the new owner starts that entity before its next message.
-  Ddata-backed coordinator singleton failover and the final acceptance demo
-  remain open.
+  A companion test observes the coordinator shard-id key on the future
+  singleton owner, makes the oldest node leave, and proves the successor
+  restores that shard without another entity request. The final acceptance
+  demo remains open.
 - M10 cluster tools: substantial component coverage. Singleton and pubsub
   state, remote delivery, TCP peer runtime, examples, and composed public
   extensions exist. Real two-node tests cover pubsub convergence, named
@@ -446,8 +448,11 @@ delta on the non-owner replica before crashing the current region, reports
 new business request before delivering the next message. An additive
 `RememberCoordinatorORSetDDataStoreActor` lets coordinator shard ids and shard
 entity ids share that one typed ddata registration. Ddata-backed coordinator
-singleton failover, broader ddata type registration outside this sharding
-composition, and process/fault coverage remain open.
+singleton failover is also covered: the future owner first observes the shard
+id in its local replica, the oldest node leaves, and the successor coordinator
+restores the allocation without another entity request. Broader ddata type
+registration outside this sharding composition and process/fault coverage
+remain open.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6099,7 +6104,7 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after transport-backed distributed-data remember-entities recovery:
+Latest Phase 4 validation after transport-backed coordinator and entity recovery:
 
 ```bash
 cargo test -p kairo-cluster-sharding --all-targets --all-features

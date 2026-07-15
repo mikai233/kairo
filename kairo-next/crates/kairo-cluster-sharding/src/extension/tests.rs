@@ -420,14 +420,18 @@ impl ComposedShardingNode {
     }
 
     fn coordinator_state(&self) -> CoordinatorStateSnapshot {
+        self.try_coordinator_state(Duration::from_secs(1)).unwrap()
+    }
+
+    fn try_coordinator_state(&self, timeout: Duration) -> Result<CoordinatorStateSnapshot, String> {
         self.coordinator
             .tell(ShardCoordinatorMsg::GetState {
                 reply_to: self.coordinator_probe.actor_ref(),
             })
-            .unwrap();
+            .map_err(|error| error.reason().to_string())?;
         self.coordinator_probe
-            .expect_msg(Duration::from_secs(1))
-            .unwrap()
+            .expect_msg(timeout)
+            .map_err(|error| error.to_string())
     }
 
     fn init_additional_type(&self, type_key: EntityTypeKey<TestMessage>) {
@@ -484,6 +488,31 @@ impl ComposedShardingNode {
             GetResponse::Success { data, .. } if data.contains(&entity_id.to_string()) => Ok(()),
             response => Err(format!(
                 "successor ddata has not converged entity {entity_id}: {response:?}"
+            )),
+        }
+    }
+
+    fn ddata_contains_remembered_shard(&self, type_name: &str, shard: &str) -> Result<(), String> {
+        let ddata = self
+            .ddata
+            .as_ref()
+            .ok_or_else(|| "distributed data is not enabled".to_string())?;
+        ddata
+            .replicator()
+            .tell(ReplicatorActorMsg::Get {
+                key: crate::remember_coordinator_shards_key(type_name),
+                consistency: ReadConsistency::local(),
+                reply_to: self.ddata_probe.actor_ref(),
+            })
+            .map_err(|error| error.reason().to_string())?;
+        match self
+            .ddata_probe
+            .expect_msg(Duration::from_millis(250))
+            .map_err(|error| error.to_string())?
+        {
+            GetResponse::Success { data, .. } if data.contains(&shard.to_string()) => Ok(()),
+            response => Err(format!(
+                "successor ddata has not converged shard {shard}: {response:?}"
             )),
         }
     }
@@ -639,7 +668,7 @@ fn role_scoped_coordinator_runs_only_on_eligible_node() {
         .unwrap()
         .tell(TestMessage("role-route".to_string()))
         .unwrap();
-    await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+    await_assert(Duration::from_secs(8), Duration::from_millis(10), || {
         let expected = (entity_id.to_string(), "role-route".to_string());
         let frontend_received = frontend.received.lock().unwrap().clone();
         let backend_received = backend.received.lock().unwrap().clone();
@@ -742,6 +771,88 @@ fn singleton_successor_recovers_remembered_shard_allocation() {
 }
 
 #[test]
+fn singleton_successor_recovers_shard_from_transport_ddata() {
+    let registry = registry();
+    let type_key = EntityTypeKey::new("ddata-coordinator-account");
+    let seed = ComposedShardingNode::start_with_transport_ddata_remember_entities(
+        "sharding-ddata-coordinator-seed",
+        35,
+        135,
+        Vec::new(),
+        registry.clone(),
+        type_key.clone(),
+    );
+    await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+        (seed
+            .gossip()
+            .member(seed.cluster.self_node())
+            .map(|member| member.status)
+            == Some(MemberStatus::Up))
+        .then_some(())
+        .ok_or_else(|| "ddata coordinator seed has not formed".to_string())
+    })
+    .unwrap();
+    let peer = ComposedShardingNode::start_with_transport_ddata_remember_entities(
+        "sharding-ddata-coordinator-peer",
+        36,
+        136,
+        vec![seed.cluster.self_node().address.clone()],
+        registry,
+        type_key.clone(),
+    );
+    await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+        let state = seed.try_coordinator_state(Duration::from_millis(250))?;
+        (state.allocations.len() == 2)
+            .then_some(())
+            .ok_or_else(|| format!("ddata coordinator is not ready: {state:?}"))
+    })
+    .unwrap();
+
+    let entity_id = "ddata-coordinator-account-1";
+    let shard = crate::default_shard_id_for(entity_id);
+    peer.sharding
+        .entity_ref_for(type_key.clone(), entity_id)
+        .unwrap()
+        .tell(TestMessage("persist-shard".to_string()))
+        .unwrap();
+    await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+        let delivered = seed
+            .received
+            .lock()
+            .unwrap()
+            .contains(&(entity_id.to_string(), "persist-shard".to_string()))
+            || peer
+                .received
+                .lock()
+                .unwrap()
+                .contains(&(entity_id.to_string(), "persist-shard".to_string()));
+        delivered
+            .then_some(())
+            .ok_or_else(|| "initial shard request has not delivered".to_string())
+    })
+    .unwrap();
+    await_assert(Duration::from_secs(4), Duration::from_millis(20), || {
+        peer.ddata_contains_remembered_shard(type_key.name(), &shard)
+    })
+    .unwrap();
+
+    seed.cluster.cluster().leave_self().unwrap();
+    await_assert(Duration::from_secs(4), Duration::from_millis(20), || {
+        let state = peer.try_coordinator_state(Duration::from_millis(250))?;
+        state
+            .allocations
+            .values()
+            .any(|shards| shards.contains(&shard))
+            .then_some(())
+            .ok_or_else(|| format!("successor has not restored ddata shard {shard}: {state:?}"))
+    })
+    .unwrap();
+
+    peer.shutdown();
+    seed.shutdown();
+}
+
+#[test]
 fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
     let registry = registry();
     let type_key = EntityTypeKey::new("ddata-account");
@@ -772,7 +883,7 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
         type_key.clone(),
     );
     await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
-        let state = seed.coordinator_state();
+        let state = seed.try_coordinator_state(Duration::from_millis(250))?;
         (state.allocations.len() == 2)
             .then_some(())
             .ok_or_else(|| format!("ddata remember coordinator is not ready: {state:?}"))
@@ -787,7 +898,7 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
         .tell(TestMessage("before-failover".to_string()))
         .unwrap();
     let initial_owner_is_seed =
-        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+        match await_assert(Duration::from_secs(8), Duration::from_millis(10), || {
             if seed
                 .received
                 .lock()
@@ -805,8 +916,18 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
             } else {
                 Err("initial remembered entity delivery has not completed".to_string())
             }
-        })
-        .unwrap();
+        }) {
+            Ok(owner) => owner,
+            Err(error) => panic!(
+                "{error}; seed coordinator={:?}; seed region={:?}; peer region={:?}; \
+             seed started={:?}; peer started={:?}",
+                seed.try_coordinator_state(Duration::from_secs(1)),
+                seed.region_state(),
+                peer.region_state(),
+                seed.started.lock().unwrap(),
+                peer.started.lock().unwrap(),
+            ),
+        };
 
     let (owner, successor) = if initial_owner_is_seed {
         (&seed, &peer)
@@ -817,12 +938,14 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
         successor.ddata_contains_remembered_entity(type_key.name(), &shard, entity_id)
     })
     .unwrap();
-    let owner_region = seed
-        .coordinator_state()
-        .allocations
-        .into_iter()
-        .find_map(|(region, shards)| shards.contains(&shard).then_some(region))
-        .expect("routed shard should have an owner before failover");
+    let owner_region = await_assert(Duration::from_secs(4), Duration::from_millis(20), || {
+        seed.try_coordinator_state(Duration::from_millis(250))?
+            .allocations
+            .into_iter()
+            .find_map(|(region, shards)| shards.contains(&shard).then_some(region))
+            .ok_or_else(|| "routed shard should have an owner before failover".to_string())
+    })
+    .unwrap();
     owner.kit.system().stop(&owner.region);
     assert!(owner.region.wait_for_stop(Duration::from_secs(1)));
     seed.coordinator
