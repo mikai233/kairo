@@ -146,6 +146,9 @@ Status terms in this document mean:
   cluster-versus-remoting UID identity, snapshot/event projection, explicit
   reconnect clocks, one-at-a-time background route work, diagnostic snapshots,
   ActorSystem ownership, and coordinated connector/runtime shutdown.
+  The entire `kairo-cluster` crate now denies missing public documentation at
+  compile time, with the focused module gates retained as governance defense in
+  depth.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed

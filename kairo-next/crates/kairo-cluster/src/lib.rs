@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! Gossip-based cluster membership and cluster events.
 //!
 //! Cluster membership state is owned by gossip. Nodes exchange versioned
