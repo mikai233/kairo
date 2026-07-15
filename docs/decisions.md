@@ -3926,11 +3926,19 @@ failure stops the shard so region backoff/restart can retry. During handoff,
 remembered entity termination removes the local child without recording a stop
 or scheduling a local restart, preserving state for the next shard owner.
 
+A failed initial partition read is retained by the shard store and prevents it
+from reporting `loaded` or accepting later updates. Current and future entity
+reads receive the same concrete `RememberStoreReadFailed`, and diagnostics
+expose that retained error. Successfully loaded partitions are never presented
+as a complete remembered set after another partition fails.
+
 Consequences:
 - One Rust settings value makes coordinator and entity recovery an intentional
   public capability rather than two unrelated test hooks.
 - Store actors remain typed local protocols; only distributed-data CRDT state
   crosses nodes through the ddata layer.
+- Partial distributed-data recovery cannot erase entities by masquerading as a
+  successful empty or incomplete load.
 - Focused tests may share a replicator actor to isolate sharding semantics;
   distributed acceptance uses node-local replicators connected through the
   transport-backed ddata runtime.

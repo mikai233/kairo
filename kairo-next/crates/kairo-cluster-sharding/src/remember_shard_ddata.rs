@@ -1,3 +1,12 @@
+#![deny(missing_docs)]
+
+//! Partitioned ORSet store for one shard's remembered entity identifiers.
+//!
+//! Startup reads all five stable partitions before returning entity state or
+//! accepting updates. Reads requested during startup wait for completion. A
+//! partition failure is sticky: the store never presents the remaining
+//! partitions as a complete recovery and the owning shard can stop and retry.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props, SendError};
@@ -12,6 +21,10 @@ use crate::{
     remember_entity_shard_key,
 };
 
+/// Actor that persists one shard's remembered entities in partitioned ORSets.
+///
+/// Only one logical update may be in flight. Each update is split by stable key
+/// index and acknowledged after every affected ORSet update succeeds.
 pub struct RememberShardDDataStoreActor {
     type_name: String,
     shard_id: ShardId,
@@ -20,6 +33,7 @@ pub struct RememberShardDDataStoreActor {
     read_consistency: ReadConsistency,
     write_consistency: WriteConsistency,
     load_pending: BTreeSet<usize>,
+    load_error: Option<ShardingError>,
     entities_by_key: BTreeMap<usize, BTreeSet<EntityId>>,
     waiting_gets: Vec<ActorRef<Result<RememberedEntities, ShardingError>>>,
     pending_updates: BTreeMap<u64, PendingShardUpdate>,
@@ -27,6 +41,7 @@ pub struct RememberShardDDataStoreActor {
 }
 
 impl RememberShardDDataStoreActor {
+    /// Creates a shard store with local read and write consistency.
     pub fn new(
         type_name: impl Into<String>,
         shard_id: impl Into<ShardId>,
@@ -43,6 +58,7 @@ impl RememberShardDDataStoreActor {
         )
     }
 
+    /// Creates a shard store with explicit read and write consistency.
     pub fn with_consistency(
         type_name: impl Into<String>,
         shard_id: impl Into<ShardId>,
@@ -59,6 +75,7 @@ impl RememberShardDDataStoreActor {
             read_consistency,
             write_consistency,
             load_pending: (0..REMEMBER_ENTITY_SHARD_KEY_COUNT).collect(),
+            load_error: None,
             entities_by_key: BTreeMap::new(),
             waiting_gets: Vec::new(),
             pending_updates: BTreeMap::new(),
@@ -66,6 +83,7 @@ impl RememberShardDDataStoreActor {
         }
     }
 
+    /// Creates repeatable shard-store properties with local consistency.
     pub fn props(
         type_name: impl Into<String>,
         shard_id: impl Into<ShardId>,
@@ -78,6 +96,7 @@ impl RememberShardDDataStoreActor {
         Props::new(move || Self::new(type_name, shard_id, replica_id, replicator))
     }
 
+    /// Creates repeatable shard-store properties with explicit consistency.
     pub fn props_with_consistency(
         type_name: impl Into<String>,
         shard_id: impl Into<ShardId>,
@@ -101,24 +120,34 @@ impl RememberShardDDataStoreActor {
         })
     }
 
+    /// Returns the cluster-wide entity type name.
     pub fn type_name(&self) -> &str {
         &self.type_name
     }
 
+    /// Returns the logical shard identifier.
     pub fn shard_id(&self) -> &ShardId {
         &self.shard_id
     }
 }
 
+/// Local request/reply protocol for [`RememberShardDDataStoreActor`].
 pub enum RememberShardDDataStoreMsg {
+    /// Reads all remembered entity identifiers after initial loading.
     GetEntities {
+        /// Actor that receives the entity set or retained load failure.
         reply_to: ActorRef<Result<RememberedEntities, ShardingError>>,
     },
+    /// Applies one logical started/stopped entity update.
     Update {
+        /// Entity identifiers to add and remove.
         update: RememberShardUpdate,
+        /// Actor that receives completion or the concrete store failure.
         reply_to: ActorRef<Result<RememberShardUpdateDone, ShardingError>>,
     },
+    /// Requests a diagnostic snapshot of load and update progress.
     GetState {
+        /// Actor that receives the diagnostic snapshot.
         reply_to: ActorRef<RememberShardDDataStoreSnapshot>,
     },
     #[doc(hidden)]
@@ -135,12 +164,21 @@ pub enum RememberShardDDataStoreMsg {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic state for one partitioned shard ddata store.
 pub struct RememberShardDDataStoreSnapshot {
+    /// Cluster-wide entity type name.
     pub type_name: String,
+    /// Logical shard identifier.
     pub shard_id: ShardId,
+    /// Whether every partition loaded successfully.
     pub loaded: bool,
+    /// First retained partition read failure, if initial loading failed.
+    pub load_error: Option<ShardingError>,
+    /// Stable key indexes whose initial reads have not replied yet.
     pub pending_load_keys: BTreeSet<usize>,
+    /// Number of logical updates awaiting one or more partition replies.
     pub pending_updates: usize,
+    /// Last successfully loaded or updated identifiers by stable key index.
     pub entities_by_key: BTreeMap<usize, BTreeSet<EntityId>>,
 }
 
@@ -207,7 +245,11 @@ impl RememberShardDDataStoreActor {
         &mut self,
         reply_to: ActorRef<Result<RememberedEntities, ShardingError>>,
     ) -> ActorResult {
-        if self.loaded() {
+        if let Some(error) = self.load_error.clone() {
+            reply_to
+                .tell(Err(error))
+                .map_err(send_error_to_actor_error)?;
+        } else if self.loaded() {
             reply_to
                 .tell(Ok(RememberedEntities {
                     entities: self.remembered_entities(),
@@ -225,6 +267,13 @@ impl RememberShardDDataStoreActor {
         update: RememberShardUpdate,
         reply_to: ActorRef<Result<RememberShardUpdateDone, ShardingError>>,
     ) -> ActorResult {
+        if let Some(error) = self.load_error.clone() {
+            reply_to
+                .tell(Err(error))
+                .map_err(send_error_to_actor_error)?;
+            return Ok(());
+        }
+
         if !self.loaded() {
             reply_to
                 .tell(Err(ShardingError::RememberStoreUpdateFailed {
@@ -333,7 +382,8 @@ impl RememberShardDDataStoreActor {
                     key: key.as_str().to_string(),
                     reason,
                 };
-                self.drain_waiting_gets(Err(error))?;
+                let retained = self.load_error.get_or_insert(error).clone();
+                self.drain_waiting_gets(Err(retained))?;
             }
         }
         Ok(())
@@ -399,10 +449,13 @@ impl RememberShardDDataStoreActor {
     }
 
     fn drain_waiting_gets_if_loaded(&mut self) -> ActorResult {
-        if self.loaded() {
-            self.drain_waiting_gets(Ok(RememberedEntities {
-                entities: self.remembered_entities(),
-            }))?;
+        if self.load_pending.is_empty() {
+            match self.load_error.clone() {
+                Some(error) => self.drain_waiting_gets(Err(error))?,
+                None => self.drain_waiting_gets(Ok(RememberedEntities {
+                    entities: self.remembered_entities(),
+                }))?,
+            }
         }
         Ok(())
     }
@@ -438,7 +491,7 @@ impl RememberShardDDataStoreActor {
     }
 
     fn loaded(&self) -> bool {
-        self.load_pending.is_empty()
+        self.load_pending.is_empty() && self.load_error.is_none()
     }
 
     fn remembered_entities(&self) -> BTreeSet<EntityId> {
@@ -453,6 +506,7 @@ impl RememberShardDDataStoreActor {
             type_name: self.type_name.clone(),
             shard_id: self.shard_id.clone(),
             loaded: self.loaded(),
+            load_error: self.load_error.clone(),
             pending_load_keys: self.load_pending.clone(),
             pending_updates: self.pending_updates.len(),
             entities_by_key: (0..REMEMBER_ENTITY_SHARD_KEY_COUNT)
@@ -478,6 +532,10 @@ impl RememberShardDDataStoreActor {
     }
 }
 
+/// Derives the typed replicator key for one remembered-entity partition.
+///
+/// Returns [`ShardingError::InvalidRememberEntityKeyIndex`] for an index
+/// outside [`REMEMBER_ENTITY_SHARD_KEY_COUNT`].
 pub fn remember_entity_shard_replicator_key(
     type_name: &str,
     shard_id: &str,

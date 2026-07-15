@@ -1,5 +1,28 @@
 use super::*;
 
+struct PartiallyFailingRememberReplicator;
+
+impl Actor for PartiallyFailingRememberReplicator {
+    type Msg = kairo_distributed_data::ReplicatorActorMsg<ORSet<String>>;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        if let kairo_distributed_data::ReplicatorActorMsg::Get { key, reply_to, .. } = msg {
+            let response = if key.as_str().ends_with("-2") {
+                kairo_distributed_data::GetResponse::Failure {
+                    key,
+                    reason: "injected read failure".to_string(),
+                }
+            } else {
+                kairo_distributed_data::GetResponse::NotFound { key }
+            };
+            reply_to
+                .tell(response)
+                .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+        }
+        Ok(())
+    }
+}
+
 #[test]
 fn shard_ids_use_documented_stable_hash() {
     assert_eq!(stable_hash_entity_id("counter-1"), 0x31c4c004cce265c1);
@@ -41,6 +64,15 @@ fn remember_entity_key_helpers_reject_invalid_counts_and_indexes() {
     );
 }
 
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn remember_entity_key_index_supports_counts_wider_than_u32() {
+    let key_count = 1_usize << 32;
+    let index = remember_entity_key_index_for("entity-1", key_count).unwrap();
+
+    assert!(index < key_count);
+}
+
 #[test]
 fn remember_shard_store_loads_and_updates_partitioned_entities() {
     let mut state = RememberShardStoreState::with_entities(
@@ -75,6 +107,14 @@ fn remember_shard_store_loads_and_updates_partitioned_entities() {
         state.remembered_entities(),
         BTreeSet::from(["entity-2".to_string(), "entity-3".to_string()])
     );
+
+    state
+        .apply_update(RememberShardUpdate::new(
+            ["entity-2".to_string()],
+            ["entity-2".to_string()],
+        ))
+        .unwrap();
+    assert!(state.remembered_entities().contains("entity-2"));
 }
 
 #[test]
@@ -584,6 +624,80 @@ fn remember_shard_ddata_store_updates_and_reloads_entities() {
             .as_str(),
         "shard-orders-shard-1-2"
     );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn remember_shard_ddata_store_never_exposes_partial_state_after_load_failure() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("remember-shard-ddata-load-failure").unwrap();
+    let replicator = kit
+        .system()
+        .spawn(
+            "replicator",
+            Props::new(|| PartiallyFailingRememberReplicator),
+        )
+        .unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberShardDDataStoreActor::props(
+                "orders",
+                "shard-1",
+                ReplicaId::new("node-a"),
+                replicator,
+            ),
+        )
+        .unwrap();
+    let entities = kit
+        .create_probe::<Result<RememberedEntities, ShardingError>>("entities")
+        .unwrap();
+    let updates = kit
+        .create_probe::<Result<RememberShardUpdateDone, ShardingError>>("updates")
+        .unwrap();
+    let state = kit
+        .create_probe::<RememberShardDDataStoreSnapshot>("state")
+        .unwrap();
+    let expected = ShardingError::RememberStoreReadFailed {
+        key: "shard-orders-shard-1-2".to_string(),
+        reason: "injected read failure".to_string(),
+    };
+
+    for _ in 0..2 {
+        store
+            .tell(RememberShardDDataStoreMsg::GetEntities {
+                reply_to: entities.actor_ref(),
+            })
+            .unwrap();
+        assert_eq!(
+            entities.expect_msg(Duration::from_millis(500)).unwrap(),
+            Err(expected.clone())
+        );
+    }
+    store
+        .tell(RememberShardDDataStoreMsg::Update {
+            update: RememberShardUpdate::new(
+                ["entity-1".to_string()],
+                std::iter::empty::<String>(),
+            ),
+            reply_to: updates.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        updates.expect_msg(Duration::from_millis(500)).unwrap(),
+        Err(expected.clone())
+    );
+    store
+        .tell(RememberShardDDataStoreMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+    assert!(!snapshot.loaded);
+    assert!(snapshot.pending_load_keys.is_empty());
+    assert_eq!(snapshot.load_error, Some(expected));
+    assert!(snapshot.entities_by_key.values().all(BTreeSet::is_empty));
+
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

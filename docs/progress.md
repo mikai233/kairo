@@ -259,6 +259,12 @@ Status terms in this document mean:
   invariants, region home conflicts, remember-key validation, and store
   read/update failure context while remaining explicitly local rather than a
   wire protocol.
+  Remember-entity pure state, local actors, additive coordinator ddata stores,
+  and partitioned shard ORSet stores now hard-gate their fixed five-key Java
+  hashing, load-before-update, single-update, consistency, and explicit failure
+  contracts. A failed shard partition read is retained so later reads and
+  updates cannot treat partial recovery as complete, and explicit large key
+  counts no longer narrow through `i32` or risk a modulo panic.
   The low-level coordinator bootstrap helper now hard-gates its matched state
   and local handoff-target construction, duplicate-region rejection, borrowed
   inspection, and consuming decomposition contracts.

@@ -1,3 +1,12 @@
+#![deny(missing_docs)]
+
+//! Distributed-data coordinator stores for remembered shard identifiers.
+//!
+//! Both implementations expose one typed local actor protocol. The GSet store
+//! matches Pekko's additive coordinator key directly; the ORSet store uses add
+//! operations only so it can share Kairo's typed `ORSet<String>` replicator with
+//! shard-level entity stores. Only CRDT state crosses nodes.
+
 use std::collections::BTreeSet;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props, SendError};
@@ -8,6 +17,7 @@ use kairo_distributed_data::{
 
 use crate::{RememberCoordinatorUpdateDone, RememberedShards, ShardId, ShardingError};
 
+/// Coordinator remember store backed by an additive distributed [`GSet`].
 pub struct RememberCoordinatorDDataStoreActor {
     type_name: String,
     replicator: ActorRef<ReplicatorActorMsg<GSet<String>>>,
@@ -15,6 +25,11 @@ pub struct RememberCoordinatorDDataStoreActor {
     write_consistency: WriteConsistency,
 }
 
+/// Coordinator remember store backed by add-only use of a distributed [`ORSet`].
+///
+/// This variant allows coordinator and shard remember stores to share one typed
+/// ORSet distributed-data extension without changing additive coordinator
+/// semantics.
 pub struct RememberCoordinatorORSetDDataStoreActor {
     type_name: String,
     replica_id: ReplicaId,
@@ -24,6 +39,7 @@ pub struct RememberCoordinatorORSetDDataStoreActor {
 }
 
 impl RememberCoordinatorDDataStoreActor {
+    /// Creates a GSet store with local read and write consistency.
     pub fn new(
         type_name: impl Into<String>,
         replicator: ActorRef<ReplicatorActorMsg<GSet<String>>>,
@@ -36,6 +52,7 @@ impl RememberCoordinatorDDataStoreActor {
         )
     }
 
+    /// Creates a GSet store with explicit read and write consistency.
     pub fn with_consistency(
         type_name: impl Into<String>,
         replicator: ActorRef<ReplicatorActorMsg<GSet<String>>>,
@@ -50,6 +67,7 @@ impl RememberCoordinatorDDataStoreActor {
         }
     }
 
+    /// Creates repeatable GSet store properties with local consistency.
     pub fn props(
         type_name: impl Into<String>,
         replicator: ActorRef<ReplicatorActorMsg<GSet<String>>>,
@@ -58,6 +76,7 @@ impl RememberCoordinatorDDataStoreActor {
         Props::new(move || Self::new(type_name, replicator))
     }
 
+    /// Creates repeatable GSet store properties with explicit consistency.
     pub fn props_with_consistency(
         type_name: impl Into<String>,
         replicator: ActorRef<ReplicatorActorMsg<GSet<String>>>,
@@ -70,16 +89,21 @@ impl RememberCoordinatorDDataStoreActor {
         })
     }
 
+    /// Returns the cluster-wide entity type name owning the shard set.
     pub fn type_name(&self) -> &str {
         &self.type_name
     }
 
+    /// Returns the stable distributed-data key for the coordinator shard set.
     pub fn key(&self) -> ReplicatorKey {
         remember_coordinator_shards_key(&self.type_name)
     }
 }
 
 impl RememberCoordinatorORSetDDataStoreActor {
+    /// Creates an ORSet store with local read and write consistency.
+    ///
+    /// `replica_id` supplies the causal identity for ORSet add operations.
     pub fn new(
         type_name: impl Into<String>,
         replica_id: impl Into<ReplicaId>,
@@ -94,6 +118,7 @@ impl RememberCoordinatorORSetDDataStoreActor {
         )
     }
 
+    /// Creates an ORSet store with explicit consistency and causal replica id.
     pub fn with_consistency(
         type_name: impl Into<String>,
         replica_id: impl Into<ReplicaId>,
@@ -110,6 +135,7 @@ impl RememberCoordinatorORSetDDataStoreActor {
         }
     }
 
+    /// Creates repeatable ORSet store properties with local consistency.
     pub fn props(
         type_name: impl Into<String>,
         replica_id: impl Into<ReplicaId>,
@@ -120,6 +146,7 @@ impl RememberCoordinatorORSetDDataStoreActor {
         Props::new(move || Self::new(type_name, replica_id, replicator))
     }
 
+    /// Creates repeatable ORSet store properties with explicit consistency.
     pub fn props_with_consistency(
         type_name: impl Into<String>,
         replica_id: impl Into<ReplicaId>,
@@ -140,24 +167,34 @@ impl RememberCoordinatorORSetDDataStoreActor {
         })
     }
 
+    /// Returns the cluster-wide entity type name owning the shard set.
     pub fn type_name(&self) -> &str {
         &self.type_name
     }
 
+    /// Returns the stable distributed-data key for the coordinator shard set.
     pub fn key(&self) -> ReplicatorKey {
         remember_coordinator_shards_key(&self.type_name)
     }
 }
 
+/// Local request/reply protocol shared by both coordinator ddata stores.
 pub enum RememberCoordinatorDDataStoreMsg {
+    /// Adds one shard identifier to the coordinator's monotonic set.
     AddShard {
+        /// Shard identifier to record.
         shard: ShardId,
+        /// Actor that receives completion or the concrete store failure.
         reply_to: ActorRef<Result<RememberCoordinatorUpdateDone, ShardingError>>,
     },
+    /// Reads every remembered shard identifier.
     GetShards {
+        /// Actor that receives the set or the concrete store failure.
         reply_to: ActorRef<Result<RememberedShards, ShardingError>>,
     },
+    /// Requests a diagnostic snapshot of key and consistency configuration.
     GetState {
+        /// Actor that receives the diagnostic snapshot.
         reply_to: ActorRef<RememberCoordinatorDDataStoreSnapshot>,
     },
     #[doc(hidden)]
@@ -185,10 +222,15 @@ pub enum RememberCoordinatorDDataStoreMsg {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic configuration snapshot for a coordinator ddata store.
 pub struct RememberCoordinatorDDataStoreSnapshot {
+    /// Cluster-wide entity type name.
     pub type_name: String,
+    /// Stable distributed-data key containing shard identifiers.
     pub key: String,
+    /// Consistency used for shard-set reads.
     pub read_consistency: ReadConsistency,
+    /// Consistency used for shard-id additions.
     pub write_consistency: WriteConsistency,
 }
 
@@ -395,6 +437,7 @@ impl RememberCoordinatorDDataStoreActor {
     }
 }
 
+/// Derives the Pekko-compatible coordinator shard-set key for `type_name`.
 pub fn remember_coordinator_shards_key(type_name: &str) -> ReplicatorKey {
     ReplicatorKey::new(format!("shard-{type_name}-all"))
 }
