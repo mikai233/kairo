@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -11,7 +11,8 @@ use crate::{
     UnwatchRemote, WatchRemote, decode_remote_envelope_frame,
 };
 
-trait RemoteEnvelopeHandler: Send + Sync + 'static {
+/// Internal wire-boundary handler for one or more stable manifests.
+pub trait RemoteEnvelopeHandler: Send + Sync + 'static {
     fn receive(&self, envelope: RemoteEnvelope) -> Result<()>;
 }
 
@@ -29,14 +30,19 @@ where
 /// Each registered manifest retains a typed [`RemoteInbound`] handler behind
 /// this internal wire-boundary erasure. User-facing actor refs remain typed.
 pub struct ManifestRemoteInboundRouter {
-    business: HashMap<String, Arc<dyn RemoteEnvelopeHandler>>,
+    protocols: HashMap<String, RegisteredRemoteEnvelopeHandler>,
     death_watch: RemoteDeathWatchSystemInbound,
+}
+
+struct RegisteredRemoteEnvelopeHandler {
+    required_lane: Option<RemoteStreamId>,
+    handler: Arc<dyn RemoteEnvelopeHandler>,
 }
 
 impl ManifestRemoteInboundRouter {
     pub fn new(death_watch: RemoteDeathWatchSystemInbound) -> Self {
         Self {
-            business: HashMap::new(),
+            protocols: HashMap::new(),
             death_watch,
         }
     }
@@ -45,21 +51,52 @@ impl ManifestRemoteInboundRouter {
     where
         M: RemoteMessage,
     {
-        if is_remote_death_watch_manifest(M::MANIFEST) || self.business.contains_key(M::MANIFEST) {
+        if is_remote_death_watch_manifest(M::MANIFEST) || self.protocols.contains_key(M::MANIFEST) {
             return Err(RemoteError::DuplicateProtocolManifest(
                 M::MANIFEST.to_string(),
             ));
         }
 
-        self.business.insert(
+        self.protocols.insert(
             M::MANIFEST.to_string(),
-            Arc::new(move |envelope| inbound.receive(envelope)),
+            RegisteredRemoteEnvelopeHandler {
+                required_lane: None,
+                handler: Arc::new(move |envelope| inbound.receive(envelope)),
+            },
         );
         Ok(())
     }
 
+    pub fn register_handler(
+        &mut self,
+        manifests: &[String],
+        required_lane: RemoteStreamId,
+        handler: Arc<dyn RemoteEnvelopeHandler>,
+    ) -> Result<()> {
+        let mut pending = HashSet::new();
+        for manifest in manifests {
+            if is_remote_death_watch_manifest(manifest)
+                || self.protocols.contains_key(manifest)
+                || !pending.insert(manifest)
+            {
+                return Err(RemoteError::DuplicateProtocolManifest(manifest.clone()));
+            }
+        }
+
+        for manifest in manifests {
+            self.protocols.insert(
+                manifest.clone(),
+                RegisteredRemoteEnvelopeHandler {
+                    required_lane: Some(required_lane),
+                    handler: handler.clone(),
+                },
+            );
+        }
+        Ok(())
+    }
+
     pub fn registered_manifests(&self) -> impl Iterator<Item = &str> {
-        self.business.keys().map(String::as_str)
+        self.protocols.keys().map(String::as_str)
     }
 
     pub fn receive(&self, stream_id: RemoteStreamId, envelope: RemoteEnvelope) -> Result<()> {
@@ -73,10 +110,19 @@ impl ManifestRemoteInboundRouter {
             return self.death_watch.receive(envelope);
         }
 
-        self.business
+        let registered = self
+            .protocols
             .get(manifest)
-            .ok_or_else(|| RemoteError::UnknownProtocolManifest(manifest.to_string()))?
-            .receive(envelope)
+            .ok_or_else(|| RemoteError::UnknownProtocolManifest(manifest.to_string()))?;
+        if registered
+            .required_lane
+            .is_some_and(|required| required != stream_id)
+        {
+            return Err(RemoteError::Inbound(format!(
+                "remote protocol manifest `{manifest}` arrived on {stream_id:?} lane"
+            )));
+        }
+        registered.handler.receive(envelope)
     }
 }
 

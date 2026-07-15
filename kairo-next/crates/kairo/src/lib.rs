@@ -154,9 +154,10 @@ pub mod prelude {
     pub use kairo_actor_macros::*;
     #[cfg(feature = "cluster")]
     pub use kairo_cluster::{
-        Cluster, ClusterDiagnostic, ClusterDiagnosticFilter, ClusterDiagnostics, ClusterError,
-        ClusterEvent, ClusterSubscriptionEvent, ClusterSubscriptionInitialState,
-        CurrentClusterState, Member, MemberEvent, MemberStatus, ReachabilityEvent, UniqueAddress,
+        CLUSTER_SYSTEM_MANIFESTS, Cluster, ClusterDiagnostic, ClusterDiagnosticFilter,
+        ClusterDiagnostics, ClusterError, ClusterEvent, ClusterSubscriptionEvent,
+        ClusterSubscriptionInitialState, CurrentClusterState, Member, MemberEvent, MemberStatus,
+        ReachabilityEvent, UniqueAddress, register_cluster_system_inbound,
     };
     #[cfg(feature = "cluster-sharding")]
     pub use kairo_cluster_sharding::{
@@ -183,7 +184,7 @@ pub mod prelude {
         RemoteAssociationDiagnostics, RemoteError, RemoteInboundDiagnostic,
         RemoteInboundDiagnosticFilter, RemoteInboundDiagnostics, RemoteOutbound, RemoteSettings,
         ResolvedActorRef, TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder,
-        TcpRemoteActorSystem,
+        TcpRemoteActorRuntimeContext, TcpRemoteActorSystem,
     };
     #[cfg(feature = "serialization")]
     pub use kairo_serialization::{

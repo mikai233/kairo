@@ -150,8 +150,14 @@ the decoded-envelope dispatch boundary. A loopback integration test delivers
 two unrelated typed protocols through one dial, listener, association cache,
 association incarnation registry, and accepted association. The former
 `TcpRemoteActorSystem<M>` delegates to this core as a compatibility facade.
-The next checkpoint is registering cluster control traffic with the same
-runtime before retiring subsystem-owned listener lifecycles.
+Bind-time control-handler factories now receive the effective address and
+shared association cache. `register_cluster_system_inbound` uses that seam to
+register membership and heartbeat manifests on the control lane, and the
+cross-crate loopback gate delivers two unrelated typed business protocols plus
+cluster `Join` through the same listener and accepted association. The next
+checkpoint is bounded non-blocking outbound lane ownership; the older
+subsystem-specific TCP runtimes remain migration baselines until their higher
+runtime owners adopt the shared core.
 
 Task: converge business messages and system protocols on one ActorSystem-owned
 remoting lifecycle and canonical transport address.

@@ -79,6 +79,9 @@ mod protocol;
 mod reachability;
 mod remote;
 mod remote_tcp;
+mod shared_remote_runtime;
+#[cfg(test)]
+mod shared_remote_runtime_tests;
 mod system_inbound;
 #[cfg(test)]
 mod tcp_membership_downing;
@@ -144,6 +147,7 @@ pub use remote::{
 pub use remote_tcp::{
     ClusterTcpAssociationRuntime, cluster_association_identity_for, cluster_lane_classifier,
 };
+pub use shared_remote_runtime::{CLUSTER_SYSTEM_MANIFESTS, register_cluster_system_inbound};
 pub use system_inbound::{
     ClusterSystemInbound, ClusterSystemInboundError, is_cluster_system_manifest,
 };

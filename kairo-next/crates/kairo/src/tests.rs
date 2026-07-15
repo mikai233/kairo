@@ -1783,6 +1783,7 @@ fn prelude_exposes_remote_entry_points() {
     let _ = std::mem::size_of::<Option<ResolvedActorRef<PreludeRemoteMsg>>>();
     let _ = std::mem::size_of::<Option<TcpRemoteActorRuntime>>();
     let _ = std::mem::size_of::<Option<TcpRemoteActorRuntimeBuilder>>();
+    let _ = std::mem::size_of::<Option<TcpRemoteActorRuntimeContext>>();
     let _ = std::mem::size_of::<Option<TcpRemoteActorSystem<PreludeRemoteMsg>>>();
     assert!(resolved.is_local());
     assert_eq!(resolved.path(), local.path());
@@ -1928,6 +1929,7 @@ fn facade_cluster_module_exposes_tcp_bootstrap_surface() {
     assert_eq!(bootstrap_settings.connector_name(), "facade-cluster-peer");
     assert_eq!(identity.node_uid(), 1);
     assert_eq!(identity.local_system_uid(), 11);
+    assert_eq!(crate::cluster::CLUSTER_SYSTEM_MANIFESTS.len(), 5);
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerBootstrap>>();
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerBootstrapError>>();
     let _ = std::mem::size_of::<crate::cluster::ClusterTcpPeerBootstrapResult<()>>();

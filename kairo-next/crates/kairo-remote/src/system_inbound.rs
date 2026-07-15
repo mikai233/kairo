@@ -109,6 +109,10 @@ impl ActorSystemRemoteInboundRegistry {
     pub fn router(&self) -> &ManifestRemoteInboundRouter {
         &self.router
     }
+
+    pub(crate) fn router_mut(&mut self) -> &mut ManifestRemoteInboundRouter {
+        &mut self.router
+    }
 }
 
 impl RemoteFrameHandler for ActorSystemRemoteInboundRegistry {

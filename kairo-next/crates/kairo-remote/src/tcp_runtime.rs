@@ -13,8 +13,9 @@ use crate::{
     RemoteActorRefProvider, RemoteActorRefResolver, RemoteAssociationAddress,
     RemoteAssociationCache, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
     RemoteAssociationRouteRegistration, RemoteDeathWatchCommand, RemoteDeathWatchEffect,
-    RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound,
-    RemoteSettings, ResolvedActorRef, Result, TcpAssociationDialer, TcpAssociationListener,
+    RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink, RemoteEnvelopeHandler,
+    RemoteError, RemoteLaneClassifier, RemoteOutbound, RemoteSettings, RemoteStreamId,
+    ResolvedActorRef, Result, TcpAssociationDialer, TcpAssociationListener,
     TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReaderHandle,
     TcpAssociationStreamReader, UnwatchRemote, WatchRemote, is_remote_death_watch_manifest,
 };
@@ -38,8 +39,42 @@ pub struct TcpRemoteActorRuntime {
     listener: Arc<Mutex<Option<TcpAssociationListenerHandle>>>,
 }
 
-type InboundProtocolRegistration =
-    Box<dyn FnOnce(&mut ActorSystemRemoteInboundRegistry) -> Result<()> + Send>;
+type InboundProtocolRegistration = Box<
+    dyn FnOnce(&TcpRemoteActorRuntimeContext, &mut ActorSystemRemoteInboundRegistry) -> Result<()>
+        + Send,
+>;
+
+/// Effective bind-time resources exposed to protocol handler factories.
+#[derive(Clone)]
+pub struct TcpRemoteActorRuntimeContext {
+    system: ActorSystem,
+    registry: Arc<Registry>,
+    settings: RemoteSettings,
+    local_system_uid: u64,
+    association_cache: RemoteAssociationCache,
+}
+
+impl TcpRemoteActorRuntimeContext {
+    pub fn system(&self) -> &ActorSystem {
+        &self.system
+    }
+
+    pub fn registry(&self) -> &Arc<Registry> {
+        &self.registry
+    }
+
+    pub fn settings(&self) -> &RemoteSettings {
+        &self.settings
+    }
+
+    pub fn local_system_uid(&self) -> u64 {
+        self.local_system_uid
+    }
+
+    pub fn association_cache(&self) -> &RemoteAssociationCache {
+        &self.association_cache
+    }
+}
 
 /// Pre-bind protocol registration for [`TcpRemoteActorRuntime`].
 pub struct TcpRemoteActorRuntimeBuilder {
@@ -49,6 +84,7 @@ pub struct TcpRemoteActorRuntimeBuilder {
     local_system_uid: u64,
     observer: Arc<dyn RemoteDeathWatchEffectObserver>,
     manifests: HashSet<String>,
+    lane_classifier: RemoteLaneClassifier,
     protocols: Vec<InboundProtocolRegistration>,
 }
 
@@ -147,6 +183,7 @@ impl TcpRemoteActorRuntime {
             local_system_uid,
             observer: Arc::new(crate::IgnoreRemoteDeathWatchEffects),
             manifests: HashSet::new(),
+            lane_classifier: RemoteLaneClassifier::default(),
             protocols: Vec::new(),
         }
     }
@@ -171,7 +208,46 @@ impl TcpRemoteActorRuntimeBuilder {
             ));
         }
         self.protocols
-            .push(Box::new(|inbound| inbound.register::<M>().map(|_| ())));
+            .push(Box::new(|_, inbound| inbound.register::<M>().map(|_| ())));
+        Ok(self)
+    }
+
+    pub fn register_control_handler<F, H>(
+        &mut self,
+        manifests: &[&'static str],
+        factory: F,
+    ) -> Result<&mut Self>
+    where
+        F: FnOnce(&TcpRemoteActorRuntimeContext) -> Result<H> + Send + 'static,
+        H: RemoteEnvelopeHandler,
+    {
+        let mut pending = HashSet::new();
+        for manifest in manifests {
+            Manifest::try_new(*manifest)?;
+            if is_remote_death_watch_manifest(manifest)
+                || self.manifests.contains(*manifest)
+                || !pending.insert((*manifest).to_string())
+            {
+                return Err(RemoteError::DuplicateProtocolManifest(
+                    (*manifest).to_string(),
+                ));
+            }
+        }
+
+        let manifests = manifests
+            .iter()
+            .map(|manifest| (*manifest).to_string())
+            .collect::<Vec<_>>();
+        for manifest in &manifests {
+            self.manifests.insert(manifest.clone());
+            self.lane_classifier.add_control_manifest(manifest.clone());
+        }
+        self.protocols.push(Box::new(move |context, inbound| {
+            let handler = Arc::new(factory(context)?) as Arc<dyn RemoteEnvelopeHandler>;
+            inbound
+                .router_mut()
+                .register_handler(&manifests, RemoteStreamId::Control, handler)
+        }));
         Ok(self)
     }
 
@@ -182,6 +258,7 @@ impl TcpRemoteActorRuntimeBuilder {
             settings,
             local_system_uid,
             observer,
+            lane_classifier,
             protocols,
             ..
         } = self;
@@ -231,11 +308,23 @@ impl TcpRemoteActorRuntimeBuilder {
             local_system_uid,
             effective_settings.clone(),
         );
+        let context = TcpRemoteActorRuntimeContext {
+            system: system.clone(),
+            registry: registry.clone(),
+            settings: effective_settings.clone(),
+            local_system_uid,
+            association_cache: association_cache.clone(),
+        };
         for protocol in protocols {
-            protocol(&mut inbound)?;
+            if let Err(error) = protocol(&context, &mut inbound) {
+                system.stop(&death_watch);
+                death_watch.wait_for_stop(DEFAULT_SHUTDOWN_TIMEOUT);
+                return Err(error);
+            }
         }
         let inbound = Arc::new(inbound);
-        let installer = RemoteAssociationRouteInstaller::new(association_cache.clone());
+        let installer = RemoteAssociationRouteInstaller::new(association_cache.clone())
+            .with_classifier(lane_classifier);
         let outbound_reader = TcpAssociationStreamReader::new(inbound.clone());
         let listener = TcpAssociationListener::from_listener(listener, inbound)
             .with_local_address(local_association_address(&system, &effective_settings)?)

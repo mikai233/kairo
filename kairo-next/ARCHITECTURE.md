@@ -874,8 +874,12 @@ TCP association dialing:
   cache, route installer, dialer, remote actor-ref provider, actor-system
   manifest registry, and remote death-watch actor into one non-generic
   lifecycle owner. Its builder registers every typed business protocol before
-  bind and rejects duplicate manifests. `TcpRemoteActorSystem<M>` remains a
-  compatibility facade that registers one protocol with the same runtime core,
+  bind and rejects duplicate manifests. Control-handler factories receive a
+  bind-time context containing the effective canonical address, ActorSystem,
+  codec registry, system UID, and shared association cache; their manifests
+  are required on the control lane and added to the association's outbound
+  classifier. `TcpRemoteActorSystem<M>` remains a compatibility facade that
+  registers one protocol with the same runtime core,
 - `TcpRemoteActorRuntime::shutdown_with_timeout` stops the runtime-owned
   remote death-watch actor before clearing outbound association routes and
   stopping the TCP listener, joins dialing-side lane readers after route
@@ -1236,11 +1240,18 @@ Membership transport:
   `HeartbeatRemoteReceiverInbound`, and heartbeat responses to
   `HeartbeatRemoteResponseInbound` after validating the stable system actor
   recipient path for the local node.
+- `register_cluster_system_inbound` registers all cluster system manifests on
+  `TcpRemoteActorRuntime` before bind. Its factory receives the effective
+  `UniqueAddress` and the remoting runtime's association cache, so membership
+  and heartbeat traffic share the same listener, incarnation registry, routes,
+  and lane classifier as unrelated typed business protocols.
 - `ClusterTcpAssociationRuntime` is the configured-peer socket runtime for
-  cluster control traffic. It binds a handshaken TCP listener, owns a shared
+  legacy cluster-only control traffic. It binds a handshaken TCP listener,
+  owns a shared
   `RemoteAssociationCache`, association registry, route installer, dialer, and
   dialing-side lane readers, and routes live socket frames into
-  `ClusterSystemInbound`.
+  `ClusterSystemInbound`; composed ActorSystems should use the shared remoting
+  registration while higher cluster runtime ownership is migrated.
 - Cluster TCP runtime traffic uses a cluster lane classifier so `Join`,
   `Welcome`, `GossipEnvelope`, `Heartbeat`, and `HeartbeatRsp` all travel on
   the control/system lane.
