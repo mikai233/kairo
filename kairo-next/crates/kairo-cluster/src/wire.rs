@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
@@ -11,24 +13,42 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Serialized cluster membership message paired with its target incarnation.
+///
+/// Keeping the [`UniqueAddress`] beside the payload lets the receiving node
+/// reject traffic intended for an earlier incarnation at the same address.
 pub struct ClusterSerializedMembership {
+    /// Unique node incarnation for which the message is intended.
     pub target: UniqueAddress,
+    /// Registry-produced manifest, version, serializer identifier, and payload.
     pub message: SerializedMessage,
 }
 
 impl ClusterSerializedMembership {
+    /// Pairs `message` with its intended target incarnation.
     pub fn new(target: UniqueAddress, message: SerializedMessage) -> Self {
         Self { target, message }
     }
 }
 
 #[derive(Debug)]
+/// Failure while serializing, routing, or decoding cluster membership traffic.
 pub enum ClusterMembershipWireError {
+    /// The registry rejected message serialization or deserialization.
     Serialization(SerializationError),
+    /// An actor recipient rejected delivery.
     Send(String),
+    /// A local-only membership command was passed to the remote outbound.
     UnsupportedMessage(&'static str),
+    /// The inbound payload manifest is not part of the membership protocol.
     UnsupportedManifest(String),
-    WrongTarget { expected: String, actual: String },
+    /// The serialized envelope names a different node incarnation.
+    WrongTarget {
+        /// Stable display key for the local node incarnation.
+        expected: String,
+        /// Stable display key carried by the rejected envelope.
+        actual: String,
+    },
 }
 
 impl Display for ClusterMembershipWireError {
@@ -64,6 +84,10 @@ impl From<SerializationError> for ClusterMembershipWireError {
 }
 
 #[derive(Clone)]
+/// Serializes remotely meaningful membership commands for one target node.
+///
+/// Commands that only mutate local actor state are rejected with
+/// [`ClusterMembershipWireError::UnsupportedMessage`].
 pub struct ClusterMembershipWireOutbound {
     target: UniqueAddress,
     registry: Arc<Registry>,
@@ -71,6 +95,7 @@ pub struct ClusterMembershipWireOutbound {
 }
 
 impl ClusterMembershipWireOutbound {
+    /// Creates an outbound route backed by an owned serialized-message recipient.
     pub fn new(
         target: UniqueAddress,
         registry: Arc<Registry>,
@@ -83,6 +108,7 @@ impl ClusterMembershipWireOutbound {
         }
     }
 
+    /// Creates an outbound route backed by a shared serialized-message recipient.
     pub fn from_arc(
         target: UniqueAddress,
         registry: Arc<Registry>,
@@ -95,6 +121,7 @@ impl ClusterMembershipWireOutbound {
         }
     }
 
+    /// Returns the unique node incarnation targeted by this route.
     pub fn target(&self) -> &UniqueAddress {
         &self.target
     }
@@ -112,6 +139,7 @@ impl ClusterMembershipWireOutbound {
             .map_err(|error| ClusterMembershipWireError::Send(error.reason().to_string()))
     }
 
+    /// Serializes and sends one remotely meaningful membership command.
     pub fn send_membership(
         &self,
         message: ClusterMembershipMsg,
@@ -166,15 +194,22 @@ impl ClusterMembershipWireOutbound {
     }
 }
 
+/// Actor wrapper for a [`ClusterMembershipWireOutbound`] route.
+///
+/// Transient delivery failures are consumed so cached reply routes stay alive;
+/// seed join and gossip own retry policy. Serialization and unsupported-command
+/// errors still fail actor processing.
 pub struct ClusterMembershipWireOutboundActor {
     outbound: ClusterMembershipWireOutbound,
 }
 
 impl ClusterMembershipWireOutboundActor {
+    /// Creates an actor around `outbound`.
     pub fn new(outbound: ClusterMembershipWireOutbound) -> Self {
         Self { outbound }
     }
 
+    /// Returns the route used by this actor.
     pub fn outbound(&self) -> &ClusterMembershipWireOutbound {
         &self.outbound
     }
@@ -194,6 +229,11 @@ impl Actor for ClusterMembershipWireOutboundActor {
 }
 
 #[derive(Clone)]
+/// Decodes membership protocol payloads and delivers typed actor commands.
+///
+/// Join and gossip messages may need a route back to their sending node. Such
+/// routes can be installed eagerly or created lazily with
+/// [`Self::with_reply_route_factory`].
 pub struct ClusterMembershipWireInbound {
     self_node: UniqueAddress,
     registry: Arc<Registry>,
@@ -207,6 +247,7 @@ type ReplyRouteFactory =
     dyn Fn(&UniqueAddress) -> Result<ActorRef<ClusterMembershipMsg>, String> + Send + Sync;
 
 impl ClusterMembershipWireInbound {
+    /// Creates an inbound adapter for `self_node` and its membership actor.
     pub fn new(
         self_node: UniqueAddress,
         registry: Arc<Registry>,
@@ -222,11 +263,13 @@ impl ClusterMembershipWireInbound {
         }
     }
 
+    /// Adds the seed-join process notified when a [`Welcome`] arrives.
     pub fn with_seed_join_process(mut self, process: ActorRef<ClusterSeedJoinProcessMsg>) -> Self {
         self.seed_join_process = Some(process);
         self
     }
 
+    /// Installs an eager reply route for one remote node incarnation.
     pub fn with_reply_route(
         mut self,
         node: UniqueAddress,
@@ -236,6 +279,7 @@ impl ClusterMembershipWireInbound {
         self
     }
 
+    /// Installs a factory used when no eager reply route exists for a sender.
     pub fn with_reply_route_factory<F>(mut self, factory: F) -> Self
     where
         F: Fn(&UniqueAddress) -> Result<ActorRef<ClusterMembershipMsg>, String>
@@ -247,6 +291,7 @@ impl ClusterMembershipWireInbound {
         self
     }
 
+    /// Inserts or replaces an eager reply route, returning the previous route.
     pub fn set_reply_route(
         &mut self,
         node: UniqueAddress,
@@ -255,6 +300,7 @@ impl ClusterMembershipWireInbound {
         self.reply_routes.insert(node.ordering_key(), route)
     }
 
+    /// Removes and returns the eager reply route for `node`, if present.
     pub fn remove_reply_route(
         &mut self,
         node: &UniqueAddress,
@@ -262,6 +308,7 @@ impl ClusterMembershipWireInbound {
         self.reply_routes.remove(&node.ordering_key())
     }
 
+    /// Validates the target incarnation, decodes the payload, and delivers it.
     pub fn receive(
         &self,
         envelope: ClusterSerializedMembership,
@@ -275,6 +322,12 @@ impl ClusterMembershipWireInbound {
         self.receive_message(envelope.message)
     }
 
+    /// Decodes and delivers a payload whose remote recipient was validated
+    /// externally.
+    ///
+    /// System-inbound routing uses this entry point after it has checked the
+    /// remote recipient path. Prefer [`Self::receive`] when a
+    /// [`ClusterSerializedMembership`] target is available.
     pub fn receive_message(
         &self,
         message: SerializedMessage,

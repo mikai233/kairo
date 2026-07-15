@@ -228,7 +228,9 @@ fn cluster_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::err
         "kairo-next/crates/kairo-cluster/src/member.rs",
         "kairo-next/crates/kairo-cluster/src/protocol.rs",
         "kairo-next/crates/kairo-cluster/src/reachability.rs",
+        "kairo-next/crates/kairo-cluster/src/remote.rs",
         "kairo-next/crates/kairo-cluster/src/vector_clock.rs",
+        "kairo-next/crates/kairo-cluster/src/wire.rs",
     ];
 
     for relative_path in documented_modules {

@@ -111,7 +111,10 @@ Status terms in this document mean:
   removal contracts and deny missing public documentation. The stable
   membership protocol records, manifests, versions, serializer identifiers,
   binary codecs, and registry entry points are now documented under the same
-  hard missing-documentation gate.
+  hard missing-documentation gate. The remote-envelope and typed membership
+  wire adapters also hard-gate their canonical-path resolution,
+  unique-incarnation validation, supported-command boundary, reply-route
+  ownership, and transient delivery-failure contracts.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed

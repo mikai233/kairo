@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -7,14 +9,28 @@ use kairo_serialization::{ActorRefWireData, RemoteEnvelope, SerializationError};
 
 use crate::{ClusterSerializedMembership, UniqueAddress};
 
+/// Default remote actor path for the cluster membership daemon.
 pub const DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH: &str = "/system/cluster/core/daemon";
 
 #[derive(Debug)]
+/// Failure while adapting serialized membership traffic to a remote envelope.
 pub enum ClusterMembershipRemoteEnvelopeError {
+    /// The configured recipient path was not an absolute actor path.
     InvalidRecipientPath(String),
-    MissingRemoteHost { node: String },
+    /// The target node has a local-only address and cannot be reached remotely.
+    MissingRemoteHost {
+        /// Stable display key for the rejected node incarnation.
+        node: String,
+    },
+    /// The recipient actor reference could not be represented on the wire.
     Serialization(SerializationError),
-    Send { node: String, reason: String },
+    /// The remoting layer rejected the completed envelope.
+    Send {
+        /// Stable display key for the target node incarnation.
+        node: String,
+        /// Error reported by the remoting layer.
+        reason: String,
+    },
 }
 
 impl Display for ClusterMembershipRemoteEnvelopeError {
@@ -43,6 +59,11 @@ impl From<SerializationError> for ClusterMembershipRemoteEnvelopeError {
 }
 
 #[derive(Clone)]
+/// Converts serialized membership messages into remoting envelopes.
+///
+/// The destination actor path is resolved under the target node's canonical
+/// address. The target must therefore include a host; local-only addresses are
+/// rejected before the remoting layer is called.
 pub struct ClusterMembershipRemoteEnvelopeOutbound {
     recipient_path: String,
     sender: Option<ActorRefWireData>,
@@ -50,10 +71,12 @@ pub struct ClusterMembershipRemoteEnvelopeOutbound {
 }
 
 impl ClusterMembershipRemoteEnvelopeOutbound {
+    /// Creates an adapter backed by an owned remoting outbound.
     pub fn new(outbound: impl RemoteOutbound + 'static) -> Self {
         Self::from_arc(Arc::new(outbound))
     }
 
+    /// Creates an adapter backed by a shared remoting outbound.
     pub fn from_arc(outbound: Arc<dyn RemoteOutbound>) -> Self {
         Self {
             recipient_path: DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH.to_string(),
@@ -62,16 +85,22 @@ impl ClusterMembershipRemoteEnvelopeOutbound {
         }
     }
 
+    /// Overrides the absolute recipient path appended to each target address.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Sets the optional actor identity recorded as the remote sender.
     pub fn with_sender(mut self, sender: Option<ActorRefWireData>) -> Self {
         self.sender = sender;
         self
     }
 
+    /// Resolves the membership daemon recipient for `node`.
+    ///
+    /// This validates both the configured absolute path and the presence of a
+    /// remote host without sending an envelope.
     pub fn recipient_for_node(
         &self,
         node: &UniqueAddress,
@@ -94,6 +123,7 @@ impl ClusterMembershipRemoteEnvelopeOutbound {
         ))?)
     }
 
+    /// Wraps and sends one already serialized membership message.
     pub fn send_serialized(
         &self,
         membership: ClusterSerializedMembership,
