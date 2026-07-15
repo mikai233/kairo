@@ -224,6 +224,9 @@ Status terms in this document mean:
   The shard runtime now hard-gates entity activation, shard-wide bounded FIFO
   buffering, passivation, remember-store sequencing, unexpected termination and
   restart, moved-entity cleanup, coordinated shutdown, and handoff completion.
+  Its actor boundary now carries the same gate across load-time stashing and
+  FIFO replay, planner-versus-store-backed remember modes, store-failure stop
+  behavior, update batching, and handoff deferral until persistence completes.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
