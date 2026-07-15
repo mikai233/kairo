@@ -201,6 +201,9 @@ Status terms in this document mean:
   Replicator state now hard-gates deterministic key iteration, local update and
   delta reset, full/delta merge, coalesced change flush, and pruning transition
   contracts used by actor and gossip paths.
+  Delta propagation logs now hard-gate monotonic per-key versions, payload-free
+  full-state fallback, bounded range grouping, deterministic round-robin peer
+  selection, and all-current-replica cleanup semantics.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

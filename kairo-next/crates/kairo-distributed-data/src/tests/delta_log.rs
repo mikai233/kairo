@@ -139,3 +139,41 @@ fn delta_propagation_log_deletes_key_and_forgets_removed_nodes() {
     assert_eq!(log.current_version(&key), 0);
     assert!(!log.has_delta_entries(&key));
 }
+
+#[test]
+fn delta_propagation_log_falls_back_at_version_count_threshold() {
+    let key = ReplicatorKey::new("counter");
+    let node = replica("node");
+    let mut log = DeltaPropagationLog::new([node]).with_max_delta_versions(2);
+
+    log.record_delta(key.clone(), Some(delta_counter("a", 1)));
+    log.record_delta(key.clone(), Some(delta_counter("b", 2)));
+
+    assert!(log.collect_propagations().is_empty());
+    assert_eq!(log.current_version(&key), 2);
+    assert!(log.has_delta_entries(&key));
+}
+
+#[test]
+fn delta_propagation_log_keeps_versions_after_empty_target_cleanup() {
+    let key = ReplicatorKey::new("counter");
+    let node = replica("node");
+    let mut log = DeltaPropagationLog::new([]);
+
+    assert_eq!(
+        log.record_delta(key.clone(), Some(delta_counter("a", 1))),
+        1
+    );
+    log.cleanup_delta_entries();
+    assert!(!log.has_delta_entries(&key));
+    assert_eq!(log.current_version(&key), 1);
+
+    log.set_nodes([node.clone()]);
+    assert_eq!(
+        log.record_delta(key.clone(), Some(delta_counter("a", 2))),
+        2
+    );
+    let propagation = log.collect_propagations();
+    let entry = propagation.get(&node).unwrap().entries().get(&key).unwrap();
+    assert_eq!((entry.from_version(), entry.to_version()), (2, 2));
+}

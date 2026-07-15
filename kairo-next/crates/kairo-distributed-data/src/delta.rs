@@ -1,3 +1,12 @@
+#![deny(missing_docs)]
+
+//! Per-key delta sequencing and round-robin propagation selection.
+//!
+//! Every local update advances a monotonically increasing key version, even
+//! when it has no directly propagatable delta. Unsent contiguous ranges are
+//! merged per target replica, while payload-free ranges deliberately fall back
+//! to eventual full-state gossip.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{ReplicaId, ReplicatedData, ReplicatorKey};
@@ -7,21 +16,25 @@ const MIN_NODE_SLICE_SIZE: usize = 2;
 const MAX_NODE_SLICE_SIZE: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Delta ranges selected for one target replica during a propagation tick.
 pub struct DeltaPropagation<Delta> {
     entries: BTreeMap<ReplicatorKey, DeltaPropagationEntry<Delta>>,
 }
 
 impl<Delta> DeltaPropagation<Delta> {
+    /// Returns propagation entries in lexical key order.
     pub fn entries(&self) -> &BTreeMap<ReplicatorKey, DeltaPropagationEntry<Delta>> {
         &self.entries
     }
 
+    /// Reports whether this propagation contains no delta payloads.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A merged delta and the inclusive source-version range it represents.
 pub struct DeltaPropagationEntry<Delta> {
     delta: Delta,
     from_version: u64,
@@ -29,6 +42,7 @@ pub struct DeltaPropagationEntry<Delta> {
 }
 
 impl<Delta> DeltaPropagationEntry<Delta> {
+    /// Creates an entry for the inclusive range `from_version..=to_version`.
     pub fn new(delta: Delta, from_version: u64, to_version: u64) -> Self {
         Self {
             delta,
@@ -37,20 +51,24 @@ impl<Delta> DeltaPropagationEntry<Delta> {
         }
     }
 
+    /// Returns the merged delta payload.
     pub fn delta(&self) -> &Delta {
         &self.delta
     }
 
+    /// Returns the first version represented by the payload.
     pub fn from_version(&self) -> u64 {
         self.from_version
     }
 
+    /// Returns the last version represented by the payload.
     pub fn to_version(&self) -> u64 {
         self.to_version
     }
 }
 
 #[derive(Debug, Clone)]
+/// Tracks versioned local deltas and per-replica propagation progress.
 pub struct DeltaPropagationLog<Delta> {
     nodes: Vec<ReplicaId>,
     versions: BTreeMap<ReplicatorKey, u64>,
@@ -66,6 +84,7 @@ impl<Delta> DeltaPropagationLog<Delta>
 where
     Delta: ReplicatedData,
 {
+    /// Creates a log targeting the sorted, deduplicated set of `nodes`.
     pub fn new(nodes: impl IntoIterator<Item = ReplicaId>) -> Self {
         Self {
             nodes: sorted_unique_nodes(nodes),
@@ -79,16 +98,28 @@ where
         }
     }
 
+    /// Sets the divisor used to choose a peer slice on each tick.
+    ///
+    /// The divisor is clamped to at least one. Selection still sends to at
+    /// least two and at most ten replicas per tick, capped by the node count.
     pub fn with_gossip_interval_divisor(mut self, divisor: usize) -> Self {
         self.gossip_interval_divisor = divisor.max(1);
         self
     }
 
+    /// Sets the exclusive delta-version count at which a range loses its payload.
+    ///
+    /// A range containing at least this many versions is recorded as sent but
+    /// omitted from direct propagation so full-state gossip can converge it.
+    /// The threshold is clamped to at least one.
     pub fn with_max_delta_versions(mut self, max_delta_versions: usize) -> Self {
         self.max_delta_versions = max_delta_versions.max(1);
         self
     }
 
+    /// Replaces target replicas with a sorted, deduplicated set.
+    ///
+    /// Per-node progress for replicas no longer present is discarded.
     pub fn set_nodes(&mut self, nodes: impl IntoIterator<Item = ReplicaId>) {
         let nodes = sorted_unique_nodes(nodes);
         let live: BTreeSet<_> = nodes.iter().cloned().collect();
@@ -98,24 +129,33 @@ where
         self.nodes = nodes;
     }
 
+    /// Returns target replicas in deterministic identifier order.
     pub fn nodes(&self) -> &[ReplicaId] {
         &self.nodes
     }
 
+    /// Returns the latest local version for `key`, or zero if it is unknown.
     pub fn current_version(&self, key: &ReplicatorKey) -> u64 {
         self.versions.get(key).copied().unwrap_or_default()
     }
 
+    /// Returns the number of propagation collections attempted.
     pub fn propagation_count(&self) -> u64 {
         self.propagation_count
     }
 
+    /// Reports whether `key` retains any uncleaned version entries.
     pub fn has_delta_entries(&self, key: &ReplicatorKey) -> bool {
         self.entries
             .get(key)
             .is_some_and(|entries| !entries.is_empty())
     }
 
+    /// Advances `key` by one version and records its optional delta.
+    ///
+    /// `None` is a deliberate placeholder: it preserves the sequence but makes
+    /// any unsent range containing it fall back to full-state gossip.
+    /// Returns the assigned version.
     pub fn record_delta(&mut self, key: ReplicatorKey, delta: Option<Delta>) -> u64 {
         let version = self.current_version(&key) + 1;
         self.versions.insert(key.clone(), version);
@@ -123,18 +163,25 @@ where
         version
     }
 
+    /// Forgets all versions, retained entries, and per-node progress for `key`.
     pub fn delete_key(&mut self, key: &ReplicatorKey) {
         self.versions.remove(key);
         self.entries.remove(key);
         self.sent_to_node.remove(key);
     }
 
+    /// Forgets propagation progress recorded for a removed replica.
     pub fn cleanup_removed_node(&mut self, node: &ReplicaId) {
         for sent_by_node in self.sent_to_node.values_mut() {
             sent_by_node.remove(node);
         }
     }
 
+    /// Selects the next peer slice and advances its per-key sent versions.
+    ///
+    /// Unsent ranges are merged per key and cached when multiple targets share
+    /// the same range. Nodes and keys are returned in deterministic order. The
+    /// collection counter advances even when there are no nodes or payloads.
     pub fn collect_propagations(&mut self) -> BTreeMap<ReplicaId, DeltaPropagation<Delta>> {
         self.propagation_count += 1;
         if self.nodes.is_empty() {
@@ -197,6 +244,10 @@ where
         propagations
     }
 
+    /// Removes versions already selected for every current target replica.
+    ///
+    /// With no target replicas, all retained entries are cleared. Per-key
+    /// version counters remain monotonic so later updates keep their sequence.
     pub fn cleanup_delta_entries(&mut self) {
         if self.nodes.is_empty() {
             self.entries.clear();
