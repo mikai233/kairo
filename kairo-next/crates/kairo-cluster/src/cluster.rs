@@ -5,6 +5,7 @@ use std::{
 
 use kairo_actor::ActorRef;
 
+use crate::daemon_bootstrap::ClusterDaemonMsg;
 use crate::{
     ClusterEvent, ClusterEventPublisherMsg, ClusterMembershipMsg, ClusterSubscriptionEvent,
     ClusterSubscriptionInitialState, CurrentClusterState, SubscriptionInitialState, UniqueAddress,
@@ -14,6 +15,7 @@ use crate::{
 struct ClusterControls {
     self_node: UniqueAddress,
     membership: ActorRef<ClusterMembershipMsg>,
+    daemon: ActorRef<ClusterDaemonMsg>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,12 +36,14 @@ impl Cluster {
         event_publisher: ActorRef<ClusterEventPublisherMsg>,
         self_node: UniqueAddress,
         membership: ActorRef<ClusterMembershipMsg>,
+        daemon: ActorRef<ClusterDaemonMsg>,
     ) -> Self {
         Self {
             event_publisher,
             controls: Some(ClusterControls {
                 self_node,
                 membership,
+                daemon,
             }),
         }
     }
@@ -60,6 +64,23 @@ impl Cluster {
         self.send_to_membership(ClusterMembershipMsg::Leave {
             address: controls.self_node.address.clone(),
         })
+    }
+
+    pub fn join(&self, address: kairo_actor::Address) -> Result<(), ClusterError> {
+        let controls = self.controls()?;
+        if address.protocol() != controls.self_node.address.protocol()
+            || (address != controls.self_node.address && address.host().is_none())
+        {
+            return Err(ClusterError::InvalidJoinAddress {
+                address: address.to_string(),
+            });
+        }
+        controls
+            .daemon
+            .tell(ClusterDaemonMsg::JoinTo { address })
+            .map_err(|error| ClusterError::DaemonUnavailable {
+                reason: error.reason().to_string(),
+            })
     }
 
     pub fn leave(&self, address: kairo_actor::Address) -> Result<(), ClusterError> {
@@ -146,6 +167,8 @@ impl Cluster {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClusterError {
     ControlUnavailable,
+    DaemonUnavailable { reason: String },
+    InvalidJoinAddress { address: String },
     MembershipUnavailable { reason: String },
     PublisherUnavailable { reason: String },
 }
@@ -155,6 +178,12 @@ impl Display for ClusterError {
         match self {
             Self::ControlUnavailable => {
                 write!(f, "cluster membership controls are unavailable")
+            }
+            Self::DaemonUnavailable { reason } => {
+                write!(f, "cluster daemon is unavailable: {reason}")
+            }
+            Self::InvalidJoinAddress { address } => {
+                write!(f, "invalid cluster join address `{address}`")
             }
             Self::MembershipUnavailable { reason } => {
                 write!(f, "cluster membership actor is unavailable: {reason}")
@@ -323,15 +352,28 @@ mod tests {
     fn controlled_facade_exposes_self_leave_and_down_operations() {
         let kit = ActorSystemTestKit::new("cluster-facade-controls").unwrap();
         let self_node = node("self", 1);
-        let peer = node("peer", 2);
+        let peer = UniqueAddress::new(
+            Address::new("kairo", "peer", Some("127.0.0.1".to_string()), Some(2552)),
+            2,
+        );
         let publisher = spawn_publisher(&kit, self_node.clone(), "publisher");
         let membership = kit
             .create_probe::<ClusterMembershipMsg>("membership")
             .unwrap();
-        let cluster =
-            Cluster::with_membership(publisher, self_node.clone(), membership.actor_ref());
+        let daemon = kit.create_probe::<ClusterDaemonMsg>("daemon").unwrap();
+        let cluster = Cluster::with_membership(
+            publisher,
+            self_node.clone(),
+            membership.actor_ref(),
+            daemon.actor_ref(),
+        );
 
         assert_eq!(cluster.self_node().unwrap(), &self_node);
+        cluster.join(peer.address.clone()).unwrap();
+        assert!(matches!(
+            daemon.expect_msg(Duration::from_secs(1)).unwrap(),
+            ClusterDaemonMsg::JoinTo { address } if address == peer.address
+        ));
         cluster.leave_self().unwrap();
         assert!(matches!(
             membership.expect_msg(Duration::from_secs(1)).unwrap(),

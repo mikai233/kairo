@@ -67,6 +67,7 @@ mod downing;
 mod downing_provider;
 mod event_publisher;
 mod events;
+mod extension;
 mod failure_detector;
 mod gossip;
 mod gossip_process;
@@ -135,6 +136,7 @@ pub use event_publisher::{
     CurrentClusterState, SubscriptionInitialState,
 };
 pub use events::{ClusterEvent, ClusterEvents, MemberEvent, ReachabilityEvent};
+pub use extension::ClusterExtension;
 pub use failure_detector::{
     DeadlineFailureDetector, DeadlineFailureDetectorSettings, FailureDetectorError,
     FailureDetectorRegistry,

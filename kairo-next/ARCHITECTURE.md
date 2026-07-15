@@ -1384,11 +1384,23 @@ receives the effective canonical address, registry, and shared outbound and
 materializes the real `/system/cluster/core/daemon` hierarchy with publisher,
 membership, seed
 process, responder, and wire children. The seed process starts in `Ready`.
-Post-bind activation first installs managed routes for configured contact
-addresses and then sends `Start`, preventing contact from racing canonical port
-selection or association setup. Membership inbound lazily creates and caches a
-typed outbound reply actor for each previously unknown `UniqueAddress`, so Join
-can always return Welcome without preconfigured membership routes.
+Post-bind activation starts membership-derived peer ownership, installs managed
+routes for configured contact addresses, and only then starts configured seed
+joining, preventing contact from racing canonical port selection or association
+setup. It also installs one `ClusterExtension` in the `ActorSystem` extension
+registry, so callers retrieve public cluster state and lifecycle operations from
+the system instead of retaining the bootstrap handle. Configured joining is the
+default; `ClusterDaemonBootstrapSettings::with_auto_join(false)` leaves the
+daemon uninitialized until `ClusterExtension::join` is called. Explicit join is
+one-shot: self-join forms locally, remote join establishes managed association
+intent outside the synchronous actor turn, sends the stable `Join` protocol,
+and retries until the local incarnation appears in membership. Later join
+requests are ignored. Unlike Pekko's same-ActorSystem-name guard, Kairo accepts
+a remote contact with a different system name because its existing address and
+seed contract identifies each transport endpoint by its full canonical
+address. Membership inbound lazily creates and caches a typed outbound reply
+actor for each previously unknown `UniqueAddress`, so Join can always return
+Welcome without preconfigured membership routes.
 
 Membership transport:
 

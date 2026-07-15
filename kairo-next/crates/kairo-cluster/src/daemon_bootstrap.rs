@@ -20,15 +20,17 @@ use crate::{
     ClusterInitJoinResponderState, ClusterMembership, ClusterMembershipMsg,
     ClusterMembershipRemoteEnvelopeOutbound, ClusterMembershipWireInbound,
     ClusterMembershipWireOutbound, ClusterMembershipWireOutboundActor, ClusterRemotePeerConnector,
-    ClusterSeedJoinProcess, ClusterSeedJoinProcessMsg, ClusterSeedJoinProcessSettings,
-    ClusterSeedJoinState, ClusterSeedJoinWireInbound, ClusterSeedJoinWireOutbound,
-    ClusterSeedJoinWireOutboundActor, ClusterSystemInbound,
-    DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH,
-    HeartbeatReceiver, HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound,
-    HeartbeatSender, HeartbeatSenderMsg, HeartbeatSenderSettings, UniqueAddress,
+    ClusterSeedJoinEffect, ClusterSeedJoinProcess, ClusterSeedJoinProcessMsg,
+    ClusterSeedJoinProcessSettings, ClusterSeedJoinState, ClusterSeedJoinWireInbound,
+    ClusterSeedJoinWireOutbound, ClusterSeedJoinWireOutboundActor, ClusterSubscriptionEvent,
+    ClusterSubscriptionInitialState, ClusterSystemInbound, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
+    DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, HeartbeatReceiver, HeartbeatRemoteReceiverInbound,
+    HeartbeatRemoteResponseInbound, HeartbeatSender, HeartbeatSenderMsg, HeartbeatSenderSettings,
+    MemberEvent, UniqueAddress,
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(2);
+const MANUAL_JOIN_TIMER: &str = "cluster-manual-join";
 
 #[derive(Debug, Clone)]
 pub struct ClusterDaemonBootstrapSettings {
@@ -40,6 +42,7 @@ pub struct ClusterDaemonBootstrapSettings {
     gossip_process: ClusterGossipProcessSettings,
     heartbeat_sender: HeartbeatSenderSettings,
     shutdown_timeout: Duration,
+    auto_join: bool,
 }
 
 impl ClusterDaemonBootstrapSettings {
@@ -53,6 +56,7 @@ impl ClusterDaemonBootstrapSettings {
             gossip_process: ClusterGossipProcessSettings::default(),
             heartbeat_sender: HeartbeatSenderSettings::default(),
             shutdown_timeout: Duration::from_secs(10),
+            auto_join: true,
         }
     }
     pub fn with_seed_nodes(mut self, value: Vec<kairo_actor::Address>) -> Self {
@@ -81,6 +85,10 @@ impl ClusterDaemonBootstrapSettings {
     }
     pub fn with_shutdown_timeout(mut self, value: Duration) -> Self {
         self.shutdown_timeout = value;
+        self
+    }
+    pub fn with_auto_join(mut self, value: bool) -> Self {
+        self.auto_join = value;
         self
     }
 }
@@ -174,7 +182,7 @@ impl ClusterDaemonRegistration {
         handle
             .daemon
             .tell(ClusterDaemonMsg::StartPeerManagement {
-                cluster: handle.cluster.clone(),
+                cluster: Box::new(handle.cluster.clone()),
                 self_node: handle.self_node.clone(),
                 peer_manager: runtime.peer_manager(),
             })
@@ -183,22 +191,29 @@ impl ClusterDaemonRegistration {
             if seed == &handle.self_node.address {
                 continue;
             }
-            let host = seed
-                .host()
-                .ok_or_else(|| RemoteError::Outbound("cluster seed has no host".to_string()))?;
-            runtime.dial(RemoteAssociationAddress::new(
-                seed.protocol(),
-                seed.system(),
-                host,
-                seed.port(),
-            )?)?;
+            runtime.dial(remote_address_for(seed)?)?;
         }
-        handle
-            .seed_process
-            .tell(ClusterSeedJoinProcessMsg::Start)
-            .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+        if self.settings.auto_join {
+            handle
+                .daemon
+                .tell(ClusterDaemonMsg::StartConfiguredJoin)
+                .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+        }
+        let extension_handle = handle.clone();
+        runtime
+            .system()
+            .register_extension(move |_| crate::ClusterExtension::new(extension_handle));
         Ok(handle)
     }
+}
+
+fn remote_address_for(
+    address: &kairo_actor::Address,
+) -> Result<RemoteAssociationAddress, RemoteError> {
+    let host = address
+        .host()
+        .ok_or_else(|| RemoteError::Outbound("cluster peer has no host".to_string()))?;
+    RemoteAssociationAddress::new(address.protocol(), address.system(), host, address.port())
 }
 
 pub fn register_cluster_daemon(
@@ -252,6 +267,7 @@ pub fn register_cluster_daemon(
             gossip_process,
             heartbeat_sender,
             leave_coordinator,
+            join_wire: _,
             seed_process,
             responder,
         } = ready;
@@ -265,7 +281,12 @@ pub fn register_cluster_daemon(
         let daemon = ClusterDaemonHandle {
             root,
             self_node: self_node.clone(),
-            cluster: Cluster::with_membership(publisher, self_node.clone(), membership.clone()),
+            cluster: Cluster::with_membership(
+                publisher,
+                self_node.clone(),
+                membership.clone(),
+                daemon.clone(),
+            ),
             daemon,
             membership,
             gossip_process,
@@ -304,6 +325,7 @@ struct DaemonReady {
     gossip_process: ActorRef<ClusterGossipProcessMsg>,
     heartbeat_sender: ActorRef<HeartbeatSenderMsg>,
     leave_coordinator: ActorRef<crate::leave_coordinator::ClusterLeaveCoordinatorMsg>,
+    join_wire: ClusterSeedJoinWireOutbound,
     seed_process: ActorRef<ClusterSeedJoinProcessMsg>,
     responder: ActorRef<ClusterInitJoinResponderMsg>,
 }
@@ -316,13 +338,112 @@ struct ClusterCore {
 struct ClusterDaemon {
     config: Option<DaemonConfig>,
     peer_connector: Option<ActorRef<crate::ClusterRemotePeerConnectorMsg>>,
+    peer_manager: Option<kairo_remote::TcpRemotePeerManager>,
+    join_wire: Option<ClusterSeedJoinWireOutbound>,
+    seed_process: Option<ActorRef<ClusterSeedJoinProcessMsg>>,
+    self_node: Option<UniqueAddress>,
+    manual_join_target: Option<kairo_actor::Address>,
+    manual_join_connecting: bool,
+    join_requested: bool,
+    joined: bool,
+    join_retry_interval: Duration,
 }
-enum ClusterDaemonMsg {
+pub(crate) enum ClusterDaemonMsg {
     StartPeerManagement {
-        cluster: Cluster,
+        cluster: Box<Cluster>,
         self_node: UniqueAddress,
         peer_manager: kairo_remote::TcpRemotePeerManager,
     },
+    StartConfiguredJoin,
+    JoinTo {
+        address: kairo_actor::Address,
+    },
+    ManualJoinConnected {
+        address: kairo_actor::Address,
+        result: Result<(), String>,
+    },
+    ManualJoinRetry,
+    Cluster(Box<ClusterSubscriptionEvent>),
+}
+
+impl ClusterDaemon {
+    fn start_manual_join(
+        &mut self,
+        ctx: &mut Context<ClusterDaemonMsg>,
+        address: kairo_actor::Address,
+    ) -> ActorResult {
+        self.join_requested = true;
+        let Some(self_node) = &self.self_node else {
+            return Err(ActorError::Message(
+                "cluster daemon is missing self identity".to_string(),
+            ));
+        };
+        if address == self_node.address {
+            if let Some(join_wire) = &self.join_wire {
+                join_wire
+                    .send_effect(ClusterSeedJoinEffect::JoinSelf)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            return Ok(());
+        }
+        self.manual_join_target = Some(address);
+        self.connect_manual_join(ctx)
+    }
+
+    fn connect_manual_join(&mut self, ctx: &Context<ClusterDaemonMsg>) -> ActorResult {
+        if self.manual_join_connecting || self.joined {
+            return Ok(());
+        }
+        let Some(address) = self.manual_join_target.clone() else {
+            return Ok(());
+        };
+        let Some(peer_manager) = self.peer_manager.clone() else {
+            ctx.schedule_once_self(self.join_retry_interval, ClusterDaemonMsg::ManualJoinRetry);
+            return Ok(());
+        };
+        let association =
+            remote_address_for(&address).map_err(|error| ActorError::Message(error.to_string()))?;
+        self.manual_join_connecting = true;
+        ctx.spawn_task(move |daemon| {
+            let result = peer_manager
+                .connect(association)
+                .map_err(|error| error.to_string());
+            let _ = daemon.tell(ClusterDaemonMsg::ManualJoinConnected { address, result });
+        })?;
+        Ok(())
+    }
+
+    fn observe_cluster(
+        &mut self,
+        ctx: &mut Context<ClusterDaemonMsg>,
+        event: ClusterSubscriptionEvent,
+    ) {
+        let Some(self_node) = &self.self_node else {
+            return;
+        };
+        let joined = match event {
+            ClusterSubscriptionEvent::CurrentState(state) => state
+                .members
+                .iter()
+                .any(|member| member.unique_address == *self_node),
+            ClusterSubscriptionEvent::Event(crate::ClusterEvent::Member(event)) => match event {
+                MemberEvent::Joined(member)
+                | MemberEvent::WeaklyUp(member)
+                | MemberEvent::Up(member)
+                | MemberEvent::Left(member)
+                | MemberEvent::Exited(member)
+                | MemberEvent::Downed(member) => member.unique_address == *self_node,
+                MemberEvent::Removed { .. } => false,
+            },
+            ClusterSubscriptionEvent::Event(_) => false,
+        };
+        if joined {
+            self.joined = true;
+            self.manual_join_target = None;
+            self.manual_join_connecting = false;
+            ctx.cancel_timer(MANUAL_JOIN_TIMER);
+        }
+    }
 }
 
 impl Actor for ClusterRoot {
@@ -375,6 +496,15 @@ impl Actor for ClusterCore {
             Props::new(move || ClusterDaemon {
                 config: Some(c),
                 peer_connector: None,
+                peer_manager: None,
+                join_wire: None,
+                seed_process: None,
+                self_node: None,
+                manual_join_target: None,
+                manual_join_connecting: false,
+                join_requested: false,
+                joined: false,
+                join_retry_interval: Duration::from_secs(1),
             }),
         )?;
         Ok(())
@@ -391,6 +521,12 @@ impl Actor for ClusterDaemon {
             .take()
             .ok_or_else(|| ActorError::Message("missing daemon graph config".to_string()))?;
         let result = build_daemon_graph(ctx, &c).map_err(|e| RemoteError::Inbound(e.to_string()));
+        if let Ok(ready) = &result {
+            self.join_wire = Some(ready.join_wire.clone());
+            self.seed_process = Some(ready.seed_process.clone());
+            self.self_node = Some(c.self_node.clone());
+            self.join_retry_interval = c.seed_process.retry_interval();
+        }
         let failure = result.as_ref().err().map(ToString::to_string);
         let _ = c.ready.send(result);
         if let Some(e) = failure {
@@ -406,6 +542,16 @@ impl Actor for ClusterDaemon {
                 self_node,
                 peer_manager,
             } if self.peer_connector.is_none() => {
+                self.peer_manager = Some(peer_manager.clone());
+                let cluster = *cluster;
+                let subscription =
+                    ctx.message_adapter(|event| ClusterDaemonMsg::Cluster(Box::new(event)))?;
+                cluster
+                    .subscribe_with_initial_state(
+                        subscription,
+                        ClusterSubscriptionInitialState::Snapshot,
+                    )
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
                 self.peer_connector = Some(ctx.spawn(
                     "peer-connector",
                     Props::new(move || {
@@ -418,6 +564,42 @@ impl Actor for ClusterDaemon {
                 )?);
             }
             ClusterDaemonMsg::StartPeerManagement { .. } => {}
+            ClusterDaemonMsg::StartConfiguredJoin if !self.join_requested => {
+                self.join_requested = true;
+                if let Some(seed_process) = &self.seed_process {
+                    seed_process
+                        .tell(ClusterSeedJoinProcessMsg::Start)
+                        .map_err(|error| ActorError::Message(error.reason().to_string()))?;
+                }
+            }
+            ClusterDaemonMsg::StartConfiguredJoin => {}
+            ClusterDaemonMsg::JoinTo { address } if !self.join_requested => {
+                self.start_manual_join(ctx, address)?;
+            }
+            ClusterDaemonMsg::JoinTo { .. } => {}
+            ClusterDaemonMsg::ManualJoinConnected { address, result } => {
+                self.manual_join_connecting = false;
+                if self.manual_join_target.as_ref() != Some(&address) || self.joined {
+                    return Ok(());
+                }
+                if result.is_ok()
+                    && let Some(join_wire) = &self.join_wire
+                {
+                    let _ = join_wire.send_effect(ClusterSeedJoinEffect::Join {
+                        target: address.clone(),
+                    });
+                }
+                ctx.start_single_timer(
+                    MANUAL_JOIN_TIMER,
+                    self.join_retry_interval,
+                    ClusterDaemonMsg::ManualJoinRetry,
+                );
+            }
+            ClusterDaemonMsg::ManualJoinRetry if !self.joined => {
+                self.connect_manual_join(ctx)?;
+            }
+            ClusterDaemonMsg::ManualJoinRetry => {}
+            ClusterDaemonMsg::Cluster(event) => self.observe_cluster(ctx, *event),
         }
         Ok(())
     }
@@ -526,6 +708,7 @@ fn build_daemon_graph(
         membership.clone(),
         IgnoreRef::new(),
     );
+    let join_wire = wire.clone();
     let effects = ctx.spawn(
         "seed-effects",
         Props::new({
@@ -632,6 +815,7 @@ fn build_daemon_graph(
         gossip_process,
         heartbeat_sender,
         leave_coordinator,
+        join_wire,
         seed_process,
         responder,
     })
@@ -709,6 +893,26 @@ mod tests {
             registry: Arc<Registry>,
             acceptable_pause: Duration,
         ) -> Self {
+            Self::start_with_options(
+                system,
+                node_uid,
+                remote_uid,
+                seed_nodes,
+                registry,
+                acceptable_pause,
+                true,
+            )
+        }
+
+        fn start_with_options(
+            system: &str,
+            node_uid: u64,
+            remote_uid: u64,
+            seed_nodes: Vec<kairo_actor::Address>,
+            registry: Arc<Registry>,
+            acceptable_pause: Duration,
+            auto_join: bool,
+        ) -> Self {
             let kit = ActorSystemTestKit::new(system).unwrap();
             let mut builder = TcpRemoteActorRuntime::builder(
                 kit.system().clone(),
@@ -742,7 +946,8 @@ mod tests {
                         )
                         .with_heartbeat_expected_response_after(Duration::from_millis(10)),
                     )
-                    .with_shutdown_timeout(Duration::from_secs(3)),
+                    .with_shutdown_timeout(Duration::from_secs(3))
+                    .with_auto_join(auto_join),
             )
             .unwrap();
             let runtime = builder.bind().unwrap();
@@ -804,6 +1009,7 @@ mod tests {
         .unwrap();
         let seed_runtime = seed_builder.bind().unwrap();
         let inactive = seed_registration.handle().unwrap();
+        assert!(!seed_kit.system().has_extension::<crate::ClusterExtension>());
         let seed_process_state = seed_kit
             .create_probe::<ClusterSeedJoinProcessSnapshot>("seed-process-state")
             .unwrap();
@@ -821,6 +1027,7 @@ mod tests {
             ClusterSeedJoinPhase::Ready
         );
         let seed_handle = seed_registration.activate(&seed_runtime).unwrap();
+        assert!(seed_kit.system().has_extension::<crate::ClusterExtension>());
         let seed_state = seed_kit.create_probe::<Gossip>("seed-state").unwrap();
         assert!(
             seed_handle
@@ -1145,6 +1352,63 @@ mod tests {
 
         peer.runtime.shutdown().unwrap();
         peer.kit.shutdown(Duration::from_secs(1)).unwrap();
+        seed.shutdown();
+    }
+
+    #[test]
+    fn actor_system_cluster_extension_manually_joins_an_existing_node() {
+        let registry = registry();
+        let seed = ComposedNode::start("daemon-extension-seed", 71, 7071, vec![], registry.clone());
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.handle.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "extension seed has not formed".to_string())
+        })
+        .unwrap();
+        let joining = ComposedNode::start_with_options(
+            "daemon-extension-joining",
+            72,
+            7072,
+            vec![],
+            registry,
+            Duration::from_millis(45),
+            false,
+        );
+        assert!(joining.gossip().members().is_empty());
+        let extension = crate::ClusterExtension::get(joining.kit.system()).unwrap();
+        assert_eq!(extension.self_node(), joining.handle.self_node());
+
+        extension
+            .join(seed.handle.self_node().address.clone())
+            .unwrap();
+        let nodes = [
+            seed.handle.self_node().clone(),
+            joining.handle.self_node().clone(),
+        ];
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let views = [seed.gossip(), joining.gossip()];
+            views
+                .iter()
+                .all(|gossip| {
+                    nodes.iter().all(|node| {
+                        gossip.member(node).map(|member| member.status) == Some(MemberStatus::Up)
+                    })
+                })
+                .then_some(())
+                .ok_or_else(|| "manual extension join has not converged".to_string())
+        })
+        .unwrap();
+
+        extension
+            .join(seed.handle.self_node().address.clone())
+            .unwrap();
+        assert_eq!(joining.gossip().members().len(), 2);
+
+        joining.shutdown();
         seed.shutdown();
     }
 }

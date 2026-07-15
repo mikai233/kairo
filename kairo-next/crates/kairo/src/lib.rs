@@ -155,7 +155,7 @@ pub mod prelude {
     #[cfg(feature = "cluster")]
     pub use kairo_cluster::{
         CLUSTER_SYSTEM_MANIFESTS, Cluster, ClusterDiagnostic, ClusterDiagnosticFilter,
-        ClusterDiagnostics, ClusterError, ClusterEvent, ClusterSubscriptionEvent,
+        ClusterDiagnostics, ClusterError, ClusterEvent, ClusterExtension, ClusterSubscriptionEvent,
         ClusterSubscriptionInitialState, CurrentClusterState, Member, MemberEvent, MemberStatus,
         ReachabilityEvent, UniqueAddress, register_cluster_system_inbound,
     };

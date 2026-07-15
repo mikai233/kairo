@@ -1944,6 +1944,8 @@ fn facade_cluster_module_exposes_tcp_bootstrap_surface() {
     let _ = crate::cluster::ClusterDaemonBootstrapSettings::new(1);
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterDaemonHandle>>();
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterDaemonRegistration>>();
+    let _ = std::mem::size_of::<Option<crate::cluster::ClusterExtension>>();
+    let _ = std::mem::size_of::<Option<crate::prelude::ClusterExtension>>();
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerBootstrap>>();
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerBootstrapError>>();
     let _ = std::mem::size_of::<crate::cluster::ClusterTcpPeerBootstrapResult<()>>();

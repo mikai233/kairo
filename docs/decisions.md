@@ -3522,5 +3522,51 @@ Consequences:
   while remoting remains the owner of listener shutdown.
 - Repeated leave is idempotent, and a lost confirmation retains Pekko's fallback:
   the exiting node can still be removed after it becomes unreachable.
-- Explicit join remains a bootstrap operation until the final ActorSystem
-  cluster extension consolidates bind, activation, and public lifecycle access.
+- Explicit join was still a bootstrap operation at this checkpoint; ADR-0113
+  adds the ActorSystem-owned lifecycle access boundary.
+
+## ADR-0113: Cluster Lifecycle Access Is An ActorSystem Extension
+
+Status: Accepted
+
+Context:
+The composed cluster daemon exposed a bootstrap handle after bind, but normal
+application code had no system-scoped way to retrieve cluster state or issue
+lifecycle operations. Configured seed joining also started unconditionally,
+which prevented an application from explicitly choosing a contact after the
+shared remoting runtime was active.
+
+Decision:
+Post-bind cluster activation installs one typed `ClusterExtension` in the
+existing ActorSystem extension registry. The extension owns a clone of the
+composed daemon handle and exposes self identity, state subscriptions, join,
+leave, and down through the controlled `Cluster` facade. Legacy event-only
+`Cluster` values remain valid and continue to reject lifecycle operations.
+
+Configured seed joining remains the default. Setting
+`ClusterDaemonBootstrapSettings::with_auto_join(false)` starts the daemon and
+peer-management actors without initializing membership. The first public join
+request becomes the daemon's immutable join intent. Self-join uses the local
+seed-wire effect; remote join establishes managed transport intent from an
+ActorSystem task, sends the stable remote `Join` effect after connection, and
+retries at the configured seed interval until the local `UniqueAddress` appears
+in cluster events. Further join requests are ignored, matching Pekko's
+observable rule that an initialized or already-joining cluster cannot switch
+join targets.
+
+Kairo validates protocol and remote host presence but deliberately permits a
+contact whose ActorSystem name differs from the local name. Existing Kairo seed
+formation and remote addressing use the complete canonical address as endpoint
+identity, so adding Pekko's same-system-name restriction would break the
+established Rust API contract without improving wire safety.
+
+Consequences:
+- Applications retrieve the composed cluster runtime type-safely from their
+  ActorSystem after activation and no longer need to retain a daemon handle for
+  normal operations.
+- Explicit join performs blocking connection work outside synchronous actor
+  turns and retains reconnect intent until membership confirms success.
+- Automatic and manual formation share the same stable Join/Welcome membership
+  protocol and the same daemon ownership; discovery remains contact-only.
+- Binding and post-bind activation remain two explicit bootstrap steps until a
+  later configured facade owns the full remote-plus-cluster builder lifecycle.

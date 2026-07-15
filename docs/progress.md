@@ -6,9 +6,10 @@ As of 2026-07-15, `kairo-next` has broad component coverage across local
 actors, serialization, remoting, gossip state, distributed data, sharding, and
 cluster tools. The component depth and validation history are substantial, but
 the rewrite has not yet reached an M13-only hardening phase. The production
-actor execution model and composed remoting boundary are now complete; the
-complete cluster daemon lifecycle and final public extension APIs still require
-foundational integration work.
+actor execution model and composed remoting boundary are now complete. The
+composed cluster daemon and its public ActorSystem extension now cover formation,
+reachability, graceful leave, and explicit join; process-level reincarnation and
+shutdown validation still require foundational integration work.
 
 Current active stage: **foundation convergence before M13**, with Phases 1 and
 2 complete and Phase 3 cluster daemon integration now active. M13 validation
@@ -63,9 +64,9 @@ Status terms in this document mean:
   peer bootstrap components exist. The composed daemon now proves seed contact,
   `InitJoin` acknowledgement, periodic gossip, automatic convergence to `Up`,
   heartbeat reachability/recovery, and graceful leave to `Removed` without
-  injected membership snapshots. The remaining acceptance gap is the final
-  ActorSystem cluster extension with explicit join ownership and broader
-  process-level incarnation/shutdown validation.
+  injected membership snapshots. The daemon now installs one ActorSystem-owned
+  `ClusterExtension` with explicit one-shot join ownership. The remaining
+  acceptance gap is broader process-level incarnation/shutdown validation.
 - M7 distributed data: substantial component coverage. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. Product acceptance remains
@@ -318,8 +319,16 @@ deadline to prove the surviving leader removes and tombstones the exiting peer
 through confirmation rather than failure detection; the test enters this path
 through public `Cluster::leave_self()`, which starts phased shutdown when self
 observes `Exiting`. The controlled `Cluster` facade now exposes self identity,
-leave, down, current state, and event subscription. Explicit join ownership in
-the final ActorSystem cluster extension remains the active Phase 3 work.
+join, leave, down, current state, and event subscription. Activation installs
+one `ClusterExtension` in the ActorSystem registry, while
+`ClusterDaemonBootstrapSettings::with_auto_join(false)` enables explicit
+one-shot formation. A manual remote join establishes managed association intent
+outside the actor turn, sends the stable `Join` protocol, and retries until the
+local incarnation appears in membership; later join requests are ignored. A
+two-runtime test proves extension lookup, explicit join into an existing node,
+automatic convergence to `Up`, and duplicate-join suppression. Broader
+process-level incarnation and shutdown validation remains the active Phase 3
+work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -5945,6 +5954,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after the ActorSystem cluster extension:
+
+```bash
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo check --workspace --all-targets --all-features
+cargo clippy -p kairo -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after composed graceful leave:
 
