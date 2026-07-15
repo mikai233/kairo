@@ -288,6 +288,8 @@ fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn
         "kairo-next/crates/kairo-distributed-data/src/gset.rs",
         "kairo-next/crates/kairo-distributed-data/src/key.rs",
         "kairo-next/crates/kairo-distributed-data/src/lww_register.rs",
+        "kairo-next/crates/kairo-distributed-data/src/ormap.rs",
+        "kairo-next/crates/kairo-distributed-data/src/orset.rs",
         "kairo-next/crates/kairo-distributed-data/src/pncounter.rs",
         "kairo-next/crates/kairo-distributed-data/src/replica.rs",
     ];

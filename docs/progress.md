@@ -184,6 +184,10 @@ Status terms in this document mean:
   domain clocks, highest-timestamp/lowest-replica merge ordering, update deltas,
   first-write-wins reverse clocks, clock-skew guidance, and removed-writer
   pruning.
+  `ORSet` and `ORMap` now hard-gate birth-dot/version-vector key causality,
+  observed-remove versus concurrent-add outcomes, ordered operation groups,
+  full-value puts versus nested value-delta updates, deterministic inspection,
+  and removed-replica pruning across both keys and values.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

@@ -1,3 +1,7 @@
+#![deny(missing_docs)]
+
+//! Immutable observed-remove set with version-vector birth dots.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
@@ -5,6 +9,11 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Observed-remove set in which an unseen concurrent add survives a remove.
+///
+/// Each add records a per-replica birth dot. Removing an element observes the
+/// current causal context without retaining an element tombstone; merge drops
+/// only dots dominated by the other replica's context.
 pub struct ORSet<T> {
     elements: BTreeMap<T, VersionVector>,
     version_vector: VersionVector,
@@ -15,6 +24,7 @@ impl<T> ORSet<T>
 where
     T: Clone + Ord,
 {
+    /// Creates an empty set with no causal history or pending delta.
     pub fn new() -> Self {
         Self {
             elements: BTreeMap::new(),
@@ -23,22 +33,27 @@ where
         }
     }
 
+    /// Returns the current elements in deterministic order.
     pub fn elements(&self) -> BTreeSet<T> {
         self.elements.keys().cloned().collect()
     }
 
+    /// Reports whether `element` is currently present.
     pub fn contains(&self, element: &T) -> bool {
         self.elements.contains_key(element)
     }
 
+    /// Reports whether no elements are currently present.
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
 
+    /// Returns the number of current elements.
     pub fn len(&self) -> usize {
         self.elements.len()
     }
 
+    /// Adds or re-adds an element with a new birth dot for `replica`.
     pub fn add(&self, replica: impl Into<ReplicaId>, element: T) -> Self {
         let replica = replica.into();
         let next_version_vector = self.version_vector.increment(&replica);
@@ -63,6 +78,10 @@ where
         }
     }
 
+    /// Removes an element using the caller's current observed causal context.
+    ///
+    /// Removing an absent element is idempotent. An add not included in this
+    /// context survives when replicas later merge.
     pub fn remove(&self, replica: impl Into<ReplicaId>, element: &T) -> Self {
         let Some(_) = self.elements.get(element) else {
             return self.clone();
@@ -90,6 +109,7 @@ where
         }
     }
 
+    /// Returns the current per-replica birth dots for `element`.
     pub fn dots_for(&self, element: &T) -> Option<&BTreeMap<ReplicaId, u64>> {
         self.elements.get(element).map(VersionVector::entries)
     }
@@ -232,9 +252,13 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Causally ordered operation delta emitted by an [`ORSet`].
 pub enum ORSetDelta<T> {
+    /// Adds the elements and birth dots carried by the nested set.
     Add(ORSet<T>),
+    /// Removes one element only when its observed dots are dominated.
     Remove(ORSetRemoveDelta<T>),
+    /// Applies several accumulated operations in order.
     Group(Vec<ORSetDelta<T>>),
 }
 
@@ -344,6 +368,7 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Causal context needed to replay one observed-remove operation.
 pub struct ORSetRemoveDelta<T> {
     element: T,
     seen: VersionVector,
@@ -351,6 +376,7 @@ pub struct ORSetRemoveDelta<T> {
 }
 
 impl<T> ORSetRemoveDelta<T> {
+    /// Returns the element targeted by this remove operation.
     pub fn element(&self) -> &T {
         &self.element
     }

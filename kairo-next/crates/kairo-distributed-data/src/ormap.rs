@@ -1,3 +1,7 @@
+#![deny(missing_docs)]
+
+//! Immutable observed-remove map with CRDT values and ORSet key causality.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
@@ -6,6 +10,10 @@ use crate::{
 };
 
 #[derive(Clone, PartialEq, Eq)]
+/// Observed-remove map whose concurrent values merge as replicated data.
+///
+/// Keys use [`ORSet`] causality, so a remove defeats only updates it observed
+/// and a concurrent key add survives. Values must support delta replication.
 pub struct ORMap<K, V>
 where
     K: Clone + Ord,
@@ -21,6 +29,7 @@ where
     K: Clone + Eq + Ord,
     V: DeltaReplicatedData,
 {
+    /// Creates an empty map with no key history or pending delta.
     pub fn new() -> Self {
         Self {
             keys: ORSet::new(),
@@ -29,10 +38,12 @@ where
         }
     }
 
+    /// Returns the current keys in deterministic order.
     pub fn keys(&self) -> BTreeSet<K> {
         self.keys.elements()
     }
 
+    /// Returns all current key/value entries in deterministic key order.
     pub fn entries(&self) -> &BTreeMap<K, V> {
         &self.values
     }
@@ -49,22 +60,30 @@ where
         &self.keys
     }
 
+    /// Returns the current value for `key`, if present.
     pub fn get(&self, key: &K) -> Option<&V> {
         self.values.get(key)
     }
 
+    /// Reports whether `key` is currently present.
     pub fn contains_key(&self, key: &K) -> bool {
         self.values.contains_key(key)
     }
 
+    /// Reports whether the map contains no entries.
     pub fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
 
+    /// Returns the number of current entries.
     pub fn len(&self) -> usize {
         self.values.len()
     }
 
+    /// Installs a complete value and records a put delta for `key`.
+    ///
+    /// Prefer [`Self::updated`] when changing an existing nested CRDT so its
+    /// causal state and smaller value delta are preserved.
     pub fn put(&self, replica: impl Into<ReplicaId>, key: K, value: V) -> Self {
         let keys = self.keys.reset_delta().add(replica, key.clone());
         let key_delta = keys.delta().expect("ORSet add always records a key delta");
@@ -84,6 +103,11 @@ where
         }
     }
 
+    /// Creates or changes a value through a function and records the smallest available delta.
+    ///
+    /// `initial` is passed to `modify` only when the key is absent. Existing
+    /// values are reset before modification; when the result exposes a value
+    /// delta, that delta is propagated instead of the complete value.
     pub fn updated(
         &self,
         replica: impl Into<ReplicaId>,
@@ -122,6 +146,10 @@ where
         }
     }
 
+    /// Removes an observed key while preserving its causal history.
+    ///
+    /// Removing an absent key is idempotent. A concurrent unseen key update may
+    /// survive when replicas later merge.
     pub fn remove(&self, replica: impl Into<ReplicaId>, key: &K) -> Self {
         if !self.values.contains_key(key) {
             return self.clone();
@@ -289,23 +317,34 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Causally ordered operation delta emitted by an [`ORMap`].
 pub enum ORMapDelta<K, V>
 where
     K: Clone + Ord,
     V: DeltaReplicatedData,
 {
+    /// Installs a complete value together with the key-add causal delta.
     Put {
+        /// ORSet delta that establishes key causality.
         keys: ORSetDelta<K>,
+        /// Key whose complete value is installed.
         key: K,
+        /// Complete replicated value.
         value: V,
     },
+    /// Applies nested value deltas after establishing key causality.
     Update {
+        /// ORSet delta that establishes or refreshes affected keys.
         keys: ORSetDelta<K>,
+        /// Nested value deltas grouped by key.
         values: BTreeMap<K, V::Delta>,
     },
+    /// Removes keys described by the nested observed-remove delta.
     Remove {
+        /// ORSet remove delta carrying the observed key context.
         keys: ORSetDelta<K>,
     },
+    /// Applies several accumulated map operations in order.
     Group(Vec<ORMapDelta<K, V>>),
 }
 
