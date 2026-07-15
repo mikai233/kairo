@@ -165,6 +165,7 @@ Suggested top-level sections:
 [actor]
 [actor.dispatchers.default]
 [actor.mailboxes.default]
+[actor.task_executor]
 
 [remote]
 [remote.transport]

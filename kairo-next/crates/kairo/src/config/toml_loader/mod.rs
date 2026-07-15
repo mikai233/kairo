@@ -126,10 +126,18 @@ fn read_toml_table(path: &Path) -> Result<toml::Table, ConfigError> {
 ///     r#"
 /// [actor.dispatchers.default]
 /// throughput = 8
+/// workers = 2
+///
+/// [actor.task_executor]
+/// workers = 4
+/// queue_capacity = 256
 /// "#,
 /// )?;
 ///
 /// assert_eq!(settings.actor.default_dispatcher()?.throughput, 8);
+/// assert_eq!(settings.actor.default_dispatcher()?.workers, Some(2));
+/// assert_eq!(settings.actor.task_executor.workers, Some(4));
+/// assert_eq!(settings.actor.task_executor.queue_capacity, 256);
 /// # Ok(())
 /// # }
 /// ```

@@ -36,6 +36,18 @@ fn actor_system_builder_configures_dispatcher_workers() {
 }
 
 #[test]
+fn actor_system_builder_configures_task_executor() {
+    let system = ActorSystem::builder("test")
+        .task_executor_workers(3)
+        .task_executor_queue_capacity(17)
+        .build()
+        .unwrap();
+
+    assert_eq!(system.task_executor_settings().workers(), 3);
+    assert_eq!(system.task_executor_settings().queue_capacity(), 17);
+}
+
+#[test]
 fn actor_system_builder_configures_mailbox_capacity() {
     let system = ActorSystem::builder("test")
         .mailbox_capacity(1)
@@ -63,6 +75,21 @@ fn actor_system_builder_rejects_zero_dispatcher_workers() {
         .unwrap_err();
 
     assert!(matches!(error, ActorError::InvalidDispatcherWorkers));
+}
+
+#[test]
+fn actor_system_builder_rejects_invalid_task_executor_settings() {
+    let workers = ActorSystem::builder("test")
+        .task_executor_workers(0)
+        .build()
+        .unwrap_err();
+    let capacity = ActorSystem::builder("test")
+        .task_executor_queue_capacity(0)
+        .build()
+        .unwrap_err();
+
+    assert!(matches!(workers, ActorError::InvalidTaskExecutorWorkers));
+    assert!(matches!(capacity, ActorError::InvalidTaskExecutorCapacity));
 }
 
 #[test]

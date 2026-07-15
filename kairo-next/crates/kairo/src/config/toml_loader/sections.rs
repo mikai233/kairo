@@ -7,7 +7,7 @@ use crate::config::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingAllocationConfig,
     ClusterShardingConfig, ClusterToolsConfig, ConfigError, DiagnosticsConfig, DispatcherConfig,
-    MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig,
+    MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig, TaskExecutorConfig,
 };
 
 use super::primitives::{
@@ -18,13 +18,20 @@ use super::primitives::{
 
 pub(super) fn parse_actor(value: &Value) -> Result<ActorConfig, ConfigError> {
     let table = expect_table(value, "actor")?;
-    reject_unknown(table, "actor", &["dispatchers", "mailboxes"])?;
+    reject_unknown(
+        table,
+        "actor",
+        &["dispatchers", "mailboxes", "task_executor"],
+    )?;
     let mut config = ActorConfig::default();
     if let Some(dispatchers) = table.get("dispatchers") {
         config.dispatchers = parse_dispatchers(dispatchers)?;
     }
     if let Some(mailboxes) = table.get("mailboxes") {
         config.mailboxes = parse_mailboxes(mailboxes)?;
+    }
+    if let Some(task_executor) = table.get("task_executor") {
+        config.task_executor = parse_task_executor(task_executor)?;
     }
     Ok(config)
 }
@@ -81,7 +88,7 @@ fn parse_dispatchers(value: &Value) -> Result<BTreeMap<String, DispatcherConfig>
     for (name, value) in table {
         let path = format!("actor.dispatchers.{name}");
         let table = expect_table(value, &path)?;
-        reject_unknown(table, &path, &["throughput"])?;
+        reject_unknown(table, &path, &["throughput", "workers"])?;
         let mut dispatcher = DispatcherConfig::default();
         if let Some(throughput) = table.get("throughput") {
             dispatcher.throughput = parse_usize(throughput, &format!("{path}.throughput"))?;
@@ -92,12 +99,31 @@ fn parse_dispatchers(value: &Value) -> Result<BTreeMap<String, DispatcherConfig>
                 });
             }
         }
+        if let Some(workers) = table.get("workers") {
+            dispatcher.workers = Some(parse_usize(workers, &format!("{path}.workers"))?);
+            dispatcher.validated_workers(format!("{path}.workers"))?;
+        }
         dispatchers.insert(name.clone(), dispatcher);
     }
     if dispatchers.is_empty() {
         dispatchers.insert("default".to_string(), DispatcherConfig::default());
     }
     Ok(dispatchers)
+}
+
+fn parse_task_executor(value: &Value) -> Result<TaskExecutorConfig, ConfigError> {
+    let path = "actor.task_executor";
+    let table = expect_table(value, path)?;
+    reject_unknown(table, path, &["workers", "queue_capacity"])?;
+    let mut config = TaskExecutorConfig::default();
+    if let Some(workers) = table.get("workers") {
+        config.workers = Some(parse_usize(workers, &format!("{path}.workers"))?);
+    }
+    if let Some(queue_capacity) = table.get("queue_capacity") {
+        config.queue_capacity = parse_usize(queue_capacity, &format!("{path}.queue_capacity"))?;
+    }
+    config.validate(path)?;
+    Ok(config)
 }
 
 fn parse_mailboxes(value: &Value) -> Result<BTreeMap<String, MailboxConfig>, ConfigError> {

@@ -595,3 +595,112 @@ fn assert_dead_letter_count_with_reason(system: &ActorSystem, count: usize, reas
         "expected all dead letters to have reason `{reason}`, got {records:?}"
     );
 }
+
+enum TaskBurstMsg {
+    Run {
+        count: usize,
+        thread_ids: mpsc::Sender<thread::ThreadId>,
+    },
+}
+
+struct TaskBurst;
+
+impl Actor for TaskBurst {
+    type Msg = TaskBurstMsg;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        let TaskBurstMsg::Run { count, thread_ids } = msg;
+        for _ in 0..count {
+            let thread_ids = thread_ids.clone();
+            ctx.spawn_task(move |_| {
+                let _ = thread_ids.send(thread::current().id());
+            })?;
+        }
+        Ok(())
+    }
+}
+
+#[test]
+fn thousands_of_actor_tasks_run_on_fixed_executor_workers() {
+    const TASKS: usize = 2_000;
+    let system = ActorSystem::builder("task-executor-burst")
+        .task_executor_workers(2)
+        .task_executor_queue_capacity(TASKS)
+        .build()
+        .unwrap();
+    let actor = system.spawn("burst", Props::new(|| TaskBurst)).unwrap();
+    let (thread_ids_tx, thread_ids_rx) = mpsc::channel();
+    actor
+        .tell(TaskBurstMsg::Run {
+            count: TASKS,
+            thread_ids: thread_ids_tx,
+        })
+        .unwrap();
+
+    let mut thread_ids = std::collections::HashSet::new();
+    for _ in 0..TASKS {
+        thread_ids.insert(thread_ids_rx.recv_timeout(Duration::from_secs(2)).unwrap());
+    }
+    assert!(!thread_ids.is_empty());
+    assert!(thread_ids.len() <= 2, "task threads: {thread_ids:?}");
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+struct QueuedTaskAfterStop {
+    release_running: Option<mpsc::Receiver<()>>,
+    queued_result: mpsc::Sender<bool>,
+}
+
+impl Actor for QueuedTaskAfterStop {
+    type Msg = ();
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, (): ()) -> ActorResult {
+        let release = self
+            .release_running
+            .take()
+            .expect("running task release already consumed");
+        let (entered_tx, entered_rx) = mpsc::channel();
+        ctx.spawn_task(move |_| {
+            let _ = entered_tx.send(());
+            let _ = release.recv();
+        })?;
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        let queued_result = self.queued_result.clone();
+        ctx.spawn_task(move |owner| {
+            let _ = queued_result.send(owner.tell(()).is_err());
+        })?;
+        ctx.stop(ctx.myself())
+    }
+}
+
+#[test]
+fn queued_actor_task_runs_but_cannot_message_stopped_owner() {
+    let system = ActorSystem::builder("task-executor-scope")
+        .task_executor_workers(1)
+        .task_executor_queue_capacity(1)
+        .build()
+        .unwrap();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (queued_result_tx, queued_result_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "owner",
+            Props::new(move || QueuedTaskAfterStop {
+                release_running: Some(release_rx),
+                queued_result: queued_result_tx,
+            }),
+        )
+        .unwrap();
+
+    actor.tell(()).unwrap();
+    assert!(actor.wait_for_stop(Duration::from_secs(1)));
+    release_tx.send(()).unwrap();
+    assert!(
+        queued_result_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+    );
+    system.terminate(Duration::from_secs(1)).unwrap();
+}

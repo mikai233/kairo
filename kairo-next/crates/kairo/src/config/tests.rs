@@ -139,6 +139,7 @@ fn toml_config_parses_structured_runtime_settings() {
         r#"
 [actor.dispatchers.default]
 throughput = 32
+workers = 4
 
 [actor.dispatchers.blocking]
 throughput = 1
@@ -148,6 +149,10 @@ capacity = 64
 
 [actor.mailboxes.control]
 capacity = 8
+
+[actor.task_executor]
+workers = 3
+queue_capacity = 256
 
 [remote.transport]
 canonical_hostname = "10.0.0.12"
@@ -204,9 +209,12 @@ gossip_state_changes = true
     .unwrap();
 
     assert_eq!(settings.actor.dispatchers["default"].throughput, 32);
+    assert_eq!(settings.actor.dispatchers["default"].workers, Some(4));
     assert_eq!(settings.actor.dispatchers["blocking"].throughput, 1);
     assert_eq!(settings.actor.mailboxes["default"].capacity, Some(64));
     assert_eq!(settings.actor.mailboxes["control"].capacity, Some(8));
+    assert_eq!(settings.actor.task_executor.workers, Some(3));
+    assert_eq!(settings.actor.task_executor.queue_capacity, 256);
     assert_eq!(settings.remote.transport.canonical_hostname, "10.0.0.12");
     assert_eq!(settings.remote.transport.canonical_port, 25521);
     assert_eq!(
@@ -817,7 +825,10 @@ nodes = ["kairo://app@127.0.0.1:26666"]
 
     assert_eq!(
         settings.actor.dispatchers["default"],
-        DispatcherConfig { throughput: 9 }
+        DispatcherConfig {
+            throughput: 9,
+            ..Default::default()
+        }
     );
     assert_eq!(
         settings.actor.mailboxes["default"],
@@ -1276,6 +1287,35 @@ capacity = 0
 }
 
 #[test]
+fn toml_config_rejects_zero_executor_counts() {
+    for (toml, path, reason) in [
+        (
+            "[actor.dispatchers.default]\nworkers = 0\n",
+            "actor.dispatchers.default.workers",
+            "must be greater than zero when set",
+        ),
+        (
+            "[actor.task_executor]\nworkers = 0\n",
+            "actor.task_executor.workers",
+            "must be greater than zero when set",
+        ),
+        (
+            "[actor.task_executor]\nqueue_capacity = 0\n",
+            "actor.task_executor.queue_capacity",
+            "must be greater than zero",
+        ),
+    ] {
+        assert_eq!(
+            parse_toml_str(toml).unwrap_err(),
+            ConfigError::InvalidValue {
+                path: path.to_string(),
+                reason: reason.to_string(),
+            }
+        );
+    }
+}
+
+#[test]
 fn toml_config_rejects_empty_singleton_role() {
     let error = parse_toml_str(
         r#"
@@ -1369,9 +1409,14 @@ fn config_converts_actor_settings_to_builder() {
         r#"
 [actor.dispatchers.default]
 throughput = 17
+workers = 2
 
 [actor.mailboxes.default]
 capacity = 3
+
+[actor.task_executor]
+workers = 3
+queue_capacity = 19
 "#,
     )
     .unwrap();
@@ -1384,7 +1429,10 @@ capacity = 3
         .unwrap();
 
     assert_eq!(system.dispatcher_settings().throughput(), 17);
+    assert_eq!(system.dispatcher_settings().workers(), 2);
     assert_eq!(system.mailbox_settings().user_capacity(), Some(3));
+    assert_eq!(system.task_executor_settings().workers(), 3);
+    assert_eq!(system.task_executor_settings().queue_capacity(), 19);
 }
 
 #[test]
@@ -1796,7 +1844,13 @@ max_delta_entries = 7
 #[cfg(feature = "actor")]
 fn config_runtime_helpers_validate_directly_constructed_settings() {
     let actor = ActorConfig {
-        dispatchers: BTreeMap::from([("other".to_string(), DispatcherConfig { throughput: 1 })]),
+        dispatchers: BTreeMap::from([(
+            "other".to_string(),
+            DispatcherConfig {
+                throughput: 1,
+                ..Default::default()
+            },
+        )]),
         ..Default::default()
     };
     assert_eq!(
@@ -1811,7 +1865,10 @@ fn config_runtime_helpers_validate_directly_constructed_settings() {
         actor: ActorConfig {
             dispatchers: BTreeMap::from([(
                 "default".to_string(),
-                DispatcherConfig { throughput: 0 },
+                DispatcherConfig {
+                    throughput: 0,
+                    ..Default::default()
+                },
             )]),
             ..Default::default()
         },
@@ -1834,8 +1891,20 @@ fn config_validate_checks_all_format_neutral_sections() {
     let settings = KairoSettings {
         actor: ActorConfig {
             dispatchers: BTreeMap::from([
-                ("default".to_string(), DispatcherConfig { throughput: 5 }),
-                ("blocking".to_string(), DispatcherConfig { throughput: 0 }),
+                (
+                    "default".to_string(),
+                    DispatcherConfig {
+                        throughput: 5,
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "blocking".to_string(),
+                    DispatcherConfig {
+                        throughput: 0,
+                        ..Default::default()
+                    },
+                ),
             ]),
             ..Default::default()
         },

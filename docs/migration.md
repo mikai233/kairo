@@ -118,6 +118,11 @@ Use TOML for file-backed configuration:
 ```toml
 [actor.dispatchers.default]
 throughput = 16
+workers = 4
+
+[actor.task_executor]
+workers = 4
+queue_capacity = 1024
 
 [cluster.seed]
 nodes = ["kairo://cluster@seed-a.example.test:25520"]

@@ -31,6 +31,10 @@ pub enum ActorError {
     InvalidThroughput,
     #[error("dispatcher worker count must be greater than zero")]
     InvalidDispatcherWorkers,
+    #[error("task executor worker count must be greater than zero")]
+    InvalidTaskExecutorWorkers,
+    #[error("task executor queue capacity must be greater than zero")]
+    InvalidTaskExecutorCapacity,
     #[error("mailbox capacity must be greater than zero")]
     InvalidMailboxCapacity,
     #[error("extension `{0}` is not registered")]

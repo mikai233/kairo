@@ -24,6 +24,7 @@ use crate::registry::ActorRegistry;
 use crate::runtime::stop_child_roots_until_deadline;
 use crate::scheduler::{Cancellable, Scheduler};
 use crate::signal::Signal;
+use crate::tasks::{TaskExecutor, TaskExecutorHandle, TaskExecutorSettings};
 
 pub use builder::ActorSystemBuilder;
 
@@ -45,6 +46,7 @@ pub(crate) struct ActorSystemInner {
     pub(crate) death_watch: DeathWatchRegistry,
     pub(crate) dispatcher_settings: DispatcherSettings,
     pub(crate) dispatcher: Dispatcher,
+    pub(crate) task_executor: TaskExecutor,
     pub(crate) mailbox: MailboxSettings,
     pub(crate) scheduler: Scheduler,
     pub(crate) event_stream: EventStream,
@@ -77,6 +79,14 @@ impl ActorSystem {
 
     pub fn mailbox_settings(&self) -> MailboxSettings {
         self.inner.mailbox
+    }
+
+    pub fn task_executor_settings(&self) -> TaskExecutorSettings {
+        self.inner.task_executor.settings()
+    }
+
+    pub(crate) fn task_executor(&self) -> TaskExecutorHandle {
+        self.inner.task_executor.handle()
     }
 
     pub fn event_stream(&self) -> EventStream {
@@ -261,6 +271,7 @@ impl ActorSystem {
             &[user_root.as_str(), system_root.as_str()],
             deadline,
         )?;
+        self.inner.task_executor.shutdown();
         self.inner.dispatcher.shutdown();
         self.inner.terminated.store(true, Ordering::Release);
         Ok(())

@@ -7,6 +7,7 @@ use crate::event_stream::EventStream;
 use crate::mailbox::MailboxSettings;
 use crate::path::Address;
 use crate::scheduler::{ManualScheduler, Scheduler};
+use crate::tasks::{TaskExecutor, TaskExecutorSettings};
 
 use super::{ActorSystem, ActorSystemInner};
 
@@ -14,6 +15,7 @@ use super::{ActorSystem, ActorSystemInner};
 pub struct ActorSystemBuilder {
     name: String,
     dispatcher: DispatcherSettings,
+    task_executor: TaskExecutorSettings,
     mailbox: MailboxSettings,
     scheduler: Scheduler,
     publish_dead_letters_to_event_stream: bool,
@@ -24,6 +26,7 @@ impl ActorSystemBuilder {
         Self {
             name: name.into(),
             dispatcher: DispatcherSettings::default(),
+            task_executor: TaskExecutorSettings::default(),
             mailbox: MailboxSettings::default(),
             scheduler: Scheduler::default(),
             publish_dead_letters_to_event_stream: true,
@@ -38,6 +41,16 @@ impl ActorSystemBuilder {
 
     pub fn dispatcher_workers(mut self, workers: usize) -> Self {
         self.dispatcher = self.dispatcher.with_workers(workers);
+        self
+    }
+
+    pub fn task_executor_workers(mut self, workers: usize) -> Self {
+        self.task_executor = self.task_executor.with_workers(workers);
+        self
+    }
+
+    pub fn task_executor_queue_capacity(mut self, queue_capacity: usize) -> Self {
+        self.task_executor = self.task_executor.with_queue_capacity(queue_capacity);
         self
     }
 
@@ -63,6 +76,12 @@ impl ActorSystemBuilder {
         if self.dispatcher.workers() == 0 {
             return Err(ActorError::InvalidDispatcherWorkers);
         }
+        if self.task_executor.workers() == 0 {
+            return Err(ActorError::InvalidTaskExecutorWorkers);
+        }
+        if self.task_executor.queue_capacity() == 0 {
+            return Err(ActorError::InvalidTaskExecutorCapacity);
+        }
         if self.mailbox.user_capacity() == Some(0) {
             return Err(ActorError::InvalidMailboxCapacity);
         }
@@ -72,6 +91,7 @@ impl ActorSystemBuilder {
         } else {
             DeadLetters::without_event_stream()
         };
+        let task_executor = TaskExecutor::new(self.task_executor)?;
         let dispatcher = Dispatcher::new(self.dispatcher)?;
         dispatcher.start();
         Ok(ActorSystem {
@@ -80,6 +100,7 @@ impl ActorSystemBuilder {
             inner: Arc::new(ActorSystemInner {
                 dispatcher_settings: self.dispatcher,
                 dispatcher,
+                task_executor,
                 mailbox: self.mailbox,
                 scheduler: self.scheduler,
                 event_stream,

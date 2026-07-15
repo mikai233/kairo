@@ -7,7 +7,7 @@ use super::settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingAllocationConfig,
     ClusterShardingConfig, ClusterToolsConfig, DiagnosticsConfig, DispatcherConfig, KairoSettings,
-    MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig,
+    MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig, TaskExecutorConfig,
 };
 
 #[cfg(feature = "cluster")]
@@ -86,12 +86,14 @@ impl ActorConfig {
             .validated_throughput("actor.dispatchers.default.throughput")?;
         for (name, dispatcher) in &self.dispatchers {
             dispatcher.validated_throughput(format!("actor.dispatchers.{name}.throughput"))?;
+            dispatcher.validated_workers(format!("actor.dispatchers.{name}.workers"))?;
         }
         self.default_mailbox()?
             .validate("actor.mailboxes.default")?;
         for (name, mailbox) in &self.mailboxes {
             mailbox.validate(format!("actor.mailboxes.{name}"))?;
         }
+        self.task_executor.validate("actor.task_executor")?;
         Ok(())
     }
 
@@ -121,9 +123,22 @@ impl ActorConfig {
         &self,
         name: impl Into<String>,
     ) -> Result<kairo_actor::ActorSystemBuilder, ConfigError> {
+        let dispatcher = self.default_dispatcher()?;
         let mut builder = kairo_actor::ActorSystem::builder(name).dispatcher_throughput(
-            self.default_dispatcher()?
-                .validated_throughput("actor.dispatchers.default.throughput")?,
+            dispatcher.validated_throughput("actor.dispatchers.default.throughput")?,
+        );
+        if let Some(workers) = dispatcher.validated_workers("actor.dispatchers.default.workers")? {
+            builder = builder.dispatcher_workers(workers);
+        }
+        if let Some(workers) = self
+            .task_executor
+            .validated_workers("actor.task_executor.workers")?
+        {
+            builder = builder.task_executor_workers(workers);
+        }
+        builder = builder.task_executor_queue_capacity(
+            self.task_executor
+                .validated_queue_capacity("actor.task_executor.queue_capacity")?,
         );
         if let Some(capacity) = self
             .default_mailbox()?
@@ -146,6 +161,51 @@ impl DispatcherConfig {
         } else {
             Ok(self.throughput)
         }
+    }
+
+    /// Returns an optional dispatcher worker count after rejecting zero.
+    pub fn validated_workers(&self, path: impl Into<String>) -> Result<Option<usize>, ConfigError> {
+        validate_optional_positive(self.workers, path)
+    }
+}
+
+impl TaskExecutorConfig {
+    /// Validates task-executor worker and queue settings.
+    pub fn validate(&self, path: impl Into<String>) -> Result<(), ConfigError> {
+        let path = path.into();
+        self.validated_workers(format!("{path}.workers"))?;
+        self.validated_queue_capacity(format!("{path}.queue_capacity"))?;
+        Ok(())
+    }
+
+    /// Returns an optional task worker count after rejecting zero.
+    pub fn validated_workers(&self, path: impl Into<String>) -> Result<Option<usize>, ConfigError> {
+        validate_optional_positive(self.workers, path)
+    }
+
+    /// Returns task queue capacity after rejecting zero.
+    pub fn validated_queue_capacity(&self, path: impl Into<String>) -> Result<usize, ConfigError> {
+        if self.queue_capacity == 0 {
+            Err(ConfigError::InvalidValue {
+                path: path.into(),
+                reason: "must be greater than zero".to_string(),
+            })
+        } else {
+            Ok(self.queue_capacity)
+        }
+    }
+}
+
+fn validate_optional_positive(
+    value: Option<usize>,
+    path: impl Into<String>,
+) -> Result<Option<usize>, ConfigError> {
+    match value {
+        Some(0) => Err(ConfigError::InvalidValue {
+            path: path.into(),
+            reason: "must be greater than zero when set".to_string(),
+        }),
+        value => Ok(value),
     }
 }
 

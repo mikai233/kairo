@@ -24,7 +24,7 @@ pub use settings::{
     ActorConfig, ClusterConfig, ClusterDowningConfig, ClusterDowningStrategyConfig,
     ClusterHeartbeatConfig, ClusterSeedConfig, ClusterShardingAllocationConfig,
     ClusterShardingConfig, ClusterToolsConfig, DiagnosticsConfig, DispatcherConfig, KairoSettings,
-    MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig,
+    MailboxConfig, ObservabilityConfig, RemoteConfig, RemoteTransportConfig, TaskExecutorConfig,
 };
 pub use toml_loader::{
     STANDARD_TOML_FILES, find_standard_toml_files, load_standard_toml_files, load_toml_file,

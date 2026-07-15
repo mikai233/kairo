@@ -22,6 +22,8 @@ pub struct ActorConfig {
     pub dispatchers: BTreeMap<String, DispatcherConfig>,
     /// Named mailbox settings keyed by mailbox id.
     pub mailboxes: BTreeMap<String, MailboxConfig>,
+    /// Executor used by actor-owned blocking helper tasks.
+    pub task_executor: TaskExecutorConfig,
 }
 
 impl Default for ActorConfig {
@@ -29,6 +31,7 @@ impl Default for ActorConfig {
         Self {
             dispatchers: BTreeMap::from([("default".to_string(), DispatcherConfig::default())]),
             mailboxes: BTreeMap::from([("default".to_string(), MailboxConfig::default())]),
+            task_executor: TaskExecutorConfig::default(),
         }
     }
 }
@@ -38,11 +41,34 @@ impl Default for ActorConfig {
 pub struct DispatcherConfig {
     /// Maximum user messages an actor worker processes before yielding.
     pub throughput: usize,
+    /// Optional fixed worker count; absent uses the runtime default.
+    pub workers: Option<usize>,
 }
 
 impl Default for DispatcherConfig {
     fn default() -> Self {
-        Self { throughput: 5 }
+        Self {
+            throughput: 5,
+            workers: None,
+        }
+    }
+}
+
+/// Fixed worker-pool settings for actor-owned helper tasks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskExecutorConfig {
+    /// Optional fixed worker count; absent uses the runtime default.
+    pub workers: Option<usize>,
+    /// Maximum number of accepted tasks waiting for a worker.
+    pub queue_capacity: usize,
+}
+
+impl Default for TaskExecutorConfig {
+    fn default() -> Self {
+        Self {
+            workers: None,
+            queue_capacity: 1_024,
+        }
     }
 }
 

@@ -138,7 +138,7 @@ pub use scheduler::{Cancellable, ManualScheduler};
 pub use signal::Signal;
 pub use supervision::SupervisorStrategy;
 pub use system::{ActorSystem, ActorSystemBuilder};
-pub use tasks::TaskHandle;
+pub use tasks::{TaskExecutorSettings, TaskHandle};
 pub use timers::TimerKey;
 
 pub mod prelude {
@@ -154,7 +154,7 @@ pub mod prelude {
         PHASE_CLUSTER_LEAVE, PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION, PHASE_CLUSTER_SHUTDOWN,
         PHASE_SERVICE_REQUESTS_DONE, PHASE_SERVICE_STOP, PHASE_SERVICE_UNBIND, Props, Receptionist,
         Recipient, Registered, RestartCount, ServiceKey, ShutdownTaskHandle, Signal,
-        SupervisorStrategy, TaskHandle, TimerKey,
+        SupervisorStrategy, TaskExecutorSettings, TaskHandle, TimerKey,
     };
 }
 

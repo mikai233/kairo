@@ -37,9 +37,10 @@ Status terms in this document mean:
 - M2 lifecycle, supervision, patterns, and testkit: substantial component
   coverage. Lifecycle, supervision, death watch, timers, scheduler, ask,
   pipe-to-self, adapters, stash, event stream, receptionist, coordinated
-  shutdown, probes, and manual time support have focused tests. A final actor
-  tree semantic audit and migration of tasks/timers away from per-operation OS
-  threads remain part of the execution-foundation phase.
+  shutdown, probes, and manual time support have focused tests. Actor-owned
+  helper tasks now run on a bounded ActorSystem-owned worker pool. A final
+  actor tree semantic audit and migration of real-time timers away from
+  per-operation OS threads remain part of the execution-foundation phase.
 - M3 serialization and message metadata: mostly complete. Stable
   `RemoteMessage` metadata, derive support, codec registration, manifests,
   remote envelopes, and actor-ref serialization boundaries exist. Optional
@@ -102,8 +103,11 @@ priority, throughput rescheduling, stop, and restart now run on the shared
 dispatcher without one OS thread per actor. Focused coverage pins lost-wakeup
 avoidance, single-turn execution, one-worker fairness and child-stop progress,
 factory-panic isolation, and 2,000 idle actors on two workers. Actor helper
-tasks and the real-time scheduler still use per-operation threads and remain
-the open Phase 1 execution work.
+tasks now use a configurable, lazily started fixed worker pool with a bounded,
+non-blocking submission queue; task failures remain observable through
+`TaskHandle`, scoped actor refs reject stale completions across owner
+stop/restart, and 2,000 actor tasks complete on two workers. The real-time
+scheduler's per-timer sleeping threads remain the open Phase 1 execution work.
 
 Task: replace the worker-thread-per-actor/task/timer baseline with an explicit
 dispatcher, task-executor, and scheduler ownership model while preserving the
@@ -247,6 +251,17 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- The Phase 1 bounded task-executor checkpoint passes the complete workspace
+  format, clippy, and test gates. The one sharding timeout seen before changing
+  unused task pools to lazy start also passed 10 consecutive focused reruns and
+  the repeated full workspace gate:
+
+  ```bash
+  cargo fmt --all -- --check
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  cargo test --workspace --all-targets --all-features
+  ```
 
 - Latest M13 validation refresh after distributed-data delta-log per-node
   unsent-range merge coverage:

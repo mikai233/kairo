@@ -205,7 +205,11 @@ impl<M: Send + 'static> Context<M> {
         F: FnOnce(ActorRef<M>) + Send + 'static,
     {
         self.ensure_actor_active()?;
-        tasks::spawn_task(self.tasks.scoped_ref(self.myself.clone()), task)
+        tasks::spawn_task(
+            self.system.task_executor(),
+            self.tasks.scoped_ref(self.myself.clone()),
+            task,
+        )
     }
 
     pub fn pipe_to_self<T, E, F, Map>(&self, task: F, map: Map) -> Result<TaskHandle, ActorError>
@@ -216,7 +220,12 @@ impl<M: Send + 'static> Context<M> {
         Map: FnOnce(Result<T, E>) -> M + Send + 'static,
     {
         self.ensure_actor_active()?;
-        tasks::pipe_to_self(self.tasks.scoped_ref(self.myself.clone()), task, map)
+        tasks::pipe_to_self(
+            self.system.task_executor(),
+            self.tasks.scoped_ref(self.myself.clone()),
+            task,
+            map,
+        )
     }
 
     pub fn message_adapter<U, F>(&self, map: F) -> Result<ActorRef<U>, ActorError>
