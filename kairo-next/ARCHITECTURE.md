@@ -1363,8 +1363,11 @@ configured local digest returns `Compatible` only on equality and
 `Incompatible` otherwise, while an explicitly absent checker returns
 `Unchecked`. `ClusterInitJoinResponder` executes the decision through the seed
 wire outbound, and its typed port lets `ClusterSeedJoinWireInbound` deliver
-requests without erasing the responder actor protocol. The future daemon owner
-must feed membership lifecycle changes into the responder.
+requests without erasing the responder actor protocol. `ClusterMembership`
+registers the responder through a typed message, immediately publishes the
+current uninitialized/initialized lifecycle, and republishes whenever local
+gossip changes the self member status. This keeps seed admission synchronized
+with Join, Welcome, leader promotion, leave/exit, and downing transitions.
 
 Membership transport:
 

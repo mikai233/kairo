@@ -38,6 +38,50 @@ fn join_self_forms_cluster_and_promotes_self_to_up() {
 }
 
 #[test]
+fn membership_feeds_seed_responder_from_uninitialized_through_up_and_down() {
+    let kit = ActorSystemTestKit::new("cluster-membership-seed-responder").unwrap();
+    let self_node = node("self", 1);
+    let (membership, _events) = spawn_membership(&kit, self_node.clone(), "membership");
+    let responder = kit
+        .create_probe::<ClusterInitJoinResponderMsg>("init-join-responder")
+        .unwrap();
+
+    membership
+        .tell(ClusterMembershipMsg::RegisterInitJoinResponder {
+            responder: responder.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        responder.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterInitJoinResponderMsg::SetLifecycle(ClusterInitJoinLifecycle::Uninitialized)
+    ));
+
+    membership.tell(ClusterMembershipMsg::JoinSelf).unwrap();
+    assert!(matches!(
+        responder.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterInitJoinResponderMsg::SetLifecycle(ClusterInitJoinLifecycle::Initialized {
+            self_status: MemberStatus::Joining
+        })
+    ));
+    assert!(matches!(
+        responder.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterInitJoinResponderMsg::SetLifecycle(ClusterInitJoinLifecycle::Initialized {
+            self_status: MemberStatus::Up
+        })
+    ));
+
+    membership
+        .tell(ClusterMembershipMsg::Down { node: self_node })
+        .unwrap();
+    assert!(matches!(
+        responder.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterInitJoinResponderMsg::SetLifecycle(ClusterInitJoinLifecycle::Initialized {
+            self_status: MemberStatus::Down
+        })
+    ));
+}
+
+#[test]
 fn remote_join_adds_joining_member_and_replies_with_welcome() {
     let kit = ActorSystemTestKit::new("cluster-membership-remote-join").unwrap();
     let self_node = node("self", 1);

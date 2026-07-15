@@ -1,9 +1,9 @@
 use kairo_actor::{Actor, ActorRef, ActorResult, Context};
 
 use crate::{
-    ClusterEventPublisherMsg, CurrentClusterState, DowningDecision, DowningPlan,
-    DowningProviderMsg, Gossip, GossipEnvelope, Join, LeaderSelection, Member, ReachabilityStatus,
-    UniqueAddress, VectorClockOrdering, Welcome,
+    ClusterEventPublisherMsg, ClusterInitJoinLifecycle, ClusterInitJoinResponderMsg,
+    CurrentClusterState, DowningDecision, DowningPlan, DowningProviderMsg, Gossip, GossipEnvelope,
+    Join, LeaderSelection, Member, ReachabilityStatus, UniqueAddress, VectorClockOrdering, Welcome,
 };
 
 #[derive(Debug, Clone)]
@@ -33,6 +33,9 @@ pub enum ClusterMembershipMsg {
     RegisterDowningProvider {
         provider: ActorRef<DowningProviderMsg>,
     },
+    RegisterInitJoinResponder {
+        responder: ActorRef<ClusterInitJoinResponderMsg>,
+    },
     LeaderActionsTick,
     SendCurrentGossip {
         reply_to: ActorRef<Gossip>,
@@ -51,6 +54,7 @@ pub struct ClusterMembership {
     timestamp: u64,
     initialized: bool,
     downing_provider: Option<ActorRef<DowningProviderMsg>>,
+    init_join_responder: Option<ActorRef<ClusterInitJoinResponderMsg>>,
 }
 
 impl ClusterMembership {
@@ -68,6 +72,7 @@ impl ClusterMembership {
             timestamp: 0,
             initialized: false,
             downing_provider: None,
+            init_join_responder: None,
         }
     }
 
@@ -124,8 +129,8 @@ impl ClusterMembership {
         if !gossip.has_member(&self.self_node) {
             gossip = gossip.add_member(Member::new(self.self_node.clone(), self.roles.clone()));
         }
+        self.initialized = true;
         self.update_latest_gossip(gossip);
-        self.initialized |= self.gossip.has_member(&self.self_node);
 
         if join.node == self.self_node {
             self.run_leader_actions();
@@ -223,6 +228,11 @@ impl ClusterMembership {
         self.downing_provider = Some(provider);
     }
 
+    fn register_init_join_responder(&mut self, responder: ActorRef<ClusterInitJoinResponderMsg>) {
+        self.init_join_responder = Some(responder);
+        self.publish_init_join_lifecycle();
+    }
+
     fn run_leader_actions(&mut self) {
         if LeaderSelection::for_gossip(&self.gossip, &self.self_node).leader()
             != Some(&self.self_node)
@@ -262,6 +272,24 @@ impl ClusterMembership {
         if let Some(provider) = &self.downing_provider {
             let _ = provider.tell(DowningProviderMsg::ObserveGossip(self.gossip.clone()));
         }
+        self.publish_init_join_lifecycle();
+    }
+
+    fn publish_init_join_lifecycle(&self) {
+        let Some(responder) = &self.init_join_responder else {
+            return;
+        };
+        let lifecycle = if self.initialized {
+            self.gossip
+                .member(&self.self_node)
+                .map(|member| ClusterInitJoinLifecycle::Initialized {
+                    self_status: member.status,
+                })
+                .unwrap_or(ClusterInitJoinLifecycle::Uninitialized)
+        } else {
+            ClusterInitJoinLifecycle::Uninitialized
+        };
+        let _ = responder.tell(ClusterInitJoinResponderMsg::SetLifecycle(lifecycle));
     }
 
     fn reply_welcome(&self, reply_to: Option<ActorRef<ClusterMembershipMsg>>) {
@@ -321,6 +349,9 @@ impl Actor for ClusterMembership {
             }
             ClusterMembershipMsg::RegisterDowningProvider { provider } => {
                 self.register_downing_provider(provider);
+            }
+            ClusterMembershipMsg::RegisterInitJoinResponder { responder } => {
+                self.register_init_join_responder(responder);
             }
             ClusterMembershipMsg::LeaderActionsTick => self.run_leader_actions(),
             ClusterMembershipMsg::SendCurrentGossip { reply_to } => {

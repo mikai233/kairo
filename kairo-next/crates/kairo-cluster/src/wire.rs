@@ -139,6 +139,9 @@ impl ClusterMembershipWireOutbound {
             ClusterMembershipMsg::RegisterDowningProvider { .. } => Err(
                 ClusterMembershipWireError::UnsupportedMessage("register-downing-provider"),
             ),
+            ClusterMembershipMsg::RegisterInitJoinResponder { .. } => Err(
+                ClusterMembershipWireError::UnsupportedMessage("register-init-join-responder"),
+            ),
             ClusterMembershipMsg::LeaderActionsTick => Err(
                 ClusterMembershipWireError::UnsupportedMessage("leader-actions-tick"),
             ),

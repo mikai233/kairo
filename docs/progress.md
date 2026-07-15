@@ -282,9 +282,12 @@ Ack/Nack to the seed process. Welcome now reaches membership and then completes
 the seed process. `ClusterInitJoinResponder` now owns the peer-side decision:
 uninitialized, `Down`, and `Exiting` nodes Nack; other initialized states Ack
 with compatible, incompatible, or explicitly unchecked configuration results,
-and replies travel through the stable seed wire adapter. Full daemon composition
-must now feed membership lifecycle transitions into that responder. Periodic
-gossip and coordinated leave remain the other active Phase 3 work.
+and replies travel through the stable seed wire adapter. `ClusterMembership`
+now registers that responder and automatically republishes its lifecycle from
+the authoritative local gossip state, including uninitialized, `Joining`, `Up`,
+and `Down` transitions. Full daemon bootstrap must compose these actors and the
+shared remoting factory. Periodic gossip and coordinated leave remain the other
+active Phase 3 work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -5907,6 +5910,16 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after membership-owned seed admission lifecycle:
+
+```bash
+cargo test -p kairo-cluster membership_feeds_seed_responder --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after the InitJoin responder lifecycle:
 
