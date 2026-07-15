@@ -1,15 +1,24 @@
+#![deny(missing_docs)]
+
+//! Immutable increment/decrement counter composed from two grow-only counters.
+
 use crate::{
     CrdtError, DeltaReplicatedData, GCounter, RemovedNodePruning, ReplicaId, ReplicatedData,
     ReplicatedDelta,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Positive/negative counter CRDT backed by increment and decrement GCounters.
+///
+/// Merge combines each inner counter independently; the exposed value is the
+/// checked increment total minus the checked decrement total.
 pub struct PNCounter {
     increments: GCounter,
     decrements: GCounter,
 }
 
 impl PNCounter {
+    /// Creates an empty zero-valued counter.
     pub fn new() -> Self {
         Self {
             increments: GCounter::new(),
@@ -17,6 +26,7 @@ impl PNCounter {
         }
     }
 
+    /// Creates a counter from explicit positive and negative components.
     pub fn from_counters(increments: GCounter, decrements: GCounter) -> Self {
         Self {
             increments,
@@ -24,14 +34,20 @@ impl PNCounter {
         }
     }
 
+    /// Returns the grow-only positive component.
     pub fn increments(&self) -> &GCounter {
         &self.increments
     }
 
+    /// Returns the grow-only negative component.
     pub fn decrements(&self) -> &GCounter {
         &self.decrements
     }
 
+    /// Returns the signed counter value.
+    ///
+    /// Returns [`CrdtError::CounterValueOutOfRange`] if either unsigned inner
+    /// total cannot be represented by `i128`.
     pub fn value(&self) -> Result<i128, CrdtError> {
         let increments: i128 = self
             .increments
@@ -46,6 +62,7 @@ impl PNCounter {
         Ok(increments - decrements)
     }
 
+    /// Adds `amount` to one replica's positive component.
     pub fn increment(
         &self,
         replica: impl Into<ReplicaId>,
@@ -57,6 +74,7 @@ impl PNCounter {
         })
     }
 
+    /// Adds `amount` to one replica's negative component.
     pub fn decrement(
         &self,
         replica: impl Into<ReplicaId>,
@@ -68,6 +86,7 @@ impl PNCounter {
         })
     }
 
+    /// Applies a signed change, routing negative values to the decrement side.
     pub fn change(&self, replica: impl Into<ReplicaId>, amount: i128) -> Result<Self, CrdtError> {
         if amount >= 0 {
             self.increment(replica, amount as u128)
@@ -76,11 +95,13 @@ impl PNCounter {
         }
     }
 
+    /// Reports whether either inner counter contains a departed replica.
     pub fn need_pruning_from(&self, removed_replica: &ReplicaId) -> bool {
         self.increments.need_pruning_from(removed_replica)
             || self.decrements.need_pruning_from(removed_replica)
     }
 
+    /// Collapses both departed-replica components into one survivor.
     pub fn prune(
         &self,
         removed_replica: &ReplicaId,
@@ -95,6 +116,7 @@ impl PNCounter {
         })
     }
 
+    /// Removes a departed replica from both components after pruning completes.
     pub fn pruning_cleanup(&self, removed_replica: &ReplicaId) -> Self {
         Self {
             increments: self.increments.pruning_cleanup(removed_replica),

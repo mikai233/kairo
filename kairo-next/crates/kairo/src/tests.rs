@@ -284,7 +284,10 @@ fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn
     let documented_modules = [
         "kairo-next/crates/kairo-distributed-data/src/data.rs",
         "kairo-next/crates/kairo-distributed-data/src/errors.rs",
+        "kairo-next/crates/kairo-distributed-data/src/gcounter.rs",
+        "kairo-next/crates/kairo-distributed-data/src/gset.rs",
         "kairo-next/crates/kairo-distributed-data/src/key.rs",
+        "kairo-next/crates/kairo-distributed-data/src/pncounter.rs",
         "kairo-next/crates/kairo-distributed-data/src/replica.rs",
     ];
 

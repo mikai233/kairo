@@ -1,3 +1,7 @@
+#![deny(missing_docs)]
+
+//! Immutable grow-only counter with one monotonic component per replica.
+
 use std::collections::BTreeMap;
 
 use crate::{
@@ -5,12 +9,16 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Increment-only counter CRDT merged by per-replica maximum.
+///
+/// The public value is the checked sum of all `u128` replica components.
 pub struct GCounter {
     state: BTreeMap<ReplicaId, u128>,
     delta: Option<Box<GCounter>>,
 }
 
 impl GCounter {
+    /// Creates an empty zero-valued counter.
     pub fn new() -> Self {
         Self {
             state: BTreeMap::new(),
@@ -18,6 +26,7 @@ impl GCounter {
         }
     }
 
+    /// Creates a counter from replica components, discarding zero entries.
     pub fn from_state(state: impl IntoIterator<Item = (ReplicaId, u128)>) -> Self {
         Self {
             state: state.into_iter().filter(|(_, value)| *value > 0).collect(),
@@ -25,14 +34,17 @@ impl GCounter {
         }
     }
 
+    /// Returns all non-zero replica components in deterministic order.
     pub fn state(&self) -> &BTreeMap<ReplicaId, u128> {
         &self.state
     }
 
+    /// Returns one replica component, or zero when absent.
     pub fn replica_value(&self, replica: &ReplicaId) -> u128 {
         self.state.get(replica).copied().unwrap_or_default()
     }
 
+    /// Returns the checked sum of every replica component.
     pub fn value(&self) -> Result<u128, CrdtError> {
         self.state
             .values()
@@ -40,6 +52,10 @@ impl GCounter {
             .ok_or(CrdtError::CounterOverflow)
     }
 
+    /// Increases one replica component by `amount` and accumulates its absolute value as a delta.
+    ///
+    /// Zero is a no-op. Returns [`CrdtError::CounterOverflow`] rather than
+    /// wrapping a component beyond `u128`.
     pub fn increment(
         &self,
         replica: impl Into<ReplicaId>,
@@ -74,14 +90,20 @@ impl GCounter {
         })
     }
 
+    /// Iterates over replicas with non-zero components.
     pub fn modified_by_replicas(&self) -> impl Iterator<Item = &ReplicaId> {
         self.state.keys()
     }
 
+    /// Reports whether a departed replica still owns a component.
     pub fn need_pruning_from(&self, removed_replica: &ReplicaId) -> bool {
         self.state.contains_key(removed_replica)
     }
 
+    /// Collapses a departed replica's component into `collapse_into`.
+    ///
+    /// Returns [`CrdtError::CounterOverflow`] when the combined survivor
+    /// component exceeds `u128`.
     pub fn prune(
         &self,
         removed_replica: &ReplicaId,
@@ -103,6 +125,7 @@ impl GCounter {
         Ok(Self { state, delta: None })
     }
 
+    /// Removes a departed replica component after distributed pruning completes.
     pub fn pruning_cleanup(&self, removed_replica: &ReplicaId) -> Self {
         let mut state = self.state.clone();
         state.remove(removed_replica);

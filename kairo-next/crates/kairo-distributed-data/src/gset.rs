@@ -1,3 +1,7 @@
+#![deny(missing_docs)]
+
+//! Immutable grow-only set with full-state and same-type delta replication.
+
 use std::collections::BTreeSet;
 
 use crate::{
@@ -5,6 +9,10 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Grow-only set CRDT whose merge is set union.
+///
+/// Elements cannot be removed. Adds accumulated since the last delta reset are
+/// represented by another `GSet<T>`.
 pub struct GSet<T> {
     elements: BTreeSet<T>,
     delta: Option<Box<GSet<T>>>,
@@ -14,6 +22,7 @@ impl<T> GSet<T>
 where
     T: Clone + Ord,
 {
+    /// Creates an empty set with no accumulated delta.
     pub fn new() -> Self {
         Self {
             elements: BTreeSet::new(),
@@ -21,6 +30,7 @@ where
         }
     }
 
+    /// Creates a deduplicated set with no accumulated delta.
     pub fn from_elements(elements: impl IntoIterator<Item = T>) -> Self {
         Self {
             elements: elements.into_iter().collect(),
@@ -28,22 +38,27 @@ where
         }
     }
 
+    /// Returns all elements in deterministic order.
     pub fn elements(&self) -> &BTreeSet<T> {
         &self.elements
     }
 
+    /// Reports whether `element` belongs to the set.
     pub fn contains(&self, element: &T) -> bool {
         self.elements.contains(element)
     }
 
+    /// Reports whether the set contains no elements.
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
 
+    /// Returns the number of distinct elements.
     pub fn len(&self) -> usize {
         self.elements.len()
     }
 
+    /// Returns a set containing `element` and records it in the pending delta.
     pub fn add(&self, element: T) -> Self {
         let mut elements = self.elements.clone();
         elements.insert(element.clone());

@@ -176,6 +176,10 @@ Status terms in this document mean:
   removed-node pruning, and CRDT/consistency error surfaces now document and
   hard-gate their identity, merge-law, delta-reset, first-delta zero-state, and
   prune-before-cleanup contracts.
+  The built-in `GSet`, `GCounter`, and `PNCounter` surfaces now hard-gate
+  immutable add/change operations, union or per-replica-maximum merge, absolute
+  delta components, checked Rust numeric bounds, and removed-replica collapse
+  and cleanup behavior.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
