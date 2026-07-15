@@ -77,6 +77,19 @@ where
         self.register_with_coordinator(ctx)
     }
 
+    fn ensure_shard_home_retry_timer(&mut self, ctx: &Context<ShardRegionMsg<M>>) {
+        let retry_interval = self
+            .registration
+            .as_ref()
+            .map(RegionRegistration::retry_interval)
+            .or_else(|| self.remote_coordinator.retry_interval());
+        if let Some(retry_interval) = retry_interval
+            && self.home_requests.mark_retry_scheduled()
+        {
+            ctx.schedule_once_self(retry_interval, ShardRegionMsg::RetryPendingShardHomes);
+        }
+    }
+
     pub(super) fn apply_remote_registration_ack(
         &mut self,
         ctx: &Context<ShardRegionMsg<M>>,
@@ -92,7 +105,7 @@ where
     }
 
     pub(super) fn request_shard_home_from_coordinator(
-        &self,
+        &mut self,
         ctx: &Context<ShardRegionMsg<M>>,
         request: GetShardHome,
     ) -> ActorResult {
@@ -105,6 +118,7 @@ where
             }
             if let Some(transport) = &self.remote_coordinator_transport {
                 let _ = transport.request_shard_home(target, request);
+                self.ensure_shard_home_retry_timer(ctx);
             }
             return Ok(());
         };
@@ -125,11 +139,12 @@ where
                 shard: request.shard_id,
                 reply_to,
             });
+        self.ensure_shard_home_retry_timer(ctx);
         Ok(())
     }
 
-    fn request_pending_shard_homes_from_coordinator(
-        &self,
+    pub(super) fn request_pending_shard_homes_from_coordinator(
+        &mut self,
         ctx: &Context<ShardRegionMsg<M>>,
     ) -> ActorResult {
         let pending = self

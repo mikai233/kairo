@@ -168,6 +168,10 @@ impl CoordinatorRuntime {
         self.all_regions_registered = all_regions_registered;
     }
 
+    pub fn all_regions_registered(&self) -> bool {
+        self.all_regions_registered
+    }
+
     pub fn set_preparing_for_shutdown(&mut self, preparing_for_shutdown: bool) {
         self.preparing_for_shutdown = preparing_for_shutdown;
     }

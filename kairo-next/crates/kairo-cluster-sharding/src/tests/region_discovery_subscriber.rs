@@ -1800,6 +1800,7 @@ impl Actor for CoordinatorMoveProbeCoordinator {
                     .map_err(|error| ActorError::Message(error.to_string()))?;
                 if self.ack_registration {
                     let _ = reply_to.tell(Ok(CoordinatorStateSnapshot {
+                        all_regions_registered: true,
                         allocations: BTreeMap::from([(region, Vec::new())]),
                         proxies: BTreeSet::new(),
                         unallocated_shards: BTreeSet::new(),

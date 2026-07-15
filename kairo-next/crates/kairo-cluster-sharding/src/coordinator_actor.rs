@@ -9,12 +9,13 @@ use crate::coordinator_store::{
     CoordinatorRememberStore, CoordinatorRememberStoreError, LocalCoordinatorRememberStoreProvider,
 };
 use crate::{
-    BeginHandOffAck, CoordinatorEvent, CoordinatorRemoteRegions, CoordinatorRemoteReplyTarget,
-    CoordinatorRuntime, CoordinatorState, GetShardHomePlan, HandoffRegionTarget, HandoffTransport,
-    HandoffWorkerDone, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
-    RegionId, RegionShutdownPlan, RememberCoordinatorDDataStoreMsg, RememberCoordinatorStoreMsg,
-    RememberCoordinatorStoreState, RememberCoordinatorUpdateDone, RememberedShards,
-    ShardAllocationStrategy, ShardId, ShardStarted, ShardStopped, ShardingError, remote_region_id,
+    BeginHandOffAck, CoordinatorEvent, CoordinatorRemoteRegions, CoordinatorRemoteReplyError,
+    CoordinatorRemoteReplyTarget, CoordinatorRuntime, CoordinatorState, GetShardHomePlan,
+    HandoffRegionTarget, HandoffTransport, HandoffWorkerDone, LeastShardAllocationStrategy,
+    RebalanceCompletionPlan, RebalancePlan, RegionId, RegionShutdownPlan,
+    RememberCoordinatorDDataStoreMsg, RememberCoordinatorStoreMsg, RememberCoordinatorStoreState,
+    RememberCoordinatorUpdateDone, RememberedShards, ShardAllocationStrategy, ShardId,
+    ShardStarted, ShardStopped, ShardingError, remote_region_id,
 };
 
 pub const REBALANCE_TIMER_KEY: &str = "sharding-coordinator-rebalance";
@@ -148,6 +149,8 @@ where
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoordinatorStateSnapshot {
+    /// Whether every currently known shard region has completed registration.
+    pub all_regions_registered: bool,
     pub allocations: BTreeMap<RegionId, Vec<ShardId>>,
     pub proxies: BTreeSet<RegionId>,
     pub unallocated_shards: BTreeSet<ShardId>,
@@ -442,9 +445,7 @@ where
         if let (Some(handoff), Some(target)) = (&mut self.handoff, target) {
             handoff.register_region_target(target);
         }
-        reply
-            .send_register_ack(region)
-            .map_err(|error| ActorError::Message(error.to_string()))?;
+        tolerate_remote_reply_send(reply.send_register_ack(region))?;
         self.allocate_remembered_shard_homes(ctx)
     }
 
@@ -521,9 +522,7 @@ where
         else {
             return Ok(());
         };
-        reply
-            .send_shard_home(shard, requester, home_region)
-            .map_err(|error| ActorError::Message(error.to_string()))
+        tolerate_remote_reply_send(reply.send_shard_home(shard, requester, home_region))
     }
 
     fn apply_handoff_worker_done(
@@ -624,9 +623,19 @@ where
     }
 }
 
+fn tolerate_remote_reply_send(result: Result<(), CoordinatorRemoteReplyError>) -> ActorResult {
+    match result {
+        Ok(()) | Err(CoordinatorRemoteReplyError::Send { .. }) => Ok(()),
+        Err(error @ CoordinatorRemoteReplyError::Serialization(_)) => {
+            Err(ActorError::Message(error.to_string()))
+        }
+    }
+}
+
 impl From<&CoordinatorRuntime> for CoordinatorStateSnapshot {
     fn from(runtime: &CoordinatorRuntime) -> Self {
         let mut snapshot = Self::from(runtime.state());
+        snapshot.all_regions_registered = runtime.all_regions_registered();
         snapshot.rebalance_in_progress = runtime
             .rebalance_in_progress()
             .iter()
@@ -653,6 +662,7 @@ impl From<&CoordinatorState> for CoordinatorStateSnapshot {
             .collect();
 
         Self {
+            all_regions_registered: true,
             allocations,
             proxies: state.proxies().clone(),
             unallocated_shards: state.unallocated_shards().clone(),
@@ -684,5 +694,29 @@ where
 {
     if let Some(reply_to) = reply_to {
         let _ = reply_to.tell(message);
+    }
+}
+
+#[cfg(test)]
+mod remote_reply_tests {
+    use kairo_serialization::SerializationError;
+
+    use super::*;
+
+    #[test]
+    fn coordinator_survives_transient_remote_reply_send_failure() {
+        assert!(
+            tolerate_remote_reply_send(Err(CoordinatorRemoteReplyError::Send {
+                target: "peer".to_string(),
+                reason: "route unavailable".to_string(),
+            }))
+            .is_ok()
+        );
+        assert!(
+            tolerate_remote_reply_send(Err(CoordinatorRemoteReplyError::Serialization(
+                SerializationError::Message("invalid reply".to_string()),
+            )))
+            .is_err()
+        );
     }
 }

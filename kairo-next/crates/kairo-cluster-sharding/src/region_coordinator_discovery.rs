@@ -393,6 +393,7 @@ mod tests {
         fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
             if let ShardCoordinatorMsg::RegisterLocalRegion { reply_to, .. } = msg {
                 let _ = reply_to.tell(Ok(CoordinatorStateSnapshot {
+                    all_regions_registered: true,
                     allocations: Default::default(),
                     proxies: Default::default(),
                     unallocated_shards: Default::default(),

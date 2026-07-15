@@ -239,6 +239,10 @@ where
             ShardRegionMsg::RetryCoordinatorRegistration => {
                 self.register_with_coordinator(ctx)?;
             }
+            ShardRegionMsg::RetryPendingShardHomes => {
+                self.home_requests.clear_retry_scheduled();
+                self.request_pending_shard_homes_from_coordinator(ctx)?;
+            }
             ShardRegionMsg::CoordinatorShardHomeResult {
                 requested_shard,
                 result,

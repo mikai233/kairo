@@ -1,6 +1,62 @@
 use super::*;
 
 #[test]
+fn coordinator_survives_best_effort_host_shard_delivery_failure() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-host-shard-best-effort").unwrap();
+    let mut state = CoordinatorState::new();
+    state
+        .apply(CoordinatorEvent::ShardRegionRegistered {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_handoff(
+                state,
+                LeastShardAllocationStrategy::default(),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+            ),
+        )
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+    let snapshot = kit
+        .create_probe::<CoordinatorStateSnapshot>("snapshot")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-a".to_string(),
+            shard: "shard-1".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        home.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(GetShardHomePlan::Allocated { .. })
+    ));
+    coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: snapshot.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        snapshot
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .allocations
+            .get("region-a"),
+        Some(&vec!["shard-1".to_string()])
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn handoff_worker_completes_store_backed_region_shard_handoff() {
     let kit = kairo_testkit::ActorSystemTestKit::new("handoff-worker-store-backed-region").unwrap();
     let region = kit
@@ -1152,6 +1208,7 @@ fn region_actor_graceful_shutdown_notifies_registered_coordinator() {
     };
     reply_to
         .tell(Ok(CoordinatorStateSnapshot {
+            all_regions_registered: true,
             allocations: BTreeMap::from([("region-a".to_string(), Vec::new())]),
             proxies: BTreeSet::new(),
             unallocated_shards: BTreeSet::new(),
@@ -1199,6 +1256,7 @@ fn region_actor_repeats_graceful_shutdown_when_host_shard_arrives_during_shutdow
     };
     reply_to
         .tell(Ok(CoordinatorStateSnapshot {
+            all_regions_registered: true,
             allocations: BTreeMap::from([("region-a".to_string(), Vec::new())]),
             proxies: BTreeSet::new(),
             unallocated_shards: BTreeSet::new(),

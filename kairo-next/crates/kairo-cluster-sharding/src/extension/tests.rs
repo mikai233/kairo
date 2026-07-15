@@ -20,6 +20,14 @@ use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 use super::*;
 use crate::{CoordinatorStateSnapshot, ShardCoordinatorMsg, register_sharding_protocol_codecs};
 
+static COMPOSED_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn composed_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    COMPOSED_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TestMessage(String);
 
@@ -256,7 +264,7 @@ impl ComposedShardingNode {
         transport_ddata_remember_entities: bool,
         use_singleton: bool,
     ) -> Self {
-        let kit = ActorSystemTestKit::new(system).unwrap();
+        let kit = ActorSystemTestKit::with_runtime_workers(system, 2, 1).unwrap();
         let mut builder = TcpRemoteActorRuntime::builder(
             kit.system().clone(),
             registry,
@@ -280,12 +288,12 @@ impl ComposedShardingNode {
                     HeartbeatSenderSettings::new(
                         5,
                         DeadlineFailureDetectorSettings::new(
-                            Duration::from_millis(15),
-                            Duration::from_millis(100),
+                            Duration::from_millis(250),
+                            Duration::from_secs(10),
                         )
                         .unwrap(),
                     )
-                    .with_heartbeat_expected_response_after(Duration::from_millis(10)),
+                    .with_heartbeat_expected_response_after(Duration::from_secs(2)),
                 ),
         )
         .unwrap();
@@ -373,7 +381,7 @@ impl ComposedShardingNode {
                 store,
                 replica,
                 ddata.replicator().clone(),
-                Duration::from_secs(1),
+                Duration::from_secs(5),
             ));
         }
         sharding.init(entity).unwrap();
@@ -449,14 +457,31 @@ impl ComposedShardingNode {
     }
 
     fn region_state(&self) -> crate::ShardRegionSnapshot {
+        self.try_region_state(Duration::from_secs(1)).unwrap()
+    }
+
+    fn try_region_state(&self, timeout: Duration) -> Result<crate::ShardRegionSnapshot, String> {
         self.region
             .tell(ShardRegionMsg::GetState {
                 reply_to: self.region_probe.actor_ref(),
             })
-            .unwrap();
+            .map_err(|error| error.reason().to_string())?;
         self.region_probe
-            .expect_msg(Duration::from_secs(1))
+            .expect_msg(timeout)
+            .map_err(|error| error.to_string())
+    }
+
+    fn router_is_stopped(&self, type_name: &str) -> bool {
+        self.sharding
+            .entities
+            .lock()
             .unwrap()
+            .get(type_name)
+            .unwrap()
+            .downcast_ref::<InitializedEntity<TestMessage>>()
+            .unwrap()
+            .router
+            .is_stopped()
     }
 
     fn ddata_contains_remembered_entity(
@@ -611,6 +636,7 @@ fn graceful_shutdown_task_forces_actor_stop_after_handoff_timeout() {
 
 #[test]
 fn direct_registration_retains_single_node_coordinator_compatibility() {
+    let _guard = composed_test_guard();
     let type_key = EntityTypeKey::new("direct-account");
     let node = ComposedShardingNode::start_direct(
         "sharding-direct",
@@ -622,7 +648,7 @@ fn direct_registration_retains_single_node_coordinator_compatibility() {
     );
     await_assert(Duration::from_secs(2), Duration::from_millis(10), || {
         let state = node.coordinator_state();
-        (!state.allocations.is_empty())
+        (state.all_regions_registered && !state.allocations.is_empty())
             .then_some(())
             .ok_or_else(|| format!("direct coordinator has not registered its region: {state:?}"))
     })
@@ -646,6 +672,7 @@ fn direct_registration_retains_single_node_coordinator_compatibility() {
 
 #[test]
 fn role_scoped_coordinator_runs_only_on_eligible_node() {
+    let _guard = composed_test_guard();
     let registry = registry();
     let type_key = EntityTypeKey::new("role-account");
     let frontend = ComposedShardingNode::start_role_scoped(
@@ -692,9 +719,11 @@ fn role_scoped_coordinator_runs_only_on_eligible_node() {
     );
     await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
         let state = backend.coordinator_state();
-        (state.allocations.len() == 2).then_some(()).ok_or_else(|| {
-            format!("backend coordinator has not registered both regions: {state:?}")
-        })
+        (state.all_regions_registered && state.allocations.len() == 2)
+            .then_some(())
+            .ok_or_else(|| {
+                format!("backend coordinator has not registered both regions: {state:?}")
+            })
     })
     .unwrap();
 
@@ -734,6 +763,7 @@ fn role_scoped_coordinator_runs_only_on_eligible_node() {
 
 #[test]
 fn singleton_successor_recovers_remembered_shard_allocation() {
+    let _guard = composed_test_guard();
     let registry = registry();
     let type_key = EntityTypeKey::new("remembered-account");
     let store = Arc::new(Mutex::new(BTreeSet::new()));
@@ -767,7 +797,7 @@ fn singleton_successor_recovers_remembered_shard_allocation() {
     );
     await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
         let state = seed.coordinator_state();
-        (state.allocations.len() == 2)
+        (state.all_regions_registered && state.allocations.len() == 2)
             .then_some(())
             .ok_or_else(|| format!("remembering coordinator is not ready: {state:?}"))
     })
@@ -810,6 +840,7 @@ fn singleton_successor_recovers_remembered_shard_allocation() {
 
 #[test]
 fn singleton_periodic_rebalance_moves_existing_shard_to_joining_region() {
+    let _guard = composed_test_guard();
     let registry = registry();
     let type_key = EntityTypeKey::new("periodic-rebalance-account");
     let seed = ComposedShardingNode::start(
@@ -855,7 +886,7 @@ fn singleton_periodic_rebalance_moves_existing_shard_to_joining_region() {
     );
     await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
         let state = seed.try_coordinator_state(Duration::from_millis(250))?;
-        (state.allocations.len() == 2)
+        (state.all_regions_registered && state.allocations.len() == 2)
             .then_some(())
             .ok_or_else(|| format!("peer region has not registered: {state:?}"))
     })
@@ -896,6 +927,7 @@ fn singleton_periodic_rebalance_moves_existing_shard_to_joining_region() {
 
 #[test]
 fn singleton_successor_recovers_shard_from_transport_ddata() {
+    let _guard = composed_test_guard();
     let registry = registry();
     let type_key = EntityTypeKey::new("ddata-coordinator-account");
     let seed = ComposedShardingNode::start_with_transport_ddata_remember_entities(
@@ -926,7 +958,7 @@ fn singleton_successor_recovers_shard_from_transport_ddata() {
     );
     await_assert(Duration::from_secs(8), Duration::from_millis(10), || {
         let state = seed.try_coordinator_state(Duration::from_millis(500))?;
-        (state.allocations.len() == 2)
+        (state.all_regions_registered && state.allocations.len() == 2)
             .then_some(())
             .ok_or_else(|| format!("ddata coordinator is not ready: {state:?}"))
     })
@@ -939,7 +971,7 @@ fn singleton_successor_recovers_shard_from_transport_ddata() {
         .unwrap()
         .tell(TestMessage("persist-shard".to_string()))
         .unwrap();
-    await_assert(Duration::from_secs(10), Duration::from_millis(10), || {
+    let initial_delivery = await_assert(Duration::from_secs(10), Duration::from_millis(10), || {
         let delivered = seed
             .received
             .lock()
@@ -953,8 +985,18 @@ fn singleton_successor_recovers_shard_from_transport_ddata() {
         delivered
             .then_some(())
             .ok_or_else(|| "initial shard request has not delivered".to_string())
-    })
-    .unwrap();
+    });
+    if let Err(error) = initial_delivery {
+        panic!(
+            "{error}; seed coordinator={:?}; seed region={:?}; peer region={:?}; peer router stopped={}; seed routes={:?}; peer routes={:?}",
+            seed.try_coordinator_state(Duration::from_secs(1)),
+            seed.try_region_state(Duration::from_secs(1)),
+            peer.try_region_state(Duration::from_secs(1)),
+            peer.router_is_stopped(type_key.name()),
+            seed.runtime.association_cache().route_addresses(),
+            peer.runtime.association_cache().route_addresses(),
+        );
+    }
     await_assert(Duration::from_secs(4), Duration::from_millis(20), || {
         peer.ddata_contains_remembered_shard(type_key.name(), &shard)
     })
@@ -978,6 +1020,7 @@ fn singleton_successor_recovers_shard_from_transport_ddata() {
 
 #[test]
 fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
+    let _guard = composed_test_guard();
     let registry = registry();
     let type_key = EntityTypeKey::new("ddata-account");
     let seed = ComposedShardingNode::start_with_transport_ddata_remember_entities(
@@ -1008,7 +1051,7 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
     );
     await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
         let state = seed.try_coordinator_state(Duration::from_millis(250))?;
-        (state.allocations.len() == 2)
+        (state.all_regions_registered && state.allocations.len() == 2)
             .then_some(())
             .ok_or_else(|| format!("ddata remember coordinator is not ready: {state:?}"))
     })
@@ -1133,6 +1176,7 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
 
 #[test]
 fn composed_extension_routes_remote_entities_and_recovers_after_coordinator_handover() {
+    let _guard = composed_test_guard();
     let registry = registry();
     let type_key = EntityTypeKey::new("account");
     let seed = ComposedShardingNode::start(
@@ -1166,7 +1210,7 @@ fn composed_extension_routes_remote_entities_and_recovers_after_coordinator_hand
     peer.init_additional_type(audit_key.clone());
     await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
         let state = seed.coordinator_state();
-        (state.allocations.len() == 2)
+        (state.all_regions_registered && state.allocations.len() == 2)
             .then_some(())
             .ok_or_else(|| format!("oldest coordinator has not registered both regions: {state:?}"))
     })
@@ -1205,7 +1249,7 @@ fn composed_extension_routes_remote_entities_and_recovers_after_coordinator_hand
     seed.cluster.cluster().leave_self().unwrap();
     await_assert(Duration::from_secs(4), Duration::from_millis(25), || {
         let state = peer.coordinator_state();
-        (!state.allocations.is_empty())
+        (state.all_regions_registered && !state.allocations.is_empty())
             .then_some(())
             .ok_or_else(|| {
                 format!("successor coordinator has not registered its region: {state:?}")
@@ -1242,9 +1286,10 @@ fn composed_extension_routes_remote_entities_and_recovers_after_coordinator_hand
     );
     if let Err(error) = successor_delivery {
         panic!(
-            "{error}; successor coordinator={:?}; successor region={:?}; seed received={:?}",
+            "{error}; successor coordinator={:?}; successor region={:?}; router stopped={}; seed received={:?}",
             peer.coordinator_state(),
             peer.region_state(),
+            peer.router_is_stopped("account"),
             seed.received.lock().unwrap()
         );
     }

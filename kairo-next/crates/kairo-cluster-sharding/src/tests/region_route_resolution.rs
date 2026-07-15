@@ -44,6 +44,11 @@ fn region_actor_requests_shard_home_from_registered_coordinator_for_local_route(
         &region_state,
         "region should register before route resolution",
     );
+    coordinator
+        .tell(ShardCoordinatorMsg::SetAllRegionsRegistered {
+            all_registered: false,
+        })
+        .unwrap();
 
     region
         .tell(ShardRegionMsg::RouteToLocalShard {
@@ -62,6 +67,15 @@ fn region_actor_requests_shard_home_from_registered_coordinator_for_local_route(
             }),
         }
     );
+    assert!(
+        delivery.expect_msg(Duration::from_millis(50)).is_err(),
+        "coordinator readiness should keep the user message buffered"
+    );
+    coordinator
+        .tell(ShardCoordinatorMsg::SetAllRegionsRegistered {
+            all_registered: true,
+        })
+        .unwrap();
     assert_eq!(
         delivery.expect_msg(Duration::from_millis(500)).unwrap(),
         ShardDeliverPlan::StartEntity {
@@ -1318,6 +1332,7 @@ impl Actor for DelayedRegistrationCoordinator {
             } => {
                 if let Some(reply_to) = self.pending_registration.take() {
                     let _ = reply_to.tell(Ok(CoordinatorStateSnapshot {
+                        all_regions_registered: true,
                         allocations: BTreeMap::from([("region-a".to_string(), Vec::new())]),
                         proxies: BTreeSet::new(),
                         unallocated_shards: BTreeSet::new(),

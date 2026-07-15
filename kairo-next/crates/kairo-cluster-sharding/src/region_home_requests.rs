@@ -9,6 +9,7 @@ where
     M: Send + 'static,
 {
     delivery_replies_by_shard: BTreeMap<ShardId, VecDeque<ActorRef<ShardDeliverPlan<M>>>>,
+    retry_scheduled: bool,
 }
 
 impl<M> RegionHomeRequests<M>
@@ -18,6 +19,7 @@ where
     pub fn new() -> Self {
         Self {
             delivery_replies_by_shard: BTreeMap::new(),
+            retry_scheduled: false,
         }
     }
 
@@ -42,6 +44,19 @@ where
 
     pub fn pending_shards(&self) -> impl Iterator<Item = &ShardId> + '_ {
         self.delivery_replies_by_shard.keys()
+    }
+
+    pub fn mark_retry_scheduled(&mut self) -> bool {
+        if self.retry_scheduled {
+            false
+        } else {
+            self.retry_scheduled = true;
+            true
+        }
+    }
+
+    pub fn clear_retry_scheduled(&mut self) {
+        self.retry_scheduled = false;
     }
 }
 

@@ -109,6 +109,7 @@ where
         ack: ShardCoordinatorRemoteRegistrationAck,
     },
     RetryCoordinatorRegistration,
+    RetryPendingShardHomes,
     CoordinatorShardHomeResult {
         requested_shard: ShardId,
         result: Result<GetShardHomePlan, ShardingError>,
