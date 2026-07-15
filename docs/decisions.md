@@ -2968,3 +2968,65 @@ Consequences:
 - Focused runtime and actor tests pin unavailable-region rebalance skips,
   healing, and known-home reply behavior without requiring a multi-node cluster
   fixture.
+
+## ADR-0102: Actor Execution Uses System-Owned Bounded Executors
+
+Status: Accepted
+
+Context:
+ADR-0003 intentionally used one worker thread per actor as an M1 bootstrap.
+The same baseline later used one thread per actor helper task and one sleeping
+thread per real-time timer. That preserves synchronous actor turns, but it
+cannot satisfy the production execution gate: idle actors and timers consume
+OS threads, throughput only yields a dedicated thread, and the actor system
+does not own execution capacity or shutdown. Pekko schedules a mailbox at most
+once, processes system messages before a throughput-limited user batch, marks
+the mailbox idle, and re-registers it if work raced with the idle transition.
+Kairo needs those observable scheduling semantics without copying Pekko's
+executor inheritance or JVM-specific implementation.
+
+Decision:
+Each `ActorSystem` owns three explicit execution components:
+
+- an actor dispatcher backed by a fixed worker pool and a shared runnable
+  queue;
+- a separate bounded task executor for `spawn_task`, `pipe_to_self`, and
+  scheduler callbacks that may perform blocking user work;
+- one real-time scheduler driver that owns the timer queue, while the manual
+  scheduler remains an injected deterministic backend.
+
+An actor is represented by a resumable mailbox runner instead of a dedicated
+thread. Mailbox enqueue atomically changes the runner from idle to scheduled
+and submits it only on that transition. One dispatcher worker owns the actor
+state for an activation, drains all currently available system messages before
+user work, processes at most the configured number of user messages, marks the
+runner idle, and immediately attempts to schedule it again when work remains.
+The scheduled transition and post-idle recheck are the synchronization
+boundary that prevents concurrent actor turns and lost wakeups. Actor startup
+and final cleanup also run as dispatcher activations. Blocking while waiting
+for children during stop or restart is retained initially for semantic
+compatibility and will be audited separately after the dispatcher transition.
+
+The default actor and task worker counts derive from
+`std::thread::available_parallelism`, with explicit builder overrides for
+tests and deployment tuning. Queue admission is non-blocking. Actor mailbox
+overflow keeps the existing dead-letter behavior; task-executor saturation is
+reported through an explicit spawn error rather than blocking an actor turn.
+System termination stops actors first, then shuts down the scheduler, task
+executor, and actor dispatcher without accepting new work. No async runtime or
+new third-party dependency is introduced by this execution foundation.
+
+Consequences:
+- Thousands of idle actors no longer imply thousands of OS threads, while
+  `Actor::receive` remains synchronous and never runs concurrently for one
+  actor incarnation.
+- Dispatcher throughput becomes a fairness boundary between mailbox
+  activations instead of a `thread::yield_now` hint inside a dedicated actor
+  thread.
+- Blocking helper work cannot consume actor-dispatcher workers, though users
+  must still size the bounded task executor for their workload.
+- Real-time timers share one ordered driver and do not allocate one sleeping
+  thread per timer; manual-time tests keep their current deterministic API.
+- The transition requires focused lost-wakeup, single-turn, fairness,
+  saturation, shutdown, and high-cardinality actor/timer tests before Phase 1
+  is complete.
