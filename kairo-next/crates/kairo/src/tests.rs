@@ -283,6 +283,7 @@ fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn
     let repo_root = repo_root()?;
     let documented_modules = [
         "kairo-next/crates/kairo-distributed-data/src/aggregation.rs",
+        "kairo-next/crates/kairo-distributed-data/src/aggregation_actor.rs",
         "kairo-next/crates/kairo-distributed-data/src/consistency.rs",
         "kairo-next/crates/kairo-distributed-data/src/data.rs",
         "kairo-next/crates/kairo-distributed-data/src/delta.rs",

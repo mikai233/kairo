@@ -400,3 +400,61 @@ fn read_aggregation_actor_reports_not_found_timeout_and_decode_failures() {
     ));
     system.terminate(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn aggregation_actors_complete_terminal_initial_state_when_started() {
+    let system = ActorSystem::builder("ddata-aggregation-terminal-start")
+        .build()
+        .unwrap();
+    let (write_events, write_event_rx) =
+        probe::<WriteAggregationActorEvent>(&system, "write-events");
+    let (read_events, read_event_rx) =
+        probe::<ReadAggregationActorEvent<GCounter>>(&system, "read-events");
+
+    system
+        .spawn(
+            "write-aggregator",
+            Props::new(move || {
+                WriteAggregationActor::new(
+                    write_plan(
+                        &ReplicatorKey::new("write"),
+                        &WriteConsistency::majority(Duration::from_secs(1)),
+                        Vec::new(),
+                    ),
+                    write_events.clone(),
+                )
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        write_event_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        WriteAggregationActorEvent::Completed(WriteAggregationOutcome::Success)
+    );
+
+    system
+        .spawn(
+            "read-aggregator",
+            Props::new(move || {
+                ReadAggregationActor::new(
+                    read_plan(
+                        &ReplicatorKey::new("read"),
+                        &ReadConsistency::from(3, Duration::from_secs(1)).unwrap(),
+                        vec![replica("a")],
+                        None,
+                    ),
+                    Arc::new(GCounterCodec),
+                    read_events.clone(),
+                )
+            }),
+        )
+        .unwrap();
+    assert_eq!(
+        read_event_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ReadAggregationActorEvent::Completed(ReadAggregationOutcome::Failure {
+            required: 2,
+            received: 0,
+        })
+    );
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}

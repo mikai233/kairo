@@ -230,6 +230,10 @@ Status terms in this document mean:
   reachable-first primary selection, the ten-secondary retry cap, distinct
   known-source reply accounting, ACK-over-NACK precedence, timeout/failure
   outcomes, and merged read results.
+  Typed aggregation actors now hard-gate reply filtering, decode diagnostics,
+  delta-to-full-state retry signaling, actor-owned deadlines, terminal stop,
+  and immediate start-time completion for already-satisfied or impossible
+  quorums.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
