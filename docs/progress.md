@@ -20,7 +20,9 @@ proves reachability plus CRDT convergence recover without membership removal.
 The actor audit also made startup-failure death watch deterministic by retaining
 the terminal failure cause for a watch registered after child termination.
 Remaining work is tuning, compatibility depth, documentation, and release
-hardening rather than foundational redesign.
+hardening rather than foundational redesign. The workspace now declares and
+checks Rust 1.88 as its MSRV, runs the full stable test gate on Linux, Windows,
+and macOS, and executes benchmark smoke coverage with release optimizations.
 
 Status terms in this document mean:
 
@@ -147,8 +149,9 @@ Status terms in this document mean:
   distributed examples retain narrower diagnostic/bootstrap roles.
 - M13 hardening and release readiness: active as the remaining phase. Its
   validation, documentation, dependency audit, and benchmark scaffolding
-  already provide useful continuous gates; final sign-off now focuses on
-  release quality rather than replacement architecture.
+  now include a declared Rust 1.88 MSRV, Linux/Windows/macOS stable test
+  coverage, and release-mode benchmark smoke; final sign-off focuses on release
+  quality rather than replacement architecture.
 
 ## Execution Plan Before M13
 
@@ -645,6 +648,19 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- Latest M13 release-readiness refresh after declaring the Rust 1.88 MSRV,
+  expanding stable tests to Linux/Windows/macOS, and moving benchmark smoke to
+  the release profile:
+
+  ```bash
+  cargo +1.88.0 check --workspace --all-targets --all-features
+  KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
+  cargo fmt --all -- --check
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  cargo test --workspace --all-targets --all-features
+  git diff --check
+  ```
 
 - The completed Phase 1 execution foundation passes the complete workspace
   format, clippy, and test gates. Focused stress coverage runs 2,000 actor

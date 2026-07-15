@@ -181,20 +181,23 @@ their own logging or tracing stack.
 
 ## Validation
 
-The GitHub Actions validation matrix is intentionally small and mirrors the
-normal next-workspace development surface:
+The GitHub Actions validation matrix mirrors the normal next-workspace
+development surface and pins Rust 1.88 as the minimum supported Rust version
+(MSRV):
 
 ```text
 Format: cargo fmt --all -- --check
 Clippy: cargo clippy --workspace --all-targets --all-features -- -D warnings
 Test: cargo test --workspace --all-targets --all-features
+Platform Test: full workspace tests on Ubuntu, Windows, and macOS
+MSRV 1.88: cargo check --workspace --all-targets --all-features
 Examples and Multi-Node:
   cargo test -p kairo-examples --all-targets --all-features
   cargo test --doc --workspace --all-features
   cargo test -p kairo-examples --doc --all-features
   cargo test -p kairo-testkit multi_node --all-targets --all-features
 Rustdoc: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-Benchmark Smoke: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
+Benchmark Smoke: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 ```
 
 Run the same default full validation target locally from the repository root:
@@ -220,7 +223,7 @@ cargo test --doc --workspace --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
+KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 ```
 
 ## Benchmarks

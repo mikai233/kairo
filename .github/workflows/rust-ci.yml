@@ -32,15 +32,31 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
-    name: Test
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang mold protobuf-compiler
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run tests
+        run: cargo test --workspace --all-targets --all-features
+
+  msrv:
+    name: MSRV 1.88
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y clang mold protobuf-compiler
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Run tests
-        run: cargo test --workspace --all-targets --all-features
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - name: Check minimum supported Rust version
+        run: cargo check --workspace --all-targets --all-features
 
   integration:
     name: Examples and Multi-Node
@@ -79,4 +95,4 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang mold protobuf-compiler
       - uses: dtolnay/rust-toolchain@stable
       - name: Run M13 benchmark smoke
-        run: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
+        run: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all

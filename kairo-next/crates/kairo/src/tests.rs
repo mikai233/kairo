@@ -88,8 +88,8 @@ const M13_VALIDATION_GATE_EXPECTATIONS: [(&str, &str); 9] = [
         "workspace rustdoc warnings must remain denied",
     ),
     (
-        "KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all",
-        "M13 benchmark smoke coverage must remain in CI",
+        "KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all",
+        "M13 benchmark smoke coverage must exercise optimized release builds in CI",
     ),
 ];
 
@@ -181,7 +181,7 @@ fn active_manifests_do_not_introduce_hocon() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-fn active_crates_inherit_workspace_license_and_support_crates_stay_private()
+fn active_crates_inherit_workspace_release_metadata_and_support_crates_stay_private()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let root_manifest = std::fs::read_to_string(repo_root.join("Cargo.toml"))?;
@@ -191,6 +191,10 @@ fn active_crates_inherit_workspace_license_and_support_crates_stay_private()
     assert!(
         root_manifest.contains("license = \"MIT\""),
         "workspace package metadata must keep the audited MIT license"
+    );
+    assert!(
+        root_manifest.contains("rust-version = \"1.88\""),
+        "workspace package metadata must declare the CI-verified minimum Rust version"
     );
 
     for entry in std::fs::read_dir(next_crates)? {
@@ -205,6 +209,11 @@ fn active_crates_inherit_workspace_license_and_support_crates_stay_private()
         assert!(
             manifest.contains("license.workspace = true"),
             "{} must inherit the workspace license metadata recorded by the M13 audit",
+            manifest_path.display()
+        );
+        assert!(
+            manifest.contains("rust-version.workspace = true"),
+            "{} must inherit the CI-verified minimum Rust version",
             manifest_path.display()
         );
         assert!(
@@ -1389,6 +1398,19 @@ fn rust_ci_keeps_m13_release_readiness_gates() -> Result<(), Box<dyn std::error:
         assert!(
             workflow.contains(command),
             "{} must contain `{command}`: {reason}",
+            workflow_path.display()
+        );
+    }
+
+    assert!(
+        workflow.contains("dtolnay/rust-toolchain@1.88.0"),
+        "{} must check the declared Rust 1.88 MSRV",
+        workflow_path.display()
+    );
+    for platform in ["ubuntu-latest", "windows-latest", "macos-latest"] {
+        assert!(
+            workflow.contains(platform),
+            "{} must retain stable test coverage for `{platform}`",
             workflow_path.display()
         );
     }

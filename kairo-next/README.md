@@ -175,19 +175,22 @@ before shutdown reports success.
 
 ## Validation
 
-The root CI workflow runs the normal next-workspace validation matrix:
+The root CI workflow runs the normal next-workspace validation matrix and pins
+Rust 1.88 as the minimum supported Rust version (MSRV):
 
 ```text
 Format: cargo fmt --all -- --check
 Clippy: cargo clippy --workspace --all-targets --all-features -- -D warnings
 Test: cargo test --workspace --all-targets --all-features
+Platform Test: full workspace tests on Ubuntu, Windows, and macOS
+MSRV 1.88: cargo check --workspace --all-targets --all-features
 Examples and Multi-Node:
   cargo test -p kairo-examples --all-targets --all-features
   cargo test --doc --workspace --all-features
   cargo test -p kairo-examples --doc --all-features
   cargo test -p kairo-testkit multi_node --all-targets --all-features
 Rustdoc: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-Benchmark Smoke: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
+Benchmark Smoke: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 ```
 
 Run the default full validation target locally with:
@@ -207,7 +210,7 @@ cargo test --doc --workspace --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
+KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 ```
 
 ## Benchmarks

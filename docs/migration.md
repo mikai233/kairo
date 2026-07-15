@@ -17,6 +17,10 @@ The facade keeps the implementation split across focused crates while exposing
 common actor, configuration, serialization, remote, cluster, distributed-data,
 sharding, cluster-tools, and testkit entry points behind feature flags.
 
+Kairo declares Rust 1.88 as its minimum supported Rust version. CI checks that
+version across all workspace targets and features, while the stable test matrix
+runs on Ubuntu, Windows, and macOS.
+
 Default facade features enable typed local actors, macros, and TOML
 configuration loading. Distributed layers are opt-in:
 
@@ -438,7 +442,7 @@ sharding route behavior:
 
 ```bash
 cargo run -p kairo-benchmarks -- --help
-KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all
+KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 cargo run -p kairo-benchmarks --release -- all
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- actor-tell
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- remote-send

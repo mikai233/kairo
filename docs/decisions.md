@@ -4100,3 +4100,32 @@ Consequences:
   data contract.
 - Hash collisions are not silently aliased; registration fails before remote
   traffic can be accepted.
+
+## ADR-0128: Release Validation Pins Rust 1.88 Across Platforms
+
+Status: Accepted
+
+Context:
+M13 requires platform and minimum-supported-Rust-version coverage, but the
+workspace previously declared only Edition 2024 and ran its complete CI test
+gate only on Ubuntu with the latest stable toolchain. The benchmark smoke job
+also used the debug profile even though the benchmark runner is intended to
+measure release-hardening baselines. Without an explicit `rust-version`, crate
+consumers and maintainers could not tell which compiler Kairo supports.
+
+Decision:
+The workspace minimum supported Rust version is Rust 1.88. Every active crate
+inherits that value through `rust-version.workspace = true`, and CI checks all
+workspace targets and features with Rust 1.88. The stable full-test job runs on
+Ubuntu, Windows, and macOS. Benchmark smoke uses the release profile so its
+execution exercises the optimized build users are instructed to measure.
+
+Consequences:
+- Published crate metadata communicates one consistent compiler floor.
+- Language or dependency changes that require a newer compiler fail the MSRV
+  job before release unless the policy is intentionally revised.
+- Linux remains the host for formatting, lint, documentation, integration, and
+  benchmark gates, while full workspace tests catch platform-specific runtime
+  and socket regressions on Windows and macOS.
+- Raising the MSRV is a reviewed compatibility decision and must update the
+  workspace metadata, CI toolchain, public documentation, and this decision.
