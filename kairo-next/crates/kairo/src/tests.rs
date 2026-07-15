@@ -282,6 +282,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
     let repo_root = repo_root()?;
     let documented_modules = [
         "kairo-next/crates/kairo-cluster-sharding/src/allocation.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/bootstrap.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator_actor.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator_handoff.rs",

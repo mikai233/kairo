@@ -256,6 +256,9 @@ Status terms in this document mean:
   invariants, region home conflicts, remember-key validation, and store
   read/update failure context while remaining explicitly local rather than a
   wire protocol.
+  The low-level coordinator bootstrap helper now hard-gates its matched state
+  and local handoff-target construction, duplicate-region rejection, borrowed
+  inspection, and consuming decomposition contracts.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
