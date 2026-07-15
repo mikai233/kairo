@@ -80,6 +80,7 @@ mod reachability;
 mod remote;
 mod remote_tcp;
 mod seed_join;
+mod seed_join_actor;
 mod shared_remote_runtime;
 #[cfg(test)]
 mod shared_remote_runtime_tests;
@@ -156,6 +157,10 @@ pub use remote_tcp::{
 };
 pub use seed_join::{
     ClusterSeedJoinEffect, ClusterSeedJoinError, ClusterSeedJoinPhase, ClusterSeedJoinState,
+};
+pub use seed_join_actor::{
+    ClusterSeedJoinProcess, ClusterSeedJoinProcessMsg, ClusterSeedJoinProcessSettings,
+    ClusterSeedJoinProcessSettingsError, ClusterSeedJoinProcessSnapshot,
 };
 pub use shared_remote_runtime::{CLUSTER_SYSTEM_MANIFESTS, register_cluster_system_inbound};
 pub use system_inbound::{

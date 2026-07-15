@@ -268,9 +268,13 @@ self, accepts only the first compatible/unchecked Ack from a contacted origin,
 self-forms only when the first seed receives every Nack or reaches its seed
 timeout, keeps non-first seeds retrying instead of self-forming, retries Join
 after a lost Welcome by restarting seed contact, and terminates explicitly on
-incompatible configuration.
-Actor-owned scheduling and wire effects, periodic gossip, and coordinated leave
-remain the active Phase 3 implementation work.
+incompatible configuration. `ClusterSeedJoinProcess` now owns that state in a
+typed actor, emits typed contact/join effects, schedules fixed-delay retry and
+seed/join timeout ticks with actor-owned timers, and cancels both timers on a
+terminal outcome or actor stop. Manual-time tests cover automatic retry,
+first-seed timeout formation, lost-Welcome recontact, completion, and stop
+cleanup. Wiring those effects to composed remoting, periodic gossip, and
+coordinated leave remain the active Phase 3 implementation work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -5893,6 +5897,16 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after actor-owned seed-join scheduling:
+
+```bash
+cargo test -p kairo-cluster seed_join_actor --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after the deterministic seed-join state machine:
 

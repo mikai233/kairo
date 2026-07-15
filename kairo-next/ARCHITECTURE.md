@@ -1337,6 +1337,15 @@ another first Ack produces the repeated `Join` that recovers a lost `Welcome`.
 A matching `Welcome` completes formation. Incompatible configuration is a
 terminal, explicit effect rather than a silent retry.
 
+`ClusterSeedJoinProcess` is the typed actor owner for that state. It emits
+`ClusterSeedJoinEffect` values to a typed transport-effect actor, schedules
+fixed-delay contact retries plus the longer seed/join timeout through
+actor-owned timers, and cancels both timers on completion or incompatibility.
+Its settings require non-zero intervals with the seed timeout no shorter than
+the retry interval. Manual ticks remain available for deterministic tests, and
+stopping the process cancels all pending timer generations through normal actor
+lifecycle cleanup.
+
 Membership transport:
 
 - `ClusterMembershipWireOutbound` serializes `Join`, `Welcome`, and
