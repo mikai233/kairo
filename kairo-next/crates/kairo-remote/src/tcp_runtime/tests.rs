@@ -434,6 +434,104 @@ fn tcp_remote_runtime_delivers_two_protocols_on_one_association() {
 }
 
 #[test]
+fn tcp_remote_runtime_reconnects_same_peer_incarnation_after_route_close() {
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let sender = ActorSystem::builder("sender").build().unwrap();
+    let registry = registry();
+    let (received_tx, received_rx) = mpsc::channel();
+    let target = receiver
+        .spawn(
+            "target",
+            Props::new(move || Target {
+                received: received_tx,
+            }),
+        )
+        .unwrap();
+
+    let mut receiver_builder = TcpRemoteActorRuntime::builder(
+        receiver,
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    );
+    receiver_builder.register::<Ping>().unwrap();
+    let receiver_remote = receiver_builder.bind().unwrap();
+
+    let mut sender_builder =
+        TcpRemoteActorRuntime::builder(sender, registry, RemoteSettings::new("127.0.0.1", 0), 22);
+    sender_builder.register::<Ping>().unwrap();
+    let sender_remote = sender_builder.bind().unwrap();
+
+    let receiver_address = RemoteAssociationAddress::new(
+        "kairo",
+        "receiver",
+        receiver_remote.settings().canonical_hostname.clone(),
+        Some(receiver_remote.settings().canonical_port),
+    )
+    .unwrap();
+    let first_registration = sender_remote.dial(receiver_address.clone()).unwrap();
+    let first_association = first_registration.pipeline().association().clone();
+    let remote_target = sender_remote
+        .resolve::<Ping>(remote_path_for(
+            target.path().as_str(),
+            receiver_remote.settings(),
+        ))
+        .unwrap();
+
+    remote_target.tell(Ping { value: 7 }).unwrap();
+    assert_eq!(received_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 7);
+    await_route_count(receiver_remote.association_cache(), 1);
+    let first_inbound_association = receiver_remote
+        .association_registry()
+        .association_by_uid(22)
+        .unwrap();
+
+    assert!(first_registration.close_owned_route("test transport disconnect"));
+    await_route_count(sender_remote.association_cache(), 0);
+    await_route_count(receiver_remote.association_cache(), 0);
+
+    let replacement_registration = sender_remote.dial(receiver_address).unwrap();
+    let replacement_association = replacement_registration.pipeline().association().clone();
+    await_route_count(receiver_remote.association_cache(), 1);
+    let replacement_inbound_association = receiver_remote
+        .association_registry()
+        .association_by_uid(22)
+        .unwrap();
+
+    assert!(!Arc::ptr_eq(&first_association, &replacement_association));
+    assert!(!Arc::ptr_eq(
+        &first_inbound_association,
+        &replacement_inbound_association
+    ));
+    assert_eq!(
+        first_association
+            .lock()
+            .expect("association mutex poisoned")
+            .state(),
+        &AssociationState::Closed {
+            reason: "test transport disconnect".to_string()
+        }
+    );
+    assert_eq!(
+        replacement_association
+            .lock()
+            .expect("association mutex poisoned")
+            .state(),
+        &AssociationState::Active {
+            remote_uid: Some(11)
+        }
+    );
+
+    remote_target.tell(Ping { value: 8 }).unwrap();
+    assert_eq!(received_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 8);
+
+    replacement_registration.close_owned_route("reconnect test done");
+    sender_remote.shutdown().unwrap();
+    let report = receiver_remote.shutdown().unwrap();
+    assert_eq!(report.accepted_associations, 2);
+}
+
+#[test]
 fn tcp_remote_actor_system_provider_delegates_local_provider_boundary() {
     let receiver = ActorSystem::builder("receiver").build().unwrap();
     let (received_tx, _received_rx) = mpsc::channel();

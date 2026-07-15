@@ -925,8 +925,14 @@ TCP association dialing:
   pipeline, which shuts down all sibling lane sockets without allowing reader
   ownership to keep the association alive. Repeated close requests preserve
   the first terminal reason, so shutdown is not overwritten by a late reader,
-- these TCP pieces remain transport primitives; reconnect policy and richer
-  provider lifecycle ownership remain separate integration work.
+- a fresh validated handshake replaces a previously identified `Closed`
+  registry handle, including for the same peer UID, without reopening the old
+  handle. This permits an explicitly redialed live process to restore its route
+  while preserving terminal-handle semantics. A quarantined UID remains
+  rejected until a new incarnation UID arrives, and an unidentified closed
+  entry cannot be revived,
+- automatic reconnect scheduling/backoff and richer provider lifecycle
+  ownership remain separate integration work.
 
 Outbound lanes:
 

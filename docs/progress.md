@@ -188,10 +188,14 @@ proves dialing-side reader completion closes its cached route and association;
 focused queued-writer coverage proves an asynchronous ordinary-lane failure
 closes control, ordinary, and large lanes and rejects later sends. Repeated
 close attempts preserve the first terminal reason so coordinated shutdown is
-not overwritten by late reader cleanup. Reconnect, malformed-input, and
-process-level remoting coverage remain next. The older subsystem-specific TCP
-runtimes remain migration baselines until their higher runtime owners adopt the
-shared core.
+not overwritten by late reader cleanup. A fresh validated handshake can now
+replace an identified closed route for the same peer UID without reviving the
+old handle, while quarantine remains terminal for that exact incarnation; a
+real TCP test proves both endpoints replace their handles and an existing typed
+remote ref delivers after explicit redial. Automatic reconnect scheduling,
+malformed-input, and process-level remoting coverage remain next. The older
+subsystem-specific TCP runtimes remain migration baselines until their higher
+runtime owners adopt the shared core.
 
 The reliable-delivery wire/state-machine layer and its composed runtime are now
 implemented: registered stable envelope/ack/nack codecs preserve a nested

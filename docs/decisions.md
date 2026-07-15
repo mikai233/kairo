@@ -3076,6 +3076,15 @@ break lifecycle ordering. Writer or reader failure closes the whole association
 incarnation and is reported to the runtime lifecycle owner rather than leaving
 partially live sibling lanes.
 
+A closed association handle is never reopened. A later validated handshake may
+replace a `Closed` registry entry that previously completed identity, including
+when the peer process still has the same UID; this is a new transport route for
+the same process incarnation, and existing holders continue to observe the old
+handle as closed. `Quarantined` remains terminal for its exact UID and can only
+be replaced after a different UID completes the handshake. An unidentified
+closed entry cannot be revived because it has no validated incarnation to
+reconnect.
+
 Handshake processing has configurable byte, read-timeout, lane-assembly
 timeout, and pending-partial-association limits. Concurrent lane arrivals are
 grouped by the complete remote address and UID; wrong-target, mixed-identity,

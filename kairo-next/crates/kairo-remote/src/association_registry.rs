@@ -68,10 +68,13 @@ impl RemoteAssociationRegistry {
             Some(existing) => {
                 let replace_terminal = {
                     let association = existing.lock().expect("remote association lock poisoned");
-                    matches!(
-                        association.state(),
-                        AssociationState::Quarantined { .. } | AssociationState::Closed { .. }
-                    ) && previous_uid.is_some_and(|previous| previous != uid)
+                    match association.state() {
+                        AssociationState::Closed { .. } => previous_uid.is_some(),
+                        AssociationState::Quarantined { .. } => {
+                            previous_uid.is_some_and(|previous| previous != uid)
+                        }
+                        _ => false,
+                    }
                 };
                 if replace_terminal {
                     let mut replacement = RemoteAssociation::new(address.to_string());
@@ -259,6 +262,43 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(registry.association_count(), 1);
         assert_eq!(registry.uid_count(), 1);
+    }
+
+    #[test]
+    fn same_uid_handshake_replaces_closed_indexed_association() {
+        let registry = RemoteAssociationRegistry::new();
+        let remote = address("remote", 25520);
+        let closed = registry.complete_handshake(remote.clone(), 42).unwrap();
+        closed
+            .lock()
+            .expect("remote association lock poisoned")
+            .close("transport failed");
+
+        let replacement = registry.complete_handshake(remote, 42).unwrap();
+
+        assert!(!Arc::ptr_eq(&closed, &replacement));
+        assert!(Arc::ptr_eq(
+            &replacement,
+            &registry.association_by_uid(42).unwrap()
+        ));
+        assert_eq!(
+            closed
+                .lock()
+                .expect("remote association lock poisoned")
+                .state(),
+            &AssociationState::Closed {
+                reason: "transport failed".to_string()
+            }
+        );
+        assert_eq!(
+            replacement
+                .lock()
+                .expect("remote association lock poisoned")
+                .state(),
+            &AssociationState::Active {
+                remote_uid: Some(42)
+            }
+        );
     }
 
     #[test]
