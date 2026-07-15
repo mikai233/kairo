@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_actor::Recipient;
@@ -7,6 +9,11 @@ use crate::{BeginHandOffAck, ShardStarted, ShardStopped};
 
 use super::super::ShardRegionRemoteError;
 
+/// Region-to-coordinator reply bridge bound to one received control command.
+///
+/// Replies use the region as envelope sender and the command's coordinator
+/// sender as recipient, preserving the actor reply direction across the stable
+/// wire boundary.
 #[derive(Clone)]
 pub struct ShardRegionRemoteControlReplyTarget {
     region: ActorRefWireData,
@@ -16,6 +23,7 @@ pub struct ShardRegionRemoteControlReplyTarget {
 }
 
 impl ShardRegionRemoteControlReplyTarget {
+    /// Creates a reply target from a concrete outbound recipient.
     pub fn new(
         region: ActorRefWireData,
         coordinator: ActorRefWireData,
@@ -25,6 +33,7 @@ impl ShardRegionRemoteControlReplyTarget {
         Self::from_arc(region, coordinator, registry, Arc::new(outbound))
     }
 
+    /// Creates a reply target from a shared type-erased outbound recipient.
     pub fn from_arc(
         region: ActorRefWireData,
         coordinator: ActorRefWireData,
@@ -39,22 +48,27 @@ impl ShardRegionRemoteControlReplyTarget {
         }
     }
 
+    /// Returns the stable region sender identity.
     pub fn region(&self) -> &ActorRefWireData {
         &self.region
     }
 
+    /// Returns the stable coordinator reply recipient.
     pub fn coordinator(&self) -> &ActorRefWireData {
         &self.coordinator
     }
 
+    /// Reports that the region started hosting `shard`.
     pub fn send_shard_started(&self, shard: String) -> Result<(), ShardRegionRemoteError> {
         self.send_to_coordinator(&ShardStarted { shard_id: shard })
     }
 
+    /// Acknowledges cache invalidation for the first handoff phase.
     pub fn send_begin_handoff_ack(&self, shard: String) -> Result<(), ShardRegionRemoteError> {
         self.send_to_coordinator(&BeginHandOffAck { shard_id: shard })
     }
 
+    /// Reports that a handed-off shard and all its entities have stopped.
     pub fn send_shard_stopped(&self, shard: String) -> Result<(), ShardRegionRemoteError> {
         self.send_to_coordinator(&ShardStopped { shard_id: shard })
     }

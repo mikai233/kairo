@@ -205,6 +205,9 @@ Status terms in this document mean:
   Remote entity routing now hard-gates stable target resolution, outer-envelope
   versus prevalidated-message trust, nested business codec decoding, typed
   region re-entry, local reply-ref confinement, and immediate send failures.
+  The complete remote region module now denies missing public documentation;
+  its control bridge pins command-specific acknowledgements, coordinator/region
+  reply identity, local-only stop/ref confinement, and the two handoff phases.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator

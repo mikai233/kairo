@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_actor::Recipient;
@@ -10,22 +12,37 @@ use crate::{BeginHandOff, HandOff, HostShard};
 use super::super::ShardRegionRemoteError;
 use super::reply::ShardRegionRemoteControlReplyTarget;
 
+/// Typed local effect decoded from a stable coordinator-to-region command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShardRegionRemoteControlCommand {
+    /// Start hosting a shard and acknowledge with `ShardStarted`.
     HostShard {
+        /// Stable shard identifier to host.
         shard: String,
+        /// Reply target bound to the commanding coordinator sender.
         reply: ShardRegionRemoteControlReplyTarget,
     },
+    /// Invalidate a shard home before handoff and acknowledge the phase.
     BeginHandOff {
+        /// Stable shard identifier entering handoff.
         shard: String,
+        /// Reply target bound to the commanding coordinator sender.
         reply: ShardRegionRemoteControlReplyTarget,
     },
+    /// Stop an owned shard and acknowledge after all entities terminate.
     HandOff {
+        /// Stable shard identifier to stop.
         shard: String,
+        /// Reply target bound to the commanding coordinator sender.
         reply: ShardRegionRemoteControlReplyTarget,
     },
 }
 
+/// Validates and decodes stable coordinator-to-region control envelopes.
+///
+/// Every command must target the configured region and carry coordinator
+/// sender metadata. The resulting reply target preserves those identities so
+/// acknowledgements return to the coordinator from the region endpoint.
 #[derive(Clone)]
 pub struct ShardRegionRemoteControlInbound {
     region: ActorRefWireData,
@@ -34,6 +51,7 @@ pub struct ShardRegionRemoteControlInbound {
 }
 
 impl ShardRegionRemoteControlInbound {
+    /// Creates a control decoder from a concrete outbound reply recipient.
     pub fn new(
         region: ActorRefWireData,
         registry: Arc<Registry>,
@@ -42,6 +60,7 @@ impl ShardRegionRemoteControlInbound {
         Self::from_arc(region, registry, Arc::new(outbound))
     }
 
+    /// Creates a control decoder from a shared type-erased reply recipient.
     pub fn from_arc(
         region: ActorRefWireData,
         registry: Arc<Registry>,
@@ -54,10 +73,12 @@ impl ShardRegionRemoteControlInbound {
         }
     }
 
+    /// Returns the only accepted region wire recipient.
     pub fn region(&self) -> &ActorRefWireData {
         &self.region
     }
 
+    /// Validates and decodes one stable region control envelope.
     pub fn receive(
         &self,
         envelope: RemoteEnvelope,

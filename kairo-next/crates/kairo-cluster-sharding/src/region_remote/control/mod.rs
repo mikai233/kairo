@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 mod inbound;
 mod outbound;
 mod reply;
