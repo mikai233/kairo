@@ -1,19 +1,54 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeSet;
 
 use crate::{RegionId, ShardAllocations, ShardId, ShardingError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// State transition understood by the shard coordinator model.
 pub enum CoordinatorEvent {
-    ShardRegionRegistered { region: RegionId },
-    ShardRegionProxyRegistered { proxy: RegionId },
-    ShardRegionTerminated { region: RegionId },
-    ShardRegionProxyTerminated { proxy: RegionId },
-    ShardHomeAllocated { shard: ShardId, region: RegionId },
-    ShardHomeDeallocated { shard: ShardId },
+    /// Adds a region eligible to host shards.
+    ShardRegionRegistered {
+        /// Stable logical region identifier.
+        region: RegionId,
+    },
+    /// Adds a proxy that routes messages but cannot host shards.
+    ShardRegionProxyRegistered {
+        /// Stable logical proxy identifier.
+        proxy: RegionId,
+    },
+    /// Removes a region and releases all shards it owned.
+    ShardRegionTerminated {
+        /// Stable logical region identifier.
+        region: RegionId,
+    },
+    /// Removes a registered proxy.
+    ShardRegionProxyTerminated {
+        /// Stable logical proxy identifier.
+        proxy: RegionId,
+    },
+    /// Assigns one previously unallocated shard to a region.
+    ShardHomeAllocated {
+        /// Stable logical shard identifier.
+        shard: ShardId,
+        /// Registered region that becomes the owner.
+        region: RegionId,
+    },
+    /// Releases a shard from its current region.
+    ShardHomeDeallocated {
+        /// Stable logical shard identifier.
+        shard: ShardId,
+    },
+    /// Marks completion of coordinator state initialization without mutating assignments.
     ShardCoordinatorInitialized,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Pure coordinator ownership state for regions, proxies, and remembered shards.
+///
+/// When remember-entities is enabled, deallocated shards remain in the
+/// unallocated set so recovery can assign them again after region or
+/// coordinator failover.
 pub struct CoordinatorState {
     allocations: ShardAllocations,
     proxies: BTreeSet<RegionId>,
@@ -22,10 +57,15 @@ pub struct CoordinatorState {
 }
 
 impl CoordinatorState {
+    /// Creates empty state with remember-entities disabled.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Enables or disables remembered unallocated shard tracking.
+    ///
+    /// Disabling the feature immediately clears the unallocated set while
+    /// leaving live allocations unchanged.
     pub fn with_remember_entities(mut self, enabled: bool) -> Self {
         self.remember_entities = enabled;
         if !enabled {
@@ -34,26 +74,32 @@ impl CoordinatorState {
         self
     }
 
+    /// Returns whether unallocated shards are retained for recovery.
     pub fn remember_entities(&self) -> bool {
         self.remember_entities
     }
 
+    /// Returns whether no region or proxy is registered.
     pub fn is_empty(&self) -> bool {
         self.allocations.is_empty() && self.proxies.is_empty()
     }
 
+    /// Returns the current exclusive shard-to-region assignments.
     pub fn allocations(&self) -> &ShardAllocations {
         &self.allocations
     }
 
+    /// Returns registered proxy identifiers in deterministic order.
     pub fn proxies(&self) -> &BTreeSet<RegionId> {
         &self.proxies
     }
 
+    /// Returns remembered shards currently waiting for allocation.
     pub fn unallocated_shards(&self) -> &BTreeSet<ShardId> {
         &self.unallocated_shards
     }
 
+    /// Returns the union of allocated and remembered-unallocated shard ids.
     pub fn all_shards(&self) -> BTreeSet<ShardId> {
         self.allocations
             .shards()
@@ -62,6 +108,10 @@ impl CoordinatorState {
             .collect()
     }
 
+    /// Merges shards loaded from a remember store into the unallocated set.
+    ///
+    /// Already allocated or previously remembered shards are ignored. The
+    /// returned vector contains only newly added ids in input order.
     pub fn merge_remembered_shards(
         &mut self,
         shards: impl IntoIterator<Item = ShardId>,
@@ -81,10 +131,15 @@ impl CoordinatorState {
         added
     }
 
+    /// Returns the region currently hosting `shard`.
     pub fn shard_home(&self, shard: &ShardId) -> Option<&RegionId> {
         self.allocations.region_for_shard(shard)
     }
 
+    /// Validates and applies one coordinator transition.
+    ///
+    /// Duplicate registrations, unknown removals, and duplicate allocations are
+    /// rejected without discarding existing assignments.
     pub fn apply(&mut self, event: CoordinatorEvent) -> Result<(), ShardingError> {
         match event {
             CoordinatorEvent::ShardRegionRegistered { region } => self.register_region(region),

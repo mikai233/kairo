@@ -281,6 +281,9 @@ fn cluster_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::err
 fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let documented_modules = [
+        "kairo-next/crates/kairo-cluster-sharding/src/allocation.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/coordinator.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/coordinator_store.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/entity_factory.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/entity_ref.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/entity_router.rs",
@@ -288,6 +291,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
         "kairo-next/crates/kairo-cluster-sharding/src/envelope.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/extractor.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/hashing.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/shard_store.rs",
     ];
 
     for relative_path in documented_modules {

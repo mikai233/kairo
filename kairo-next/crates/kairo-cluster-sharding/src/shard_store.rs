@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
@@ -11,8 +13,11 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure while asking a shard remember-store adapter for durable entity ids.
 pub enum ShardRememberStoreError {
+    /// The typed ask could not be delivered or did not complete before its deadline.
     Ask(AskError),
+    /// The backing local or distributed-data store rejected the operation.
     Store(ShardingError),
 }
 

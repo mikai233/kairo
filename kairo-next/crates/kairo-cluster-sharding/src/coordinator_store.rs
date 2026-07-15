@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
@@ -10,8 +12,11 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure while asking a coordinator remember-store adapter for remembered state.
 pub enum CoordinatorRememberStoreError {
+    /// The typed ask could not be delivered or did not complete before its deadline.
     Ask(AskError),
+    /// The backing local or distributed-data store rejected the operation.
     Store(ShardingError),
 }
 

@@ -178,7 +178,11 @@ Status terms in this document mean:
   stores, remote routes, `ShardRegionBootstrap`, and focused multi-node tests
   exist. The typed entity key/ref/envelope, optional extractor adapter, on-demand
   actor factory, envelope routers, and fixed FNV-1a shard derivation now document
-  and hard-gate their Rust-first routing and lifecycle contracts. The
+  and hard-gate their Rust-first routing and lifecycle contracts. Coordinator
+  allocation state, the bounded least-shards strategy, remembered-unallocated
+  shard state, and local/ddata store error boundaries now carry the same gate.
+  Duplicate region registration is a rejected no-op that preserves every
+  existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
   through the public cluster-singleton lifecycle and recovers fresh allocation
   after oldest-node handover. Role-scoped coordinator placement also keeps an

@@ -1,18 +1,26 @@
+#![deny(missing_docs)]
+
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{RegionId, ShardId, ShardingError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Deterministic mapping from registered regions to their currently owned shards.
+///
+/// A shard has at most one owner. Regions are ordered by stable [`RegionId`],
+/// while each region's shard slice preserves allocation order.
 pub struct ShardAllocations {
     regions: BTreeMap<RegionId, Vec<ShardId>>,
 }
 
 impl ShardAllocations {
+    /// Creates an allocation table with no registered regions.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Creates an empty shard allocation for every distinct supplied region.
     pub fn from_regions(regions: impl IntoIterator<Item = RegionId>) -> Self {
         let mut allocations = Self::new();
         for region in regions {
@@ -21,6 +29,9 @@ impl ShardAllocations {
         allocations
     }
 
+    /// Registers an empty region without disturbing an existing allocation.
+    ///
+    /// Returns `true` only when the region was newly inserted.
     pub fn insert_region(&mut self, region: impl Into<RegionId>) -> bool {
         match self.regions.entry(region.into()) {
             Entry::Vacant(entry) => {
@@ -31,18 +42,25 @@ impl ShardAllocations {
         }
     }
 
+    /// Returns whether `region` is registered.
     pub fn contains_region(&self, region: &RegionId) -> bool {
         self.regions.contains_key(region)
     }
 
+    /// Returns whether no regions are registered.
     pub fn is_empty(&self) -> bool {
         self.regions.is_empty()
     }
 
+    /// Removes a region and returns the shards it owned in allocation order.
     pub fn remove_region(&mut self, region: &RegionId) -> Option<Vec<ShardId>> {
         self.regions.remove(region)
     }
 
+    /// Assigns `shard` exclusively to `region`.
+    ///
+    /// An assignment to the current owner is an unchanged `Ok(false)`. Moving
+    /// from another owner returns `Ok(true)`. Unknown regions are rejected.
     pub fn allocate_shard(
         &mut self,
         region: &RegionId,
@@ -70,6 +88,7 @@ impl ShardAllocations {
         Ok(true)
     }
 
+    /// Removes a shard assignment and returns its former owner.
     pub fn deallocate_shard(&mut self, shard: &ShardId) -> Option<RegionId> {
         for (region, shards) in &mut self.regions {
             if let Some(index) = shards.iter().position(|existing| existing == shard) {
@@ -80,28 +99,34 @@ impl ShardAllocations {
         None
     }
 
+    /// Returns the current owner of `shard`.
     pub fn region_for_shard(&self, shard: &ShardId) -> Option<&RegionId> {
         self.regions
             .iter()
             .find_map(|(region, shards)| shards.contains(shard).then_some(region))
     }
 
+    /// Iterates registered regions in stable identifier order.
     pub fn regions(&self) -> impl Iterator<Item = &RegionId> {
         self.regions.keys()
     }
 
+    /// Iterates allocated shards by stable region order and per-region allocation order.
     pub fn shards(&self) -> impl Iterator<Item = &ShardId> {
         self.regions.values().flat_map(|shards| shards.iter())
     }
 
+    /// Returns the shards assigned to `region` in allocation order.
     pub fn shards_for(&self, region: &RegionId) -> Option<&[ShardId]> {
         self.regions.get(region).map(Vec::as_slice)
     }
 
+    /// Returns the number of registered regions.
     pub fn region_count(&self) -> usize {
         self.regions.len()
     }
 
+    /// Returns the total number of allocated shards.
     pub fn shard_count(&self) -> usize {
         self.regions.values().map(Vec::len).sum()
     }
@@ -122,7 +147,13 @@ impl ShardAllocations {
     }
 }
 
+/// Policy used by the coordinator to place new shards and select rebalance candidates.
+///
+/// Implementations receive immutable allocation snapshots and must return
+/// region/shard identifiers already present in those snapshots. The coordinator
+/// owns handoff and state mutation after a policy decision.
 pub trait ShardAllocationStrategy {
+    /// Selects a registered region for an unallocated shard request.
     fn allocate_shard(
         &self,
         requester: &RegionId,
@@ -130,6 +161,10 @@ pub trait ShardAllocationStrategy {
         current: &ShardAllocations,
     ) -> Result<RegionId, ShardingError>;
 
+    /// Selects allocated shards to migrate during one rebalance round.
+    ///
+    /// `in_progress` identifies shards already undergoing handoff and must not
+    /// be selected again.
     fn rebalance(
         &self,
         current: &ShardAllocations,
@@ -138,12 +173,22 @@ pub trait ShardAllocationStrategy {
 }
 
 #[derive(Debug, Clone)]
+/// Pekko-aligned least-shards policy with bounded two-phase rebalancing.
+///
+/// New shards go to the least-loaded region, breaking ties by stable region id.
+/// Rebalancing first removes load above the ceiling-optimal count, then fills
+/// regions materially below that count. It starts no work while any prior
+/// rebalance is in progress.
 pub struct LeastShardAllocationStrategy {
     absolute_limit: usize,
     relative_limit: f64,
 }
 
 impl LeastShardAllocationStrategy {
+    /// Creates a strategy with absolute and relative per-round move limits.
+    ///
+    /// The absolute limit must be non-zero and the relative limit must be
+    /// positive and finite.
     pub fn new(absolute_limit: usize, relative_limit: f64) -> Result<Self, ShardingError> {
         if absolute_limit == 0 {
             return Err(ShardingError::InvalidRebalanceLimit);
@@ -157,10 +202,12 @@ impl LeastShardAllocationStrategy {
         })
     }
 
+    /// Returns the maximum number of shards moved in one round.
     pub fn absolute_limit(&self) -> usize {
         self.absolute_limit
     }
 
+    /// Returns the total-shard fraction used to bound one round.
     pub fn relative_limit(&self) -> f64 {
         self.relative_limit
     }
