@@ -87,6 +87,16 @@ pub struct SingletonTakeOverFromMe {
     pub from: UniqueAddress,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingletonMessageEnvelope {
+    pub message: SerializedMessage,
+}
+
+impl RemoteMessage for SingletonMessageEnvelope {
+    const MANIFEST: &'static str = "kairo.cluster-tools.singleton.message";
+    const VERSION: u16 = 1;
+}
+
 impl RemoteMessage for SingletonTakeOverFromMe {
     const MANIFEST: &'static str = "kairo.cluster-tools.singleton.take-over-from-me";
     const VERSION: u16 = 1;
@@ -130,6 +140,10 @@ mod tests {
         assert_eq!(PubSubPublishEnvelope::VERSION, 1);
         assert_eq!(PubSubPathEnvelope::VERSION, 1);
         assert_eq!(SingletonHandOverToMe::VERSION, 1);
+        assert_eq!(
+            SingletonMessageEnvelope::MANIFEST,
+            "kairo.cluster-tools.singleton.message"
+        );
         assert!(!PubSubStatus::MANIFEST.contains(std::any::type_name::<PubSubStatus>()));
         assert!(!PubSubDelta::MANIFEST.contains(std::any::type_name::<PubSubDelta>()));
         assert!(

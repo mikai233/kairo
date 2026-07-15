@@ -11,14 +11,16 @@ pub use pubsub::{
 };
 pub use singleton::{
     SINGLETON_HAND_OVER_DONE_SERIALIZER_ID, SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID,
-    SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID, SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID,
-    SingletonHandOverDoneCodec, SingletonHandOverInProgressCodec, SingletonHandOverToMeCodec,
+    SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID, SINGLETON_MESSAGE_SERIALIZER_ID,
+    SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID, SingletonHandOverDoneCodec,
+    SingletonHandOverInProgressCodec, SingletonHandOverToMeCodec, SingletonMessageEnvelopeCodec,
     SingletonTakeOverFromMeCodec,
 };
 
 use crate::{
     PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope, PubSubStatus, SingletonHandOverDone,
-    SingletonHandOverInProgress, SingletonHandOverToMe, SingletonTakeOverFromMe,
+    SingletonHandOverInProgress, SingletonHandOverToMe, SingletonMessageEnvelope,
+    SingletonTakeOverFromMe,
 };
 
 pub fn register_cluster_tools_protocol_codecs(
@@ -32,6 +34,7 @@ pub fn register_cluster_tools_protocol_codecs(
     registry.register::<SingletonHandOverInProgress, _>(SingletonHandOverInProgressCodec)?;
     registry.register::<SingletonHandOverDone, _>(SingletonHandOverDoneCodec)?;
     registry.register::<SingletonTakeOverFromMe, _>(SingletonTakeOverFromMeCodec)?;
+    registry.register::<SingletonMessageEnvelope, _>(SingletonMessageEnvelopeCodec)?;
     Ok(())
 }
 

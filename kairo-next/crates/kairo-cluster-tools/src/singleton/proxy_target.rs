@@ -37,6 +37,17 @@ where
         }
     }
 
+    pub fn from_recipient(
+        path: ActorPath,
+        recipient: impl Recipient<M> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            path,
+            recipient: Arc::new(recipient),
+            watchable: None,
+        }
+    }
+
     pub fn path(&self) -> &ActorPath {
         &self.path
     }

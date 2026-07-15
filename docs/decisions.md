@@ -3737,3 +3737,43 @@ Consequences:
   incarnation; cluster membership remains authoritative.
 - The typed extension is coherent for one application protocol today, while a
   future multi-protocol router remains an explicit wire/API enhancement.
+
+## ADR-0118: Cluster Singleton Uses Named Stable Delivery Endpoints
+
+Status: Accepted
+
+Context:
+Pekko singleton proxies discover the current singleton incarnation rather than
+guessing an actor path. Kairo actor paths likewise include per-incarnation UIDs,
+so constructing `/system/manager/singleton` from membership alone can target no
+actor or, after restart, the wrong incarnation. At the same time, all named
+singletons share the same handover manifests and must coexist on one remote
+runtime without an erased public message API.
+
+Decision:
+`register_cluster_singleton` installs the four handover manifests on reliable
+ordered control delivery and `SingletonMessageEnvelope` on the ordinary lane.
+Activation installs one non-generic `ClusterSingleton` extension. Each
+`init(Singleton<A>)` hashes the logical name with fixed FNV-1a 64-bit and uses
+that token for deterministic manager, proxy, delivery, and connector paths. A
+single internal inbound registry dispatches shared manifests by canonical
+recipient path. The stable business envelope carries the registered serialized
+`A::Msg`; its typed handler decodes the inner message and tells a local delivery
+actor whose target is refreshed from the live manager child. The public API
+remains `ClusterSingletonRef<A::Msg>`.
+
+The connector subscribes to the real cluster snapshot and member events,
+applies one `SingletonOldestTracker` result to manager and proxy, and builds
+remote typed recipients only for eligible members. `Left` and `Exited` advance
+oldest selection while the cluster association is still retained, enabling the
+handover controls to finish before `Removed` becomes terminal.
+
+Consequences:
+- Multiple named and differently typed singletons share one listener and stable
+  manifest set without a global business-message enum.
+- Remote delivery never depends on Rust type names, enum discriminants, memory
+  layout, or guessed actor UIDs.
+- Business messages require registered `RemoteMessage` codecs only when the
+  singleton can route remotely; local actor delivery remains typed.
+- FNV-1a path hashing is a wire-visible compatibility rule and must not be
+  replaced with `DefaultHasher` or another process-dependent hash.

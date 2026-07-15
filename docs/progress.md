@@ -409,8 +409,7 @@ of the ActorSystem-owned remoting runtime and constructs the existing inbound
 router with the effective canonical node plus shared association cache. A live
 socket test carries pubsub status, serialized pubsub business delivery, and
 singleton handover through one shared association into their actor boundaries.
-The public singleton extension and its authoritative cluster-event connector
-remain open. Distributed pubsub is now composed:
+Distributed pubsub is now composed:
 `register_distributed_pubsub<M>` installs its four manifests on the shared
 control lane, materializes the typed mediator, gossip actor, and cluster
 connector after bind, and activation exposes `DistributedPubSubExtension<M>`.
@@ -428,9 +427,19 @@ The singleton foundation now also closes its typed remote-manager seam:
 `LocalSingletonManagerActor<A>` can send only remote handover/takeover effects
 to a transport sink while retaining child lifecycle effects locally, and
 `LocalSingletonManagerRemoteInbound<M>` decodes the four stable control
-messages directly into the typed local manager protocol. Shared-runtime
-registration, oldest-tracker composition, proxy discovery, and real handover
-remain the next singleton checkpoint.
+messages directly into the typed local manager protocol. Cluster singleton is
+now composed as well. `register_cluster_singleton` installs the four handover
+manifests on reliable ordered control delivery and one stable business-message
+envelope on the ordinary lane. Post-bind activation installs the non-generic
+`ClusterSingleton` extension; `init(Singleton<A>)` creates typed manager,
+proxy, delivery, and membership connector actors under paths derived by
+documented FNV-1a hashing of the logical name. One path-indexed inbound
+registry supports multiple named, typed singletons without a global business
+message enum. The connector derives oldest ownership and remote routes only
+from real cluster snapshots/events and forwards decoded remote envelopes to
+the live UID-bearing child. A real two-ActorSystem test initializes two names
+per node, routes both from the peer to the oldest node, then proves both hand
+over after the oldest leaves.
 Singleton oldest tracking now advances on `Left`/`Exited` rather than waiting
 for `Removed`, so the manager state machine can perform its takeover handshake
 while the cluster association is deliberately still retained. Focused coverage

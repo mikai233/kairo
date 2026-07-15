@@ -15,6 +15,11 @@
 //! the cluster extension. [`DistributedPubSubExtension<M>`] then exposes one
 //! typed mediator whose peers and gossip routes follow authoritative cluster
 //! snapshots and member events without a second listener.
+//! [`register_cluster_singleton`] similarly installs one shared manifest
+//! router, while [`ClusterSingleton::init`] returns a typed
+//! [`ClusterSingletonRef`] for each logical name. Membership events select the
+//! oldest eligible owner and drive graceful handover without guessing
+//! UID-bearing remote actor paths.
 //!
 //! Remote cluster-tools messages use stable
 //! [`RemoteMessage`](kairo_serialization::RemoteMessage) manifests, serializer
@@ -60,6 +65,7 @@
 //! envelope adapters, and TCP peer ownership all live in focused modules rather
 //! than in the crate root.
 
+mod cluster_singleton;
 mod codec;
 mod extension;
 mod protocol;
@@ -77,11 +83,18 @@ mod tcp_peer_runtime;
 mod test_support;
 mod topic;
 
+pub use cluster_singleton::{
+    ClusterSingleton, ClusterSingletonBootstrapError, ClusterSingletonConnectorMsg,
+    ClusterSingletonConnectorSnapshot, ClusterSingletonRef, ClusterSingletonRegistration,
+    ClusterSingletonSettings, SINGLETON_MESSAGE_MANIFESTS, SINGLETON_SYSTEM_MANIFESTS, Singleton,
+    register_cluster_singleton,
+};
 pub use codec::{
     PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_PATH_SERIALIZER_ID, PUBSUB_PUBLISH_SERIALIZER_ID,
     PUBSUB_STATUS_SERIALIZER_ID, SINGLETON_HAND_OVER_DONE_SERIALIZER_ID,
     SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID, SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID,
-    SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID, register_cluster_tools_protocol_codecs,
+    SINGLETON_MESSAGE_SERIALIZER_ID, SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID,
+    register_cluster_tools_protocol_codecs,
 };
 pub use extension::{
     DistributedPubSubBootstrapError, DistributedPubSubConnectorMsg,
@@ -91,7 +104,8 @@ pub use extension::{
 };
 pub use protocol::{
     PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope, PubSubStatus, SingletonHandOverDone,
-    SingletonHandOverInProgress, SingletonHandOverToMe, SingletonTakeOverFromMe,
+    SingletonHandOverInProgress, SingletonHandOverToMe, SingletonMessageEnvelope,
+    SingletonTakeOverFromMe,
 };
 pub use pubsub::{
     CurrentTopics, DEFAULT_PUBSUB_REMOTE_PATH, DistributedPubSubMediatorActor,

@@ -4,15 +4,46 @@ use kairo_serialization::{MessageCodec, WireReader, WireWriter};
 
 use crate::{
     SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
-    SingletonTakeOverFromMe,
+    SingletonMessageEnvelope, SingletonTakeOverFromMe,
 };
 
-use super::wire::{ensure_version, read_unique_address, write_unique_address};
+use super::wire::{
+    ensure_version, read_serialized_message, read_unique_address, write_serialized_message,
+    write_unique_address,
+};
 
 pub const SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID: u32 = 5_010;
 pub const SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID: u32 = 5_011;
 pub const SINGLETON_HAND_OVER_DONE_SERIALIZER_ID: u32 = 5_012;
 pub const SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID: u32 = 5_013;
+pub const SINGLETON_MESSAGE_SERIALIZER_ID: u32 = 5_014;
+
+#[derive(Debug, Clone, Copy)]
+pub struct SingletonMessageEnvelopeCodec;
+
+impl MessageCodec<SingletonMessageEnvelope> for SingletonMessageEnvelopeCodec {
+    fn serializer_id(&self) -> u32 {
+        SINGLETON_MESSAGE_SERIALIZER_ID
+    }
+
+    fn encode(&self, message: &SingletonMessageEnvelope) -> kairo_serialization::Result<Bytes> {
+        let mut writer = WireWriter::new();
+        write_serialized_message(&mut writer, &message.message)?;
+        Ok(writer.finish())
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo_serialization::Result<SingletonMessageEnvelope> {
+        ensure_version::<SingletonMessageEnvelope>(version)?;
+        let mut reader = WireReader::new(&payload);
+        let message = read_serialized_message(&mut reader)?;
+        reader.ensure_finished()?;
+        Ok(SingletonMessageEnvelope { message })
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct SingletonHandOverToMeCodec;

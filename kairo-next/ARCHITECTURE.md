@@ -2167,9 +2167,9 @@ Design:
 - manager actor runs on all eligible members,
 - oldest reachable eligible member hosts singleton child,
 - proxy forwards to known singleton,
-- proxy route targets can be local watchable actor refs or remote actor refs
-  for `RemoteMessage` protocols; buffering and oldest-member selection are the
-  same for both,
+- proxy route targets can be local watchable actor refs or typed remote
+  recipients for `RemoteMessage` protocols; buffering and oldest-member
+  selection are the same for both,
 - on membership change, manager coordinates handover,
 - `Left`/`Exited` members leave oldest selection before `Removed`, allowing the
   old and new owners to exchange takeover/handover controls while the shared
@@ -2178,16 +2178,37 @@ Design:
 - singleton handover system messages use stable manifests and explicit codecs:
   `HandOverToMe`, `HandOverInProgress`, `HandOverDone`, and
   `TakeOverFromMe` carry the sender `UniqueAddress`,
-- remote manager handover envelopes are addressed to
-  `/system/singleton/manager`; outbound adapters interpret manager effects and
-  inbound adapters validate the recipient path before dispatching into either
-  the planner actor or the typed `LocalSingletonManagerActor<A>` protocol; the
-  typed manager applies child start/stop effects locally and forwards only the
-  four remote handover/takeover effects to its configured transport sink,
+- composed manager handover envelopes are addressed to a deterministic
+  `/system/singleton-{fnv1a64(name)}-manager` path; outbound adapters interpret
+  manager effects and path-indexed inbound adapters validate the recipient
+  before dispatching into the typed `LocalSingletonManagerActor<A>` protocol;
+  the typed manager applies child start/stop effects locally and forwards only
+  the four remote handover/takeover effects to its configured transport sink,
+- remote business traffic uses the stable ordinary-lane
+  `SingletonMessageEnvelope`, which carries the registered serialized
+  `RemoteMessage`; the name-specific inbound handler decodes it and tells a
+  local delivery actor that tracks the current UID-bearing singleton child,
+  avoiding guessed or stale actor incarnations,
 - on leaving/exiting/down, singleton stops or moves.
 
 Singleton must consume cluster events only. It must not have a separate
 membership source.
+
+Composed cluster singleton:
+
+- `register_cluster_singleton` registers the shared handover and business
+  manifests before the ActorSystem-owned remote runtime binds; activation
+  installs one non-generic `ClusterSingleton` extension,
+- `ClusterSingleton::init(Singleton<A>)` preserves `ActorRef<A::Msg>` as the
+  local boundary and returns `ClusterSingletonRef<A::Msg>`; an internal `Any`
+  map is used only to recover an idempotently initialized typed handle,
+- multiple logical names share one listener and manifest router, with a fixed
+  documented FNV-1a 64-bit name token selecting isolated manager, proxy,
+  delivery, and connector paths,
+- each connector consumes the authoritative cluster snapshot/events, applies
+  the same oldest changes to manager and proxy, retains leaving-node control
+  associations until removal, and never derives membership from transport
+  reachability.
 
 ### PubSub and Topic
 
