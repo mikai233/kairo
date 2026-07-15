@@ -410,7 +410,10 @@ router with the effective canonical node plus shared association cache. A live
 socket test carries pubsub status, serialized pubsub business delivery, and
 singleton handover through one shared association into their actor boundaries.
 Public singleton/pubsub extensions and authoritative cluster-event connectors
-remain open.
+remain open. The pubsub actors now also expose the bridge those extensions
+need: a mediator can mirror local topic, group, and logical-path mutations into
+its gossip actor, while the gossip actor forwards accepted known-peer deltas
+through a typed sink for merge into the mediator's routing registry.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.

@@ -57,6 +57,15 @@ pub enum PubSubGossipMsg {
         topic: TopicName,
         group: String,
     },
+    RegisterPath {
+        path: String,
+    },
+    UnregisterPath {
+        path: String,
+    },
+    SetDeltaSink {
+        sink: ActorRef<PubSubRegistryDelta>,
+    },
     GossipTick,
     Status {
         from: UniqueAddress,
@@ -84,6 +93,7 @@ pub struct PubSubGossipActor {
     max_delta_entries: usize,
     next_peer_index: usize,
     delta_count: u64,
+    delta_sink: Option<ActorRef<PubSubRegistryDelta>>,
 }
 
 impl PubSubGossipActor {
@@ -94,6 +104,7 @@ impl PubSubGossipActor {
             max_delta_entries: DEFAULT_MAX_DELTA_ENTRIES,
             next_peer_index: 0,
             delta_count: 0,
+            delta_sink: None,
         }
     }
 
@@ -183,7 +194,10 @@ impl PubSubGossipActor {
         };
         if !known_delta.buckets.is_empty() {
             self.delta_count += 1;
-            self.registry.merge_delta(known_delta);
+            self.registry.merge_delta(known_delta.clone());
+            if let Some(sink) = &self.delta_sink {
+                let _ = sink.tell(known_delta);
+            }
         }
     }
 
@@ -236,6 +250,13 @@ impl Actor for PubSubGossipActor {
             PubSubGossipMsg::UnregisterGroup { topic, group } => {
                 self.registry.unregister_local_group(topic, group);
             }
+            PubSubGossipMsg::RegisterPath { path } => {
+                self.registry.register_local_path(path);
+            }
+            PubSubGossipMsg::UnregisterPath { path } => {
+                self.registry.unregister_local_path(path);
+            }
+            PubSubGossipMsg::SetDeltaSink { sink } => self.delta_sink = Some(sink),
             PubSubGossipMsg::GossipTick => self.gossip_tick(),
             PubSubGossipMsg::Status {
                 from,

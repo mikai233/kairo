@@ -70,6 +70,50 @@ fn distributed_pubsub_mediator_registers_local_subscription_and_publishes() {
 }
 
 #[test]
+fn distributed_pubsub_mediator_mirrors_local_registry_changes_to_gossip() {
+    let kit = ActorSystemTestKit::new("distributed-pubsub-gossip-bridge").unwrap();
+    let self_node = node("self", 1);
+    let gossip = kit.create_probe::<PubSubGossipMsg>("gossip").unwrap();
+    let subscriber = kit.create_probe::<String>("subscriber").unwrap();
+    let mediator = kit
+        .system()
+        .spawn(
+            "mediator",
+            Props::new({
+                let gossip = gossip.actor_ref();
+                move || DistributedPubSubMediatorActor::new(self_node).with_gossip(gossip.clone())
+            }),
+        )
+        .unwrap();
+    let topic = TopicName::new("orders");
+    let path = "/user/subscriber".to_string();
+
+    mediator
+        .tell(DistributedPubSubMediatorMsg::Subscribe {
+            topic: topic.clone(),
+            subscriber: subscriber.actor_ref(),
+            reply_to: None,
+        })
+        .unwrap();
+    mediator
+        .tell(DistributedPubSubMediatorMsg::Put {
+            actor: subscriber.actor_ref(),
+            reply_to: None,
+        })
+        .unwrap();
+
+    assert!(matches!(
+        gossip.expect_msg(Duration::from_millis(500)).unwrap(),
+        PubSubGossipMsg::RegisterTopic { topic: registered } if registered == topic
+    ));
+    match gossip.expect_msg(Duration::from_millis(500)).unwrap() {
+        PubSubGossipMsg::RegisterPath { path: registered } => assert_eq!(registered, path),
+        _ => panic!("expected mirrored path registration"),
+    }
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn distributed_pubsub_mediator_routes_to_remote_mediator_from_merged_registry() {
     let node_a = node("a", 1);
     let node_b = node("b", 2);

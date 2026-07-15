@@ -25,6 +25,7 @@ where
     local: LocalPubSub<M>,
     registry: PubSubRegistryState,
     delivery: PubSubDeliveryTransport<M>,
+    gossip: Option<ActorRef<crate::PubSubGossipMsg>>,
 }
 
 impl<M> DistributedPubSubMediatorActor<M>
@@ -36,7 +37,13 @@ where
             local: LocalPubSub::new(),
             registry: PubSubRegistryState::new(self_node),
             delivery: PubSubDeliveryTransport::new(),
+            gossip: None,
         }
+    }
+
+    pub fn with_gossip(mut self, gossip: ActorRef<crate::PubSubGossipMsg>) -> Self {
+        self.gossip = Some(gossip);
+        self
     }
 
     pub fn registry(&self) -> &PubSubRegistryState {
@@ -481,6 +488,10 @@ where
                 {
                     self.registry
                         .unregister_local_group(topic.clone(), group.clone());
+                    self.tell_gossip(crate::PubSubGossipMsg::UnregisterGroup {
+                        topic: topic.clone(),
+                        group: group.clone(),
+                    });
                 }
             }
         }
@@ -488,6 +499,9 @@ where
         for topic in before.keys() {
             if !after.contains_key(topic) {
                 self.registry.unregister_local_topic(topic.clone());
+                self.tell_gossip(crate::PubSubGossipMsg::UnregisterTopic {
+                    topic: topic.clone(),
+                });
             }
         }
 
@@ -499,6 +513,10 @@ where
                 {
                     self.registry
                         .register_local_group(topic.clone(), group.clone());
+                    self.tell_gossip(crate::PubSubGossipMsg::RegisterGroup {
+                        topic: topic.clone(),
+                        group: group.clone(),
+                    });
                 }
             }
         }
@@ -506,14 +524,25 @@ where
         for (topic, groups) in &after {
             if groups.is_empty() && !before.contains_key(topic) {
                 self.registry.register_local_topic(topic.clone());
+                self.tell_gossip(crate::PubSubGossipMsg::RegisterTopic {
+                    topic: topic.clone(),
+                });
             }
         }
 
         for path in before_paths.difference(&after_paths) {
             self.registry.unregister_local_path(path.clone());
+            self.tell_gossip(crate::PubSubGossipMsg::UnregisterPath { path: path.clone() });
         }
         for path in after_paths.difference(&before_paths) {
             self.registry.register_local_path(path.clone());
+            self.tell_gossip(crate::PubSubGossipMsg::RegisterPath { path: path.clone() });
+        }
+    }
+
+    fn tell_gossip(&self, message: crate::PubSubGossipMsg) {
+        if let Some(gossip) = &self.gossip {
+            let _ = gossip.tell(message);
         }
     }
 }

@@ -323,3 +323,48 @@ fn pubsub_gossip_actor_ignores_same_address_replacement_self_peer() {
     );
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
+
+#[test]
+fn pubsub_gossip_actor_forwards_accepted_remote_delta_to_sink() {
+    let kit = ActorSystemTestKit::new("pubsub-gossip-delta-sink").unwrap();
+    let self_node = node("self", 1);
+    let peer_node = node("peer", 2);
+    let peer = kit.create_probe::<PubSubGossipMsg>("peer").unwrap();
+    let delta_sink = kit
+        .create_probe::<PubSubRegistryDelta>("delta-sink")
+        .unwrap();
+    let gossip = kit
+        .system()
+        .spawn(
+            "gossip",
+            Props::new(move || PubSubGossipActor::new(self_node)),
+        )
+        .unwrap();
+    let topic = TopicName::new("orders");
+    let mut peer_registry = PubSubRegistryState::new(peer_node.clone());
+    peer_registry.register_local_topic(topic);
+    let delta = peer_registry.collect_delta(&BTreeMap::new(), 10);
+
+    gossip
+        .tell(PubSubGossipMsg::SetDeltaSink {
+            sink: delta_sink.actor_ref(),
+        })
+        .unwrap();
+    gossip
+        .tell(PubSubGossipMsg::AddPeer {
+            peer: PubSubGossipPeer::new(peer_node.clone(), peer.actor_ref()),
+        })
+        .unwrap();
+    gossip
+        .tell(PubSubGossipMsg::Delta {
+            from: peer_node,
+            delta: delta.clone(),
+        })
+        .unwrap();
+
+    assert_eq!(
+        delta_sink.expect_msg(Duration::from_millis(500)).unwrap(),
+        delta
+    );
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}

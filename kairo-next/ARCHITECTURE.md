@@ -2195,6 +2195,11 @@ Remote gossip wiring:
 
 - `PubSubGossipWireOutbound` serializes actor-local status and delta gossip
   messages into stable `PubSubSerializedGossip` payloads,
+- a mediator configured with its gossip actor mirrors local topic, group, and
+  logical-path registration changes into the gossip registry; accepted remote
+  gossip deltas can be forwarded through a typed delta sink into the
+  mediator's delivery registry, so gossip convergence and routing do not
+  evolve as disconnected copies,
 - `PubSubRemoteEnvelopeOutbound` wraps those payloads in `RemoteEnvelope`
   metadata addressed to the peer mediator at `/system/pubsub`,
 - the outbound may use `kairo-remote::RemoteAssociationCache` so concrete
