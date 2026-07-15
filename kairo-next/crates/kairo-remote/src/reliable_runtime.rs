@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{BTreeMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -15,14 +17,23 @@ use crate::{
 
 const RELIABLE_DELIVERY_ACTOR_NAME: &str = "remote-reliable-delivery";
 
+/// Retention and retry policy for reliable system-message delivery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReliableSystemDeliverySettings {
+    /// Maximum unacknowledged system envelopes retained per association.
     pub buffer_capacity: usize,
+    /// Interval between retry attempts for retained envelopes.
     pub retry_interval: Duration,
+    /// Maximum time without acknowledgement progress before the association is
+    /// failed.
     pub give_up_after: Duration,
 }
 
 impl ReliableSystemDeliverySettings {
+    /// Creates validated reliable-delivery settings.
+    ///
+    /// Capacity and retry interval must be positive, and `give_up_after` must
+    /// not be shorter than `retry_interval`.
     pub fn new(
         buffer_capacity: usize,
         retry_interval: Duration,
@@ -61,15 +72,22 @@ impl Default for ReliableSystemDeliverySettings {
     }
 }
 
+/// Final failure of one retained reliable system envelope.
 #[derive(Debug, Clone)]
 pub struct ReliableSystemDeliveryFailure {
+    /// Remote actor-system address associated with the failed delivery.
     pub remote: RemoteAssociationAddress,
+    /// Remote actor-system incarnation for which delivery was retained.
     pub remote_uid: u64,
+    /// Original serialized system envelope.
     pub envelope: RemoteEnvelope,
+    /// Diagnostic failure reason.
     pub reason: String,
 }
 
+/// Observer for reliable system envelopes that can no longer be delivered.
 pub trait ReliableSystemDeliveryObserver: Send + Sync + 'static {
+    /// Records one final delivery failure.
     fn delivery_failed(&self, failure: ReliableSystemDeliveryFailure);
 }
 
@@ -88,9 +106,12 @@ impl ReliableSystemDeliveryObserver for IgnoreReliableSystemDeliveryFailures {
     fn delivery_failed(&self, _failure: ReliableSystemDeliveryFailure) {}
 }
 
+/// Snapshot of sender-side reliable-delivery retention state.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ReliableSystemDeliveryStats {
+    /// Number of remote associations with sender state.
     pub associations: usize,
+    /// Total unacknowledged envelopes retained across associations.
     pub unacknowledged: usize,
 }
 

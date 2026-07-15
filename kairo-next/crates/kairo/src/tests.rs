@@ -168,6 +168,8 @@ fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error:
         "kairo-next/crates/kairo-remote/src/outbound.rs",
         "kairo-next/crates/kairo-remote/src/protocol.rs",
         "kairo-next/crates/kairo-remote/src/provider.rs",
+        "kairo-next/crates/kairo-remote/src/reliable_delivery.rs",
+        "kairo-next/crates/kairo-remote/src/reliable_runtime.rs",
         "kairo-next/crates/kairo-remote/src/remote_ref.rs",
         "kairo-next/crates/kairo-remote/src/resolved_ref.rs",
         "kairo-next/crates/kairo-remote/src/settings.rs",

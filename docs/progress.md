@@ -77,10 +77,10 @@ Status terms in this document mean:
   budget. The typed reference/provider, stable system protocol codecs, frame
   and manifest routing, bounded lane/stream transport, typed inbound/outbound
   delivery, association lifecycle/cache/registry/route ownership and composed
-  inbound/outbound data path, typed failure contract, settings, and
-  canonical-address boundary now documents its complete public surface and
-  denies missing documentation module by module. Cluster and other extension
-  adoption proceeds in Phases 3 and 4.
+  inbound/outbound data path, reliable system-delivery protocol/state/runtime
+  policy, typed failure contract, settings, and canonical-address boundary now
+  documents its complete public surface and denies missing documentation module
+  by module. Cluster and other extension adoption proceeds in Phases 3 and 4.
 - M5 gossip data model: near complete. Vector clocks, gossip, reachability,
   convergence, leader selection, and event diffing have strong pure-state test
   coverage without a central membership authority. Remote membership reply

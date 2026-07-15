@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::VecDeque;
 
 use bytes::Bytes;
@@ -8,15 +10,24 @@ use kairo_serialization::{
 
 use crate::{RemoteError, Result};
 
+/// Stable serializer identifier for [`ReliableSystemEnvelope`].
 pub const RELIABLE_SYSTEM_ENVELOPE_SERIALIZER_ID: u32 = 1_010;
+/// Stable serializer identifier for [`ReliableSystemAck`].
 pub const RELIABLE_SYSTEM_ACK_SERIALIZER_ID: u32 = 1_011;
+/// Stable serializer identifier for [`ReliableSystemNack`].
 pub const RELIABLE_SYSTEM_NACK_SERIALIZER_ID: u32 = 1_012;
 
+/// A retained system envelope tagged with association incarnations and an
+/// ordered delivery sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReliableSystemEnvelope {
+    /// Sending actor-system incarnation.
     pub from_uid: u64,
+    /// Intended receiving actor-system incarnation.
     pub to_uid: u64,
+    /// One-based sequence number within this association incarnation.
     pub sequence_nr: u64,
+    /// Original serialized system envelope.
     pub envelope: RemoteEnvelope,
 }
 
@@ -25,10 +36,14 @@ impl RemoteMessage for ReliableSystemEnvelope {
     const VERSION: u16 = 1;
 }
 
+/// Cumulative acknowledgement for reliable system delivery.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReliableSystemAck {
+    /// Actor-system incarnation sending the acknowledgement.
     pub from_uid: u64,
+    /// Original sender incarnation receiving the acknowledgement.
     pub to_uid: u64,
+    /// Highest contiguously delivered sequence number.
     pub sequence_nr: u64,
 }
 
@@ -37,10 +52,14 @@ impl RemoteMessage for ReliableSystemAck {
     const VERSION: u16 = 1;
 }
 
+/// Negative acknowledgement reporting a gap in reliable system delivery.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReliableSystemNack {
+    /// Actor-system incarnation reporting the gap.
     pub from_uid: u64,
+    /// Original sender incarnation receiving the negative acknowledgement.
     pub to_uid: u64,
+    /// Highest sequence number received contiguously before the gap.
     pub highest_contiguous_sequence_nr: u64,
 }
 
@@ -49,8 +68,11 @@ impl RemoteMessage for ReliableSystemNack {
     const VERSION: u16 = 1;
 }
 
+/// Codec for [`ReliableSystemEnvelope`] protocol messages.
 pub struct ReliableSystemEnvelopeCodec;
+/// Codec for [`ReliableSystemAck`] protocol messages.
 pub struct ReliableSystemAckCodec;
+/// Codec for [`ReliableSystemNack`] protocol messages.
 pub struct ReliableSystemNackCodec;
 
 impl MessageCodec<ReliableSystemEnvelope> for ReliableSystemEnvelopeCodec {
@@ -144,6 +166,8 @@ impl MessageCodec<ReliableSystemNack> for ReliableSystemNackCodec {
     }
 }
 
+/// Registers the reliable system envelope, acknowledgement, and negative
+/// acknowledgement codecs.
 pub fn register_reliable_system_codecs(registry: &mut Registry) -> kairo_serialization::Result<()> {
     registry.register::<ReliableSystemEnvelope, _>(ReliableSystemEnvelopeCodec)?;
     registry.register::<ReliableSystemAck, _>(ReliableSystemAckCodec)?;
@@ -151,6 +175,11 @@ pub fn register_reliable_system_codecs(registry: &mut Registry) -> kairo_seriali
     Ok(())
 }
 
+/// Sender-side retention and cumulative acknowledgement state for one remote
+/// actor-system incarnation.
+///
+/// Retained envelopes remain in sequence order until acknowledged, reset for a
+/// new remote incarnation, or failed by the owning runtime.
 #[derive(Debug, Clone)]
 pub struct ReliableSystemSender {
     local_uid: u64,
@@ -161,6 +190,7 @@ pub struct ReliableSystemSender {
 }
 
 impl ReliableSystemSender {
+    /// Creates sender state with a positive bounded retention capacity.
     pub fn new(local_uid: u64, remote_uid: u64, capacity: usize) -> Result<Self> {
         if capacity == 0 {
             return Err(RemoteError::InvalidReliableSystemDelivery(
@@ -176,18 +206,25 @@ impl ReliableSystemSender {
         })
     }
 
+    /// Returns the sending actor-system incarnation.
     pub fn local_uid(&self) -> u64 {
         self.local_uid
     }
 
+    /// Returns the intended remote actor-system incarnation.
     pub fn remote_uid(&self) -> u64 {
         self.remote_uid
     }
 
+    /// Returns the number of unacknowledged envelopes retained for retry.
     pub fn pending_len(&self) -> usize {
         self.unacknowledged.len()
     }
 
+    /// Assigns the next one-based sequence number and retains `envelope`.
+    ///
+    /// Returns [`RemoteError::ReliableSystemBufferFull`] without modifying
+    /// state when the bounded retention buffer is full.
     pub fn retain(&mut self, envelope: RemoteEnvelope) -> Result<ReliableSystemEnvelope> {
         if self.unacknowledged.len() >= self.capacity {
             return Err(RemoteError::ReliableSystemBufferFull {
@@ -210,11 +247,17 @@ impl ReliableSystemSender {
         Ok(reliable)
     }
 
+    /// Applies a cumulative acknowledgement and returns the number of retained
+    /// envelopes removed.
     pub fn acknowledge(&mut self, ack: &ReliableSystemAck) -> Result<usize> {
         self.validate_reply(ack.from_uid, ack.to_uid, ack.sequence_nr)?;
         Ok(self.clear_through(ack.sequence_nr))
     }
 
+    /// Applies the cumulative progress carried by a negative acknowledgement.
+    ///
+    /// Envelopes after the reported contiguous sequence remain retained for
+    /// retry. The return value is the number of earlier envelopes removed.
     pub fn negative_acknowledge(&mut self, nack: &ReliableSystemNack) -> Result<usize> {
         self.validate_reply(
             nack.from_uid,
@@ -224,10 +267,15 @@ impl ReliableSystemSender {
         Ok(self.clear_through(nack.highest_contiguous_sequence_nr))
     }
 
+    /// Returns all unacknowledged envelopes in original sequence order.
     pub fn retry_batch(&self) -> Vec<ReliableSystemEnvelope> {
         self.unacknowledged.iter().cloned().collect()
     }
 
+    /// Starts a fresh sequence for a new remote incarnation.
+    ///
+    /// All envelopes retained for the previous incarnation are removed and
+    /// returned without their reliable-delivery wrappers for failure reporting.
     pub fn reset_remote_uid(&mut self, remote_uid: u64) -> Vec<RemoteEnvelope> {
         let failed = self
             .unacknowledged
@@ -269,20 +317,30 @@ impl ReliableSystemSender {
     }
 }
 
+/// Receiver decision for one reliable system envelope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReliableSystemReceiveOutcome {
+    /// The next expected envelope should be delivered exactly once.
     Deliver {
+        /// Original serialized system envelope to deliver.
         envelope: Box<RemoteEnvelope>,
+        /// Cumulative acknowledgement to return after delivery succeeds.
         ack: ReliableSystemAck,
     },
+    /// The envelope was already observed and must not be delivered again.
     Duplicate {
+        /// Cumulative acknowledgement of the highest contiguous sequence.
         ack: ReliableSystemAck,
     },
+    /// The envelope arrived ahead of the next expected sequence.
     Gap {
+        /// Negative acknowledgement identifying the highest contiguous sequence.
         nack: ReliableSystemNack,
     },
 }
 
+/// Receiver-side ordering and deduplication state for one remote actor-system
+/// incarnation.
 #[derive(Debug, Clone)]
 pub struct ReliableSystemReceiver {
     local_uid: u64,
@@ -291,6 +349,7 @@ pub struct ReliableSystemReceiver {
 }
 
 impl ReliableSystemReceiver {
+    /// Creates receiver state expecting sequence number one from `remote_uid`.
     pub fn new(local_uid: u64, remote_uid: u64) -> Self {
         Self {
             local_uid,
@@ -299,14 +358,20 @@ impl ReliableSystemReceiver {
         }
     }
 
+    /// Returns the next sequence number eligible for delivery.
     pub fn next_expected_sequence_nr(&self) -> u64 {
         self.next_expected_sequence_nr
     }
 
+    /// Returns the sending remote actor-system incarnation.
     pub fn remote_uid(&self) -> u64 {
         self.remote_uid
     }
 
+    /// Validates association incarnations and classifies one envelope as the
+    /// next delivery, a duplicate, or a gap.
+    ///
+    /// Only an in-order envelope advances receiver state.
     pub fn receive(
         &mut self,
         reliable: ReliableSystemEnvelope,
