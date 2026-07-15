@@ -101,10 +101,13 @@ pub use association_peers::{
 };
 pub use cluster::{Cluster, ClusterError};
 pub use codec::{
-    GOSSIP_ENVELOPE_SERIALIZER_ID, GossipEnvelopeCodec, HEARTBEAT_RSP_SERIALIZER_ID,
-    HEARTBEAT_SERIALIZER_ID, HeartbeatCodec, HeartbeatRspCodec, JOIN_SERIALIZER_ID, JoinCodec,
-    WELCOME_SERIALIZER_ID, WelcomeCodec, register_cluster_control_codecs,
-    register_cluster_protocol_codecs,
+    DOWN_SERIALIZER_ID, DownCodec, EXITING_CONFIRMED_SERIALIZER_ID, ExitingConfirmedCodec,
+    GOSSIP_ENVELOPE_SERIALIZER_ID, GOSSIP_STATUS_SERIALIZER_ID, GossipEnvelopeCodec,
+    GossipStatusCodec, HEARTBEAT_RSP_SERIALIZER_ID, HEARTBEAT_SERIALIZER_ID, HeartbeatCodec,
+    HeartbeatRspCodec, INIT_JOIN_ACK_SERIALIZER_ID, INIT_JOIN_NACK_SERIALIZER_ID,
+    INIT_JOIN_SERIALIZER_ID, InitJoinAckCodec, InitJoinCodec, InitJoinNackCodec,
+    JOIN_SERIALIZER_ID, JoinCodec, LEAVE_SERIALIZER_ID, LeaveCodec, WELCOME_SERIALIZER_ID,
+    WelcomeCodec, register_cluster_control_codecs, register_cluster_protocol_codecs,
 };
 pub use convergence::{Convergence, ConvergenceBlocker};
 pub use downing::{
@@ -138,7 +141,10 @@ pub use leader::LeaderSelection;
 pub use leader_actions::{LeaderActionError, LeaderActionOutcome, LeaderActions};
 pub use member::{Member, MemberStatus, UniqueAddress};
 pub use membership_actor::{ClusterMembership, ClusterMembershipMsg};
-pub use protocol::{GossipEnvelope, Heartbeat, HeartbeatRsp, Join, Welcome};
+pub use protocol::{
+    ClusterConfigCheck, Down, ExitingConfirmed, GossipEnvelope, GossipStatus, Heartbeat,
+    HeartbeatRsp, InitJoin, InitJoinAck, InitJoinNack, Join, Leave, Welcome,
+};
 pub use reachability::{Reachability, ReachabilityRecord, ReachabilityStatus};
 pub use remote::{
     ClusterMembershipRemoteEnvelopeError, ClusterMembershipRemoteEnvelopeOutbound,

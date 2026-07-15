@@ -3261,3 +3261,42 @@ Consequences:
   handshakes preserve quarantine and incarnation rules.
 - Higher distributed connectors can migrate their peer intent into the shared
   runtime instead of owning parallel transport retry loops.
+
+## ADR-0107: Cluster Daemon Messages Use Explicit Stable Wire Contracts
+
+Status: Accepted
+
+Context:
+The component cluster runtime already has stable codecs for `Join`, `Welcome`,
+full gossip, and heartbeat traffic, but the daemon lifecycle also requires seed
+contact, gossip-status negotiation, user leave/down actions, and exit
+confirmation. Those messages must be fixed before an ActorSystem-owned daemon
+can safely compose them with remoting. Pekko exchanges configuration during
+seed contact, but copying its full configuration object would couple Kairo's
+wire protocol to a parser representation and could expose unrelated settings.
+
+Decision:
+Kairo defines `InitJoin`, `InitJoinAck`, `InitJoinNack`, `GossipStatus`,
+`Leave`, `Down`, and `ExitingConfirmed` as ordinary Rust structs implementing
+`RemoteMessage`. Their stable manifests are under `kairo.cluster.*`, their
+serializer IDs are the reserved sequential range `2005..=2011`, and their
+version-one payloads use hand-written `WireWriter`/`WireReader` codecs.
+
+`InitJoin` carries opaque deterministic digest bytes, not a serialized settings
+tree. `InitJoinAck` returns an explicit `ClusterConfigCheck` value:
+`Unchecked`, `Compatible`, or `Incompatible`. Contact, leave, and down messages
+use `Address` because they select an actor-system location before or independent
+of a known incarnation. Gossip status and exit confirmation use
+`UniqueAddress`, because accepting either for the wrong UID would violate
+incarnation safety. Unknown versions, invalid enum codes, and trailing bytes
+are rejected.
+
+Consequences:
+- Cluster formation can add actor ownership without reopening the public wire
+  format.
+- Seed discovery remains contact-only; only accepted `Join`/`Welcome` gossip
+  changes membership truth.
+- Configuration compatibility is explicit without making TOML, another parser,
+  or sensitive configuration part of the wire contract.
+- Rolling-version behavior can be extended by adding intentional codec versions
+  rather than relying on Rust enum layout or type names.

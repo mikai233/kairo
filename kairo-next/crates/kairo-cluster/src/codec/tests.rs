@@ -4,8 +4,9 @@ use kairo_serialization::{Manifest, Registry, RemoteMessage, SerializedMessage};
 
 use super::*;
 use crate::{
-    Gossip, GossipEnvelope, Heartbeat, HeartbeatRsp, Join, Member, MemberStatus, Reachability,
-    UniqueAddress, VectorClock, VectorClockNode, Welcome,
+    ClusterConfigCheck, Down, ExitingConfirmed, Gossip, GossipEnvelope, GossipStatus, Heartbeat,
+    HeartbeatRsp, InitJoin, InitJoinAck, InitJoinNack, Join, Leave, Member, MemberStatus,
+    Reachability, UniqueAddress, VectorClock, VectorClockNode, Welcome,
 };
 
 fn registry() -> Registry {
@@ -122,6 +123,145 @@ fn cluster_control_codecs_reject_unknown_versions() {
         .expect_err("unknown version should fail");
 
     assert!(error.to_string().contains("unsupported"));
+}
+
+#[test]
+fn cluster_daemon_codecs_round_trip_seed_contact_and_member_actions() {
+    let registry = registry();
+    let address = unique(9).address;
+    let init = InitJoin {
+        joining_config_digest: Bytes::from_static(b"cluster-config-v1"),
+    };
+    let ack = InitJoinAck {
+        address: address.clone(),
+        config_check: ClusterConfigCheck::Compatible,
+    };
+    let nack = InitJoinNack {
+        address: address.clone(),
+    };
+    let leave = Leave {
+        address: address.clone(),
+    };
+    let down = Down {
+        address: address.clone(),
+    };
+    let exiting = ExitingConfirmed { node: unique(9) };
+
+    let init_wire = registry.serialize(&init).unwrap();
+    let ack_wire = registry.serialize(&ack).unwrap();
+    let nack_wire = registry.serialize(&nack).unwrap();
+    let leave_wire = registry.serialize(&leave).unwrap();
+    let down_wire = registry.serialize(&down).unwrap();
+    let exiting_wire = registry.serialize(&exiting).unwrap();
+
+    assert_eq!(init_wire.serializer_id, INIT_JOIN_SERIALIZER_ID);
+    assert_eq!(ack_wire.serializer_id, INIT_JOIN_ACK_SERIALIZER_ID);
+    assert_eq!(nack_wire.serializer_id, INIT_JOIN_NACK_SERIALIZER_ID);
+    assert_eq!(leave_wire.serializer_id, LEAVE_SERIALIZER_ID);
+    assert_eq!(down_wire.serializer_id, DOWN_SERIALIZER_ID);
+    assert_eq!(exiting_wire.serializer_id, EXITING_CONFIRMED_SERIALIZER_ID);
+    assert_eq!(registry.deserialize::<InitJoin>(init_wire).unwrap(), init);
+    assert_eq!(registry.deserialize::<InitJoinAck>(ack_wire).unwrap(), ack);
+    assert_eq!(
+        registry.deserialize::<InitJoinNack>(nack_wire).unwrap(),
+        nack
+    );
+    assert_eq!(registry.deserialize::<Leave>(leave_wire).unwrap(), leave);
+    assert_eq!(registry.deserialize::<Down>(down_wire).unwrap(), down);
+    assert_eq!(
+        registry
+            .deserialize::<ExitingConfirmed>(exiting_wire)
+            .unwrap(),
+        exiting
+    );
+}
+
+#[test]
+fn cluster_daemon_codec_round_trips_gossip_status() {
+    let registry = registry();
+    let status = GossipStatus {
+        from: unique(4),
+        version: VectorClock::new()
+            .increment(VectorClockNode::new("node-a"))
+            .increment(VectorClockNode::new("node-b")),
+        seen_digest: Bytes::from_static(&[0xaa, 0xbb, 0xcc]),
+    };
+
+    let wire = registry.serialize(&status).unwrap();
+
+    assert_eq!(wire.serializer_id, GOSSIP_STATUS_SERIALIZER_ID);
+    assert_eq!(wire.manifest.as_str(), GossipStatus::MANIFEST);
+    assert_eq!(registry.deserialize::<GossipStatus>(wire).unwrap(), status);
+}
+
+#[test]
+fn cluster_daemon_codecs_reject_unknown_versions_and_trailing_bytes() {
+    let registry = registry();
+    let init = registry
+        .serialize(&InitJoin {
+            joining_config_digest: Bytes::from_static(b"digest"),
+        })
+        .unwrap();
+    let wrong_version = SerializedMessage::new(
+        INIT_JOIN_SERIALIZER_ID,
+        Manifest::new(InitJoin::MANIFEST),
+        InitJoin::VERSION + 1,
+        init.payload,
+    );
+    assert!(
+        registry
+            .deserialize::<InitJoin>(wrong_version)
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported")
+    );
+
+    let status = registry
+        .serialize(&GossipStatus {
+            from: unique(4),
+            version: VectorClock::new(),
+            seen_digest: Bytes::new(),
+        })
+        .unwrap();
+    let mut payload = status.payload.to_vec();
+    payload.push(0xff);
+    let trailing = SerializedMessage::new(
+        GOSSIP_STATUS_SERIALIZER_ID,
+        Manifest::new(GossipStatus::MANIFEST),
+        GossipStatus::VERSION,
+        Bytes::from(payload),
+    );
+    assert!(
+        registry
+            .deserialize::<GossipStatus>(trailing)
+            .unwrap_err()
+            .to_string()
+            .contains("trailing byte")
+    );
+
+    let ack = registry
+        .serialize(&InitJoinAck {
+            address: unique(5).address,
+            config_check: ClusterConfigCheck::Compatible,
+        })
+        .unwrap();
+    let mut invalid_check_payload = ack.payload.to_vec();
+    *invalid_check_payload
+        .last_mut()
+        .expect("ack payload includes config-check code") = 0xff;
+    let invalid_check = SerializedMessage::new(
+        INIT_JOIN_ACK_SERIALIZER_ID,
+        Manifest::new(InitJoinAck::MANIFEST),
+        InitJoinAck::VERSION,
+        Bytes::from(invalid_check_payload),
+    );
+    assert!(
+        registry
+            .deserialize::<InitJoinAck>(invalid_check)
+            .unwrap_err()
+            .to_string()
+            .contains("config-check code")
+    );
 }
 
 #[test]

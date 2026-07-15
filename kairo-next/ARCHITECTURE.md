@@ -1278,17 +1278,27 @@ Removal is a leader action after gossip convergence.
 Cluster protocol messages:
 
 ```text
-InitJoin { joining_config_digest }
-InitJoinAck { address, config_check }
-InitJoinNack { address }
+InitJoin { joining_config_digest: bytes }
+InitJoinAck { address: Address, config_check: ClusterConfigCheck }
+InitJoinNack { address: Address }
 Join { node, roles, app_version }
 Welcome { from, gossip }
 GossipEnvelope { from, to, gossip }
-GossipStatus { from, version, seen_digest }
-Leave { address }
-Down { address }
+GossipStatus { from, version, seen_digest: bytes }
+Leave { address: Address }
+Down { address: Address }
 ExitingConfirmed { node }
 ```
+
+`ClusterConfigCheck` is an explicit stable enum with `Unchecked`, `Compatible`,
+and `Incompatible` wire codes. Seed contacts exchange only a deterministic
+configuration digest; they do not serialize the format-neutral settings model
+or expose complete configuration data. The initial daemon manifests use stable
+`kairo.cluster.*` names and serializer IDs `2005` through `2011` for
+`InitJoin`, `InitJoinAck`, `InitJoinNack`, `GossipStatus`, `Leave`, `Down`, and
+`ExitingConfirmed`, respectively. Contact and user-action messages carry an
+`Address`; incarnation-sensitive gossip and exit confirmation carry a
+`UniqueAddress`.
 
 `to` in `GossipEnvelope` must include `UniqueAddress`, not only host/port, so a
 new actor-system incarnation can ignore gossip intended for an old uid.

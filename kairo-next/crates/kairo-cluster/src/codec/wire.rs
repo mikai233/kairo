@@ -125,7 +125,7 @@ fn read_reachability(reader: &mut WireReader<'_>) -> kairo_serialization::Result
     Ok(Reachability::from_parts(records, versions))
 }
 
-fn write_vector_clock(
+pub(super) fn write_vector_clock(
     writer: &mut WireWriter,
     clock: &VectorClock,
 ) -> kairo_serialization::Result<()> {
@@ -138,7 +138,9 @@ fn write_vector_clock(
     Ok(())
 }
 
-fn read_vector_clock(reader: &mut WireReader<'_>) -> kairo_serialization::Result<VectorClock> {
+pub(super) fn read_vector_clock(
+    reader: &mut WireReader<'_>,
+) -> kairo_serialization::Result<VectorClock> {
     let entries = read_vec(reader, |reader| {
         let node = VectorClockNode::new(reader.read_string()?);
         let version = reader.read_u64()?;
@@ -151,10 +153,7 @@ pub(super) fn write_unique_address(
     writer: &mut WireWriter,
     unique_address: &UniqueAddress,
 ) -> kairo_serialization::Result<()> {
-    writer.write_string(unique_address.address.protocol())?;
-    writer.write_string(unique_address.address.system())?;
-    writer.write_optional_string(unique_address.address.host())?;
-    writer.write_optional_u64(unique_address.address.port().map(u64::from));
+    write_address(writer, &unique_address.address)?;
     writer.write_u64(unique_address.uid);
     Ok(())
 }
@@ -162,6 +161,23 @@ pub(super) fn write_unique_address(
 pub(super) fn read_unique_address(
     reader: &mut WireReader<'_>,
 ) -> kairo_serialization::Result<UniqueAddress> {
+    let address = read_address(reader)?;
+    let uid = reader.read_u64()?;
+    Ok(UniqueAddress::new(address, uid))
+}
+
+pub(super) fn write_address(
+    writer: &mut WireWriter,
+    address: &Address,
+) -> kairo_serialization::Result<()> {
+    writer.write_string(address.protocol())?;
+    writer.write_string(address.system())?;
+    writer.write_optional_string(address.host())?;
+    writer.write_optional_u64(address.port().map(u64::from));
+    Ok(())
+}
+
+pub(super) fn read_address(reader: &mut WireReader<'_>) -> kairo_serialization::Result<Address> {
     let protocol = reader.read_string()?;
     let system = reader.read_string()?;
     let host = reader.read_optional_string()?;
@@ -170,11 +186,7 @@ pub(super) fn read_unique_address(
         .map(u16::try_from)
         .transpose()
         .map_err(|_| SerializationError::Message("cluster address port exceeds u16".to_string()))?;
-    let uid = reader.read_u64()?;
-    Ok(UniqueAddress::new(
-        Address::new(protocol, system, host, port),
-        uid,
-    ))
+    Ok(Address::new(protocol, system, host, port))
 }
 
 pub(super) fn write_count(writer: &mut WireWriter, len: usize) -> kairo_serialization::Result<()> {
