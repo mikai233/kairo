@@ -1,36 +1,72 @@
+#![deny(missing_docs)]
+
+//! Shared failures for sharding state transitions, allocation, routing, and
+//! remember-entity storage.
+//!
+//! These errors describe local typed API and actor-operation failures. They are
+//! not a remote serialization contract; wire adapters translate their own
+//! failures at the remoting boundary.
+
 use std::fmt::{self, Display, Formatter};
 
+/// Failure produced while validating or applying a cluster-sharding operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShardingError {
+    /// A stable shard calculation was requested with zero shards.
     InvalidShardCount,
+    /// A rebalance limit was zero, negative, infinite, or not a number.
     InvalidRebalanceLimit,
+    /// Allocation was requested while no shard region was available.
     NoShardRegions,
+    /// An operation targeted a shard region absent from coordinator state.
     UnknownRegion(String),
+    /// Coordinator state already contains the named shard region.
     RegionAlreadyRegistered(String),
+    /// An operation targeted a region proxy absent from coordinator state.
     UnknownRegionProxy(String),
+    /// Coordinator state already contains the named region proxy.
     RegionProxyAlreadyRegistered(String),
+    /// An operation targeted a shard absent from coordinator state.
     UnknownShard(String),
+    /// Coordinator state already has a home for the named shard.
     ShardAlreadyAllocated(String),
+    /// Remember-entity partitioning was requested with zero storage keys.
     InvalidRememberEntityKeyCount,
+    /// A remember-entity storage-key index is outside the configured range.
     InvalidRememberEntityKeyIndex {
+        /// Rejected zero-based key index.
         index: usize,
+        /// Number of configured storage keys.
         key_count: usize,
     },
+    /// A remember-entity or remember-shard store read failed.
     RememberStoreReadFailed {
+        /// Distributed-data or logical store key that was read.
         key: String,
+        /// Store-provided failure detail.
         reason: String,
     },
+    /// A remember-entity or remember-shard store update failed.
     RememberStoreUpdateFailed {
+        /// Distributed-data or logical store key that was updated.
         key: String,
+        /// Store-provided failure detail.
         reason: String,
     },
+    /// A region learned a different home for a shard it already routes.
     InconsistentShardHome {
+        /// Shard whose ownership conflicted.
         shard: String,
+        /// Region currently recorded as the shard home.
         current_region: String,
+        /// Conflicting region from the new shard-home observation.
         new_region: String,
     },
+    /// A shard-home observation arrived after two-phase handoff began.
     ShardHomeDuringHandOff {
+        /// Shard currently being handed off.
         shard: String,
+        /// Region named by the rejected shard-home observation.
         region: String,
     },
 }

@@ -252,6 +252,10 @@ Status terms in this document mean:
   coordinator placement, remember-store composition, shutdown timing, and
   `EntityRef` lookup contracts; focused coverage pins idempotent same-type
   initialization, different-type name rejection, and uninitialized lookup.
+  The shared sharding error surface now hard-gates allocation and coordinator
+  invariants, region home conflicts, remember-key validation, and store
+  read/update failure context while remaining explicitly local rather than a
+  wire protocol.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
