@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_serialization::{MessageCodec, WireReader, WireWriter};
 
@@ -5,8 +7,10 @@ use crate::RoutedShardEnvelope;
 
 use super::wire::{ensure_version, read_serialized_message, write_serialized_message};
 
+/// Stable serializer id for [`RoutedShardEnvelope`].
 pub const ROUTED_SHARD_ENVELOPE_SERIALIZER_ID: u32 = 4_010;
 
+/// Codec for serialized business messages routed between shard regions.
 #[derive(Debug, Clone, Copy)]
 pub struct RoutedShardEnvelopeCodec;
 

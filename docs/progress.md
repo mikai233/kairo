@@ -181,6 +181,10 @@ Status terms in this document mean:
   and hard-gate their Rust-first routing and lifecycle contracts. Coordinator
   allocation state, the bounded least-shards strategy, remembered-unallocated
   shard state, and local/ddata store error boundaries now carry the same gate.
+  The coordinator/region wire messages and their codecs now document the
+  registration, shard-home, two-phase handoff, shutdown, and remote entity
+  routing contracts under hard missing-documentation gates; regression tests
+  pin every manifest, version, and serializer id.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator

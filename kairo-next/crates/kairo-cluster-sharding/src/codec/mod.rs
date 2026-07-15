@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 mod coordinator;
 mod routing;
 mod shard;
@@ -29,6 +31,11 @@ use crate::{
     ShardStopped,
 };
 
+/// Registers every stable cluster-sharding system-message codec.
+///
+/// Call this once while composing the shared serialization registry used by
+/// the remoting runtime. Existing manifests and serializer ids are wire
+/// contracts and must not be reassigned to different message shapes.
 pub fn register_sharding_protocol_codecs(
     registry: &mut Registry,
 ) -> kairo_serialization::Result<()> {

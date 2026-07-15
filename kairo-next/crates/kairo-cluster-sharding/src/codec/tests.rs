@@ -35,6 +35,34 @@ where
 }
 
 #[test]
+fn sharding_protocol_serializer_ids_are_stable_and_unique() {
+    let serializer_ids = [
+        REGISTER_SERIALIZER_ID,
+        REGISTER_ACK_SERIALIZER_ID,
+        GET_SHARD_HOME_SERIALIZER_ID,
+        SHARD_HOME_SERIALIZER_ID,
+        HOST_SHARD_SERIALIZER_ID,
+        SHARD_STARTED_SERIALIZER_ID,
+        BEGIN_HANDOFF_SERIALIZER_ID,
+        BEGIN_HANDOFF_ACK_SERIALIZER_ID,
+        HANDOFF_SERIALIZER_ID,
+        SHARD_STOPPED_SERIALIZER_ID,
+        ROUTED_SHARD_ENVELOPE_SERIALIZER_ID,
+        GRACEFUL_SHUTDOWN_REQ_SERIALIZER_ID,
+        REGION_STOPPED_SERIALIZER_ID,
+    ];
+
+    assert_eq!(
+        serializer_ids,
+        [
+            4_000, 4_001, 4_002, 4_003, 4_004, 4_005, 4_006, 4_007, 4_008, 4_009, 4_010, 4_011,
+            4_012,
+        ]
+    );
+    assert!(serializer_ids.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
 fn sharding_protocol_codecs_round_trip_registration_messages() {
     let registry = registry();
     let register = Register {

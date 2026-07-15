@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_serialization::MessageCodec;
 
@@ -5,13 +7,20 @@ use crate::{BeginHandOff, BeginHandOffAck, HandOff, HostShard, ShardStarted, Sha
 
 use super::wire::{decode_shard_id, encode_shard_id, ensure_version};
 
+/// Stable serializer id for [`HostShard`].
 pub const HOST_SHARD_SERIALIZER_ID: u32 = 4_004;
+/// Stable serializer id for [`ShardStarted`].
 pub const SHARD_STARTED_SERIALIZER_ID: u32 = 4_005;
+/// Stable serializer id for [`BeginHandOff`].
 pub const BEGIN_HANDOFF_SERIALIZER_ID: u32 = 4_006;
+/// Stable serializer id for [`BeginHandOffAck`].
 pub const BEGIN_HANDOFF_ACK_SERIALIZER_ID: u32 = 4_007;
+/// Stable serializer id for [`HandOff`].
 pub const HANDOFF_SERIALIZER_ID: u32 = 4_008;
+/// Stable serializer id for [`ShardStopped`].
 pub const SHARD_STOPPED_SERIALIZER_ID: u32 = 4_009;
 
+/// Codec for commands that assign a shard to a region.
 #[derive(Debug, Clone, Copy)]
 pub struct HostShardCodec;
 
@@ -32,6 +41,7 @@ impl MessageCodec<HostShard> for HostShardCodec {
     }
 }
 
+/// Codec for acknowledgements that an assigned shard has started.
 #[derive(Debug, Clone, Copy)]
 pub struct ShardStartedCodec;
 
@@ -52,6 +62,7 @@ impl MessageCodec<ShardStarted> for ShardStartedCodec {
     }
 }
 
+/// Codec for the cache-invalidation phase of shard handoff.
 #[derive(Debug, Clone, Copy)]
 pub struct BeginHandOffCodec;
 
@@ -72,6 +83,7 @@ impl MessageCodec<BeginHandOff> for BeginHandOffCodec {
     }
 }
 
+/// Codec for acknowledgements of the cache-invalidation handoff phase.
 #[derive(Debug, Clone, Copy)]
 pub struct BeginHandOffAckCodec;
 
@@ -92,6 +104,7 @@ impl MessageCodec<BeginHandOffAck> for BeginHandOffAckCodec {
     }
 }
 
+/// Codec for commands that stop the current owner of a shard.
 #[derive(Debug, Clone, Copy)]
 pub struct HandOffCodec;
 
@@ -112,6 +125,7 @@ impl MessageCodec<HandOff> for HandOffCodec {
     }
 }
 
+/// Codec for acknowledgements that a handed-off shard has stopped.
 #[derive(Debug, Clone, Copy)]
 pub struct ShardStoppedCodec;
 

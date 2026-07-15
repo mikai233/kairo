@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_serialization::{ActorRefWireData, MessageCodec, WireReader, WireWriter};
 
@@ -7,11 +9,16 @@ use super::wire::{
     decode_actor_ref, decode_shard_id, encode_actor_ref, encode_shard_id, ensure_version,
 };
 
+/// Stable serializer id for [`Register`].
 pub const REGISTER_SERIALIZER_ID: u32 = 4_000;
+/// Stable serializer id for [`RegisterAck`].
 pub const REGISTER_ACK_SERIALIZER_ID: u32 = 4_001;
+/// Stable serializer id for [`GetShardHome`].
 pub const GET_SHARD_HOME_SERIALIZER_ID: u32 = 4_002;
+/// Stable serializer id for [`ShardHome`].
 pub const SHARD_HOME_SERIALIZER_ID: u32 = 4_003;
 
+/// Codec for region registration requests.
 #[derive(Debug, Clone, Copy)]
 pub struct RegisterCodec;
 
@@ -32,6 +39,7 @@ impl MessageCodec<Register> for RegisterCodec {
     }
 }
 
+/// Codec for successful region registration acknowledgements.
 #[derive(Debug, Clone, Copy)]
 pub struct RegisterAckCodec;
 
@@ -52,6 +60,7 @@ impl MessageCodec<RegisterAck> for RegisterAckCodec {
     }
 }
 
+/// Codec for shard-home lookup requests.
 #[derive(Debug, Clone, Copy)]
 pub struct GetShardHomeCodec;
 
@@ -72,6 +81,7 @@ impl MessageCodec<GetShardHome> for GetShardHomeCodec {
     }
 }
 
+/// Codec for shard-home lookup replies.
 #[derive(Debug, Clone, Copy)]
 pub struct ShardHomeCodec;
 
