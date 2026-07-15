@@ -180,6 +180,10 @@ Status terms in this document mean:
   immutable add/change operations, union or per-replica-maximum merge, absolute
   delta components, checked Rust numeric bounds, and removed-replica collapse
   and cleanup behavior.
+  `LWWRegister` now hard-gates explicit and wall-clock construction, custom
+  domain clocks, highest-timestamp/lowest-replica merge ordering, update deltas,
+  first-write-wins reverse clocks, clock-skew guidance, and removed-writer
+  pruning.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

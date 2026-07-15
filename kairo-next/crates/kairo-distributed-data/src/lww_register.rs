@@ -1,3 +1,7 @@
+#![deny(missing_docs)]
+
+//! Immutable last-writer-wins register with explicit clock and writer identity.
+
 use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -6,6 +10,12 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Last-writer-wins register ordered by timestamp then replica identity.
+///
+/// The greatest timestamp wins; equal timestamps choose the lowest
+/// [`ReplicaId`]. Wall-clock timestamps therefore require acceptable clock
+/// synchronization when concurrent writers may choose materially different
+/// values. A domain version can instead be supplied explicitly.
 pub struct LWWRegister<T> {
     node: ReplicaId,
     value: T,
@@ -17,6 +27,7 @@ impl<T> LWWRegister<T>
 where
     T: Clone + Eq,
 {
+    /// Creates a register with an explicit writer, value, and timestamp.
     pub fn new(node: impl Into<ReplicaId>, value: T, timestamp: i64) -> Self {
         Self {
             node: node.into(),
@@ -26,22 +37,27 @@ where
         }
     }
 
+    /// Creates a register using [`default_lww_clock`] from timestamp zero.
     pub fn with_default_clock(node: impl Into<ReplicaId>, value: T) -> Self {
         Self::new(node, value, default_lww_clock(0))
     }
 
+    /// Returns the replica that wrote the current value.
     pub fn node(&self) -> &ReplicaId {
         &self.node
     }
 
+    /// Returns the current register value.
     pub fn value(&self) -> &T {
         &self.value
     }
 
+    /// Returns the current ordering timestamp.
     pub fn timestamp(&self) -> i64 {
         self.timestamp
     }
 
+    /// Replaces the value at an explicit timestamp and records it as a delta.
     pub fn with_value(&self, node: impl Into<ReplicaId>, value: T, timestamp: i64) -> Self {
         let next = Self::new(node, value, timestamp);
         Self {
@@ -50,6 +66,10 @@ where
         }
     }
 
+    /// Replaces the value using a caller-supplied timestamp function.
+    ///
+    /// The function receives the current timestamp and proposed value, allowing
+    /// domain versions or deterministic test clocks instead of wall time.
     pub fn with_value_by_clock(
         &self,
         node: impl Into<ReplicaId>,
@@ -60,10 +80,12 @@ where
         self.with_value(node, value, timestamp)
     }
 
+    /// Replaces the value using the monotonically increasing default clock.
     pub fn with_value_default_clock(&self, node: impl Into<ReplicaId>, value: T) -> Self {
         self.with_value_by_clock(node, value, |timestamp, _| default_lww_clock(timestamp))
     }
 
+    /// Replaces the value using the decreasing first-write-wins clock.
     pub fn with_value_reverse_clock(&self, node: impl Into<ReplicaId>, value: T) -> Self {
         self.with_value_by_clock(node, value, |timestamp, _| reverse_lww_clock(timestamp))
     }
@@ -153,10 +175,17 @@ where
     }
 }
 
+/// Returns the later of wall-clock milliseconds and `current_timestamp + 1`.
+///
+/// Saturating arithmetic avoids overflow at the `i64` boundary.
 pub fn default_lww_clock(current_timestamp: i64) -> i64 {
     system_time_millis().max(current_timestamp.saturating_add(1))
 }
 
+/// Returns a decreasing timestamp for first-write-wins merge ordering.
+///
+/// The result is the earlier of negative wall-clock milliseconds and
+/// `current_timestamp - 1`, avoiding overflow at the `i64` boundary.
 pub fn reverse_lww_clock(current_timestamp: i64) -> i64 {
     system_time_millis()
         .saturating_neg()
