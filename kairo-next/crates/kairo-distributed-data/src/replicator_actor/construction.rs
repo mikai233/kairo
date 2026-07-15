@@ -56,6 +56,14 @@ where
         actor
     }
 
+    pub(crate) fn enable_aggregation(mut self, aggregation: ReplicatorAggregation<D>) -> Self
+    where
+        D::Delta: ReplicatedDelta + Send + 'static,
+    {
+        self.aggregation = Some(aggregation);
+        self
+    }
+
     pub(crate) fn enable_delta_propagation(
         mut self,
         delta_loop: DeltaPropagationLoop<D::Delta>,

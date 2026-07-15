@@ -1719,7 +1719,12 @@ propagation over cluster-derived target registries. Unless explicitly
 overridden, the delta interval is one fifth of the gossip interval with a
 200-millisecond floor, following Pekko's propagation cadence. A two-node test
 delays full-state gossip beyond its deadline and proves convergence through the
-delta path alone on the shared cluster/remoting runtime.
+delta path alone on the shared cluster/remoting runtime. The same connector
+populates the aggregation target registry. Non-local read/write consistency
+spawns typed temporary session and aggregator actors, publishes their canonical
+sender refs, and routes stable acknowledgements/results back through the shared
+ordinary lane. A two-node test disables both background propagation paths and
+proves remote majority write acknowledgement plus majority read/merge.
 Because the replicator actor protocol is generic in `D`, one registration owns
 the `/system/ddata` manifest namespace for one configured replicated-data
 family per ActorSystem. A later heterogeneous registry may broaden that API;

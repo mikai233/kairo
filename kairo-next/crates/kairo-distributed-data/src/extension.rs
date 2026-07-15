@@ -8,9 +8,10 @@ use kairo_remote::{RemoteError, TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuil
 use kairo_serialization::{ActorRefWireData, RemoteMessage};
 
 use crate::{
-    DEFAULT_REPLICATOR_REMOTE_PATH, DeltaPropagationLoop, DeltaPropagationTargetRegistry,
-    DeltaPropagationTransport, DeltaReplicatedData, RemovedNodePruning, ReplicaId, ReplicatorActor,
-    ReplicatorActorMsg, ReplicatorClusterConnector, ReplicatorClusterConnectorMsg,
+    AggregationTargetRegistry, AggregationTransport, DEFAULT_REPLICATOR_REMOTE_PATH,
+    DeltaPropagationLoop, DeltaPropagationTargetRegistry, DeltaPropagationTransport,
+    DeltaReplicatedData, RemovedNodePruning, ReplicaId, ReplicatorActor, ReplicatorActorMsg,
+    ReplicatorAggregation, ReplicatorClusterConnector, ReplicatorClusterConnectorMsg,
     ReplicatorDeltaAck, ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGossip,
     ReplicatorGossipStatus, ReplicatorGossipTargetRegistry, ReplicatorGossipTransport,
     ReplicatorRead, ReplicatorReadResult, ReplicatorRemoteAssociationCacheOutbound,
@@ -358,6 +359,17 @@ where
         );
         let actor_delta_loop = DeltaPropagationLoop::new(delta_transport);
         let delta_propagation_interval = factory_settings.effective_delta_propagation_interval();
+        let aggregation_targets = AggregationTargetRegistry::new();
+        let aggregation_transport = AggregationTransport::with_target_registry(
+            ReplicaId::from(&self_node),
+            factory_settings.codecs.data_codec(),
+            aggregation_targets.clone(),
+        );
+        let actor_aggregation = ReplicatorAggregation::with_sender_remote_settings(
+            aggregation_transport,
+            factory_settings.codecs.data_codec(),
+            context.settings().clone(),
+        );
         let gossip_interval = factory_settings.gossip_interval;
         let local_system_uid = context.local_system_uid();
         let replicator = context
@@ -371,6 +383,7 @@ where
                         gossip_interval,
                     )
                     .enable_delta_propagation(actor_delta_loop.clone(), delta_propagation_interval)
+                    .enable_aggregation(actor_aggregation.clone())
                     .with_self_system_uid(local_system_uid)
                 }),
             )
@@ -393,7 +406,7 @@ where
                 .with_remote_route_targets(
                     remote_targets.clone(),
                     Some(delta_targets.clone()),
-                    None,
+                    Some(aggregation_targets.clone()),
                     Some(gossip_targets.clone()),
                 )
                 .with_remote_source_replicas(Arc::clone(&connector_sources))
@@ -793,6 +806,106 @@ mod tests {
         let key = ReplicatorKey::new("delta-visits");
         seed.update_counter(key.clone(), 7);
         peer.await_counter(key, 7);
+
+        peer.shutdown();
+        seed.shutdown();
+    }
+
+    #[test]
+    fn composed_extension_completes_remote_majority_write_and_read() {
+        let registry = registry();
+        let seed = ComposedDdataNode::start(
+            "ddata-consistency-seed",
+            1,
+            301,
+            vec![],
+            registry.clone(),
+            Duration::from_secs(30),
+            Some(Duration::from_secs(30)),
+        );
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.cluster.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "ddata consistency seed has not formed".to_string())
+        })
+        .unwrap();
+        let peer = ComposedDdataNode::start(
+            "ddata-consistency-peer",
+            2,
+            302,
+            vec![seed.cluster.self_node().address.clone()],
+            registry,
+            Duration::from_secs(30),
+            Some(Duration::from_secs(30)),
+        );
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let seed_routes = seed.connector();
+            let peer_routes = peer.connector();
+            let seed_targets = seed_routes
+                .last_target_registration
+                .as_ref()
+                .map(|report| report.aggregation_registered());
+            let peer_targets = peer_routes
+                .last_target_registration
+                .as_ref()
+                .map(|report| report.aggregation_registered());
+            (seed_targets == Some(&[ReplicaId::from(peer.cluster.self_node())][..])
+                && peer_targets == Some(&[ReplicaId::from(seed.cluster.self_node())][..]))
+            .then_some(())
+            .ok_or_else(|| "ddata aggregation targets have not followed membership".to_string())
+        })
+        .unwrap();
+
+        let write_key = ReplicatorKey::new("majority-write");
+        let writes = seed
+            .kit
+            .create_probe::<UpdateResponse<GCounter>>("majority-writes")
+            .unwrap();
+        let seed_replica = seed.ddata.self_replica();
+        seed.ddata
+            .replicator()
+            .tell(ReplicatorActorMsg::Update {
+                key: write_key.clone(),
+                initial: GCounter::new(),
+                consistency: WriteConsistency::majority(Duration::from_secs(2)),
+                modify: Box::new(move |counter| {
+                    counter
+                        .increment(seed_replica, 11)
+                        .map_err(|error| error.to_string())
+                }),
+                reply_to: writes.actor_ref(),
+            })
+            .unwrap();
+        assert!(matches!(
+            writes.expect_msg(Duration::from_secs(3)).unwrap(),
+            UpdateResponse::Success(_)
+        ));
+        peer.await_counter(write_key, 11);
+
+        let read_key = ReplicatorKey::new("majority-read");
+        seed.update_counter(read_key.clone(), 13);
+        let reads = peer
+            .kit
+            .create_probe::<GetResponse<GCounter>>("majority-reads")
+            .unwrap();
+        peer.ddata
+            .replicator()
+            .tell(ReplicatorActorMsg::Get {
+                key: read_key.clone(),
+                consistency: ReadConsistency::majority(Duration::from_secs(2)),
+                reply_to: reads.actor_ref(),
+            })
+            .unwrap();
+        let GetResponse::Success { key, data } = reads.expect_msg(Duration::from_secs(3)).unwrap()
+        else {
+            panic!("remote majority read did not succeed");
+        };
+        assert_eq!(key, read_key);
+        assert_eq!(data.value().unwrap(), 13);
 
         peer.shutdown();
         seed.shutdown();

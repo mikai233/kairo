@@ -75,8 +75,9 @@ Status terms in this document mean:
   ActorSystem slice now installs a typed distributed-data extension, derives
   routes and source identities from real cluster membership, and converges a
   two-node `GCounter` through periodic full-state gossip and delta propagation
-  over the shared remoting runtime. Remote consistency aggregation, broader
-  typed data registration, and process/fault acceptance remain open.
+  over the shared remoting runtime. Remote majority read/write aggregation now
+  also round-trips through canonical temporary actor refs on that runtime.
+  Broader typed data registration and process/fault acceptance remain open.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
@@ -382,9 +383,12 @@ the peer through periodic full-state gossip. The same composed replicator now
 registers cluster-derived delta targets and schedules delta propagation at an
 explicit interval or a Pekko-aligned interval derived from gossip. A second
 two-node test delays full-state gossip to 30 seconds and converges within three
-seconds, pinning the delta-only path. Remote consistency aggregation remains
-the next ddata composition gap, followed by sharding and cluster-tools
-extensions on the same lifecycle.
+seconds, pinning the delta-only path. Remote consistency aggregation is
+composed as well: with both background propagation paths delayed, a third
+two-node test completes a majority write only after the peer applies and
+acknowledges it, then reads a locally missing key through majority read/merge.
+The next Phase 4 boundary is the cluster-sharding extension on this lifecycle;
+broader ddata type registration plus process/fault coverage remain open.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.
@@ -5984,7 +5988,7 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after composed delta propagation:
+Latest Phase 4 validation after composed ddata consistency:
 
 ```bash
 cargo test -p kairo-distributed-data --all-targets --all-features

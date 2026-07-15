@@ -3608,7 +3608,10 @@ termination before cluster shutdown. The first composed slice enables periodic
 full-state/status gossip and delta propagation. The default delta interval is
 derived as one fifth of the gossip interval with Pekko's 200-millisecond floor;
 an explicit positive interval supports deterministic testing and specialized
-deployments. One registration owns the stable `/system/ddata`
+deployments. Cluster-derived aggregation targets feed the existing typed
+read/write sessions; canonical temporary actor refs cross the wire as reply
+recipients, and stable ack/nack/result manifests return through the same
+ordinary-lane router. One registration owns the stable `/system/ddata`
 manifest namespace for one configured `D` family per ActorSystem; broadening
 this into a heterogeneous data registry is future API work rather than type
 erasure in the current actor boundary.
@@ -3620,6 +3623,6 @@ Consequences:
   identity without making distributed data or transport a membership authority.
 - Applications retrieve the typed replicator and connector through the
   ActorSystem extension after activation.
-- Remote read/write aggregation and a broader multi-type registration facade
-  remain later Phase 4 slices; the legacy standalone TCP
+- A broader multi-type registration facade plus process and fault coverage
+  remain later Phase 4 work; the legacy standalone TCP
   bootstrap remains a compatibility and focused-test boundary meanwhile.
