@@ -139,6 +139,7 @@ fn tcp_listener_validates_handshaken_lanes_before_reading_frames() {
     let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone());
     let dialer = TcpAssociationDialer::new(installer)
         .with_local_identity(remote_address.clone(), 22)
+        .with_handshake_response_required()
         .with_connect_timeout(Duration::from_secs(1));
     let registration = dialer.dial(association_address("receiver", port)).unwrap();
 
@@ -176,6 +177,7 @@ fn tcp_listener_accept_loop_reports_handshaken_remote_identity() {
     let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone());
     let dialer = TcpAssociationDialer::new(installer)
         .with_local_identity(remote_address.clone(), 42)
+        .with_handshake_response_required()
         .with_connect_timeout(Duration::from_secs(1));
     let registration = dialer.dial(association_address("receiver", port)).unwrap();
 
@@ -228,6 +230,7 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
         .with_association_registry(sender_registry.clone());
     let dialer = TcpAssociationDialer::new(installer)
         .with_local_identity(remote_address.clone(), 42)
+        .with_handshake_response_required()
         .with_connect_timeout(Duration::from_secs(1));
     let (registration, sender_reader_handle) = dialer
         .dial_with_reader(association_address("receiver", port), sender_reader)

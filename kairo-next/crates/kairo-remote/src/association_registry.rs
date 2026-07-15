@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use crate::{RemoteAssociation, RemoteAssociationAddress, RemoteError, Result};
+use crate::{AssociationState, RemoteAssociation, RemoteAssociationAddress, RemoteError, Result};
 
 pub type RemoteAssociationHandle = Arc<Mutex<RemoteAssociation>>;
 
@@ -44,29 +44,66 @@ impl RemoteAssociationRegistry {
         address: RemoteAssociationAddress,
         uid: u64,
     ) -> Result<RemoteAssociationHandle> {
-        let association = self.association(address.clone());
-
         let mut state = self
             .state
             .write()
             .expect("remote association registry lock poisoned");
+        if let Some(existing) = state.by_uid.get(&uid)
+            && existing != &address
+        {
+            return Err(RemoteError::AssociationUidCollision {
+                uid,
+                existing: existing.to_string(),
+                attempted: address.to_string(),
+            });
+        }
+
+        let previous_uid = state
+            .by_uid
+            .iter()
+            .find_map(|(indexed_uid, indexed_address)| {
+                (indexed_address == &address).then_some(*indexed_uid)
+            });
+        let association = match state.by_address.get(&address).cloned() {
+            Some(existing) => {
+                let replace_terminal = {
+                    let association = existing.lock().expect("remote association lock poisoned");
+                    matches!(
+                        association.state(),
+                        AssociationState::Quarantined { .. } | AssociationState::Closed { .. }
+                    ) && previous_uid.is_some_and(|previous| previous != uid)
+                };
+                if replace_terminal {
+                    let mut replacement = RemoteAssociation::new(address.to_string());
+                    replacement.start_handshake();
+                    let replacement = Arc::new(Mutex::new(replacement));
+                    state
+                        .by_address
+                        .insert(address.clone(), replacement.clone());
+                    replacement
+                } else {
+                    existing
+                }
+            }
+            None => {
+                let mut association = RemoteAssociation::new(address.to_string());
+                association.start_handshake();
+                let association = Arc::new(Mutex::new(association));
+                state
+                    .by_address
+                    .insert(address.clone(), association.clone());
+                association
+            }
+        };
+
         let mut association_guard = association
             .lock()
             .expect("remote association lock poisoned");
         association_guard.ensure_send_allowed()?;
-        match state.by_uid.get(&uid) {
-            Some(existing) if existing == &address => {}
-            Some(existing) => {
-                return Err(RemoteError::AssociationUidCollision {
-                    uid,
-                    existing: existing.to_string(),
-                    attempted: address.to_string(),
-                });
-            }
-            None => {
-                state.by_uid.insert(uid, address);
-            }
-        }
+        state.by_uid.retain(|indexed_uid, indexed_address| {
+            *indexed_uid == uid || indexed_address != &address
+        });
+        state.by_uid.insert(uid, address);
         association_guard.activate(Some(uid));
         drop(association_guard);
         drop(state);
@@ -80,6 +117,45 @@ impl RemoteAssociationRegistry {
             .expect("remote association registry lock poisoned");
         let address = state.by_uid.get(&uid)?;
         state.by_address.get(address).cloned()
+    }
+
+    pub fn association_for_address(
+        &self,
+        address: &RemoteAssociationAddress,
+    ) -> Option<RemoteAssociationHandle> {
+        self.state
+            .read()
+            .expect("remote association registry lock poisoned")
+            .by_address
+            .get(address)
+            .cloned()
+    }
+
+    pub fn uid_for_address(&self, address: &RemoteAssociationAddress) -> Option<u64> {
+        let association = self.association_for_address(address)?;
+        let association = association
+            .lock()
+            .expect("remote association lock poisoned");
+        association_uid(association.state())
+    }
+
+    pub fn quarantine_if_uid(
+        &self,
+        address: &RemoteAssociationAddress,
+        expected_uid: u64,
+        reason: impl Into<String>,
+    ) -> bool {
+        let Some(association) = self.association_for_address(address) else {
+            return false;
+        };
+        let mut association = association
+            .lock()
+            .expect("remote association lock poisoned");
+        if association_uid(association.state()) != Some(expected_uid) {
+            return false;
+        }
+        association.quarantine(Some(expected_uid), reason);
+        true
     }
 
     pub fn all_associations(&self) -> Vec<RemoteAssociationHandle> {
@@ -106,6 +182,16 @@ impl RemoteAssociationRegistry {
             .expect("remote association registry lock poisoned")
             .by_uid
             .len()
+    }
+}
+
+fn association_uid(state: &AssociationState) -> Option<u64> {
+    match state {
+        AssociationState::Active { remote_uid }
+        | AssociationState::Quarantined { remote_uid, .. } => *remote_uid,
+        AssociationState::Idle
+        | AssociationState::Handshaking
+        | AssociationState::Closed { .. } => None,
     }
 }
 
@@ -188,7 +274,7 @@ mod tests {
             error,
             RemoteError::AssociationUidCollision { uid: 42, .. }
         ));
-        assert_eq!(registry.association_count(), 2);
+        assert_eq!(registry.association_count(), 1);
         assert_eq!(registry.uid_count(), 1);
         let by_uid = registry.association_by_uid(42).unwrap();
         assert_eq!(
@@ -201,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn complete_handshake_does_not_index_terminal_association() {
+    fn new_uid_replaces_quarantined_incarnation_but_not_unidentified_closed_state() {
         let registry = RemoteAssociationRegistry::new();
         let closed = address("closed", 25520);
         let quarantined = address("quarantined", 25521);
@@ -219,22 +305,27 @@ mod tests {
         ));
         assert!(registry.association_by_uid(42).is_none());
 
-        registry
-            .association(quarantined.clone())
-            .lock()
-            .expect("remote association lock poisoned")
-            .quarantine(Some(41), "uid mismatch");
-        let quarantined_error = registry
+        let old = registry
+            .complete_handshake(quarantined.clone(), 41)
+            .unwrap();
+        assert!(registry.quarantine_if_uid(&quarantined, 41, "uid mismatch"));
+        assert!(
+            registry
+                .complete_handshake(quarantined.clone(), 41)
+                .is_err()
+        );
+        let replacement = registry
             .complete_handshake(quarantined.clone(), 43)
-            .unwrap_err();
+            .unwrap();
 
-        assert!(matches!(
-            quarantined_error,
-            RemoteError::AssociationQuarantined { .. }
+        assert!(!Arc::ptr_eq(&old, &replacement));
+        assert!(registry.association_by_uid(41).is_none());
+        assert!(Arc::ptr_eq(
+            &replacement,
+            &registry.association_by_uid(43).unwrap()
         ));
-        assert!(registry.association_by_uid(43).is_none());
         assert_eq!(registry.association_count(), 2);
-        assert_eq!(registry.uid_count(), 0);
+        assert_eq!(registry.uid_count(), 1);
         assert_eq!(
             registry
                 .association(closed)
@@ -246,14 +337,12 @@ mod tests {
             }
         );
         assert_eq!(
-            registry
-                .association(quarantined)
+            replacement
                 .lock()
                 .expect("remote association lock poisoned")
                 .state(),
-            &AssociationState::Quarantined {
-                remote_uid: Some(41),
-                reason: "uid mismatch".to_string()
+            &AssociationState::Active {
+                remote_uid: Some(43)
             }
         );
     }
@@ -267,15 +356,12 @@ mod tests {
         let second = registry.complete_handshake(remote, 42).unwrap();
 
         assert!(Arc::ptr_eq(&first, &second));
-        assert!(Arc::ptr_eq(
-            &first,
-            &registry.association_by_uid(41).unwrap()
-        ));
+        assert!(registry.association_by_uid(41).is_none());
         assert!(Arc::ptr_eq(
             &first,
             &registry.association_by_uid(42).unwrap()
         ));
-        assert_eq!(registry.uid_count(), 2);
+        assert_eq!(registry.uid_count(), 1);
         assert_eq!(
             first
                 .lock()

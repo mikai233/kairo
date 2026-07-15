@@ -160,17 +160,27 @@ runtime creates one FIFO writer owner for each control, ordinary, and large
 lane, `try_send` reports saturation without blocking actor turns, a 2,000-frame
 stress test proves single-writer ordering, route shutdown interrupts active
 socket writes, and control overflow quarantines the exact active remote UID.
-Runtime reliable retry integration remains next. The older subsystem-specific
-TCP runtimes remain migration baselines until their higher runtime owners adopt
-the shared core.
+The actor-system runtime now also completes peer identity in both handshake
+directions and uses the registry-owned association handle for dialed and
+accepted routes. Reliable manifests are retained and wrapped per peer UID,
+association-specific inbound handlers deduplicate and emit cumulative ack/nack
+replies, one runtime-owned scheduler actor retries retained FIFO entries, and
+buffer overflow, invalid transitions, or acknowledgement give-up quarantine
+and close the exact incarnation while reporting retained failures. Remote
+death-watch lifecycle traffic exercises this path end to end; heartbeats remain
+refreshable at-most-once control traffic. Defensive handshake and association
+lifecycle limits are next. The older subsystem-specific TCP runtimes remain
+migration baselines until their higher runtime owners adopt the shared core.
 
-The reliable-delivery core is now implemented as a separately verified wire
-and state-machine layer: registered stable envelope/ack/nack codecs preserve a
-nested `RemoteEnvelope`; bounded sender state sequences from one, retains FIFO,
+The reliable-delivery wire/state-machine layer and its composed runtime are now
+implemented: registered stable envelope/ack/nack codecs preserve a nested
+`RemoteEnvelope`; bounded sender state sequences from one, retains FIFO,
 applies cumulative replies, rejects stale UIDs, and resets on incarnation
 change; receiver state delivers once, acknowledges duplicates, and nacks gaps.
-Runtime manifest selection, retry scheduling, acknowledgement routing, and
-give-up quarantine remain the next checkpoint.
+Runtime registration distinguishes reliable lifecycle manifests from
+refreshable control traffic, exposes bounded retry/give-up settings and failure
+observation, and rejects the reserved reliability manifests from user
+registration.
 
 Task: converge business messages and system protocols on one ActorSystem-owned
 remoting lifecycle and canonical transport address.

@@ -303,6 +303,10 @@ impl ReliableSystemReceiver {
         self.next_expected_sequence_nr
     }
 
+    pub fn remote_uid(&self) -> u64 {
+        self.remote_uid
+    }
+
     pub fn receive(
         &mut self,
         reliable: ReliableSystemEnvelope,

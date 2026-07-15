@@ -8,8 +8,14 @@ use std::time::{Duration, Instant};
 use kairo_actor::{ActorError, ActorPath, ActorRef, ActorSystem};
 use kairo_serialization::{ActorRefWireData, Manifest, Registry, RemoteMessage};
 
+use crate::reliable_runtime::{
+    IgnoreReliableSystemDeliveryFailures, ReliableSystemDeliveryRuntime,
+    ReliableSystemInboundHandler, ReliableSystemRuntimeActor, ReliableSystemRuntimeCommand,
+    is_reliable_protocol_manifest, reliable_delivery_actor_name,
+};
 use crate::{
-    ActorSystemRemoteInboundRegistry, AssociationOutboundPipeline, RemoteActorRef,
+    ActorSystemRemoteInboundRegistry, AssociationOutboundPipeline, ReliableSystemDeliveryObserver,
+    ReliableSystemDeliverySettings, ReliableSystemDeliveryStats, RemoteActorRef,
     RemoteActorRefProvider, RemoteActorRefResolver, RemoteAssociationAddress,
     RemoteAssociationCache, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
     RemoteAssociationRouteRegistration, RemoteDeathWatchCommand, RemoteDeathWatchEffect,
@@ -23,6 +29,11 @@ use crate::{
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 const TCP_REMOTE_SHUTDOWN_REASON: &str = "tcp remote actor system shutdown";
 
+struct RuntimeSystemActorRefs<'a> {
+    reliable_delivery: &'a ActorRef<ReliableSystemRuntimeCommand>,
+    death_watch: &'a ActorRef<RemoteDeathWatchCommand>,
+}
+
 /// One non-generic TCP remoting lifecycle for an ActorSystem.
 pub struct TcpRemoteActorRuntime {
     system: ActorSystem,
@@ -31,9 +42,12 @@ pub struct TcpRemoteActorRuntime {
     outbound_queue_settings: RemoteOutboundQueueSettings,
     association_cache: RemoteAssociationCache,
     association_registry: RemoteAssociationRegistry,
+    outbound: Arc<dyn RemoteOutbound>,
     provider: RemoteActorRefProvider,
     dialer: TcpAssociationDialer,
-    outbound_reader: TcpAssociationStreamReader,
+    inbound: Arc<ActorSystemRemoteInboundRegistry>,
+    reliable_delivery: Arc<ReliableSystemDeliveryRuntime>,
+    reliable_delivery_actor: ActorRef<ReliableSystemRuntimeCommand>,
     outbound_readers: Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
     outbound_pipelines: Arc<Mutex<Vec<AssociationOutboundPipeline>>>,
     death_watch: ActorRef<RemoteDeathWatchCommand>,
@@ -53,6 +67,7 @@ pub struct TcpRemoteActorRuntimeContext {
     settings: RemoteSettings,
     local_system_uid: u64,
     association_cache: RemoteAssociationCache,
+    outbound: Arc<dyn RemoteOutbound>,
 }
 
 impl TcpRemoteActorRuntimeContext {
@@ -75,6 +90,10 @@ impl TcpRemoteActorRuntimeContext {
     pub fn association_cache(&self) -> &RemoteAssociationCache {
         &self.association_cache
     }
+
+    pub fn outbound(&self) -> &Arc<dyn RemoteOutbound> {
+        &self.outbound
+    }
 }
 
 /// Pre-bind protocol registration for [`TcpRemoteActorRuntime`].
@@ -87,6 +106,9 @@ pub struct TcpRemoteActorRuntimeBuilder {
     manifests: HashSet<String>,
     lane_classifier: RemoteLaneClassifier,
     outbound_queue_settings: RemoteOutboundQueueSettings,
+    reliable_delivery_settings: ReliableSystemDeliverySettings,
+    reliable_delivery_observer: Arc<dyn ReliableSystemDeliveryObserver>,
+    reliable_manifests: HashSet<String>,
     protocols: Vec<InboundProtocolRegistration>,
 }
 
@@ -178,6 +200,10 @@ impl TcpRemoteActorRuntime {
         settings: RemoteSettings,
         local_system_uid: u64,
     ) -> TcpRemoteActorRuntimeBuilder {
+        let mut lane_classifier = RemoteLaneClassifier::default();
+        lane_classifier.add_control_manifest(crate::ReliableSystemEnvelope::MANIFEST);
+        lane_classifier.add_control_manifest(crate::ReliableSystemAck::MANIFEST);
+        lane_classifier.add_control_manifest(crate::ReliableSystemNack::MANIFEST);
         TcpRemoteActorRuntimeBuilder {
             system,
             registry,
@@ -185,8 +211,11 @@ impl TcpRemoteActorRuntime {
             local_system_uid,
             observer: Arc::new(crate::IgnoreRemoteDeathWatchEffects),
             manifests: HashSet::new(),
-            lane_classifier: RemoteLaneClassifier::default(),
+            lane_classifier,
             outbound_queue_settings: RemoteOutboundQueueSettings::default(),
+            reliable_delivery_settings: ReliableSystemDeliverySettings::default(),
+            reliable_delivery_observer: Arc::new(IgnoreReliableSystemDeliveryFailures),
+            reliable_manifests: default_reliable_manifests(),
             protocols: Vec::new(),
         }
     }
@@ -203,12 +232,29 @@ impl TcpRemoteActorRuntimeBuilder {
         self
     }
 
+    pub fn with_reliable_system_delivery_settings(
+        mut self,
+        settings: ReliableSystemDeliverySettings,
+    ) -> Self {
+        self.reliable_delivery_settings = settings;
+        self
+    }
+
+    pub fn with_reliable_system_delivery_observer(
+        mut self,
+        observer: Arc<dyn ReliableSystemDeliveryObserver>,
+    ) -> Self {
+        self.reliable_delivery_observer = observer;
+        self
+    }
+
     pub fn register<M>(&mut self) -> Result<&mut Self>
     where
         M: RemoteMessage,
     {
         Manifest::try_new(M::MANIFEST)?;
         if is_remote_death_watch_manifest(M::MANIFEST)
+            || is_reliable_protocol_manifest(M::MANIFEST)
             || !self.manifests.insert(M::MANIFEST.to_string())
         {
             return Err(RemoteError::DuplicateProtocolManifest(
@@ -229,10 +275,36 @@ impl TcpRemoteActorRuntimeBuilder {
         F: FnOnce(&TcpRemoteActorRuntimeContext) -> Result<H> + Send + 'static,
         H: RemoteEnvelopeHandler,
     {
+        self.register_control_handler_with_reliability(manifests, false, factory)
+    }
+
+    pub fn register_reliable_control_handler<F, H>(
+        &mut self,
+        manifests: &[&'static str],
+        factory: F,
+    ) -> Result<&mut Self>
+    where
+        F: FnOnce(&TcpRemoteActorRuntimeContext) -> Result<H> + Send + 'static,
+        H: RemoteEnvelopeHandler,
+    {
+        self.register_control_handler_with_reliability(manifests, true, factory)
+    }
+
+    fn register_control_handler_with_reliability<F, H>(
+        &mut self,
+        manifests: &[&'static str],
+        reliable: bool,
+        factory: F,
+    ) -> Result<&mut Self>
+    where
+        F: FnOnce(&TcpRemoteActorRuntimeContext) -> Result<H> + Send + 'static,
+        H: RemoteEnvelopeHandler,
+    {
         let mut pending = HashSet::new();
         for manifest in manifests {
             Manifest::try_new(*manifest)?;
             if is_remote_death_watch_manifest(manifest)
+                || is_reliable_protocol_manifest(manifest)
                 || self.manifests.contains(*manifest)
                 || !pending.insert((*manifest).to_string())
             {
@@ -249,6 +321,9 @@ impl TcpRemoteActorRuntimeBuilder {
         for manifest in &manifests {
             self.manifests.insert(manifest.clone());
             self.lane_classifier.add_control_manifest(manifest.clone());
+            if reliable {
+                self.reliable_manifests.insert(manifest.clone());
+            }
         }
         self.protocols.push(Box::new(move |context, inbound| {
             let handler = Arc::new(factory(context)?) as Arc<dyn RemoteEnvelopeHandler>;
@@ -268,6 +343,9 @@ impl TcpRemoteActorRuntimeBuilder {
             observer,
             lane_classifier,
             outbound_queue_settings,
+            reliable_delivery_settings,
+            reliable_delivery_observer,
+            reliable_manifests,
             protocols,
             ..
         } = self;
@@ -291,7 +369,18 @@ impl TcpRemoteActorRuntimeBuilder {
 
         let association_cache = RemoteAssociationCache::new();
         let association_registry = RemoteAssociationRegistry::new();
-        let outbound = Arc::new(association_cache.clone()) as Arc<dyn RemoteOutbound>;
+        let local_address = local_association_address(&system, &effective_settings)?;
+        let reliable_delivery = Arc::new(ReliableSystemDeliveryRuntime::new(
+            local_address.clone(),
+            local_system_uid,
+            registry.clone(),
+            association_cache.clone(),
+            association_registry.clone(),
+            reliable_manifests,
+            reliable_delivery_settings,
+            reliable_delivery_observer,
+        ));
+        let outbound = reliable_delivery.clone() as Arc<dyn RemoteOutbound>;
         let local_watcher = local_watcher_for(&system, &effective_settings)?;
         let observer = Arc::new(ActorSystemRemoteDeathWatchObserver {
             system: system.clone(),
@@ -323,6 +412,7 @@ impl TcpRemoteActorRuntimeBuilder {
             settings: effective_settings.clone(),
             local_system_uid,
             association_cache: association_cache.clone(),
+            outbound: outbound.clone(),
         };
         for protocol in protocols {
             if let Err(error) = protocol(&context, &mut inbound) {
@@ -332,30 +422,43 @@ impl TcpRemoteActorRuntimeBuilder {
             }
         }
         let inbound = Arc::new(inbound);
+        let reliable_delivery_actor = system
+            .spawn_system(
+                reliable_delivery_actor_name(),
+                ReliableSystemRuntimeActor::props(reliable_delivery.clone()),
+            )
+            .map_err(|error| RemoteError::Inbound(error.to_string()))?;
         let installer = RemoteAssociationRouteInstaller::new(association_cache.clone())
             .with_association_registry(association_registry.clone())
             .with_classifier(lane_classifier)
             .with_outbound_queue_settings(outbound_queue_settings);
-        let outbound_reader = TcpAssociationStreamReader::new(inbound.clone());
-        let listener = TcpAssociationListener::from_listener(listener, inbound)
-            .with_local_identity(
-                local_association_address(&system, &effective_settings)?,
-                local_system_uid,
-            )
+        let base_inbound = inbound.clone() as Arc<dyn crate::RemoteFrameHandler>;
+        let listener_delivery = reliable_delivery.clone();
+        let listener_inbound = base_inbound.clone();
+        let listener = TcpAssociationListener::from_listener(listener, base_inbound)
+            .with_handler_factory(Arc::new(
+                move |identity: Option<&crate::TcpAssociationIdentity>| match identity {
+                    Some(identity) => Arc::new(ReliableSystemInboundHandler::new(
+                        listener_delivery.clone(),
+                        listener_inbound.clone(),
+                        identity.address().clone(),
+                    )) as Arc<dyn crate::RemoteFrameHandler>,
+                    None => listener_inbound.clone(),
+                },
+            ))
+            .with_local_identity(local_address.clone(), local_system_uid)
             .with_association_registry(association_registry.clone())
             .with_route_installer(installer.clone())
             .spawn_accept_loop()?;
         let dialer = TcpAssociationDialer::new(installer)
-            .with_local_identity(
-                local_association_address(&system, &effective_settings)?,
-                local_system_uid,
-            )
+            .with_local_identity(local_address, local_system_uid)
+            .with_handshake_response_required()
             .with_connect_timeout(effective_settings.connect_timeout_or_default());
         let provider = RemoteActorRefProvider::with_actor_system(
             system.clone(),
             effective_settings.clone(),
             registry.clone(),
-            outbound,
+            outbound.clone(),
         );
 
         Ok(TcpRemoteActorRuntime {
@@ -365,9 +468,12 @@ impl TcpRemoteActorRuntimeBuilder {
             outbound_queue_settings,
             association_cache,
             association_registry,
+            outbound,
             provider,
             dialer,
-            outbound_reader,
+            inbound,
+            reliable_delivery,
+            reliable_delivery_actor,
             outbound_readers: Arc::new(Mutex::new(Vec::new())),
             outbound_pipelines: Arc::new(Mutex::new(Vec::new())),
             death_watch,
@@ -397,8 +503,16 @@ impl TcpRemoteActorRuntime {
         &self.association_cache
     }
 
+    pub fn outbound(&self) -> &Arc<dyn RemoteOutbound> {
+        &self.outbound
+    }
+
     pub fn association_registry(&self) -> &RemoteAssociationRegistry {
         &self.association_registry
+    }
+
+    pub fn reliable_system_delivery_stats(&self) -> ReliableSystemDeliveryStats {
+        self.reliable_delivery.stats()
     }
 
     pub fn provider(&self) -> &RemoteActorRefProvider {
@@ -417,9 +531,12 @@ impl TcpRemoteActorRuntime {
         &self,
         address: RemoteAssociationAddress,
     ) -> Result<RemoteAssociationRouteRegistration> {
-        let (registration, reader_handle) = self
-            .dialer
-            .dial_with_reader(address, self.outbound_reader.clone())?;
+        let reader = TcpAssociationStreamReader::new(Arc::new(ReliableSystemInboundHandler::new(
+            self.reliable_delivery.clone(),
+            self.inbound.clone() as Arc<dyn crate::RemoteFrameHandler>,
+            address.clone(),
+        )));
+        let (registration, reader_handle) = self.dialer.dial_with_reader(address, reader)?;
         self.outbound_pipelines
             .lock()
             .expect("tcp remote actor system outbound pipelines lock poisoned")
@@ -512,7 +629,10 @@ impl TcpRemoteActorRuntime {
     pub fn shutdown_with_timeout(self, timeout: Duration) -> Result<TcpAssociationListenerReport> {
         shutdown_runtime(
             &self.system,
-            &self.death_watch,
+            RuntimeSystemActorRefs {
+                reliable_delivery: &self.reliable_delivery_actor,
+                death_watch: &self.death_watch,
+            },
             &self.association_cache,
             &self.listener,
             &self.outbound_readers,
@@ -530,6 +650,7 @@ impl TcpRemoteActorRuntime {
         let shutdown = self.system.coordinated_shutdown();
         let system = self.system.clone();
         let death_watch = self.death_watch.clone();
+        let reliable_delivery_actor = self.reliable_delivery_actor.clone();
         let association_cache = self.association_cache.clone();
         let listener = Arc::clone(&self.listener);
         let outbound_readers = Arc::clone(&self.outbound_readers);
@@ -538,7 +659,10 @@ impl TcpRemoteActorRuntime {
             .add_task(phase, task_name, move || {
                 shutdown_runtime(
                     &system,
-                    &death_watch,
+                    RuntimeSystemActorRefs {
+                        reliable_delivery: &reliable_delivery_actor,
+                        death_watch: &death_watch,
+                    },
                     &association_cache,
                     &listener,
                     &outbound_readers,
@@ -554,15 +678,17 @@ impl TcpRemoteActorRuntime {
 
 fn shutdown_runtime(
     system: &ActorSystem,
-    death_watch: &ActorRef<RemoteDeathWatchCommand>,
+    system_actors: RuntimeSystemActorRefs<'_>,
     association_cache: &RemoteAssociationCache,
     listener: &Arc<Mutex<Option<TcpAssociationListenerHandle>>>,
     outbound_readers: &Arc<Mutex<Vec<TcpAssociationReaderHandle>>>,
     outbound_pipelines: &Arc<Mutex<Vec<AssociationOutboundPipeline>>>,
     timeout: Duration,
 ) -> Result<TcpAssociationListenerReport> {
-    system.stop(death_watch);
-    let death_watch_stopped = death_watch.wait_for_stop(timeout);
+    system.stop(system_actors.reliable_delivery);
+    system.stop(system_actors.death_watch);
+    let reliable_delivery_stopped = system_actors.reliable_delivery.wait_for_stop(timeout);
+    let death_watch_stopped = system_actors.death_watch.wait_for_stop(timeout);
     for result in association_cache.clear_routes_and_close(TCP_REMOTE_SHUTDOWN_REASON) {
         result?;
     }
@@ -572,9 +698,9 @@ fn shutdown_runtime(
         .take();
 
     let Some(listener) = listener else {
-        if !death_watch_stopped {
+        if !reliable_delivery_stopped || !death_watch_stopped {
             return Err(RemoteError::Inbound(
-                "remote death-watch actor did not stop during tcp shutdown".to_string(),
+                "remote system actors did not stop during tcp shutdown".to_string(),
             ));
         }
         return Ok(empty_listener_report());
@@ -598,13 +724,25 @@ fn shutdown_runtime(
         result?;
     }
 
-    if !death_watch_stopped {
+    if !reliable_delivery_stopped || !death_watch_stopped {
         return Err(RemoteError::Inbound(
-            "remote death-watch actor did not stop during tcp shutdown".to_string(),
+            "remote system actors did not stop during tcp shutdown".to_string(),
         ));
     }
 
     listener_report
+}
+
+fn default_reliable_manifests() -> HashSet<String> {
+    [
+        crate::WatchRemote::MANIFEST,
+        crate::UnwatchRemote::MANIFEST,
+        crate::RemoteTerminated::MANIFEST,
+        crate::AddressTerminated::MANIFEST,
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
 }
 
 fn empty_listener_report() -> TcpAssociationListenerReport {

@@ -16,6 +16,7 @@ pub struct TcpAssociationDialer {
     installer: RemoteAssociationRouteInstaller,
     connect_timeout: Option<Duration>,
     local_identity: Option<TcpAssociationIdentity>,
+    handshake_response_required: bool,
 }
 
 impl TcpAssociationDialer {
@@ -24,6 +25,7 @@ impl TcpAssociationDialer {
             installer,
             connect_timeout: None,
             local_identity: None,
+            handshake_response_required: false,
         }
     }
 
@@ -43,6 +45,11 @@ impl TcpAssociationDialer {
         local_uid: u64,
     ) -> Self {
         self.local_identity = Some(TcpAssociationIdentity::new(local_address, local_uid));
+        self
+    }
+
+    pub fn with_handshake_response_required(mut self) -> Self {
+        self.handshake_response_required = true;
         self
     }
 
@@ -107,9 +114,14 @@ impl TcpAssociationDialer {
         address: &RemoteAssociationAddress,
         streams: [&mut std::net::TcpStream; 3],
     ) -> crate::Result<()> {
-        let Some(local_identity) = &self.local_identity else {
+        if !self.handshake_response_required {
             return Ok(());
-        };
+        }
+        let local_identity = self.local_identity.as_ref().ok_or_else(|| {
+            crate::RemoteError::InvalidReliableSystemDelivery(
+                "a handshake response requires a configured local identity".to_string(),
+            )
+        })?;
         let mut handshakes = Vec::with_capacity(streams.len());
         for stream in streams {
             stream

@@ -195,6 +195,7 @@ mod outbound;
 mod protocol;
 mod provider;
 mod reliable_delivery;
+mod reliable_runtime;
 mod remote_ref;
 mod remote_watch;
 mod remote_watch_actor;
@@ -254,6 +255,10 @@ pub use reliable_delivery::{
     ReliableSystemEnvelope, ReliableSystemEnvelopeCodec, ReliableSystemNack,
     ReliableSystemNackCodec, ReliableSystemReceiveOutcome, ReliableSystemReceiver,
     ReliableSystemSender, register_reliable_system_codecs,
+};
+pub use reliable_runtime::{
+    ReliableSystemDeliveryFailure, ReliableSystemDeliveryObserver, ReliableSystemDeliverySettings,
+    ReliableSystemDeliveryStats,
 };
 pub use remote_ref::RemoteActorRef;
 pub use remote_watch::{RemoteDeathWatchEffect, RemoteDeathWatchState};

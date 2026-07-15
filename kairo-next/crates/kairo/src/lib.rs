@@ -179,14 +179,15 @@ pub mod prelude {
     };
     #[cfg(feature = "remote")]
     pub use kairo_remote::{
-        ReliableSystemAck, ReliableSystemEnvelope, ReliableSystemNack,
-        ReliableSystemReceiveOutcome, ReliableSystemReceiver, ReliableSystemSender, RemoteActorRef,
-        RemoteActorRefProvider, RemoteActorRefResolver, RemoteAssociationDiagnostic,
-        RemoteAssociationDiagnosticFilter, RemoteAssociationDiagnostics, RemoteError,
-        RemoteInboundDiagnostic, RemoteInboundDiagnosticFilter, RemoteInboundDiagnostics,
-        RemoteOutbound, RemoteOutboundQueueSettings, RemoteSettings, ResolvedActorRef,
-        TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder, TcpRemoteActorRuntimeContext,
-        TcpRemoteActorSystem,
+        ReliableSystemAck, ReliableSystemDeliveryFailure, ReliableSystemDeliveryObserver,
+        ReliableSystemDeliverySettings, ReliableSystemDeliveryStats, ReliableSystemEnvelope,
+        ReliableSystemNack, ReliableSystemReceiveOutcome, ReliableSystemReceiver,
+        ReliableSystemSender, RemoteActorRef, RemoteActorRefProvider, RemoteActorRefResolver,
+        RemoteAssociationDiagnostic, RemoteAssociationDiagnosticFilter,
+        RemoteAssociationDiagnostics, RemoteError, RemoteInboundDiagnostic,
+        RemoteInboundDiagnosticFilter, RemoteInboundDiagnostics, RemoteOutbound,
+        RemoteOutboundQueueSettings, RemoteSettings, ResolvedActorRef, TcpRemoteActorRuntime,
+        TcpRemoteActorRuntimeBuilder, TcpRemoteActorRuntimeContext, TcpRemoteActorSystem,
     };
     #[cfg(feature = "serialization")]
     pub use kairo_serialization::{

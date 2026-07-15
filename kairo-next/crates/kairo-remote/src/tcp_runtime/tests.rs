@@ -303,6 +303,24 @@ fn await_route_count(cache: &RemoteAssociationCache, expected: usize) {
     .unwrap();
 }
 
+fn await_reliable_pending(runtime: &TcpRemoteActorRuntime, expected: usize) {
+    await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(1),
+        || -> Result<(), String> {
+            let actual = runtime.reliable_system_delivery_stats().unacknowledged;
+            if actual == expected {
+                Ok(())
+            } else {
+                Err(format!(
+                    "expected {expected} unacknowledged reliable messages, found {actual}"
+                ))
+            }
+        },
+    )
+    .unwrap();
+}
+
 fn await_bidirectional_routes(
     sender_remote: &TcpRemoteActorSystem<Ping>,
     receiver_remote: &TcpRemoteActorSystem<Ping>,
@@ -937,6 +955,7 @@ fn tcp_remote_actor_system_routes_remote_terminated_to_watcher() {
         &receiver_stats_rx,
     );
     assert_eq!(receiver_stats.inbound_watching, 1);
+    await_reliable_pending(&sender_remote, 0);
 
     receiver_remote
         .death_watch()

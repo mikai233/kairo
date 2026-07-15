@@ -885,10 +885,15 @@ TCP association dialing:
   bind-time context containing the effective canonical address, ActorSystem,
   codec registry, system UID, and shared association cache; their manifests
   are required on the control lane and added to the association's outbound
-  classifier. `TcpRemoteActorSystem<M>` remains a compatibility facade that
+  classifier. `register_reliable_control_handler` additionally selects
+  lifecycle manifests for reliable sequencing, while handler factories can use
+  the context's reliability-aware outbound boundary for replies. The raw
+  association cache remains available as the transport route table.
+  `TcpRemoteActorSystem<M>` remains a compatibility facade that
   registers one protocol with the same runtime core,
 - `TcpRemoteActorRuntime::shutdown_with_timeout` stops the runtime-owned
-  remote death-watch actor before clearing outbound association routes and
+  reliable-delivery scheduler and remote death-watch actors before clearing
+  outbound association routes and
   stopping the TCP listener, joins dialing-side lane readers after route
   shutdown, and preserves the shutdown ordering shape Pekko uses for remoting
   internals before transport shutdown,
@@ -957,9 +962,17 @@ at sequence one, applies cumulative ack/nack progress, rejects replies from a
 different `(local UID, remote UID)` pair, and drains/reset sequences when the
 remote UID changes. `ReliableSystemReceiver` delivers only the next expected
 sequence, acknowledges duplicates without redelivery, and nacks gaps with the
-highest contiguous sequence. Runtime retry timers, give-up quarantine, and
-manifest selection compose around this state machine rather than changing its
-wire or ordering rules.
+highest contiguous sequence. `TcpRemoteActorRuntime` composes manifest
+selection around that state machine: remote watch/unwatch/termination traffic
+is reliable by default, heartbeat and other refreshable control traffic remains
+at-most-once, and additional lifecycle protocols opt in during pre-bind
+registration. One runtime-owned ActorSystem scheduler actor retries each
+association's retained FIFO. Cumulative replies clear sender state;
+buffer/control overflow, invalid identity or sequence transitions, and
+acknowledgement silence past the bounded give-up duration quarantine and close
+the exact registry-owned incarnation and report retained messages through
+`ReliableSystemDeliveryObserver`. A handshake for a new UID replaces terminal
+state and begins again at sequence one.
 
 ### Remote Watch
 
