@@ -230,10 +230,14 @@ impl<A: Actor> ActorRunner<A> {
         self.system_inner
             .receptionist
             .remove_actor(self.actor_ref.path());
-        self.actor_ref.target.terminated.mark_stopped();
+        let cause = TerminationCause::Failed(reason);
+        self.actor_ref
+            .target
+            .terminated
+            .mark_stopped_with_cause(cause.clone());
         self.system_inner
             .death_watch
-            .notify(self.actor_ref.path(), TerminationCause::Failed(reason));
+            .notify(self.actor_ref.path(), cause);
         state.terminated = true;
         mailbox.clear_scheduler();
     }
@@ -278,10 +282,14 @@ impl<A: Actor> ActorRunner<A> {
         self.system_inner
             .receptionist
             .remove_actor(self.actor_ref.path());
-        self.actor_ref.target.terminated.mark_stopped();
+        let cause = execution.run_state.termination_cause;
+        self.actor_ref
+            .target
+            .terminated
+            .mark_stopped_with_cause(cause.clone());
         self.system_inner
             .death_watch
-            .notify(self.actor_ref.path(), execution.run_state.termination_cause);
+            .notify(self.actor_ref.path(), cause);
         state.terminated = true;
         mailbox.clear_scheduler();
     }

@@ -7,6 +7,7 @@ use std::time::Duration;
 mod lifecycle;
 
 use crate::dead_letters::DeadLetters;
+use crate::death_watch::TerminationCause;
 use crate::error::SendError;
 use crate::mailbox::{Mailbox, SystemMessage};
 use crate::path::ActorPath;
@@ -251,8 +252,8 @@ impl<M: Send + 'static> ActorRef<M> {
         self.target.terminated.wait(timeout)
     }
 
-    pub(crate) fn is_terminated(&self) -> bool {
-        self.target.terminated.is_stopped()
+    pub(crate) fn termination_cause(&self) -> Option<TerminationCause> {
+        self.target.terminated.cause()
     }
 
     pub(crate) fn send_system_signal(&self, signal: Signal) {

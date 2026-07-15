@@ -2,6 +2,7 @@ use std::fmt::{self, Formatter};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::death_watch::TerminationCause;
 use crate::path::ActorPath;
 use crate::supervision::SupervisionFailure;
 
@@ -46,34 +47,41 @@ impl LocalActorHandle {
 
 #[derive(Debug, Default)]
 pub(crate) struct TerminationLatch {
-    stopped: Mutex<bool>,
+    cause: Mutex<Option<TerminationCause>>,
     changed: Condvar,
 }
 
 impl TerminationLatch {
     pub(crate) fn mark_stopped(&self) {
-        let mut stopped = self.stopped.lock().expect("termination latch poisoned");
-        *stopped = true;
+        self.mark_stopped_with_cause(TerminationCause::Stopped);
+    }
+
+    pub(crate) fn mark_stopped_with_cause(&self, cause: TerminationCause) {
+        let mut stopped_cause = self.cause.lock().expect("termination latch poisoned");
+        *stopped_cause = Some(cause);
         self.changed.notify_all();
     }
 
-    pub(super) fn is_stopped(&self) -> bool {
-        *self.stopped.lock().expect("termination latch poisoned")
+    pub(super) fn cause(&self) -> Option<TerminationCause> {
+        self.cause
+            .lock()
+            .expect("termination latch poisoned")
+            .clone()
     }
 
     pub(super) fn wait(&self, timeout: Duration) -> bool {
         let deadline = Instant::now() + timeout;
-        let mut stopped = self.stopped.lock().expect("termination latch poisoned");
-        while !*stopped {
+        let mut stopped_cause = self.cause.lock().expect("termination latch poisoned");
+        while stopped_cause.is_none() {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return false;
             };
-            let (next_stopped, wait) = self
+            let (next_cause, wait) = self
                 .changed
-                .wait_timeout(stopped, remaining)
+                .wait_timeout(stopped_cause, remaining)
                 .expect("termination latch poisoned");
-            stopped = next_stopped;
-            if wait.timed_out() && !*stopped {
+            stopped_cause = next_cause;
+            if wait.timed_out() && stopped_cause.is_none() {
                 return false;
             }
         }

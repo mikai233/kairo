@@ -4,21 +4,23 @@
 
 As of 2026-07-15, `kairo-next` has broad component coverage across local
 actors, serialization, remoting, gossip state, distributed data, sharding, and
-cluster tools. The component depth and validation history are substantial, but
-the rewrite has not yet reached an M13-only hardening phase. The production
+cluster tools. The component depth, composed acceptance workflows, and
+validation history now place the rewrite in its M13 hardening phase. The production
 actor execution model and composed remoting boundary are now complete. The
 composed cluster daemon and its public ActorSystem extension now cover formation,
 reachability, graceful leave, explicit join, and same-address reincarnation at
 the process boundary. Distributed integration is complete through its
 foundational acceptance boundary.
 
-Current active stage: **final foundation audit before M13**, with Phases 1-4
-complete. The three-node final acceptance workflow passes through the public
+Current active stage: **M13 hardening and release readiness**, with Phases 1-4
+and the final actor-tree audit complete. The three-node final acceptance workflow passes through the public
 composed runtime, and a separate two-node acceptance test now partitions live
 ddata replicas, applies divergent local updates, heals the associations, and
 proves reachability plus CRDT convergence recover without membership removal.
-The next foundational gate is the final actor-tree semantic audit recorded
-under M2; M13 begins after that audit leaves only tuning and release hardening.
+The actor audit also made startup-failure death watch deterministic by retaining
+the terminal failure cause for a watch registered after child termination.
+Remaining work is tuning, compatibility depth, documentation, and release
+hardening rather than foundational redesign.
 
 Status terms in this document mean:
 
@@ -38,14 +40,17 @@ Status terms in this document mean:
   Actor mailboxes now run as throughput-limited activations on an
   ActorSystem-owned fixed worker pool, with atomic schedule-once wakeups and
   cooperative child lifecycle progress as recorded by ADR-0102.
-- M2 lifecycle, supervision, patterns, and testkit: substantial component
-  coverage. Lifecycle, supervision, death watch, timers, scheduler, ask,
+- M2 lifecycle, supervision, patterns, and testkit: complete through its
+  acceptance boundary. Lifecycle, supervision, death watch, timers, scheduler, ask,
   pipe-to-self, adapters, stash, event stream, receptionist, coordinated
   shutdown, probes, and manual time support have focused tests. Actor-owned
   helper tasks run on a bounded ActorSystem-owned worker pool, and real-time
   timers share one ActorSystem-owned scheduler driver while deterministic
-  manual time remains unchanged. A final actor tree semantic audit remains
-  part of foundation convergence.
+  manual time remains unchanged. The final tree audit covers recursive stop
+  and restart ordering, queued mailbox/helper cleanup, child-name reservation,
+  death-watch cleanup, and guardian shutdown. It also closes the startup race
+  where a late parent watch could lose a child's failure cause and receive
+  `Terminated` instead of `ChildFailed`.
 - M3 serialization and message metadata: mostly complete. Stable
   `RemoteMessage` metadata, derive support, codec registration, manifests,
   remote envelopes, and actor-ref serialization boundaries exist. Optional
@@ -140,10 +145,10 @@ Status terms in this document mean:
   `cluster_sharding_tcp` example now provides the final three-node acceptance
   workflow through the `kairo` facade and real composed membership; other
   distributed examples retain narrower diagnostic/bootstrap roles.
-- M13 hardening and release readiness: not active as the sole remaining phase.
-  Its validation, documentation, dependency audit, and benchmark scaffolding
-  already provide useful continuous gates, but final M13 sign-off follows the
-  execution plan below.
+- M13 hardening and release readiness: active as the remaining phase. Its
+  validation, documentation, dependency audit, and benchmark scaffolding
+  already provide useful continuous gates; final sign-off now focuses on
+  release quality rather than replacement architecture.
 
 ## Execution Plan Before M13
 
@@ -523,7 +528,7 @@ and distributed data now has a same-runtime crash/down survivor-quorum
 scenario. Singleton now also has a same-runtime abrupt-oldest recovery
 scenario, and pubsub has a same-runtime crashed-subscriber cleanup scenario.
 The healed-partition acceptance test closes the remaining Phase 4 gate. The
-next foundational checkpoint is the M2 actor-tree semantic audit.
+completed M2 actor-tree audit leaves M13 hardening as the active phase.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6119,13 +6124,6 @@ Implemented:
 
 Not yet implemented:
 
-- Full actor tree lifecycle semantic audit beyond the current recursive local
-  stop, recursive restart-time child handling, restart-time child watch
-  cleanup, terminating-child name reservation coverage, direct parent and
-  actor-system queued message/child-spawn drain coverage, actor-system
-  recursive child mailbox drain coverage, and actor-system
-  stashed-message/message-adapter/async-helper/ask-temp-ref/timer,
-  receive-timeout, death-watch, and PostStop drain coverage.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and broader cross-crate compatibility
   fixtures.

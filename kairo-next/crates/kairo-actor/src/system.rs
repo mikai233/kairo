@@ -563,23 +563,19 @@ impl ActorSystem {
     where
         N: Send + 'static,
     {
-        if subject.is_terminated() {
+        if let Some(cause) = subject.termination_cause() {
             self.inner
                 .death_watch
                 .watch(subject.path().clone(), registration)?;
-            self.inner
-                .death_watch
-                .notify(subject.path(), TerminationCause::Stopped);
+            self.inner.death_watch.notify(subject.path(), cause);
             return Ok(());
         }
 
         self.inner
             .death_watch
             .watch(subject.path().clone(), registration)?;
-        if subject.is_terminated() {
-            self.inner
-                .death_watch
-                .notify(subject.path(), TerminationCause::Stopped);
+        if let Some(cause) = subject.termination_cause() {
+            self.inner.death_watch.notify(subject.path(), cause);
         }
         Ok(())
     }

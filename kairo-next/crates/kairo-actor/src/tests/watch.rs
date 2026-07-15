@@ -645,6 +645,11 @@ impl Actor for ParentWatchProbe {
             ParentWatchMsg::SpawnStartupFailingChild => {
                 let child =
                     ctx.spawn("startup-failing-child", Props::new(|| StartupFailingChild))?;
+                if !child.wait_for_stop(Duration::from_secs(1)) {
+                    return Err(ActorError::Message(
+                        "startup-failing child did not terminate".to_string(),
+                    ));
+                }
                 ctx.watch(&child)?;
             }
         }

@@ -620,7 +620,7 @@ fn implementation_status_docs_do_not_mark_remote_region_control_inbound_as_futur
 }
 
 #[test]
-fn implementation_status_docs_do_not_mark_actor_tree_lifecycle_coverage_as_future_work()
+fn implementation_status_docs_mark_actor_tree_lifecycle_audit_complete()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let progress =
@@ -639,23 +639,16 @@ fn implementation_status_docs_do_not_mark_actor_tree_lifecycle_coverage_as_futur
         );
     }
     for implemented_phrase in [
-        "Actor-system termination now has focused coverage that top-level actor stop\n  waits recursively for descendant child termination",
-        "Restart-time child lifecycle coverage now also pins recursive descendant\n  waiting",
-        "restart-time child teardown has completed",
-        "stopping children keep their logical names reserved until\n  termination completes",
-        "direct parent and\n  actor-system queued message/child-spawn drain coverage",
-        "actor-system\n  recursive child mailbox drain coverage",
-        "actor-system stashed-message drain\ncoverage",
+        "final actor-tree audit complete",
+        "late parent watch could lose a child's failure cause",
+        "Remaining work is tuning, compatibility depth, documentation, and release\nhardening rather than foundational redesign.",
     ] {
         assert!(
             progress.contains(implemented_phrase),
             "progress must mention implemented actor-tree lifecycle coverage: {implemented_phrase}"
         );
     }
-    assert!(
-        progress.contains("Full actor tree lifecycle semantic audit beyond the current"),
-        "remaining actor-tree lifecycle status should be scoped to audit beyond current coverage"
-    );
+    assert!(!progress.contains("Full actor tree lifecycle semantic audit beyond the current"));
 
     Ok(())
 }
