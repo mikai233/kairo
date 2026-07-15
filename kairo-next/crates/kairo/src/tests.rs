@@ -154,6 +154,7 @@ fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error:
         "kairo-next/crates/kairo-remote/src/frame.rs",
         "kairo-next/crates/kairo-remote/src/inbound.rs",
         "kairo-next/crates/kairo-remote/src/inbound_router.rs",
+        "kairo-next/crates/kairo-remote/src/lanes.rs",
         "kairo-next/crates/kairo-remote/src/local_address.rs",
         "kairo-next/crates/kairo-remote/src/local_delivery.rs",
         "kairo-next/crates/kairo-remote/src/outbound.rs",
@@ -162,6 +163,9 @@ fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error:
         "kairo-next/crates/kairo-remote/src/remote_ref.rs",
         "kairo-next/crates/kairo-remote/src/resolved_ref.rs",
         "kairo-next/crates/kairo-remote/src/settings.rs",
+        "kairo-next/crates/kairo-remote/src/stream.rs",
+        "kairo-next/crates/kairo-remote/src/stream_inbound.rs",
+        "kairo-next/crates/kairo-remote/src/stream_sink.rs",
         "kairo-next/crates/kairo-remote/src/system_inbound.rs",
         "kairo-next/crates/kairo-remote/src/transport.rs",
     ];

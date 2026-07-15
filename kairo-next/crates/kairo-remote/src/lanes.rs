@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -10,6 +12,8 @@ use crate::{
     stream::RemoteStreamId,
 };
 
+/// Classifies encoded remote envelopes into control, ordinary, or large
+/// transport lanes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteLaneClassifier {
     control_manifests: BTreeSet<String>,
@@ -17,6 +21,8 @@ pub struct RemoteLaneClassifier {
 }
 
 impl RemoteLaneClassifier {
+    /// Creates a classifier with the built-in remote death-watch manifests on
+    /// the control lane and no large-frame threshold.
     pub fn new() -> Self {
         let mut classifier = Self {
             control_manifests: BTreeSet::new(),
@@ -31,15 +37,21 @@ impl RemoteLaneClassifier {
         classifier
     }
 
+    /// Routes non-control frames of at least `threshold` encoded bytes to the
+    /// large lane.
     pub fn with_large_frame_threshold(mut self, threshold: usize) -> Self {
         self.large_frame_threshold = Some(threshold);
         self
     }
 
+    /// Adds a stable manifest to the control-lane set.
     pub fn add_control_manifest(&mut self, manifest: impl Into<String>) {
         self.control_manifests.insert(manifest.into());
     }
 
+    /// Selects the lane for an envelope with the supplied encoded length.
+    ///
+    /// Control manifests take precedence over the large-frame threshold.
     pub fn classify(&self, envelope: &RemoteEnvelope, encoded_len: usize) -> RemoteStreamId {
         if self
             .control_manifests
@@ -63,7 +75,9 @@ impl Default for RemoteLaneClassifier {
     }
 }
 
+/// Sink for a complete encoded envelope frame assigned to a transport lane.
 pub trait RemoteLaneSink: Send + Sync + 'static {
+    /// Sends one encoded frame on `lane`.
     fn send_lane_frame(&self, lane: RemoteStreamId, frame: Bytes) -> Result<()>;
 }
 
@@ -77,20 +91,24 @@ where
 }
 
 #[derive(Clone)]
+/// Encodes remote envelopes, classifies them, and sends them to a lane sink.
 pub struct LaneRemoteOutbound {
     classifier: RemoteLaneClassifier,
     sink: Arc<dyn RemoteLaneSink>,
 }
 
 impl LaneRemoteOutbound {
+    /// Creates a lane-aware outbound with an explicit classifier and sink.
     pub fn new(classifier: RemoteLaneClassifier, sink: Arc<dyn RemoteLaneSink>) -> Self {
         Self { classifier, sink }
     }
 
+    /// Returns the lane classifier.
     pub fn classifier(&self) -> &RemoteLaneClassifier {
         &self.classifier
     }
 
+    /// Returns the encoded-frame lane sink.
     pub fn sink(&self) -> &Arc<dyn RemoteLaneSink> {
         &self.sink
     }
@@ -110,6 +128,7 @@ impl From<Arc<dyn RemoteLaneSink>> for LaneRemoteOutbound {
     }
 }
 
+/// Creates an outbound error annotated with the failed lane.
 pub fn lane_send_failure(lane: RemoteStreamId, reason: impl Into<String>) -> RemoteError {
     RemoteError::Outbound(format!(
         "remote {:?} lane delivery failed: {}",

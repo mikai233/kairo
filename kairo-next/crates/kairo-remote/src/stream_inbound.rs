@@ -1,10 +1,14 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use bytes::Bytes;
 
 use crate::{RemoteStreamDecoder, RemoteStreamId, Result};
 
+/// Handler for a decoded frame and the stream that carried it.
 pub trait RemoteFrameHandler: Send + Sync + 'static {
+    /// Handles one decoded frame payload.
     fn handle_frame(&self, stream_id: RemoteStreamId, frame: Bytes) -> Result<()>;
 }
 
@@ -17,12 +21,14 @@ where
     }
 }
 
+/// Incrementally decodes stream bytes and dispatches complete frames.
 pub struct StreamFrameInbound {
     decoder: RemoteStreamDecoder,
     handler: Arc<dyn RemoteFrameHandler>,
 }
 
 impl StreamFrameInbound {
+    /// Creates an inbound using the default maximum frame length.
     pub fn new(handler: Arc<dyn RemoteFrameHandler>) -> Self {
         Self {
             decoder: RemoteStreamDecoder::new(),
@@ -30,6 +36,7 @@ impl StreamFrameInbound {
         }
     }
 
+    /// Creates an inbound that rejects frames larger than `max_frame_len`.
     pub fn with_max_frame_len(max_frame_len: usize, handler: Arc<dyn RemoteFrameHandler>) -> Self {
         Self {
             decoder: RemoteStreamDecoder::with_max_frame_len(max_frame_len),
@@ -37,10 +44,14 @@ impl StreamFrameInbound {
         }
     }
 
+    /// Returns the stream identifier once its header has been decoded.
     pub fn stream_id(&self) -> Option<RemoteStreamId> {
         self.decoder.stream_id()
     }
 
+    /// Pushes a byte chunk and returns the number of complete frames delivered.
+    ///
+    /// Decoder and handler failures stop delivery and are returned immediately.
     pub fn push_bytes(&mut self, chunk: Bytes) -> Result<usize> {
         let frames = self.decoder.push(chunk)?;
         let delivered = frames.len();
@@ -51,6 +62,7 @@ impl StreamFrameInbound {
         Ok(delivered)
     }
 
+    /// Finishes the stream, rejecting a partial header or frame.
     pub fn finish(self) -> Result<()> {
         self.decoder.finish()
     }

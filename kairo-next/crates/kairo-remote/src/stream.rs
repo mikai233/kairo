@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 
 use crate::{RemoteError, Result};
@@ -7,18 +9,26 @@ const REMOTE_STREAM_HEADER_LEN: usize = REMOTE_STREAM_MAGIC.len() + 1;
 const REMOTE_STREAM_FRAME_HEADER_LEN: usize = 4;
 const DEFAULT_MAX_FRAME_LEN: usize = 16 * 1024 * 1024;
 
+/// Stable identifier for an independent remote transport stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RemoteStreamId {
+    /// Lifecycle and system protocol traffic.
     Control,
+    /// Normal user and extension traffic.
     Ordinary,
+    /// User or extension traffic above the configured large-frame threshold.
     Large,
 }
 
 impl RemoteStreamId {
+    /// Stable wire identifier for the control stream.
     pub const CONTROL_ID: u8 = 1;
+    /// Stable wire identifier for the ordinary stream.
     pub const ORDINARY_ID: u8 = 2;
+    /// Stable wire identifier for the large stream.
     pub const LARGE_ID: u8 = 3;
 
+    /// Returns the stable wire identifier for this stream.
     pub fn as_u8(self) -> u8 {
         match self {
             Self::Control => Self::CONTROL_ID,
@@ -27,6 +37,7 @@ impl RemoteStreamId {
         }
     }
 
+    /// Decodes a stable stream identifier from its wire value.
     pub fn try_from_u8(value: u8) -> Result<Self> {
         match value {
             Self::CONTROL_ID => Ok(Self::Control),
@@ -39,6 +50,7 @@ impl RemoteStreamId {
     }
 }
 
+/// One decoded length-prefixed frame associated with its remote stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteStreamFrame {
     stream_id: RemoteStreamId,
@@ -46,23 +58,31 @@ pub struct RemoteStreamFrame {
 }
 
 impl RemoteStreamFrame {
+    /// Creates a decoded stream frame.
     pub fn new(stream_id: RemoteStreamId, payload: Bytes) -> Self {
         Self { stream_id, payload }
     }
 
+    /// Returns the stream that carried the frame.
     pub fn stream_id(&self) -> RemoteStreamId {
         self.stream_id
     }
 
+    /// Borrows the frame payload.
     pub fn payload(&self) -> &Bytes {
         &self.payload
     }
 
+    /// Consumes the frame and returns its payload.
     pub fn into_payload(self) -> Bytes {
         self.payload
     }
 }
 
+/// Stateful encoder for one remote stream.
+///
+/// The stream header is emitted with the first frame only; later frames contain
+/// just their length prefix and payload.
 #[derive(Debug, Clone)]
 pub struct RemoteStreamEncoder {
     stream_id: RemoteStreamId,
@@ -70,6 +90,7 @@ pub struct RemoteStreamEncoder {
 }
 
 impl RemoteStreamEncoder {
+    /// Creates an encoder for `stream_id`.
     pub fn new(stream_id: RemoteStreamId) -> Self {
         Self {
             stream_id,
@@ -77,14 +98,17 @@ impl RemoteStreamEncoder {
         }
     }
 
+    /// Returns the stream encoded by this instance.
     pub fn stream_id(&self) -> RemoteStreamId {
         self.stream_id
     }
 
+    /// Returns whether the stream header has already been emitted.
     pub fn header_written(&self) -> bool {
         self.header_written
     }
 
+    /// Encodes one frame, prepending the stream header on the first call.
     pub fn encode_frame(&mut self, payload: &Bytes) -> Result<Bytes> {
         let mut bytes = Vec::with_capacity(
             if self.header_written {
@@ -103,6 +127,7 @@ impl RemoteStreamEncoder {
     }
 }
 
+/// Incrementally decodes one remote stream from arbitrary byte chunks.
 #[derive(Debug, Clone)]
 pub struct RemoteStreamDecoder {
     max_frame_len: usize,
@@ -111,10 +136,13 @@ pub struct RemoteStreamDecoder {
 }
 
 impl RemoteStreamDecoder {
+    /// Creates a decoder with the default 16 MiB maximum frame length.
     pub fn new() -> Self {
         Self::with_max_frame_len(DEFAULT_MAX_FRAME_LEN)
     }
 
+    /// Creates a decoder that rejects declared frames larger than
+    /// `max_frame_len` before buffering their payloads.
     pub fn with_max_frame_len(max_frame_len: usize) -> Self {
         Self {
             max_frame_len,
@@ -123,15 +151,18 @@ impl RemoteStreamDecoder {
         }
     }
 
+    /// Returns the decoded stream identifier, if the header has arrived.
     pub fn stream_id(&self) -> Option<RemoteStreamId> {
         self.stream_id
     }
 
+    /// Adds a byte chunk and returns every frame completed by the new bytes.
     pub fn push(&mut self, chunk: Bytes) -> Result<Vec<RemoteStreamFrame>> {
         self.buffer.extend_from_slice(&chunk);
         self.decode_available()
     }
 
+    /// Finishes decoding, rejecting a partial header or frame.
     pub fn finish(self) -> Result<()> {
         if self.buffer.is_empty() {
             Ok(())
@@ -188,6 +219,7 @@ impl Default for RemoteStreamDecoder {
     }
 }
 
+/// Encodes the magic and stable identifier header for one remote stream.
 pub fn encode_remote_stream_header(stream_id: RemoteStreamId) -> Bytes {
     let mut bytes = Vec::with_capacity(REMOTE_STREAM_HEADER_LEN);
     bytes.extend_from_slice(&REMOTE_STREAM_MAGIC);
@@ -195,6 +227,7 @@ pub fn encode_remote_stream_header(stream_id: RemoteStreamId) -> Bytes {
     Bytes::from(bytes)
 }
 
+/// Validates and decodes a complete remote stream header.
 pub fn decode_remote_stream_header(bytes: &[u8]) -> Result<RemoteStreamId> {
     if bytes.len() < REMOTE_STREAM_HEADER_LEN {
         return Err(RemoteError::InvalidFrame(
@@ -209,6 +242,7 @@ pub fn decode_remote_stream_header(bytes: &[u8]) -> Result<RemoteStreamId> {
     RemoteStreamId::try_from_u8(bytes[REMOTE_STREAM_MAGIC.len()])
 }
 
+/// Encodes one length-prefixed remote stream frame without a stream header.
 pub fn encode_remote_stream_frame(payload: &Bytes) -> Result<Bytes> {
     let frame_len = u32::try_from(payload.len()).map_err(|_| {
         RemoteError::InvalidFrame("remote stream frame exceeds u32 length".to_string())

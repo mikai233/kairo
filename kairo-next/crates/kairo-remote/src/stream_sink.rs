@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
@@ -9,14 +11,20 @@ use crate::{
     RemoteError, RemoteLaneSink, RemoteStreamEncoder, RemoteStreamId, Result, lane_send_failure,
 };
 
+/// Sink for encoded bytes written to one remote transport stream.
 pub trait RemoteByteSink: Send + Sync + 'static {
+    /// Sends one encoded byte chunk.
     fn send_bytes(&self, bytes: Bytes) -> Result<()>;
 
+    /// Closes the byte sink.
+    ///
+    /// Stateless implementations may keep the default no-op behavior.
     fn close(&self) -> Result<()> {
         Ok(())
     }
 }
 
+/// Bounded queue capacities for the three outbound transport lanes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RemoteOutboundQueueSettings {
     control_capacity: usize,
@@ -25,6 +33,7 @@ pub struct RemoteOutboundQueueSettings {
 }
 
 impl RemoteOutboundQueueSettings {
+    /// Creates queue settings, rejecting a zero capacity for any lane.
     pub fn new(
         control_capacity: usize,
         ordinary_capacity: usize,
@@ -42,14 +51,17 @@ impl RemoteOutboundQueueSettings {
         })
     }
 
+    /// Returns the control-lane queue capacity.
     pub fn control_capacity(&self) -> usize {
         self.control_capacity
     }
 
+    /// Returns the ordinary-lane queue capacity.
     pub fn ordinary_capacity(&self) -> usize {
         self.ordinary_capacity
     }
 
+    /// Returns the large-lane queue capacity.
     pub fn large_capacity(&self) -> usize {
         self.large_capacity
     }
@@ -73,6 +85,10 @@ impl Default for RemoteOutboundQueueSettings {
     }
 }
 
+/// A bounded, non-blocking byte sink backed by a dedicated writer thread.
+///
+/// Sends fail immediately when the lane queue is full, closed, or its writer
+/// has observed an underlying sink failure.
 pub struct QueuedRemoteByteSink {
     lane: RemoteStreamId,
     capacity: usize,
@@ -86,6 +102,7 @@ pub struct QueuedRemoteByteSink {
 type RemoteLaneWriterFailureHandler = Arc<dyn Fn(RemoteStreamId, String) + Send + Sync + 'static>;
 
 impl QueuedRemoteByteSink {
+    /// Creates a queued sink for `lane` with a positive bounded `capacity`.
     pub fn new(
         lane: RemoteStreamId,
         capacity: usize,
@@ -243,6 +260,9 @@ where
 }
 
 #[derive(Clone)]
+/// Serializes frame payloads onto one stream and writes the encoded bytes.
+///
+/// Clones share encoder state so the stream header is emitted exactly once.
 pub struct RemoteStreamWriter {
     inner: Arc<RemoteStreamWriterInner>,
 }
@@ -253,6 +273,7 @@ struct RemoteStreamWriterInner {
 }
 
 impl RemoteStreamWriter {
+    /// Creates a writer for `stream_id` backed by `sink`.
     pub fn new(stream_id: RemoteStreamId, sink: Arc<dyn RemoteByteSink>) -> Self {
         Self {
             inner: Arc::new(RemoteStreamWriterInner {
@@ -262,6 +283,7 @@ impl RemoteStreamWriter {
         }
     }
 
+    /// Returns the writer's stream identifier.
     pub fn stream_id(&self) -> RemoteStreamId {
         self.inner
             .encoder
@@ -270,6 +292,7 @@ impl RemoteStreamWriter {
             .stream_id()
     }
 
+    /// Encodes and sends one frame payload.
     pub fn send_frame_payload(&self, payload: Bytes) -> Result<()> {
         let encoded = self
             .inner
@@ -280,12 +303,15 @@ impl RemoteStreamWriter {
         self.inner.sink.send_bytes(encoded)
     }
 
+    /// Closes the underlying byte sink.
     pub fn close(&self) -> Result<()> {
         self.inner.sink.close()
     }
 }
 
 #[derive(Clone)]
+/// Routes classified frames to independent control, ordinary, and large
+/// stream writers.
 pub struct StreamLaneSink {
     control: RemoteStreamWriter,
     ordinary: RemoteStreamWriter,
@@ -293,6 +319,7 @@ pub struct StreamLaneSink {
 }
 
 impl StreamLaneSink {
+    /// Creates one stream writer for each supplied lane byte sink.
     pub fn new(
         control: Arc<dyn RemoteByteSink>,
         ordinary: Arc<dyn RemoteByteSink>,
@@ -305,6 +332,7 @@ impl StreamLaneSink {
         }
     }
 
+    /// Creates a lane sink from existing stream writers.
     pub fn from_writers(
         control: RemoteStreamWriter,
         ordinary: RemoteStreamWriter,
@@ -317,18 +345,22 @@ impl StreamLaneSink {
         }
     }
 
+    /// Returns the control stream writer.
     pub fn control(&self) -> &RemoteStreamWriter {
         &self.control
     }
 
+    /// Returns the ordinary stream writer.
     pub fn ordinary(&self) -> &RemoteStreamWriter {
         &self.ordinary
     }
 
+    /// Returns the large stream writer.
     pub fn large(&self) -> &RemoteStreamWriter {
         &self.large
     }
 
+    /// Closes all three writers and returns the first close failure.
     pub fn close(&self) -> Result<()> {
         let mut first_error = None;
         for writer in [&self.control, &self.ordinary, &self.large] {
@@ -359,6 +391,7 @@ impl RemoteLaneSink for StreamLaneSink {
     }
 }
 
+/// Creates an outbound error annotated with the failed stream.
 pub fn stream_send_failure(stream_id: RemoteStreamId, reason: impl Into<String>) -> RemoteError {
     RemoteError::Outbound(format!(
         "remote {:?} stream write failed: {}",
