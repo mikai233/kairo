@@ -919,6 +919,12 @@ TCP association dialing:
   failures into `TcpAssociationSupervisedReadReport`, and
   `TcpAssociationListenerReport` carries those structured supervision
   decisions alongside accepted identity and frame counts,
+- accepted and dialed lane readers carry weak route-lifecycle tokens rather
+  than strong pipeline/cache ownership. Completion or failure of any reader
+  removes and closes its still-current route, or closes its still-live stale
+  pipeline, which shuts down all sibling lane sockets without allowing reader
+  ownership to keep the association alive. Repeated close requests preserve
+  the first terminal reason, so shutdown is not overwritten by a late reader,
 - these TCP pieces remain transport primitives; reconnect policy and richer
   provider lifecycle ownership remain separate integration work.
 
@@ -936,6 +942,10 @@ capacities before bind. Ordinary and large overflow return explicit delivery
 errors. Control overflow quarantines the association's current remote UID and
 causes later sends to fail at the association guard. Closing a route shuts down
 the underlying socket to interrupt an active write and joins the lane owner.
+The three queued writers also share a first-failure coordinator: a concrete
+write failure closes the shared association state and all raw sibling sockets,
+so later sends on every lane reject at the association guard and lane readers
+remove the failed route instead of leaving a partially live association.
 
 Inbound pipeline:
 

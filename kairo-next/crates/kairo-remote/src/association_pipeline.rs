@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use kairo_serialization::RemoteEnvelope;
@@ -82,20 +83,39 @@ impl AssociationOutboundPipeline {
         ordinary: Arc<dyn RemoteByteSink>,
         large: Arc<dyn RemoteByteSink>,
     ) -> Result<Self> {
-        let control = Arc::new(QueuedRemoteByteSink::new(
+        let failure_recorded = Arc::new(AtomicBool::new(false));
+        let failure_association = association.clone();
+        let failure_sinks = [control.clone(), ordinary.clone(), large.clone()];
+        let failure_handler = Arc::new(move |lane: RemoteStreamId, reason: String| {
+            if failure_recorded.swap(true, Ordering::AcqRel) {
+                return;
+            }
+            let close_reason = format!("{lane:?} lane writer failed: {reason}");
+            failure_association
+                .lock()
+                .expect("remote association lock poisoned")
+                .close(close_reason);
+            for sink in &failure_sinks {
+                let _ = sink.close();
+            }
+        });
+        let control = Arc::new(QueuedRemoteByteSink::new_with_failure_handler(
             RemoteStreamId::Control,
             queue_settings.capacity_for(RemoteStreamId::Control),
             control,
+            Some(failure_handler.clone()),
         )?) as Arc<dyn RemoteByteSink>;
-        let ordinary = Arc::new(QueuedRemoteByteSink::new(
+        let ordinary = Arc::new(QueuedRemoteByteSink::new_with_failure_handler(
             RemoteStreamId::Ordinary,
             queue_settings.capacity_for(RemoteStreamId::Ordinary),
             ordinary,
+            Some(failure_handler.clone()),
         )?) as Arc<dyn RemoteByteSink>;
-        let large = Arc::new(QueuedRemoteByteSink::new(
+        let large = Arc::new(QueuedRemoteByteSink::new_with_failure_handler(
             RemoteStreamId::Large,
             queue_settings.capacity_for(RemoteStreamId::Large),
             large,
+            Some(failure_handler),
         )?) as Arc<dyn RemoteByteSink>;
         Ok(Self::shared(
             association,
@@ -159,6 +179,7 @@ impl RemoteOutbound for AssociationOutboundPipeline {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::{Duration, Instant};
 
@@ -166,6 +187,7 @@ mod tests {
     use kairo_serialization::{
         ActorRefWireData, MessageCodec, Registry, RemoteMessage, SerializationRegistry,
     };
+    use kairo_testkit::await_assert;
 
     use super::*;
     use crate::{
@@ -261,6 +283,39 @@ mod tests {
     impl RemoteByteSink for FailingByteSink {
         fn send_bytes(&self, _bytes: Bytes) -> Result<()> {
             Err(stream_send_failure(self.stream_id, "socket closed"))
+        }
+    }
+
+    struct CloseTrackingByteSink {
+        fail_writes: bool,
+        closes: AtomicUsize,
+    }
+
+    impl CloseTrackingByteSink {
+        fn new(fail_writes: bool) -> Self {
+            Self {
+                fail_writes,
+                closes: AtomicUsize::new(0),
+            }
+        }
+
+        fn close_count(&self) -> usize {
+            self.closes.load(Ordering::Acquire)
+        }
+    }
+
+    impl RemoteByteSink for CloseTrackingByteSink {
+        fn send_bytes(&self, _bytes: Bytes) -> Result<()> {
+            if self.fail_writes {
+                Err(RemoteError::Outbound("forced writer failure".to_string()))
+            } else {
+                Ok(())
+            }
+        }
+
+        fn close(&self) -> Result<()> {
+            self.closes.fetch_add(1, Ordering::AcqRel);
+            Ok(())
         }
     }
 
@@ -542,5 +597,51 @@ mod tests {
         assert!(matches!(error, RemoteError::Outbound(_)));
         assert!(error.to_string().contains("Ordinary"));
         assert!(error.to_string().contains("socket closed"));
+    }
+
+    #[test]
+    fn queued_writer_failure_closes_association_and_all_sibling_lanes() {
+        let registry = registry();
+        let control = Arc::new(CloseTrackingByteSink::new(false));
+        let ordinary = Arc::new(CloseTrackingByteSink::new(true));
+        let large = Arc::new(CloseTrackingByteSink::new(false));
+        let mut association = RemoteAssociation::new("kairo://receiver@127.0.0.1:25520");
+        association.activate(Some(42));
+        let association = Arc::new(Mutex::new(association));
+        let pipeline = AssociationOutboundPipeline::shared_queued(
+            association.clone(),
+            RemoteLaneClassifier::default(),
+            RemoteOutboundQueueSettings::default(),
+            control.clone() as Arc<dyn RemoteByteSink>,
+            ordinary.clone() as Arc<dyn RemoteByteSink>,
+            large.clone() as Arc<dyn RemoteByteSink>,
+        )
+        .unwrap();
+
+        pipeline.send(envelope(&registry, b"fails later")).unwrap();
+
+        await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+            let state = association
+                .lock()
+                .expect("association poisoned")
+                .state()
+                .clone();
+            if matches!(state, AssociationState::Closed { .. }) {
+                Ok(())
+            } else {
+                Err(format!("expected closed association, found {state:?}"))
+            }
+        })
+        .unwrap();
+
+        assert!(control.close_count() >= 1);
+        assert!(ordinary.close_count() >= 1);
+        assert!(large.close_count() >= 1);
+        assert!(matches!(
+            pipeline
+                .send(envelope(&registry, b"rejected"))
+                .expect_err("closed association must reject sibling-lane sends"),
+            RemoteError::AssociationClosed { .. }
+        ));
     }
 }

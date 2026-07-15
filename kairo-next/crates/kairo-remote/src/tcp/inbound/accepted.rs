@@ -2,6 +2,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::association_routes::RemoteAssociationRouteLifecycle;
 use crate::tcp::{
     TcpAssociationIdentity, TcpAssociationReaderFailure, TcpAssociationReaderSupervisionDecision,
     TcpAssociationReaderSupervisor,
@@ -55,18 +56,24 @@ impl TcpAcceptedAssociation {
     }
 
     pub fn spawn_lane_readers(self) -> TcpAssociationReaderHandle {
+        let route_lifecycle = self
+            .route_registration
+            .as_ref()
+            .map(RemoteAssociationRouteRegistration::lifecycle);
         let joins = self
             .streams
             .into_iter()
             .map(|accepted| {
                 let reader = self.reader.clone();
-                let route_registration = self.route_registration.clone();
+                let route_lifecycle = route_lifecycle.clone();
                 TcpAssociationReaderJoin {
                     stream_id: accepted.stream_id,
                     join: thread::spawn(move || {
                         let result = reader.read_stream(accepted.peer.to_string(), accepted.stream);
-                        if let Some(registration) = route_registration {
-                            registration.remove_route("tcp inbound association stream closed");
+                        if let Some(lifecycle) = route_lifecycle {
+                            lifecycle.close_owned_route(
+                                "tcp accepted association lane reader completed",
+                            );
                         }
                         result
                     }),
@@ -96,14 +103,21 @@ impl TcpAssociationReaderHandle {
     pub(crate) fn spawn_streams(
         reader: TcpAssociationStreamReader,
         streams: Vec<(String, TcpStream)>,
+        route_lifecycle: RemoteAssociationRouteLifecycle,
     ) -> Self {
         let joins = streams
             .into_iter()
             .map(|(peer, stream)| {
                 let reader = reader.clone();
+                let route_lifecycle = route_lifecycle.clone();
                 TcpAssociationReaderJoin {
                     stream_id: None,
-                    join: thread::spawn(move || reader.read_stream(peer, stream)),
+                    join: thread::spawn(move || {
+                        let result = reader.read_stream(peer, stream);
+                        route_lifecycle
+                            .close_owned_route("tcp dialed association lane reader completed");
+                        result
+                    }),
                 }
             })
             .collect();

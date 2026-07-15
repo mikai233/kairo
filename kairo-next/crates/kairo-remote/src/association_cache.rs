@@ -2,7 +2,7 @@ use std::{
     collections::BTreeMap,
     fmt::{self, Display, Formatter},
     str::FromStr,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, Weak},
 };
 
 use kairo_serialization::{ActorRefWireData, RemoteEnvelope};
@@ -123,12 +123,25 @@ impl FromStr for RemoteAssociationAddress {
 
 #[derive(Clone, Default)]
 pub struct RemoteAssociationCache {
-    routes: Arc<RwLock<BTreeMap<RemoteAssociationAddress, Arc<dyn RemoteOutbound>>>>,
+    routes: Arc<RemoteAssociationRoutes>,
+}
+
+type RemoteAssociationRoutes = RwLock<BTreeMap<RemoteAssociationAddress, Arc<dyn RemoteOutbound>>>;
+
+#[derive(Clone)]
+pub(crate) struct RemoteAssociationCacheWeak {
+    routes: Weak<RemoteAssociationRoutes>,
 }
 
 impl RemoteAssociationCache {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn downgrade(&self) -> RemoteAssociationCacheWeak {
+        RemoteAssociationCacheWeak {
+            routes: Arc::downgrade(&self.routes),
+        }
     }
 
     pub fn insert_route(
@@ -256,6 +269,24 @@ impl RemoteAssociationCache {
     pub fn send_to_recipient(&self, envelope: RemoteEnvelope) -> Result<()> {
         let route = self.route_for_recipient(&envelope.recipient)?;
         route.send(envelope)
+    }
+}
+
+impl RemoteAssociationCacheWeak {
+    pub(crate) fn remove_route_if_same(
+        &self,
+        address: &RemoteAssociationAddress,
+        expected: &Arc<dyn RemoteOutbound>,
+    ) -> Option<Arc<dyn RemoteOutbound>> {
+        let routes = self.routes.upgrade()?;
+        let mut routes = routes
+            .write()
+            .expect("remote association cache lock poisoned");
+        let route = routes.get(address)?;
+        if !Arc::ptr_eq(route, expected) {
+            return None;
+        }
+        routes.remove(address)
     }
 }
 

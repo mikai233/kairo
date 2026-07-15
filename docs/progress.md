@@ -179,9 +179,19 @@ incomplete peer, duplicate or mixed-incarnation lanes are rejected, incomplete
 groups expire after a configurable five-second default, and a configurable
 64-peer default caps pending groups without terminating the listener. Real TCP
 tests pin interleaved delivery plus capacity rejection and recovery after
-expiry. Association-wide reader/writer failure ownership remains next. The
-older subsystem-specific TCP runtimes remain migration baselines until their
-higher runtime owners adopt the shared core.
+expiry. Association-wide reader/writer failure ownership is now explicit:
+queued lanes share a first-failure coordinator that closes the association and
+all raw sibling sockets, while accepted and dialed readers carry weak
+route-lifecycle tokens that remove the current route or close a still-live
+stale pipeline without retaining their own socket owners. Real TCP coverage
+proves dialing-side reader completion closes its cached route and association;
+focused queued-writer coverage proves an asynchronous ordinary-lane failure
+closes control, ordinary, and large lanes and rejects later sends. Repeated
+close attempts preserve the first terminal reason so coordinated shutdown is
+not overwritten by late reader cleanup. Reconnect, malformed-input, and
+process-level remoting coverage remain next. The older subsystem-specific TCP
+runtimes remain migration baselines until their higher runtime owners adopt the
+shared core.
 
 The reliable-delivery wire/state-machine layer and its composed runtime are now
 implemented: registered stable envelope/ack/nack codecs preserve a nested

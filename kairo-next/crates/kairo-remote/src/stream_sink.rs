@@ -83,11 +83,22 @@ pub struct QueuedRemoteByteSink {
     closed: Arc<AtomicBool>,
 }
 
+type RemoteLaneWriterFailureHandler = Arc<dyn Fn(RemoteStreamId, String) + Send + Sync + 'static>;
+
 impl QueuedRemoteByteSink {
     pub fn new(
         lane: RemoteStreamId,
         capacity: usize,
         sink: Arc<dyn RemoteByteSink>,
+    ) -> Result<Self> {
+        Self::new_with_failure_handler(lane, capacity, sink, None)
+    }
+
+    pub(crate) fn new_with_failure_handler(
+        lane: RemoteStreamId,
+        capacity: usize,
+        sink: Arc<dyn RemoteByteSink>,
+        failure_handler: Option<RemoteLaneWriterFailureHandler>,
     ) -> Result<Self> {
         if capacity == 0 {
             return Err(RemoteError::Outbound(format!(
@@ -106,10 +117,14 @@ impl QueuedRemoteByteSink {
                 while let Ok(bytes) = receiver.recv() {
                     if let Err(error) = worker_sink.send_bytes(bytes) {
                         if !worker_closed.load(Ordering::Acquire) {
+                            let reason = error.to_string();
                             *worker_failure
                                 .lock()
                                 .expect("remote lane writer failure lock poisoned") =
-                                Some(error.to_string());
+                                Some(reason.clone());
+                            if let Some(handler) = &failure_handler {
+                                handler(lane, reason);
+                            }
                         }
                         break;
                     }

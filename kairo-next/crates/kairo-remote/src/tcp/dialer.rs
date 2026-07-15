@@ -98,6 +98,12 @@ impl TcpAssociationDialer {
         let control_sink = clone_sink(&address, &control)?;
         let ordinary_sink = clone_sink(&address, &ordinary)?;
         let large_sink = clone_sink(&address, &large)?;
+        let registration = self.installer.insert_stream_pipeline(
+            address.clone(),
+            control_sink,
+            ordinary_sink,
+            large_sink,
+        )?;
         let handle = TcpAssociationReaderHandle::spawn_streams(
             reader,
             vec![
@@ -105,13 +111,8 @@ impl TcpAssociationDialer {
                 (address.to_string(), ordinary),
                 (address.to_string(), large),
             ],
+            registration.lifecycle(),
         );
-        let registration = self.installer.insert_stream_pipeline(
-            address,
-            control_sink,
-            ordinary_sink,
-            large_sink,
-        )?;
 
         Ok((registration, handle))
     }

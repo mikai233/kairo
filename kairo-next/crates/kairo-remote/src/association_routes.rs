@@ -1,5 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
+use crate::association_cache::RemoteAssociationCacheWeak;
 use crate::{
     AssociationOutboundPipeline, RemoteAssociation, RemoteAssociationAddress,
     RemoteAssociationCache, RemoteAssociationDiagnostics, RemoteAssociationRegistry,
@@ -158,6 +159,35 @@ impl RemoteAssociationRouteRegistration {
         }
         let _ = self.pipeline.close(reason);
         false
+    }
+
+    pub(crate) fn lifecycle(&self) -> RemoteAssociationRouteLifecycle {
+        RemoteAssociationRouteLifecycle {
+            cache: self.cache.downgrade(),
+            address: self.address.clone(),
+            outbound: Arc::downgrade(&self.outbound),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct RemoteAssociationRouteLifecycle {
+    cache: RemoteAssociationCacheWeak,
+    address: RemoteAssociationAddress,
+    outbound: Weak<dyn RemoteOutbound>,
+}
+
+impl RemoteAssociationRouteLifecycle {
+    pub(crate) fn close_owned_route(&self, reason: &str) -> bool {
+        let Some(outbound) = self.outbound.upgrade() else {
+            return false;
+        };
+        let Some(route) = self.cache.remove_route_if_same(&self.address, &outbound) else {
+            let _ = outbound.close(reason);
+            return false;
+        };
+        let _ = route.close(reason);
+        true
     }
 }
 

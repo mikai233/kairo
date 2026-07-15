@@ -12,6 +12,16 @@ use crate::{
     RemoteStreamId, decode_remote_envelope_frame,
 };
 
+struct RejectingFrameHandler;
+
+impl RemoteFrameHandler for RejectingFrameHandler {
+    fn handle_frame(&self, _stream_id: RemoteStreamId, _frame: Bytes) -> crate::Result<()> {
+        Err(RemoteError::Inbound(
+            "forced inbound frame rejection".to_string(),
+        ))
+    }
+}
+
 #[test]
 fn tcp_association_listener_drains_dialed_lane_streams_to_frame_handler() {
     let handler = Arc::new(CollectingFrameHandler::default());
@@ -486,4 +496,69 @@ fn tcp_listener_expires_partial_peer_and_releases_pending_capacity() {
 
     let report = listener_handle.join().unwrap();
     assert_eq!(report.accepted_associations, 1);
+}
+
+#[test]
+fn tcp_dialed_reader_completion_closes_owned_route_and_association() {
+    let receiver_cache = RemoteAssociationCache::new();
+    let receiver_registry = RemoteAssociationRegistry::new();
+    let receiver_installer = crate::RemoteAssociationRouteInstaller::new(receiver_cache.clone())
+        .with_association_registry(receiver_registry.clone());
+    let listener = TcpAssociationListener::bind(
+        ("127.0.0.1", 0),
+        Arc::new(RejectingFrameHandler) as Arc<dyn RemoteFrameHandler>,
+    )
+    .unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let receiver_address = association_address("receiver", port);
+    let listener = listener
+        .with_local_identity(receiver_address.clone(), 11)
+        .with_association_registry(receiver_registry)
+        .with_route_installer(receiver_installer);
+    let accept_handle =
+        thread::spawn(move || listener.accept_association().unwrap().spawn_lane_readers());
+
+    let sender_cache = RemoteAssociationCache::new();
+    let sender_registry = RemoteAssociationRegistry::new();
+    let sender_installer = crate::RemoteAssociationRouteInstaller::new(sender_cache.clone())
+        .with_association_registry(sender_registry);
+    let dialer = TcpAssociationDialer::new(sender_installer)
+        .with_local_identity(association_address("sender", 25521), 22)
+        .with_handshake_response_required()
+        .with_connect_timeout(Duration::from_secs(1));
+    let sender_reader = TcpAssociationStreamReader::new(
+        Arc::new(CollectingFrameHandler::default()) as Arc<dyn RemoteFrameHandler>,
+    );
+    let (registration, sender_reader_handle) = dialer
+        .dial_with_reader(receiver_address, sender_reader)
+        .unwrap();
+    let receiver_reader_handle = accept_handle.join().unwrap();
+
+    sender_cache
+        .send(envelope_to("receiver", port, 63))
+        .unwrap();
+
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        let routes = sender_cache.route_count();
+        if routes == 0 {
+            Ok(())
+        } else {
+            Err(format!("expected dialed route removal, found {routes}"))
+        }
+    })
+    .unwrap();
+
+    assert_eq!(sender_cache.route_count(), 0);
+    assert!(matches!(
+        registration
+            .pipeline()
+            .association()
+            .lock()
+            .expect("sender association poisoned")
+            .state(),
+        AssociationState::Closed { .. }
+    ));
+    assert_eq!(receiver_cache.route_count(), 0);
+    assert!(receiver_reader_handle.join().is_err());
+    sender_reader_handle.join().unwrap();
 }

@@ -182,6 +182,9 @@ impl RemoteAssociation {
     }
 
     pub fn close(&mut self, reason: impl Into<String>) {
+        if matches!(self.state, AssociationState::Closed { .. }) {
+            return;
+        }
         let reason = reason.into();
         self.state = AssociationState::Closed {
             reason: reason.clone(),
@@ -321,6 +324,21 @@ mod tests {
             quarantined.ensure_send_allowed(),
             Err(RemoteError::AssociationQuarantined { .. })
         ));
+    }
+
+    #[test]
+    fn repeated_close_preserves_first_terminal_reason() {
+        let mut association = RemoteAssociation::new("kairo://remote@127.0.0.1:25520");
+
+        association.close("runtime shutdown");
+        association.close("late reader completion");
+
+        assert_eq!(
+            association.state(),
+            &AssociationState::Closed {
+                reason: "runtime shutdown".to_string()
+            }
+        );
     }
 
     #[test]
