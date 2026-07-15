@@ -12,7 +12,8 @@ use super::{TcpAssociationHandshake, TcpAssociationIdentity, encode_tcp_associat
 #[derive(Debug)]
 pub struct TcpRemoteByteSink {
     peer: String,
-    stream: Mutex<TcpStream>,
+    stream: TcpStream,
+    write_lock: Mutex<()>,
 }
 
 impl TcpRemoteByteSink {
@@ -65,7 +66,8 @@ impl TcpRemoteByteSink {
     pub fn from_stream(peer: impl Into<String>, stream: TcpStream) -> Self {
         Self {
             peer: peer.into(),
-            stream: Mutex::new(stream),
+            stream,
+            write_lock: Mutex::new(()),
         }
     }
 
@@ -76,29 +78,23 @@ impl TcpRemoteByteSink {
 
 impl Drop for TcpRemoteByteSink {
     fn drop(&mut self) {
-        if let Ok(stream) = self.stream.lock() {
-            let _ = stream.shutdown(Shutdown::Both);
-        }
+        let _ = self.stream.shutdown(Shutdown::Both);
     }
 }
 
 impl RemoteByteSink for TcpRemoteByteSink {
     fn send_bytes(&self, bytes: Bytes) -> Result<()> {
-        self.stream
+        let _guard = self
+            .write_lock
             .lock()
-            .expect("tcp remote byte sink mutex poisoned")
-            .write_all(&bytes)
-            .map_err(|error| {
-                RemoteError::Outbound(format!("tcp write to {} failed: {error}", self.peer))
-            })
+            .expect("tcp remote byte sink write lock poisoned");
+        (&self.stream).write_all(&bytes).map_err(|error| {
+            RemoteError::Outbound(format!("tcp write to {} failed: {error}", self.peer))
+        })
     }
 
     fn close(&self) -> Result<()> {
-        let result = self
-            .stream
-            .lock()
-            .expect("tcp remote byte sink mutex poisoned")
-            .shutdown(Shutdown::Both);
+        let result = self.stream.shutdown(Shutdown::Both);
         map_tcp_shutdown_result(&self.peer, result)
     }
 }

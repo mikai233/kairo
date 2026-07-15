@@ -322,7 +322,7 @@ impl TcpAssociationListener {
             control,
             ordinary,
             large,
-        )))
+        )?))
     }
 
     fn reader_for(&self, identity: &Option<TcpAssociationIdentity>) -> TcpAssociationStreamReader {

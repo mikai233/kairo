@@ -155,9 +155,14 @@ shared association cache. `register_cluster_system_inbound` uses that seam to
 register membership and heartbeat manifests on the control lane, and the
 cross-crate loopback gate delivers two unrelated typed business protocols plus
 cluster `Join` through the same listener and accepted association. The next
-checkpoint is bounded non-blocking outbound lane ownership; the older
-subsystem-specific TCP runtimes remain migration baselines until their higher
-runtime owners adopt the shared core.
+checkpoint now has bounded non-blocking outbound lane ownership: the composed
+runtime creates one FIFO writer owner for each control, ordinary, and large
+lane, `try_send` reports saturation without blocking actor turns, a 2,000-frame
+stress test proves single-writer ordering, route shutdown interrupts active
+socket writes, and control overflow quarantines the exact active remote UID.
+Reliable sequencing/acknowledgement remains next. The older subsystem-specific
+TCP runtimes remain migration baselines until their higher runtime owners adopt
+the shared core.
 
 Task: converge business messages and system protocols on one ActorSystem-owned
 remoting lifecycle and canonical transport address.

@@ -20,6 +20,12 @@ pub enum RemoteError {
     /// association.
     #[error("remote outbound delivery failed: {0}")]
     Outbound(String),
+    /// A bounded association lane could not accept another frame immediately.
+    #[error("remote {lane} lane queue is full at capacity {capacity}")]
+    OutboundLaneQueueFull { lane: String, capacity: usize },
+    /// A lane writer has closed and rejects further frames.
+    #[error("remote {lane} lane writer is closed: {reason}")]
+    OutboundLaneClosed { lane: String, reason: String },
     /// Inbound delivery failed after a frame was decoded.
     #[error("remote inbound delivery failed: {0}")]
     Inbound(String),

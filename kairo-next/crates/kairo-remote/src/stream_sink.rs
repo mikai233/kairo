@@ -1,4 +1,7 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 
 use bytes::Bytes;
 
@@ -12,6 +15,207 @@ pub trait RemoteByteSink: Send + Sync + 'static {
     fn close(&self) -> Result<()> {
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemoteOutboundQueueSettings {
+    control_capacity: usize,
+    ordinary_capacity: usize,
+    large_capacity: usize,
+}
+
+impl RemoteOutboundQueueSettings {
+    pub fn new(
+        control_capacity: usize,
+        ordinary_capacity: usize,
+        large_capacity: usize,
+    ) -> Result<Self> {
+        if control_capacity == 0 || ordinary_capacity == 0 || large_capacity == 0 {
+            return Err(RemoteError::Outbound(
+                "remote outbound lane queue capacities must be greater than zero".to_string(),
+            ));
+        }
+        Ok(Self {
+            control_capacity,
+            ordinary_capacity,
+            large_capacity,
+        })
+    }
+
+    pub fn control_capacity(&self) -> usize {
+        self.control_capacity
+    }
+
+    pub fn ordinary_capacity(&self) -> usize {
+        self.ordinary_capacity
+    }
+
+    pub fn large_capacity(&self) -> usize {
+        self.large_capacity
+    }
+
+    pub(crate) fn capacity_for(&self, lane: RemoteStreamId) -> usize {
+        match lane {
+            RemoteStreamId::Control => self.control_capacity,
+            RemoteStreamId::Ordinary => self.ordinary_capacity,
+            RemoteStreamId::Large => self.large_capacity,
+        }
+    }
+}
+
+impl Default for RemoteOutboundQueueSettings {
+    fn default() -> Self {
+        Self {
+            control_capacity: 256,
+            ordinary_capacity: 1_024,
+            large_capacity: 32,
+        }
+    }
+}
+
+pub struct QueuedRemoteByteSink {
+    lane: RemoteStreamId,
+    capacity: usize,
+    sender: Mutex<Option<SyncSender<Bytes>>>,
+    sink: Arc<dyn RemoteByteSink>,
+    worker: Mutex<Option<JoinHandle<()>>>,
+    failure: Arc<Mutex<Option<String>>>,
+    closed: Arc<AtomicBool>,
+}
+
+impl QueuedRemoteByteSink {
+    pub fn new(
+        lane: RemoteStreamId,
+        capacity: usize,
+        sink: Arc<dyn RemoteByteSink>,
+    ) -> Result<Self> {
+        if capacity == 0 {
+            return Err(RemoteError::Outbound(format!(
+                "remote {lane:?} lane queue capacity must be greater than zero"
+            )));
+        }
+        let (sender, receiver) = sync_channel::<Bytes>(capacity);
+        let worker_sink = sink.clone();
+        let failure = Arc::new(Mutex::new(None));
+        let worker_failure = failure.clone();
+        let closed = Arc::new(AtomicBool::new(false));
+        let worker_closed = closed.clone();
+        let worker = thread::Builder::new()
+            .name(format!("kairo-remote-{}-writer", lane_name(lane)))
+            .spawn(move || {
+                while let Ok(bytes) = receiver.recv() {
+                    if let Err(error) = worker_sink.send_bytes(bytes) {
+                        if !worker_closed.load(Ordering::Acquire) {
+                            *worker_failure
+                                .lock()
+                                .expect("remote lane writer failure lock poisoned") =
+                                Some(error.to_string());
+                        }
+                        break;
+                    }
+                }
+            })
+            .map_err(|error| {
+                RemoteError::Outbound(format!(
+                    "failed to spawn remote {lane:?} lane writer: {error}"
+                ))
+            })?;
+
+        Ok(Self {
+            lane,
+            capacity,
+            sender: Mutex::new(Some(sender)),
+            sink,
+            worker: Mutex::new(Some(worker)),
+            failure,
+            closed,
+        })
+    }
+
+    fn failure(&self) -> Option<String> {
+        self.failure
+            .lock()
+            .expect("remote lane writer failure lock poisoned")
+            .clone()
+    }
+}
+
+impl RemoteByteSink for QueuedRemoteByteSink {
+    fn send_bytes(&self, bytes: Bytes) -> Result<()> {
+        if let Some(reason) = self.failure() {
+            return Err(RemoteError::OutboundLaneClosed {
+                lane: lane_name(self.lane),
+                reason,
+            });
+        }
+        if self.closed.load(Ordering::Acquire) {
+            return Err(RemoteError::OutboundLaneClosed {
+                lane: lane_name(self.lane),
+                reason: "writer closed".to_string(),
+            });
+        }
+
+        let sender = self
+            .sender
+            .lock()
+            .expect("remote lane writer sender lock poisoned");
+        let Some(sender) = sender.as_ref() else {
+            return Err(RemoteError::OutboundLaneClosed {
+                lane: lane_name(self.lane),
+                reason: "writer closed".to_string(),
+            });
+        };
+        match sender.try_send(bytes) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => Err(RemoteError::OutboundLaneQueueFull {
+                lane: lane_name(self.lane),
+                capacity: self.capacity,
+            }),
+            Err(TrySendError::Disconnected(_)) => Err(RemoteError::OutboundLaneClosed {
+                lane: lane_name(self.lane),
+                reason: self
+                    .failure()
+                    .unwrap_or_else(|| "writer stopped".to_string()),
+            }),
+        }
+    }
+
+    fn close(&self) -> Result<()> {
+        let first_close = !self.closed.swap(true, Ordering::AcqRel);
+        if first_close {
+            self.sender
+                .lock()
+                .expect("remote lane writer sender lock poisoned")
+                .take();
+        }
+        let close_result = if first_close {
+            self.sink.close()
+        } else {
+            Ok(())
+        };
+        let worker = self
+            .worker
+            .lock()
+            .expect("remote lane writer worker lock poisoned")
+            .take();
+        if let Some(worker) = worker {
+            worker.join().map_err(|_| RemoteError::OutboundLaneClosed {
+                lane: lane_name(self.lane),
+                reason: "writer thread panicked".to_string(),
+            })?;
+        }
+        close_result
+    }
+}
+
+impl Drop for QueuedRemoteByteSink {
+    fn drop(&mut self) {
+        let _ = self.close();
+    }
+}
+
+fn lane_name(lane: RemoteStreamId) -> String {
+    format!("{lane:?}").to_ascii_lowercase()
 }
 
 impl<F> RemoteByteSink for F
@@ -150,7 +354,9 @@ pub fn stream_send_failure(stream_id: RemoteStreamId, reason: impl Into<String>)
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::sync::{Condvar, Mutex};
+    use std::thread::ThreadId;
+    use std::time::{Duration, Instant};
 
     use super::*;
     use crate::{RemoteStreamDecoder, RemoteStreamFrame};
@@ -159,6 +365,64 @@ mod tests {
     struct CollectingByteSink {
         writes: Mutex<Vec<Bytes>>,
         fail_with: Mutex<Option<String>>,
+    }
+
+    #[derive(Default)]
+    struct BlockingByteSink {
+        writes: Mutex<Vec<(Bytes, ThreadId)>>,
+        entered: Condvar,
+        released: Mutex<bool>,
+        release: Condvar,
+    }
+
+    impl BlockingByteSink {
+        fn wait_until_entered(&self, timeout: Duration) {
+            let deadline = Instant::now() + timeout;
+            let mut writes = self.writes.lock().expect("blocking sink poisoned");
+            while writes.is_empty() {
+                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                    panic!("queued writer did not enter blocking sink");
+                };
+                let (next, wait) = self
+                    .entered
+                    .wait_timeout(writes, remaining)
+                    .expect("blocking sink poisoned");
+                writes = next;
+                assert!(
+                    !wait.timed_out(),
+                    "queued writer did not enter blocking sink"
+                );
+            }
+        }
+
+        fn release(&self) {
+            *self.released.lock().expect("blocking sink poisoned") = true;
+            self.release.notify_all();
+        }
+
+        fn writes(&self) -> Vec<(Bytes, ThreadId)> {
+            self.writes.lock().expect("blocking sink poisoned").clone()
+        }
+    }
+
+    impl RemoteByteSink for BlockingByteSink {
+        fn send_bytes(&self, bytes: Bytes) -> Result<()> {
+            self.writes
+                .lock()
+                .expect("blocking sink poisoned")
+                .push((bytes, std::thread::current().id()));
+            self.entered.notify_all();
+            let mut released = self.released.lock().expect("blocking sink poisoned");
+            while !*released {
+                released = self.release.wait(released).expect("blocking sink poisoned");
+            }
+            Ok(())
+        }
+
+        fn close(&self) -> Result<()> {
+            self.release();
+            Ok(())
+        }
     }
 
     impl CollectingByteSink {
@@ -280,5 +544,83 @@ mod tests {
         assert!(matches!(error, RemoteError::Outbound(_)));
         assert!(error.to_string().contains("Ordinary"));
         assert!(error.to_string().contains("socket closed"));
+    }
+
+    #[test]
+    fn queued_sink_rejects_overflow_without_blocking_sender() {
+        let inner = Arc::new(BlockingByteSink::default());
+        let queued = QueuedRemoteByteSink::new(
+            RemoteStreamId::Ordinary,
+            2,
+            inner.clone() as Arc<dyn RemoteByteSink>,
+        )
+        .unwrap();
+        let caller = std::thread::current().id();
+
+        queued.send_bytes(Bytes::from_static(b"one")).unwrap();
+        inner.wait_until_entered(Duration::from_secs(1));
+        queued.send_bytes(Bytes::from_static(b"two")).unwrap();
+        queued.send_bytes(Bytes::from_static(b"three")).unwrap();
+        let started = Instant::now();
+        let error = queued
+            .send_bytes(Bytes::from_static(b"four"))
+            .expect_err("bounded lane should reject overflow");
+
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert!(matches!(
+            error,
+            RemoteError::OutboundLaneQueueFull { lane, capacity: 2 }
+                if lane == "ordinary"
+        ));
+        inner.release();
+        queued.close().unwrap();
+        let writes = inner.writes();
+        assert_eq!(
+            writes
+                .iter()
+                .map(|(bytes, _)| bytes.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                Bytes::from_static(b"one"),
+                Bytes::from_static(b"two"),
+                Bytes::from_static(b"three"),
+            ]
+        );
+        assert!(writes.iter().all(|(_, writer)| *writer != caller));
+        assert!(writes.iter().all(|(_, writer)| *writer == writes[0].1));
+    }
+
+    #[test]
+    fn queued_sink_drains_two_thousand_frames_on_one_writer() {
+        let inner = Arc::new(BlockingByteSink::default());
+        inner.release();
+        let queued = QueuedRemoteByteSink::new(
+            RemoteStreamId::Control,
+            2_000,
+            inner.clone() as Arc<dyn RemoteByteSink>,
+        )
+        .unwrap();
+
+        for value in 0_u16..2_000 {
+            queued
+                .send_bytes(Bytes::copy_from_slice(&value.to_be_bytes()))
+                .unwrap();
+        }
+        queued.close().unwrap();
+
+        let writes = inner.writes();
+        assert_eq!(writes.len(), 2_000);
+        assert!(writes.iter().all(|(_, writer)| *writer == writes[0].1));
+        for (expected, (bytes, _)) in (0_u16..2_000).zip(writes) {
+            assert_eq!(bytes.as_ref(), expected.to_be_bytes());
+        }
+    }
+
+    #[test]
+    fn outbound_queue_settings_reject_zero_capacity() {
+        let error =
+            RemoteOutboundQueueSettings::new(1, 0, 1).expect_err("zero lane capacity should fail");
+
+        assert!(matches!(error, RemoteError::Outbound(_)));
     }
 }

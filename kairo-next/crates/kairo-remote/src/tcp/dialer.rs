@@ -58,12 +58,12 @@ impl TcpAssociationDialer {
         let ordinary = self.connect_lane(&address, RemoteStreamId::Ordinary)?;
         let large = self.connect_lane(&address, RemoteStreamId::Large)?;
 
-        Ok(self.installer.insert_stream_pipeline(
+        self.installer.insert_stream_pipeline(
             address,
             Arc::new(control),
             Arc::new(ordinary),
             Arc::new(large),
-        ))
+        )
     }
 
     pub fn dial_with_reader(
@@ -89,9 +89,12 @@ impl TcpAssociationDialer {
                 (address.to_string(), large),
             ],
         );
-        let registration =
-            self.installer
-                .insert_stream_pipeline(address, control_sink, ordinary_sink, large_sink);
+        let registration = self.installer.insert_stream_pipeline(
+            address,
+            control_sink,
+            ordinary_sink,
+            large_sink,
+        )?;
 
         Ok((registration, handle))
     }

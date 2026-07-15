@@ -266,7 +266,10 @@ pub use stream::{
     decode_remote_stream_header, encode_remote_stream_frame, encode_remote_stream_header,
 };
 pub use stream_inbound::{RemoteFrameHandler, StreamFrameInbound};
-pub use stream_sink::{RemoteByteSink, RemoteStreamWriter, StreamLaneSink, stream_send_failure};
+pub use stream_sink::{
+    QueuedRemoteByteSink, RemoteByteSink, RemoteOutboundQueueSettings, RemoteStreamWriter,
+    StreamLaneSink, stream_send_failure,
+};
 pub use system_inbound::{ActorSystemRemoteInbound, ActorSystemRemoteInboundRegistry};
 pub use tcp::{
     TcpAcceptedAssociation, TcpAssociationDialer, TcpAssociationFrameHandlerFactory,

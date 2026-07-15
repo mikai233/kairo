@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::{
     AssociationOutboundPipeline, RemoteAssociation, RemoteAssociationAddress,
     RemoteAssociationCache, RemoteAssociationDiagnostics, RemoteByteSink, RemoteLaneClassifier,
-    RemoteOutbound,
+    RemoteOutbound, RemoteOutboundQueueSettings, Result,
 };
 
 #[derive(Clone)]
@@ -11,6 +11,7 @@ pub struct RemoteAssociationRouteInstaller {
     cache: RemoteAssociationCache,
     classifier: RemoteLaneClassifier,
     diagnostics: Option<Arc<dyn RemoteAssociationDiagnostics>>,
+    queue_settings: Option<RemoteOutboundQueueSettings>,
 }
 
 impl RemoteAssociationRouteInstaller {
@@ -19,6 +20,7 @@ impl RemoteAssociationRouteInstaller {
             cache,
             classifier: RemoteLaneClassifier::default(),
             diagnostics: None,
+            queue_settings: None,
         }
     }
 
@@ -32,6 +34,11 @@ impl RemoteAssociationRouteInstaller {
         self
     }
 
+    pub fn with_outbound_queue_settings(mut self, settings: RemoteOutboundQueueSettings) -> Self {
+        self.queue_settings = Some(settings);
+        self
+    }
+
     pub fn cache(&self) -> &RemoteAssociationCache {
         &self.cache
     }
@@ -42,30 +49,41 @@ impl RemoteAssociationRouteInstaller {
         control: Arc<dyn RemoteByteSink>,
         ordinary: Arc<dyn RemoteByteSink>,
         large: Arc<dyn RemoteByteSink>,
-    ) -> RemoteAssociationRouteRegistration {
+    ) -> Result<RemoteAssociationRouteRegistration> {
         let mut association = RemoteAssociation::new(address.to_string());
         if let Some(diagnostics) = &self.diagnostics {
             association = association.with_diagnostics(diagnostics.clone());
         }
-        let pipeline = AssociationOutboundPipeline::from_association(
-            association,
-            self.classifier.clone(),
-            control,
-            ordinary,
-            large,
-        );
+        let association = Arc::new(Mutex::new(association));
+        let pipeline = match self.queue_settings {
+            Some(settings) => AssociationOutboundPipeline::shared_queued(
+                association,
+                self.classifier.clone(),
+                settings,
+                control,
+                ordinary,
+                large,
+            )?,
+            None => AssociationOutboundPipeline::shared(
+                association,
+                self.classifier.clone(),
+                control,
+                ordinary,
+                large,
+            ),
+        };
         let outbound = Arc::new(pipeline.clone()) as Arc<dyn RemoteOutbound>;
         let replaced = self
             .cache
             .insert_route(address.clone(), outbound.clone())
             .is_some();
-        RemoteAssociationRouteRegistration {
+        Ok(RemoteAssociationRouteRegistration {
             cache: self.cache.clone(),
             address,
             pipeline,
             outbound,
             replaced,
-        }
+        })
     }
 
     pub fn remove_route(
@@ -209,12 +227,14 @@ mod tests {
         let ordinary = Arc::new(CollectingByteSink::default());
         let large = Arc::new(CollectingByteSink::default());
 
-        let registration = installer.insert_stream_pipeline(
-            address(),
-            control.clone() as Arc<dyn RemoteByteSink>,
-            ordinary.clone() as Arc<dyn RemoteByteSink>,
-            large.clone() as Arc<dyn RemoteByteSink>,
-        );
+        let registration = installer
+            .insert_stream_pipeline(
+                address(),
+                control.clone() as Arc<dyn RemoteByteSink>,
+                ordinary.clone() as Arc<dyn RemoteByteSink>,
+                large.clone() as Arc<dyn RemoteByteSink>,
+            )
+            .unwrap();
 
         assert_eq!(registration.address(), &address());
         assert!(!registration.replaced_existing_route());
@@ -236,12 +256,14 @@ mod tests {
     fn cache_route_uses_shared_association_state() {
         let cache = RemoteAssociationCache::new();
         let installer = RemoteAssociationRouteInstaller::new(cache.clone());
-        let registration = installer.insert_stream_pipeline(
-            address(),
-            Arc::new(CollectingByteSink::default()),
-            Arc::new(CollectingByteSink::default()),
-            Arc::new(CollectingByteSink::default()),
-        );
+        let registration = installer
+            .insert_stream_pipeline(
+                address(),
+                Arc::new(CollectingByteSink::default()),
+                Arc::new(CollectingByteSink::default()),
+                Arc::new(CollectingByteSink::default()),
+            )
+            .unwrap();
 
         registration
             .pipeline()
@@ -269,9 +291,13 @@ mod tests {
             )
         };
         let (control, ordinary, large) = sinks();
-        let first = installer.insert_stream_pipeline(address(), control, ordinary, large);
+        let first = installer
+            .insert_stream_pipeline(address(), control, ordinary, large)
+            .unwrap();
         let (control, ordinary, large) = sinks();
-        let second = installer.insert_stream_pipeline(address(), control, ordinary, large);
+        let second = installer
+            .insert_stream_pipeline(address(), control, ordinary, large)
+            .unwrap();
 
         assert!(!first.replaced_existing_route());
         assert!(second.replaced_existing_route());
@@ -293,9 +319,13 @@ mod tests {
             )
         };
         let (control, ordinary, large) = sinks();
-        let stale = installer.insert_stream_pipeline(address(), control, ordinary, large);
+        let stale = installer
+            .insert_stream_pipeline(address(), control, ordinary, large)
+            .unwrap();
         let (control, ordinary, large) = sinks();
-        let replacement = installer.insert_stream_pipeline(address(), control, ordinary, large);
+        let replacement = installer
+            .insert_stream_pipeline(address(), control, ordinary, large)
+            .unwrap();
 
         assert!(!stale.remove_route("old reader finished"));
         assert_eq!(cache.route_count(), 1);
@@ -317,9 +347,13 @@ mod tests {
             )
         };
         let (control, ordinary, large) = sinks();
-        let stale = installer.insert_stream_pipeline(address(), control, ordinary, large);
+        let stale = installer
+            .insert_stream_pipeline(address(), control, ordinary, large)
+            .unwrap();
         let (control, ordinary, large) = sinks();
-        let replacement = installer.insert_stream_pipeline(address(), control, ordinary, large);
+        let replacement = installer
+            .insert_stream_pipeline(address(), control, ordinary, large)
+            .unwrap();
 
         assert!(!stale.close_owned_route("old peer route removed"));
 
@@ -341,12 +375,14 @@ mod tests {
         let diagnostics = Arc::new(CollectingDiagnostics::default());
         let installer = RemoteAssociationRouteInstaller::new(cache)
             .with_diagnostics(diagnostics.clone() as Arc<dyn RemoteAssociationDiagnostics>);
-        let registration = installer.insert_stream_pipeline(
-            address(),
-            Arc::new(CollectingByteSink::default()),
-            Arc::new(CollectingByteSink::default()),
-            Arc::new(CollectingByteSink::default()),
-        );
+        let registration = installer
+            .insert_stream_pipeline(
+                address(),
+                Arc::new(CollectingByteSink::default()),
+                Arc::new(CollectingByteSink::default()),
+                Arc::new(CollectingByteSink::default()),
+            )
+            .unwrap();
 
         registration.pipeline().close("peer route removed").unwrap();
 
@@ -365,12 +401,14 @@ mod tests {
         let diagnostics = Arc::new(CollectingDiagnostics::default());
         let installer = RemoteAssociationRouteInstaller::new(cache.clone())
             .with_diagnostics(diagnostics.clone() as Arc<dyn RemoteAssociationDiagnostics>);
-        installer.insert_stream_pipeline(
-            address(),
-            Arc::new(CollectingByteSink::default()),
-            Arc::new(CollectingByteSink::default()),
-            Arc::new(CollectingByteSink::default()),
-        );
+        installer
+            .insert_stream_pipeline(
+                address(),
+                Arc::new(CollectingByteSink::default()),
+                Arc::new(CollectingByteSink::default()),
+                Arc::new(CollectingByteSink::default()),
+            )
+            .unwrap();
 
         assert!(installer.remove_route(&address()).is_some());
 

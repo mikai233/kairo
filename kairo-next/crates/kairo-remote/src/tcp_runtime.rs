@@ -14,8 +14,8 @@ use crate::{
     RemoteAssociationCache, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
     RemoteAssociationRouteRegistration, RemoteDeathWatchCommand, RemoteDeathWatchEffect,
     RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink, RemoteEnvelopeHandler,
-    RemoteError, RemoteLaneClassifier, RemoteOutbound, RemoteSettings, RemoteStreamId,
-    ResolvedActorRef, Result, TcpAssociationDialer, TcpAssociationListener,
+    RemoteError, RemoteLaneClassifier, RemoteOutbound, RemoteOutboundQueueSettings, RemoteSettings,
+    RemoteStreamId, ResolvedActorRef, Result, TcpAssociationDialer, TcpAssociationListener,
     TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReaderHandle,
     TcpAssociationStreamReader, UnwatchRemote, WatchRemote, is_remote_death_watch_manifest,
 };
@@ -28,6 +28,7 @@ pub struct TcpRemoteActorRuntime {
     system: ActorSystem,
     registry: Arc<Registry>,
     settings: RemoteSettings,
+    outbound_queue_settings: RemoteOutboundQueueSettings,
     association_cache: RemoteAssociationCache,
     association_registry: RemoteAssociationRegistry,
     provider: RemoteActorRefProvider,
@@ -85,6 +86,7 @@ pub struct TcpRemoteActorRuntimeBuilder {
     observer: Arc<dyn RemoteDeathWatchEffectObserver>,
     manifests: HashSet<String>,
     lane_classifier: RemoteLaneClassifier,
+    outbound_queue_settings: RemoteOutboundQueueSettings,
     protocols: Vec<InboundProtocolRegistration>,
 }
 
@@ -184,6 +186,7 @@ impl TcpRemoteActorRuntime {
             observer: Arc::new(crate::IgnoreRemoteDeathWatchEffects),
             manifests: HashSet::new(),
             lane_classifier: RemoteLaneClassifier::default(),
+            outbound_queue_settings: RemoteOutboundQueueSettings::default(),
             protocols: Vec::new(),
         }
     }
@@ -192,6 +195,11 @@ impl TcpRemoteActorRuntime {
 impl TcpRemoteActorRuntimeBuilder {
     pub fn with_observer(mut self, observer: Arc<dyn RemoteDeathWatchEffectObserver>) -> Self {
         self.observer = observer;
+        self
+    }
+
+    pub fn with_outbound_queue_settings(mut self, settings: RemoteOutboundQueueSettings) -> Self {
+        self.outbound_queue_settings = settings;
         self
     }
 
@@ -259,6 +267,7 @@ impl TcpRemoteActorRuntimeBuilder {
             local_system_uid,
             observer,
             lane_classifier,
+            outbound_queue_settings,
             protocols,
             ..
         } = self;
@@ -324,7 +333,8 @@ impl TcpRemoteActorRuntimeBuilder {
         }
         let inbound = Arc::new(inbound);
         let installer = RemoteAssociationRouteInstaller::new(association_cache.clone())
-            .with_classifier(lane_classifier);
+            .with_classifier(lane_classifier)
+            .with_outbound_queue_settings(outbound_queue_settings);
         let outbound_reader = TcpAssociationStreamReader::new(inbound.clone());
         let listener = TcpAssociationListener::from_listener(listener, inbound)
             .with_local_address(local_association_address(&system, &effective_settings)?)
@@ -348,6 +358,7 @@ impl TcpRemoteActorRuntimeBuilder {
             system,
             registry,
             settings: effective_settings,
+            outbound_queue_settings,
             association_cache,
             association_registry,
             provider,
@@ -372,6 +383,10 @@ impl TcpRemoteActorRuntime {
 
     pub fn settings(&self) -> &RemoteSettings {
         &self.settings
+    }
+
+    pub fn outbound_queue_settings(&self) -> RemoteOutboundQueueSettings {
+        self.outbound_queue_settings
     }
 
     pub fn association_cache(&self) -> &RemoteAssociationCache {

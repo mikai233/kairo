@@ -3,8 +3,9 @@ use std::sync::{Arc, Mutex};
 use kairo_serialization::RemoteEnvelope;
 
 use crate::{
-    AssociationRemoteOutbound, LaneRemoteOutbound, RemoteAssociation, RemoteByteSink,
-    RemoteLaneClassifier, RemoteLaneSink, RemoteOutbound, Result, StreamLaneSink,
+    AssociationRemoteOutbound, AssociationState, LaneRemoteOutbound, QueuedRemoteByteSink,
+    RemoteAssociation, RemoteByteSink, RemoteError, RemoteLaneClassifier, RemoteLaneSink,
+    RemoteOutbound, RemoteOutboundQueueSettings, RemoteStreamId, Result, StreamLaneSink,
 };
 
 #[derive(Clone)]
@@ -73,6 +74,38 @@ impl AssociationOutboundPipeline {
         }
     }
 
+    pub fn shared_queued(
+        association: Arc<Mutex<RemoteAssociation>>,
+        classifier: RemoteLaneClassifier,
+        queue_settings: RemoteOutboundQueueSettings,
+        control: Arc<dyn RemoteByteSink>,
+        ordinary: Arc<dyn RemoteByteSink>,
+        large: Arc<dyn RemoteByteSink>,
+    ) -> Result<Self> {
+        let control = Arc::new(QueuedRemoteByteSink::new(
+            RemoteStreamId::Control,
+            queue_settings.capacity_for(RemoteStreamId::Control),
+            control,
+        )?) as Arc<dyn RemoteByteSink>;
+        let ordinary = Arc::new(QueuedRemoteByteSink::new(
+            RemoteStreamId::Ordinary,
+            queue_settings.capacity_for(RemoteStreamId::Ordinary),
+            ordinary,
+        )?) as Arc<dyn RemoteByteSink>;
+        let large = Arc::new(QueuedRemoteByteSink::new(
+            RemoteStreamId::Large,
+            queue_settings.capacity_for(RemoteStreamId::Large),
+            large,
+        )?) as Arc<dyn RemoteByteSink>;
+        Ok(Self::shared(
+            association,
+            classifier,
+            control,
+            ordinary,
+            large,
+        ))
+    }
+
     pub fn association(&self) -> &Arc<Mutex<RemoteAssociation>> {
         &self.association
     }
@@ -100,7 +133,23 @@ impl AssociationOutboundPipeline {
 
 impl RemoteOutbound for AssociationOutboundPipeline {
     fn send(&self, envelope: RemoteEnvelope) -> Result<()> {
-        self.outbound.send(envelope)
+        let result = self.outbound.send(envelope);
+        if matches!(
+            result,
+            Err(RemoteError::OutboundLaneQueueFull { ref lane, .. }) if lane == "control"
+        ) {
+            let mut association = self
+                .association
+                .lock()
+                .expect("remote association lock poisoned");
+            let remote_uid = match association.state() {
+                AssociationState::Active { remote_uid }
+                | AssociationState::Quarantined { remote_uid, .. } => *remote_uid,
+                _ => None,
+            };
+            association.quarantine(remote_uid, "control lane queue overflow");
+        }
+        result
     }
 
     fn close(&self, reason: &str) -> Result<()> {
@@ -110,7 +159,8 @@ impl RemoteOutbound for AssociationOutboundPipeline {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Condvar, Mutex};
+    use std::time::{Duration, Instant};
 
     use bytes::Bytes;
     use kairo_serialization::{
@@ -211,6 +261,57 @@ mod tests {
     impl RemoteByteSink for FailingByteSink {
         fn send_bytes(&self, _bytes: Bytes) -> Result<()> {
             Err(stream_send_failure(self.stream_id, "socket closed"))
+        }
+    }
+
+    #[derive(Default)]
+    struct BlockingByteSink {
+        entered: Mutex<bool>,
+        entered_changed: Condvar,
+        released: Mutex<bool>,
+        release_changed: Condvar,
+    }
+
+    impl BlockingByteSink {
+        fn wait_until_entered(&self, timeout: Duration) {
+            let deadline = Instant::now() + timeout;
+            let mut entered = self.entered.lock().expect("blocking sink poisoned");
+            while !*entered {
+                let remaining = deadline
+                    .checked_duration_since(Instant::now())
+                    .expect("queued control writer did not start");
+                let (next, wait) = self
+                    .entered_changed
+                    .wait_timeout(entered, remaining)
+                    .expect("blocking sink poisoned");
+                entered = next;
+                assert!(!wait.timed_out(), "queued control writer did not start");
+            }
+        }
+
+        fn release(&self) {
+            *self.released.lock().expect("blocking sink poisoned") = true;
+            self.release_changed.notify_all();
+        }
+    }
+
+    impl RemoteByteSink for BlockingByteSink {
+        fn send_bytes(&self, _bytes: Bytes) -> Result<()> {
+            *self.entered.lock().expect("blocking sink poisoned") = true;
+            self.entered_changed.notify_all();
+            let mut released = self.released.lock().expect("blocking sink poisoned");
+            while !*released {
+                released = self
+                    .release_changed
+                    .wait(released)
+                    .expect("blocking sink poisoned");
+            }
+            Ok(())
+        }
+
+        fn close(&self) -> Result<()> {
+            self.release();
+            Ok(())
         }
     }
 
@@ -357,6 +458,64 @@ mod tests {
                 .ordinary_stream_id(),
             None
         );
+    }
+
+    #[test]
+    fn control_queue_overflow_quarantines_exact_association_incarnation() {
+        let registry = registry();
+        let blocking = Arc::new(BlockingByteSink::default());
+        let control = Arc::new(
+            QueuedRemoteByteSink::new(
+                RemoteStreamId::Control,
+                1,
+                blocking.clone() as Arc<dyn RemoteByteSink>,
+            )
+            .unwrap(),
+        ) as Arc<dyn RemoteByteSink>;
+        let mut association = RemoteAssociation::new("kairo://receiver@127.0.0.1:25520");
+        association.activate(Some(42));
+        let association = Arc::new(Mutex::new(association));
+        let mut classifier = RemoteLaneClassifier::default();
+        classifier.add_control_manifest(Business::MANIFEST);
+        let pipeline = AssociationOutboundPipeline::shared(
+            association.clone(),
+            classifier,
+            control,
+            Arc::new(|_: Bytes| Ok(())),
+            Arc::new(|_: Bytes| Ok(())),
+        );
+
+        pipeline.send(envelope(&registry, b"one")).unwrap();
+        blocking.wait_until_entered(Duration::from_secs(1));
+        pipeline.send(envelope(&registry, b"two")).unwrap();
+        let error = pipeline
+            .send(envelope(&registry, b"three"))
+            .expect_err("control overflow should fail immediately");
+
+        assert!(matches!(
+            error,
+            RemoteError::OutboundLaneQueueFull { lane, capacity: 1 }
+                if lane == "control"
+        ));
+        assert!(matches!(
+            association
+                .lock()
+                .expect("association poisoned")
+                .state(),
+            AssociationState::Quarantined {
+                remote_uid: Some(42),
+                reason,
+            } if reason == "control lane queue overflow"
+        ));
+        assert!(matches!(
+            pipeline
+                .send(envelope(&registry, b"four"))
+                .expect_err("quarantined association should reject later sends"),
+            RemoteError::AssociationQuarantined { .. }
+        ));
+
+        blocking.release();
+        pipeline.close("test complete").unwrap();
     }
 
     #[test]

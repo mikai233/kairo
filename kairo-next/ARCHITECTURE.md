@@ -898,9 +898,18 @@ TCP association dialing:
 
 Outbound lanes:
 
-- control/system lane,
-- ordinary lane,
-- optional large-message lane later.
+- control/system lane, bounded to 256 frames by default,
+- ordinary lane, bounded to 1,024 frames by default,
+- large-message lane, bounded to 32 frames by default.
+
+The composed runtime wraps each concrete lane sink in one
+`QueuedRemoteByteSink`. `send` encodes and uses bounded `try_send`, so actor
+turns never wait for `TcpStream::write_all`; one named writer thread per lane
+owns FIFO socket writes. `RemoteOutboundQueueSettings` can replace all three
+capacities before bind. Ordinary and large overflow return explicit delivery
+errors. Control overflow quarantines the association's current remote UID and
+causes later sends to fail at the association guard. Closing a route shuts down
+the underlying socket to interrupt an active write and joins the lane owner.
 
 Inbound pipeline:
 

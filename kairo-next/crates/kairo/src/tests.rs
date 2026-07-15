@@ -1763,6 +1763,8 @@ fn prelude_exposes_remote_entry_points() {
     assert_eq!(settings.canonical_hostname, "127.0.0.1");
     assert_eq!(settings.canonical_port, 25520);
     assert_remote_outbound::<dyn RemoteOutbound>();
+    let queue_settings = RemoteOutboundQueueSettings::new(8, 32, 2).unwrap();
+    assert_eq!(queue_settings.control_capacity(), 8);
     let system = ActorSystem::builder("facade-remote-prelude")
         .build()
         .unwrap();
