@@ -6,7 +6,7 @@ use kairo_actor::{Actor, ActorResult, Context, Props};
 use kairo_cluster::{
     ClusterDaemonBootstrapSettings, ClusterDaemonHandle, ClusterGossipProcessSettings,
     ClusterMembershipMsg, DeadlineFailureDetectorSettings, Gossip, HeartbeatSenderSettings,
-    MemberStatus, register_cluster_daemon, register_cluster_protocol_codecs,
+    MemberStatus, ReachabilityStatus, register_cluster_daemon, register_cluster_protocol_codecs,
 };
 use kairo_remote::{
     RemoteSettings, TcpRemoteActorRuntime, TcpRemoteReconnectSettings,
@@ -110,6 +110,7 @@ struct SingletonNode {
     local_deliveries: TestProbe<u8>,
     gossip: TestProbe<Gossip>,
     proxy_state: TestProbe<crate::SingletonProxySnapshot>,
+    local_proxy_state: TestProbe<crate::SingletonProxySnapshot>,
 }
 
 impl SingletonNode {
@@ -148,12 +149,12 @@ impl SingletonNode {
                     HeartbeatSenderSettings::new(
                         5,
                         DeadlineFailureDetectorSettings::new(
-                            Duration::from_millis(15),
-                            Duration::from_millis(200),
+                            Duration::from_millis(100),
+                            Duration::from_secs(2),
                         )
                         .unwrap(),
                     )
-                    .with_heartbeat_expected_response_after(Duration::from_millis(10)),
+                    .with_heartbeat_expected_response_after(Duration::from_millis(500)),
                 ),
         )
         .unwrap();
@@ -212,6 +213,7 @@ impl SingletonNode {
         Self {
             gossip: kit.create_probe("cluster-gossip").unwrap(),
             proxy_state: kit.create_probe("singleton-proxy-state").unwrap(),
+            local_proxy_state: kit.create_probe("local-singleton-proxy-state").unwrap(),
             kit,
             runtime,
             cluster,
@@ -244,8 +246,25 @@ impl SingletonNode {
         self.proxy_state.expect_msg(Duration::from_secs(1)).unwrap()
     }
 
+    fn local_proxy_state(&self) -> crate::SingletonProxySnapshot {
+        self.local_protocol
+            .proxy()
+            .tell(SingletonProxyMsg::GetState {
+                reply_to: self.local_proxy_state.actor_ref(),
+            })
+            .unwrap();
+        self.local_proxy_state
+            .expect_msg(Duration::from_secs(1))
+            .unwrap()
+    }
+
     fn shutdown(self) {
         self.kit.system().stop(self.cluster.root());
+        self.runtime.shutdown().unwrap();
+        self.kit.shutdown(Duration::from_secs(2)).unwrap();
+    }
+
+    fn crash(self) {
         self.runtime.shutdown().unwrap();
         self.kit.shutdown(Duration::from_secs(2)).unwrap();
     }
@@ -383,4 +402,176 @@ fn composed_singleton_routes_to_oldest_and_hands_over_when_it_leaves() {
 
     peer.shutdown();
     seed.shutdown();
+}
+
+#[test]
+fn composed_singleton_recovers_buffered_delivery_after_oldest_crash() {
+    let registry = registry();
+    let oldest = SingletonNode::start("singleton-fault-oldest", 1, 211, vec![], registry.clone());
+    await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+        (oldest
+            .gossip()
+            .member(oldest.cluster.self_node())
+            .map(|member| member.status)
+            == Some(MemberStatus::Up))
+        .then_some(())
+        .ok_or_else(|| "singleton fault seed has not formed".to_string())
+    })
+    .unwrap();
+    let successor = SingletonNode::start(
+        "singleton-fault-successor",
+        2,
+        212,
+        vec![oldest.cluster.self_node().address.clone()],
+        registry.clone(),
+    );
+    await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+        let oldest_gossip = oldest.gossip();
+        let successor_gossip = successor.gossip();
+        (oldest_gossip
+            .member(successor.cluster.self_node())
+            .map(|member| member.status)
+            == Some(MemberStatus::Up)
+            && successor_gossip
+                .member(oldest.cluster.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+        .then_some(())
+        .ok_or_else(|| "singleton successor has not joined before the observer".to_string())
+    })
+    .unwrap();
+    let observer = SingletonNode::start(
+        "singleton-fault-observer",
+        3,
+        213,
+        vec![oldest.cluster.self_node().address.clone()],
+        registry,
+    );
+    let oldest_node = oldest.cluster.self_node().clone();
+    let successor_node = successor.cluster.self_node().clone();
+
+    await_assert(Duration::from_secs(5), Duration::from_millis(10), || {
+        let oldest_gossip = oldest.gossip();
+        let successor_gossip = successor.gossip();
+        let observer_gossip = observer.gossip();
+        (oldest_gossip
+            .member(successor.cluster.self_node())
+            .is_some()
+            && oldest_gossip.member(observer.cluster.self_node()).is_some()
+            && successor_gossip.member(&oldest_node).is_some()
+            && successor_gossip
+                .member(observer.cluster.self_node())
+                .is_some()
+            && observer_gossip.member(&oldest_node).is_some()
+            && observer_gossip.member(&successor_node).is_some())
+        .then_some(())
+        .ok_or_else(|| "singleton fault topology has not converged".to_string())
+    })
+    .unwrap();
+    await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+        let oldest_state = oldest.proxy_state();
+        let successor_state = successor.proxy_state();
+        let observer_state = observer.proxy_state();
+        (oldest_state.current_oldest.as_ref() == Some(&oldest_node)
+            && oldest_state.singleton_path.is_some()
+            && successor_state.current_oldest.as_ref() == Some(&oldest_node)
+            && successor_state.singleton_path.is_some()
+            && observer_state.current_oldest.as_ref() == Some(&oldest_node)
+            && observer_state.singleton_path.is_some())
+        .then_some(())
+        .ok_or_else(|| {
+            format!(
+                "singleton fault routes not ready: oldest={oldest_state:?}, successor={successor_state:?}, observer={observer_state:?}"
+            )
+        })
+    })
+    .unwrap();
+
+    observer.singleton.tell(Command::Ping(31)).unwrap();
+    oldest
+        .deliveries
+        .expect_msg_eq(31, Duration::from_secs(2))
+        .unwrap();
+    successor
+        .local_protocol
+        .tell(LocalCommand::Ping(32))
+        .unwrap();
+    await_assert(Duration::from_secs(2), Duration::from_millis(10), || {
+        let state = successor.local_proxy_state();
+        (state.current_oldest.as_ref() == Some(&oldest_node)
+            && state.singleton_path.is_none()
+            && state.buffered_messages == 1)
+            .then_some(())
+            .ok_or_else(|| format!("local singleton message was not buffered: {state:?}"))
+    })
+    .unwrap();
+
+    oldest.crash();
+    await_assert(Duration::from_secs(7), Duration::from_millis(25), || {
+        let gossip = successor.gossip();
+        (gossip
+            .reachability()
+            .status(successor.cluster.self_node(), &oldest_node)
+            == ReachabilityStatus::Unreachable)
+            .then_some(())
+            .ok_or_else(|| "crashed singleton owner is not yet unreachable".to_string())
+    })
+    .unwrap();
+    successor
+        .cluster
+        .cluster()
+        .down(oldest_node.address.clone())
+        .unwrap();
+
+    await_assert(Duration::from_secs(5), Duration::from_millis(20), || {
+        let successor_gossip = successor.gossip();
+        let observer_gossip = observer.gossip();
+        (successor_gossip.member(&oldest_node).is_none()
+            && observer_gossip.member(&oldest_node).is_none()
+            && successor_gossip.tombstones().contains_key(&oldest_node)
+            && observer_gossip.tombstones().contains_key(&oldest_node))
+        .then_some(())
+        .ok_or_else(|| "crashed singleton owner has not been removed".to_string())
+    })
+    .unwrap();
+    await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+        let successor_state = successor.proxy_state();
+        let observer_state = observer.proxy_state();
+        let local_state = successor.local_proxy_state();
+        (successor_state.current_oldest.as_ref() == Some(&successor_node)
+            && successor_state.singleton_path.is_some()
+            && observer_state.current_oldest.as_ref() == Some(&successor_node)
+            && observer_state.singleton_path.is_some()
+            && local_state.current_oldest.as_ref() == Some(&successor_node)
+            && local_state.singleton_path.is_some()
+            && local_state.buffered_messages == 0)
+        .then_some(())
+        .ok_or_else(|| {
+            format!(
+                "singleton successor is not ready: successor={successor_state:?}, observer={observer_state:?}, local={local_state:?}"
+            )
+        })
+    })
+    .unwrap();
+
+    successor
+        .local_deliveries
+        .expect_msg_eq(32, Duration::from_secs(2))
+        .unwrap();
+    successor
+        .local_deliveries
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+    observer.singleton.tell(Command::Ping(33)).unwrap();
+    successor
+        .deliveries
+        .expect_msg_eq(33, Duration::from_secs(2))
+        .unwrap();
+    observer
+        .deliveries
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    observer.shutdown();
+    successor.shutdown();
 }

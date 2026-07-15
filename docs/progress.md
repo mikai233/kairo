@@ -15,8 +15,8 @@ work.
 Current active stage: **foundation convergence before M13**, with Phases 1-3
 complete and Phase 4 distributed integration now active. The three-node final
 acceptance workflow now passes through the public composed runtime. Remaining
-Phase 4 work is comparable same-runtime fault coverage for singleton and
-pubsub, plus broader distributed-data pruning and partition depth, rather than
+Phase 4 work is comparable same-runtime fault coverage for pubsub, plus broader
+distributed-data pruning and partition depth, rather than
 the sharding architecture itself. M13 begins only after those remaining gaps
 can be treated as tuning and release hardening rather than replacement.
 
@@ -110,8 +110,12 @@ Status terms in this document mean:
   state, remote delivery, TCP peer runtime, examples, and composed public
   extensions exist. Real two-node tests cover pubsub convergence, named
   singleton handover, local-protocol handover, role-scoped sharding coordinator
-  use, and oldest-node coordinator transfer; broader fault validation remains
-  open.
+  use, and oldest-node coordinator transfer. A three-node singleton fault test
+  crashes the oldest owner without leave, observes failure detection,
+  explicitly downs it, and proves membership removal lets one next-oldest
+  successor start and drain buffered local-protocol traffic exactly once while
+  both survivors route remote traffic to that owner. Comparable pubsub fault
+  validation remains open.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -419,6 +423,16 @@ cluster facade, and observes gossip removal/tombstoning plus connector route
 cleanup. Its two survivors preserve the crashed node's converged GCounter
 contribution and complete new majority write and read operations after the
 replica set shrinks.
+Cluster singleton now has the corresponding abrupt-owner path. A three-node
+test admits the intended successor before the observer, routes remote traffic
+to the oldest node, and records a local-protocol message buffered at the
+successor. It then crashes the oldest without leave, waits for heartbeat
+unreachability, explicitly downs it, and observes both survivors remove and
+tombstone it. Exactly one next-oldest owner becomes live, drains the buffered
+message once, and receives new remote proxy traffic while the observer remains
+proxy-only. This matches Pekko's observable rule that a becoming-oldest manager
+may start once all previous-oldest members are removed when graceful handover
+cannot complete.
 Cluster sharding now shares that same lifecycle. `register_cluster_sharding`
 installs one recipient-path router before bind: routed business envelopes use
 the ordinary lane, while the twelve coordinator/region control manifests use
@@ -477,8 +491,9 @@ rebalance of an existing shard, gracefully removes the oldest node, and
 observes an unmoved remembered entity restart on a survivor before sending its
 next command. The Phase 4 three-node acceptance exit gate is therefore met,
 and distributed data now has a same-runtime crash/down survivor-quorum
-scenario. Comparable singleton and pubsub fault scenarios, plus broader ddata
-pruning/partition coverage, remain the active gate.
+scenario. Singleton now also has a same-runtime abrupt-oldest recovery
+scenario. Comparable pubsub fault coverage, plus broader ddata
+pruning/partition coverage, remains the active gate.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6130,11 +6145,12 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after distributed-data survivor quorum recovery:
+Latest Phase 4 validation after singleton oldest-owner crash recovery:
 
 ```bash
-cargo test -p kairo-distributed-data --all-targets --all-features
-cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
+cargo test -p kairo-cluster-tools cluster_singleton::tests::composed_singleton_recovers_buffered_delivery_after_oldest_crash -- --nocapture
+cargo test -p kairo-cluster-tools
+cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```
