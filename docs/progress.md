@@ -208,6 +208,10 @@ Status terms in this document mean:
   merges, seen-by-all readiness, all-reachable dissemination clocks, inclusive
   expiry, tick effects, and first-observation retention under duplicate removal
   input.
+  Stable replicator protocol records now hard-gate client correlation,
+  direct-read/write, gossip/status, CRDT envelope and pruning, and versioned
+  delta fields; one exhaustive regression pins every remote manifest/version
+  tuple without relying on Rust implementation details.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
