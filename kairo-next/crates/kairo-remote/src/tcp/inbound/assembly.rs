@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -6,9 +8,12 @@ use crate::{RemoteError, Result};
 
 use super::accepted::TcpAcceptedStream;
 
+/// Default time allowed for every lane of an association to arrive.
 pub const DEFAULT_TCP_LANE_ARRIVAL_TIMEOUT: Duration = Duration::from_secs(5);
+/// Default maximum number of partially assembled inbound associations.
 pub const DEFAULT_TCP_MAX_PENDING_ASSOCIATIONS: usize = 64;
 
+/// Resource limits for grouping inbound TCP lane streams into associations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TcpAssociationAssemblySettings {
     lane_arrival_timeout: Duration,
@@ -16,6 +21,11 @@ pub struct TcpAssociationAssemblySettings {
 }
 
 impl TcpAssociationAssemblySettings {
+    /// Creates validated inbound association-assembly settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the lane timeout or pending-association limit is zero.
     pub fn new(lane_arrival_timeout: Duration, max_pending_associations: usize) -> Result<Self> {
         if lane_arrival_timeout.is_zero() {
             return Err(RemoteError::InvalidTcpAssociationAssemblySettings(
@@ -33,10 +43,12 @@ impl TcpAssociationAssemblySettings {
         })
     }
 
+    /// Returns the maximum interval between the first and final lane arrival.
     pub fn lane_arrival_timeout(self) -> Duration {
         self.lane_arrival_timeout
     }
 
+    /// Returns the maximum number of concurrently partial associations.
     pub fn max_pending_associations(self) -> usize {
         self.max_pending_associations
     }

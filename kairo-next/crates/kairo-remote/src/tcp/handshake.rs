@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::io::Read;
 use std::time::Duration;
 
@@ -9,9 +11,12 @@ use crate::{RemoteAssociationAddress, RemoteError, RemoteStreamId, Result};
 const TCP_HANDSHAKE_MAGIC: [u8; 4] = *b"KAH2";
 const TCP_HANDSHAKE_VERSION: u8 = 2;
 const TCP_HANDSHAKE_PREFIX_LEN: usize = TCP_HANDSHAKE_MAGIC.len() + 1 + 4;
+/// Default maximum encoded TCP association-handshake payload size.
 pub const DEFAULT_TCP_HANDSHAKE_MAX_PAYLOAD_BYTES: usize = 64 * 1024;
+/// Default time allowed to read one TCP association handshake.
 pub const DEFAULT_TCP_HANDSHAKE_READ_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Resource limits applied while reading a TCP association handshake.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TcpHandshakeReadSettings {
     max_payload_bytes: usize,
@@ -19,6 +24,11 @@ pub struct TcpHandshakeReadSettings {
 }
 
 impl TcpHandshakeReadSettings {
+    /// Creates validated handshake read settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either the payload limit or read timeout is zero.
     pub fn new(max_payload_bytes: usize, read_timeout: Duration) -> Result<Self> {
         if max_payload_bytes == 0 {
             return Err(RemoteError::InvalidTcpHandshakeSettings(
@@ -36,10 +46,12 @@ impl TcpHandshakeReadSettings {
         })
     }
 
+    /// Returns the maximum accepted encoded handshake payload size.
     pub fn max_payload_bytes(self) -> usize {
         self.max_payload_bytes
     }
 
+    /// Returns the time allowed to read one handshake.
     pub fn read_timeout(self) -> Duration {
         self.read_timeout
     }
@@ -54,6 +66,7 @@ impl Default for TcpHandshakeReadSettings {
     }
 }
 
+/// Stable address and incarnation identity advertised by a TCP peer.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TcpAssociationIdentity {
     address: RemoteAssociationAddress,
@@ -61,19 +74,23 @@ pub struct TcpAssociationIdentity {
 }
 
 impl TcpAssociationIdentity {
+    /// Creates an association identity for `address` and its current `uid`.
     pub fn new(address: RemoteAssociationAddress, uid: u64) -> Self {
         Self { address, uid }
     }
 
+    /// Returns the peer's canonical remote address.
     pub fn address(&self) -> &RemoteAssociationAddress {
         &self.address
     }
 
+    /// Returns the peer incarnation identifier.
     pub fn uid(&self) -> u64 {
         self.uid
     }
 }
 
+/// Handshake sent before one TCP lane joins a remote association.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpAssociationHandshake {
     stream_id: RemoteStreamId,
@@ -82,6 +99,7 @@ pub struct TcpAssociationHandshake {
 }
 
 impl TcpAssociationHandshake {
+    /// Creates a lane handshake from one remote identity to `to`.
     pub fn new(
         stream_id: RemoteStreamId,
         from: TcpAssociationIdentity,
@@ -94,19 +112,28 @@ impl TcpAssociationHandshake {
         }
     }
 
+    /// Returns the lane carried by the handshaken stream.
     pub fn stream_id(&self) -> RemoteStreamId {
         self.stream_id
     }
 
+    /// Returns the sending peer identity.
     pub fn from(&self) -> &TcpAssociationIdentity {
         &self.from
     }
 
+    /// Returns the intended receiving association address.
     pub fn to(&self) -> &RemoteAssociationAddress {
         &self.to
     }
 }
 
+/// Encodes a versioned TCP association handshake.
+///
+/// # Errors
+///
+/// Returns an error when an address field cannot be encoded or the payload
+/// exceeds the wire length representation.
 pub fn encode_tcp_association_handshake(handshake: &TcpAssociationHandshake) -> Result<Bytes> {
     let mut payload = WireWriter::new();
     payload.write_u8(handshake.stream_id.as_u8());
@@ -125,6 +152,14 @@ pub fn encode_tcp_association_handshake(handshake: &TcpAssociationHandshake) -> 
     Ok(Bytes::from(bytes))
 }
 
+/// Reads and decodes one TCP association handshake with an explicit payload limit.
+///
+/// The length prefix is validated before allocating the payload buffer.
+///
+/// # Errors
+///
+/// Returns an error for I/O failure, an oversized payload, unsupported wire
+/// metadata, malformed fields, or trailing payload bytes.
 pub fn read_tcp_association_handshake_with_limit(
     reader: &mut impl Read,
     max_payload_bytes: usize,
@@ -159,6 +194,15 @@ pub fn read_tcp_association_handshake_with_limit(
     decode_tcp_association_handshake_payload(Bytes::from(payload))
 }
 
+/// Validates that a complete lane set belongs to one peer and targets `local_address`.
+///
+/// Returns `Ok(None)` for an empty set and the common peer identity for a valid,
+/// non-empty set.
+///
+/// # Errors
+///
+/// Returns an error when the number of lanes differs from `expected_streams`,
+/// lanes target another address, identities differ, or a lane is duplicated.
 pub fn validate_tcp_association_handshakes(
     local_address: &RemoteAssociationAddress,
     expected_streams: usize,

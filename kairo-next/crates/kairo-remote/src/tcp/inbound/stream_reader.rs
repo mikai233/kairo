@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::io::Read;
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -10,6 +12,7 @@ use super::DEFAULT_READ_CHUNK_LEN;
 use super::error::tcp_inbound_failure;
 use super::reports::TcpAssociationReadReport;
 
+/// Blocking reader that decodes a TCP lane stream and dispatches remote frames.
 #[derive(Clone)]
 pub struct TcpAssociationStreamReader {
     handler: Arc<dyn RemoteFrameHandler>,
@@ -17,6 +20,7 @@ pub struct TcpAssociationStreamReader {
 }
 
 impl TcpAssociationStreamReader {
+    /// Creates a reader that dispatches decoded frames to `handler`.
     pub fn new(handler: Arc<dyn RemoteFrameHandler>) -> Self {
         Self {
             handler,
@@ -24,11 +28,13 @@ impl TcpAssociationStreamReader {
         }
     }
 
+    /// Sets the per-read buffer size, clamped to at least one byte.
     pub fn with_read_chunk_len(mut self, read_chunk_len: usize) -> Self {
         self.read_chunk_len = read_chunk_len.max(1);
         self
     }
 
+    /// Clones this reader's settings with a different frame handler.
     pub fn with_handler(&self, handler: Arc<dyn RemoteFrameHandler>) -> Self {
         Self {
             handler,
@@ -36,6 +42,12 @@ impl TcpAssociationStreamReader {
         }
     }
 
+    /// Reads one stream to EOF, dispatching every complete frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for TCP reads, invalid or truncated stream framing, or
+    /// frame-handler failure.
     pub fn read_stream(
         &self,
         peer: impl Into<String>,

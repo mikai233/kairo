@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::net::{SocketAddr, TcpStream};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -15,6 +17,7 @@ use crate::{
 use super::reports::{TcpAssociationReadReport, TcpAssociationSupervisedReadReport};
 use super::stream_reader::TcpAssociationStreamReader;
 
+/// Complete inbound TCP association whose lane streams are ready to be read.
 pub struct TcpAcceptedAssociation {
     pub(super) reader: TcpAssociationStreamReader,
     pub(super) remote_identity: Option<TcpAssociationIdentity>,
@@ -23,26 +26,35 @@ pub struct TcpAcceptedAssociation {
 }
 
 impl TcpAcceptedAssociation {
+    /// Returns the handshaken peer identity, when handshakes were required.
     pub fn remote_identity(&self) -> Option<&TcpAssociationIdentity> {
         self.remote_identity.as_ref()
     }
 
+    /// Returns the handshaken peer address, when available.
     pub fn remote_address(&self) -> Option<&RemoteAssociationAddress> {
         self.remote_identity
             .as_ref()
             .map(TcpAssociationIdentity::address)
     }
 
+    /// Returns the handshaken peer incarnation identifier, when available.
     pub fn remote_uid(&self) -> Option<u64> {
         self.remote_identity
             .as_ref()
             .map(TcpAssociationIdentity::uid)
     }
 
+    /// Returns the number of lane streams in this association.
     pub fn stream_count(&self) -> usize {
         self.streams.len()
     }
 
+    /// Reads every lane sequentially to EOF and aggregates their frame counts.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first stream read, framing, or frame-handler error.
     pub fn drain(self) -> Result<TcpAssociationReadReport> {
         let mut report = TcpAssociationReadReport::default();
         for accepted in self.streams {
@@ -55,6 +67,7 @@ impl TcpAcceptedAssociation {
         Ok(report)
     }
 
+    /// Spawns one blocking reader thread per lane stream.
     pub fn spawn_lane_readers(self) -> TcpAssociationReaderHandle {
         let route_lifecycle = self
             .route_registration
@@ -90,6 +103,7 @@ pub(super) struct TcpAcceptedStream {
     pub(super) stream: TcpStream,
 }
 
+/// Join handle for the reader threads of one TCP association.
 pub struct TcpAssociationReaderHandle {
     joins: Vec<TcpAssociationReaderJoin>,
 }
@@ -124,6 +138,11 @@ impl TcpAssociationReaderHandle {
         Self { joins }
     }
 
+    /// Joins every reader and returns aggregate read totals.
+    ///
+    /// # Errors
+    ///
+    /// Returns an inbound error when a reader fails or panics.
     pub fn join(self) -> Result<TcpAssociationReadReport> {
         let mut supervisor = TcpAssociationReaderSupervisor::default();
         let report = self.join_with_supervisor(&mut supervisor);
@@ -140,12 +159,16 @@ impl TcpAssociationReaderHandle {
         self.joins.iter().all(|reader| reader.join.is_finished())
     }
 
+    /// Joins readers after marking the default supervisor stopped.
+    ///
+    /// Late reader failures are reported as ignored supervision decisions.
     pub fn join_after_stop(self) -> TcpAssociationSupervisedReadReport {
         let mut supervisor = TcpAssociationReaderSupervisor::default();
         supervisor.stop();
         self.join_with_supervisor(&mut supervisor)
     }
 
+    /// Joins stopped readers before `deadline`, or returns `None` on timeout.
     pub fn join_after_stop_until(
         self,
         deadline: Instant,
@@ -155,6 +178,7 @@ impl TcpAssociationReaderHandle {
         self.join_with_supervisor_until(&mut supervisor, deadline)
     }
 
+    /// Joins readers and records failures through `supervisor`.
     pub fn join_with_supervisor(
         self,
         supervisor: &mut TcpAssociationReaderSupervisor,
@@ -170,6 +194,7 @@ impl TcpAssociationReaderHandle {
         }
     }
 
+    /// Joins supervised readers before `deadline`, or returns `None` on timeout.
     pub fn join_with_supervisor_until(
         self,
         supervisor: &mut TcpAssociationReaderSupervisor,

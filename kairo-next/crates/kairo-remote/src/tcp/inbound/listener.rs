@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::{
@@ -28,6 +30,7 @@ use super::stream_reader::TcpAssociationStreamReader;
 const DEFAULT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const STOP_READER_JOIN_TIMEOUT: Duration = Duration::from_millis(50);
 
+/// TCP listener that assembles accepted lane streams into remote associations.
 pub struct TcpAssociationListener {
     listener: TcpListener,
     reader: TcpAssociationStreamReader,
@@ -42,7 +45,12 @@ pub struct TcpAssociationListener {
     route_installer: Option<RemoteAssociationRouteInstaller>,
 }
 
+/// Creates a frame handler for each accepted remote association.
 pub trait TcpAssociationFrameHandlerFactory: Send + Sync + 'static {
+    /// Returns the handler for an accepted peer identity.
+    ///
+    /// `remote_identity` is absent when the listener is configured without
+    /// association handshakes.
     fn handler_for(
         &self,
         remote_identity: Option<&TcpAssociationIdentity>,
@@ -62,12 +70,18 @@ where
 }
 
 impl TcpAssociationListener {
+    /// Binds a TCP listener and installs a shared frame handler.
+    ///
+    /// # Errors
+    ///
+    /// Returns an inbound transport error when the socket cannot be bound.
     pub fn bind(address: impl ToSocketAddrs, handler: Arc<dyn RemoteFrameHandler>) -> Result<Self> {
         let listener = TcpListener::bind(address)
             .map_err(|error| RemoteError::Inbound(format!("tcp bind failed: {error}")))?;
         Ok(Self::from_listener(listener, handler))
     }
 
+    /// Creates an association listener from an already-bound socket.
     pub fn from_listener(listener: TcpListener, handler: Arc<dyn RemoteFrameHandler>) -> Self {
         Self {
             listener,
@@ -84,16 +98,21 @@ impl TcpAssociationListener {
         }
     }
 
+    /// Sets the number of lane streams required per association.
+    ///
+    /// Values below one are clamped to one.
     pub fn with_expected_streams(mut self, expected_streams: usize) -> Self {
         self.expected_streams = expected_streams.max(1);
         self
     }
 
+    /// Requires handshakes to target `local_address` before lane assembly.
     pub fn with_local_address(mut self, local_address: RemoteAssociationAddress) -> Self {
         self.local_address = Some(local_address);
         self
     }
 
+    /// Configures the local address and incarnation advertised on reply lanes.
     pub fn with_local_identity(
         mut self,
         local_address: RemoteAssociationAddress,
@@ -104,11 +123,13 @@ impl TcpAssociationListener {
         self
     }
 
+    /// Sets handshake size and read-time resource limits.
     pub fn with_handshake_read_settings(mut self, settings: TcpHandshakeReadSettings) -> Self {
         self.handshake_read_settings = settings;
         self
     }
 
+    /// Sets pending-association and lane-arrival resource limits.
     pub fn with_association_assembly_settings(
         mut self,
         settings: TcpAssociationAssemblySettings,
@@ -117,16 +138,19 @@ impl TcpAssociationListener {
         self
     }
 
+    /// Records completed peer handshakes in `registry`.
     pub fn with_association_registry(mut self, registry: RemoteAssociationRegistry) -> Self {
         self.association_registry = Some(registry);
         self
     }
 
+    /// Installs inbound association routes through `installer`.
     pub fn with_route_installer(mut self, installer: RemoteAssociationRouteInstaller) -> Self {
         self.route_installer = Some(installer);
         self
     }
 
+    /// Selects frame handlers per accepted peer identity.
     pub fn with_handler_factory(
         mut self,
         handler_factory: Arc<dyn TcpAssociationFrameHandlerFactory>,
@@ -135,11 +159,15 @@ impl TcpAssociationListener {
         self
     }
 
+    /// Sets the lane reader's per-read buffer size.
     pub fn with_read_chunk_len(mut self, read_chunk_len: usize) -> Self {
         self.reader = self.reader.with_read_chunk_len(read_chunk_len);
         self
     }
 
+    /// Sets how often a nonblocking accept loop polls for new streams.
+    ///
+    /// A zero duration restores the default interval.
     pub fn with_accept_poll_interval(mut self, poll_interval: Duration) -> Self {
         self.accept_poll_interval = if poll_interval.is_zero() {
             DEFAULT_ACCEPT_POLL_INTERVAL
@@ -149,12 +177,23 @@ impl TcpAssociationListener {
         self
     }
 
+    /// Returns the bound socket address.
+    ///
+    /// # Errors
+    ///
+    /// Returns an inbound transport error when the local address is unavailable.
     pub fn local_addr(&self) -> Result<SocketAddr> {
         self.listener
             .local_addr()
             .map_err(|error| RemoteError::Inbound(format!("tcp local address failed: {error}")))
     }
 
+    /// Blocks until all lanes for one association have been accepted and validated.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for socket configuration or acceptance failure, malformed
+    /// handshakes, exhausted assembly limits, registry failure, or route failure.
     pub fn accept_association(&self) -> Result<TcpAcceptedAssociation> {
         if self.local_address.is_some() {
             self.listener.set_nonblocking(true).map_err(|error| {
@@ -193,6 +232,11 @@ impl TcpAssociationListener {
         self.complete_association(streams, handshakes)
     }
 
+    /// Spawns a nonblocking association accept loop.
+    ///
+    /// # Errors
+    ///
+    /// Returns an inbound transport error when nonblocking mode cannot be enabled.
     pub fn spawn_accept_loop(self) -> Result<TcpAssociationListenerHandle> {
         let stop = Arc::new(AtomicBool::new(false));
         self.listener
@@ -540,16 +584,23 @@ fn clone_lane_sink(
     )))
 }
 
+/// Control and join handle for a spawned TCP association accept loop.
 pub struct TcpAssociationListenerHandle {
     stop: Arc<AtomicBool>,
     join: JoinHandle<Result<TcpAssociationListenerReport>>,
 }
 
 impl TcpAssociationListenerHandle {
+    /// Requests that the accept loop stop and join its active lane readers.
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
     }
 
+    /// Waits for the accept loop to stop and returns its aggregate report.
+    ///
+    /// # Errors
+    ///
+    /// Returns the loop's transport error or an inbound error if its thread panics.
     pub fn join(self) -> Result<TcpAssociationListenerReport> {
         self.join
             .join()
