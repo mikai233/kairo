@@ -1,8 +1,10 @@
+use std::cmp::Ordering as CmpOrdering;
+use std::collections::BinaryHeap;
 use std::fmt;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::thread;
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::ActorRef;
@@ -73,8 +75,12 @@ pub(crate) struct Scheduler {
 impl Scheduler {
     pub(crate) fn real() -> Self {
         Self {
-            backend: Arc::new(RealScheduler),
+            backend: Arc::new(RealScheduler::new()),
         }
+    }
+
+    pub(crate) fn shutdown(&self) {
+        self.backend.shutdown();
     }
 
     pub(crate) fn schedule_once<M>(
@@ -205,25 +211,119 @@ trait SchedulerBackend: Send + Sync + 'static {
         mode: RepeatingMode,
         action: Box<dyn FnMut() + Send>,
     ) -> Cancellable;
+
+    fn shutdown(&self);
 }
 
-#[derive(Debug)]
-struct RealScheduler;
+struct RealScheduler {
+    inner: Arc<RealSchedulerInner>,
+    driver: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl RealScheduler {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(RealSchedulerInner {
+                state: Mutex::new(RealSchedulerState {
+                    accepting: true,
+                    next_order: 0,
+                    scheduled: BinaryHeap::new(),
+                }),
+                changed: Condvar::new(),
+            }),
+            driver: Mutex::new(None),
+        }
+    }
+
+    fn schedule(&self, delay: Duration, action: ScheduledAction) -> Cancellable {
+        let cancellable = Cancellable::new();
+        self.ensure_driver_started();
+        let mut state = self.inner.state.lock().expect("real scheduler poisoned");
+        if !state.accepting {
+            cancellable.cancel();
+            return cancellable;
+        }
+        let scheduled = RealScheduled {
+            deadline: Instant::now() + delay,
+            order: state.next_order,
+            cancellable: cancellable.clone(),
+            action,
+        };
+        state.next_order = state.next_order.wrapping_add(1);
+        state.scheduled.push(scheduled);
+        self.inner.changed.notify_one();
+        cancellable
+    }
+
+    fn ensure_driver_started(&self) {
+        let mut driver = self.driver.lock().expect("real scheduler driver poisoned");
+        if driver.is_some()
+            || !self
+                .inner
+                .state
+                .lock()
+                .expect("real scheduler poisoned")
+                .accepting
+        {
+            return;
+        }
+        let inner = Arc::clone(&self.inner);
+        *driver = Some(
+            thread::Builder::new()
+                .name("kairo-scheduler".to_string())
+                .spawn(move || run_real_scheduler(inner))
+                .expect("failed to spawn scheduler driver"),
+        );
+    }
+
+    fn stop(&self) {
+        let pending = {
+            let mut state = self.inner.state.lock().expect("real scheduler poisoned");
+            if !state.accepting {
+                Vec::new()
+            } else {
+                state.accepting = false;
+                let pending = state.scheduled.drain().collect::<Vec<_>>();
+                self.inner.changed.notify_all();
+                pending
+            }
+        };
+        for scheduled in pending {
+            scheduled.cancellable.cancel();
+        }
+
+        let driver = self
+            .driver
+            .lock()
+            .expect("real scheduler driver poisoned")
+            .take();
+        if let Some(driver) = driver
+            && driver.thread().id() != thread::current().id()
+        {
+            let _ = driver.join();
+        }
+    }
+}
+
+impl fmt::Debug for RealScheduler {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let state = self.inner.state.lock().expect("real scheduler poisoned");
+        f.debug_struct("RealScheduler")
+            .field("accepting", &state.accepting)
+            .field("scheduled", &state.scheduled.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for RealScheduler {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
 
 impl SchedulerBackend for RealScheduler {
     fn schedule_once(&self, delay: Duration, action: Box<dyn FnOnce() + Send>) -> Cancellable {
-        let cancellable = Cancellable::new();
-        let task = cancellable.clone();
-        thread::Builder::new()
-            .name("kairo-scheduler-once".to_string())
-            .spawn(move || {
-                thread::sleep(delay);
-                if task.complete() {
-                    action();
-                }
-            })
-            .expect("failed to spawn scheduler task");
-        cancellable
+        self.schedule(delay, ScheduledAction::Once(Some(action)))
     }
 
     fn schedule_repeated(
@@ -231,37 +331,140 @@ impl SchedulerBackend for RealScheduler {
         initial_delay: Duration,
         interval: Duration,
         mode: RepeatingMode,
-        mut action: Box<dyn FnMut() + Send>,
+        action: Box<dyn FnMut() + Send>,
     ) -> Cancellable {
-        let cancellable = Cancellable::new();
-        let task = cancellable.clone();
-        let thread_name = match mode {
-            RepeatingMode::FixedDelay => "kairo-timer-fixed-delay",
-            RepeatingMode::FixedRate => "kairo-timer-fixed-rate",
-        };
-        thread::Builder::new()
-            .name(thread_name.to_string())
-            .spawn(move || match mode {
-                RepeatingMode::FixedDelay => {
-                    thread::sleep(initial_delay);
-                    while task.is_active() {
-                        action();
-                        thread::sleep(interval);
-                    }
-                }
-                RepeatingMode::FixedRate => {
-                    let mut next_tick = Instant::now() + initial_delay;
-                    sleep_until(next_tick, &task);
+        if interval.is_zero() {
+            return Cancellable::cancelled();
+        }
+        self.schedule(
+            initial_delay,
+            ScheduledAction::Repeated {
+                interval,
+                mode,
+                action,
+            },
+        )
+    }
 
-                    while task.is_active() {
-                        action();
-                        next_tick += interval;
-                        sleep_until(next_tick, &task);
-                    }
-                }
-            })
-            .expect("failed to spawn repeated scheduler task");
-        cancellable
+    fn shutdown(&self) {
+        self.stop();
+    }
+}
+
+struct RealSchedulerInner {
+    state: Mutex<RealSchedulerState>,
+    changed: Condvar,
+}
+
+struct RealSchedulerState {
+    accepting: bool,
+    next_order: u64,
+    scheduled: BinaryHeap<RealScheduled>,
+}
+
+struct RealScheduled {
+    deadline: Instant,
+    order: u64,
+    cancellable: Cancellable,
+    action: ScheduledAction,
+}
+
+impl PartialEq for RealScheduled {
+    fn eq(&self, other: &Self) -> bool {
+        self.deadline == other.deadline && self.order == other.order
+    }
+}
+
+impl Eq for RealScheduled {}
+
+impl PartialOrd for RealScheduled {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RealScheduled {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        other
+            .deadline
+            .cmp(&self.deadline)
+            .then_with(|| other.order.cmp(&self.order))
+    }
+}
+
+fn run_real_scheduler(inner: Arc<RealSchedulerInner>) {
+    while let Some(scheduled) = wait_for_due(&inner) {
+        run_scheduled(&inner, scheduled);
+    }
+}
+
+fn wait_for_due(inner: &RealSchedulerInner) -> Option<RealScheduled> {
+    let mut state = inner.state.lock().expect("real scheduler poisoned");
+    loop {
+        if !state.accepting {
+            return None;
+        }
+        while state
+            .scheduled
+            .peek()
+            .is_some_and(|scheduled| !scheduled.cancellable.is_active())
+        {
+            state.scheduled.pop();
+        }
+        let Some(scheduled) = state.scheduled.peek() else {
+            state = inner.changed.wait(state).expect("real scheduler poisoned");
+            continue;
+        };
+        let Some(remaining) = scheduled.deadline.checked_duration_since(Instant::now()) else {
+            return state.scheduled.pop();
+        };
+        let (next_state, _) = inner
+            .changed
+            .wait_timeout(state, remaining)
+            .expect("real scheduler poisoned");
+        state = next_state;
+    }
+}
+
+fn run_scheduled(inner: &RealSchedulerInner, mut scheduled: RealScheduled) {
+    match &mut scheduled.action {
+        ScheduledAction::Once(action) => {
+            if scheduled.cancellable.complete()
+                && let Some(action) = action.take()
+            {
+                let _ = panic::catch_unwind(AssertUnwindSafe(action));
+            }
+        }
+        ScheduledAction::Repeated {
+            interval,
+            mode,
+            action,
+        } => {
+            if !scheduled.cancellable.is_active() {
+                return;
+            }
+            if panic::catch_unwind(AssertUnwindSafe(action)).is_err() {
+                scheduled.cancellable.cancel();
+                return;
+            }
+            if !scheduled.cancellable.is_active() {
+                return;
+            }
+            scheduled.deadline = match mode {
+                RepeatingMode::FixedDelay => Instant::now() + *interval,
+                RepeatingMode::FixedRate => scheduled.deadline + *interval,
+            };
+            let mut state = inner.state.lock().expect("real scheduler poisoned");
+            if state.accepting {
+                scheduled.order = state.next_order;
+                state.next_order = state.next_order.wrapping_add(1);
+                state.scheduled.push(scheduled);
+                inner.changed.notify_one();
+            } else {
+                drop(state);
+                scheduled.cancellable.cancel();
+            }
+        }
     }
 }
 
@@ -379,6 +582,10 @@ impl ManualScheduler {
     fn push_scheduled(&self, delay: Duration, cancellable: Cancellable, action: ScheduledAction) {
         {
             let mut state = self.inner.lock().expect("manual scheduler poisoned");
+            if !state.accepting {
+                cancellable.cancel();
+                return;
+            }
             let scheduled = Scheduled {
                 deadline: state.now + delay,
                 order: state.next_order,
@@ -428,6 +635,9 @@ impl SchedulerBackend for ManualScheduler {
         mode: RepeatingMode,
         action: Box<dyn FnMut() + Send>,
     ) -> Cancellable {
+        if interval.is_zero() {
+            return Cancellable::cancelled();
+        }
         let cancellable = Cancellable::new();
         self.push_scheduled(
             initial_delay,
@@ -440,13 +650,35 @@ impl SchedulerBackend for ManualScheduler {
         );
         cancellable
     }
+
+    fn shutdown(&self) {
+        let scheduled = {
+            let mut state = self.inner.lock().expect("manual scheduler poisoned");
+            state.accepting = false;
+            std::mem::take(&mut state.scheduled)
+        };
+        for scheduled in scheduled {
+            scheduled.cancellable.cancel();
+        }
+    }
 }
 
-#[derive(Default)]
 struct ManualState {
+    accepting: bool,
     now: Duration,
     next_order: u64,
     scheduled: Vec<Scheduled>,
+}
+
+impl Default for ManualState {
+    fn default() -> Self {
+        Self {
+            accepting: true,
+            now: Duration::ZERO,
+            next_order: 0,
+            scheduled: Vec::new(),
+        }
+    }
 }
 
 struct Scheduled {
@@ -487,18 +719,11 @@ enum RepeatingMode {
     FixedRate,
 }
 
-fn sleep_until(deadline: Instant, task: &Cancellable) {
-    while task.is_active() {
-        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-            return;
-        };
-        thread::sleep(remaining);
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::sync::mpsc;
+    use std::thread;
     use std::time::Duration;
 
     use super::*;
@@ -534,5 +759,81 @@ mod tests {
         assert_eq!(observed_rx.recv().unwrap(), Duration::from_millis(1500));
         assert_eq!(scheduler.now(), Duration::from_secs(2));
         assert_eq!(scheduler.pending_count(), 0);
+    }
+
+    #[test]
+    fn real_scheduler_runs_thousands_of_actions_on_one_driver_thread() {
+        const ACTIONS: usize = 2_000;
+        let scheduler = Scheduler::real();
+        let (observed_tx, observed_rx) = mpsc::channel();
+
+        for _ in 0..ACTIONS {
+            let observed_tx = observed_tx.clone();
+            scheduler.schedule_action(Duration::from_millis(20), move || {
+                observed_tx.send(thread::current().id()).unwrap();
+            });
+        }
+
+        let mut thread_ids = HashSet::new();
+        for _ in 0..ACTIONS {
+            thread_ids.insert(observed_rx.recv_timeout(Duration::from_secs(2)).unwrap());
+        }
+        assert_eq!(thread_ids.len(), 1, "scheduler threads: {thread_ids:?}");
+        scheduler.shutdown();
+    }
+
+    #[test]
+    fn callback_panic_does_not_stop_real_scheduler_driver() {
+        let scheduler = Scheduler::real();
+        let panicked = scheduler.schedule_action(Duration::ZERO, || panic!("scheduled failure"));
+        let (recovered_tx, recovered_rx) = mpsc::channel();
+        let recovered = scheduler.schedule_action(Duration::ZERO, move || {
+            recovered_tx.send(()).unwrap();
+        });
+
+        recovered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(panicked.is_completed());
+        assert!(recovered.is_completed());
+        scheduler.shutdown();
+    }
+
+    #[test]
+    fn repeated_callback_panic_aborts_only_that_schedule() {
+        let scheduler = Scheduler::real();
+        let backend = Arc::clone(&scheduler.backend);
+        let panicked = backend.schedule_repeated(
+            Duration::ZERO,
+            Duration::from_millis(1),
+            RepeatingMode::FixedDelay,
+            Box::new(|| panic!("repeated scheduled failure")),
+        );
+        let (recovered_tx, recovered_rx) = mpsc::channel();
+        scheduler.schedule_action(Duration::from_millis(10), move || {
+            recovered_tx.send(()).unwrap();
+        });
+
+        recovered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(panicked.is_cancelled());
+        scheduler.shutdown();
+    }
+
+    #[test]
+    fn real_scheduler_shutdown_cancels_pending_work_and_wakes_driver() {
+        const ACTIONS: usize = 2_000;
+        let scheduler = Scheduler::real();
+        let handles = (0..ACTIONS)
+            .map(|_| scheduler.schedule_action(Duration::from_secs(60), || {}))
+            .collect::<Vec<_>>();
+
+        let started = Instant::now();
+        scheduler.shutdown();
+
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(handles.iter().all(Cancellable::is_cancelled));
+        assert!(
+            scheduler
+                .schedule_action(Duration::ZERO, || {})
+                .is_cancelled()
+        );
     }
 }

@@ -271,6 +271,7 @@ impl ActorSystem {
             &[user_root.as_str(), system_root.as_str()],
             deadline,
         )?;
+        self.inner.scheduler.shutdown();
         self.inner.task_executor.shutdown();
         self.inner.dispatcher.shutdown();
         self.inner.terminated.store(true, Ordering::Release);

@@ -25,6 +25,11 @@ enum TimerProbeMsg {
         fired: mpsc::Sender<&'static str>,
         ack: mpsc::Sender<()>,
     },
+    StartBurst {
+        count: usize,
+        fired: mpsc::Sender<usize>,
+        ack: mpsc::Sender<()>,
+    },
     StartZeroFixedDelay {
         fired: mpsc::Sender<&'static str>,
         active: mpsc::Sender<bool>,
@@ -59,6 +64,10 @@ enum TimerProbeMsg {
     FireLabel {
         label: &'static str,
         reply_to: mpsc::Sender<&'static str>,
+    },
+    BurstFired {
+        index: usize,
+        reply_to: mpsc::Sender<usize>,
     },
 }
 
@@ -148,6 +157,20 @@ impl Actor for TimerProbe {
                         reply_to: fired,
                     },
                 );
+                ack.send(())
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            TimerProbeMsg::StartBurst { count, fired, ack } => {
+                for index in 0..count {
+                    ctx.start_single_timer(
+                        format!("burst-{index}"),
+                        Duration::from_millis(20),
+                        TimerProbeMsg::BurstFired {
+                            index,
+                            reply_to: fired.clone(),
+                        },
+                    );
+                }
                 ack.send(())
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
@@ -259,6 +282,11 @@ impl Actor for TimerProbe {
             TimerProbeMsg::FireLabel { label, reply_to } => {
                 reply_to
                     .send(label)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+            TimerProbeMsg::BurstFired { index, reply_to } => {
+                reply_to
+                    .send(index)
                     .map_err(|error| ActorError::Message(error.to_string()))?;
             }
         }
@@ -476,6 +504,34 @@ fn fixed_rate_timer_repeats_until_cancelled() {
         .unwrap();
     cancel_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(fired_rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn thousands_of_actor_timers_share_the_real_scheduler_driver() {
+    const TIMERS: usize = 2_000;
+    let system = ActorSystem::builder("timer-burst")
+        .dispatcher_workers(2)
+        .build()
+        .unwrap();
+    let actor = system.spawn("timer", Props::new(|| TimerProbe)).unwrap();
+    let (fired_tx, fired_rx) = mpsc::channel();
+    let (ack_tx, ack_rx) = mpsc::channel();
+
+    actor
+        .tell(TimerProbeMsg::StartBurst {
+            count: TIMERS,
+            fired: fired_tx,
+            ack: ack_tx,
+        })
+        .unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let mut fired = std::collections::HashSet::new();
+    for _ in 0..TIMERS {
+        fired.insert(fired_rx.recv_timeout(Duration::from_secs(2)).unwrap());
+    }
+    assert_eq!(fired.len(), TIMERS);
+    system.terminate(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

@@ -6,15 +6,16 @@ As of 2026-07-15, `kairo-next` has broad component coverage across local
 actors, serialization, remoting, gossip state, distributed data, sharding, and
 cluster tools. The component depth and validation history are substantial, but
 the rewrite has not yet reached an M13-only hardening phase. The production
-actor execution model, one composed remoting boundary, the complete cluster
-daemon lifecycle, and the final public extension APIs still require
-foundational integration work.
+actor execution model is now complete; one composed remoting boundary, the
+complete cluster daemon lifecycle, and the final public extension APIs still
+require foundational integration work.
 
-Current active stage: **foundation convergence before M13**. M13 validation
-commands continue to run as regression gates, but passing those gates does not
-by itself mean that the M13 acceptance condition has been met. M13 begins only
-after the remaining architecture work can be treated as tuning and release
-hardening rather than replacement.
+Current active stage: **foundation convergence before M13**, with Phase 1
+complete and Phase 2 composed remoting now active. M13 validation commands
+continue to run as regression gates, but passing those gates does not by itself
+mean that the M13 acceptance condition has been met. M13 begins only after the
+remaining architecture work can be treated as tuning and release hardening
+rather than replacement.
 
 Status terms in this document mean:
 
@@ -38,9 +39,10 @@ Status terms in this document mean:
   coverage. Lifecycle, supervision, death watch, timers, scheduler, ask,
   pipe-to-self, adapters, stash, event stream, receptionist, coordinated
   shutdown, probes, and manual time support have focused tests. Actor-owned
-  helper tasks now run on a bounded ActorSystem-owned worker pool. A final
-  actor tree semantic audit and migration of real-time timers away from
-  per-operation OS threads remain part of the execution-foundation phase.
+  helper tasks run on a bounded ActorSystem-owned worker pool, and real-time
+  timers share one ActorSystem-owned scheduler driver while deterministic
+  manual time remains unchanged. A final actor tree semantic audit remains
+  part of foundation convergence.
 - M3 serialization and message metadata: mostly complete. Stable
   `RemoteMessage` metadata, derive support, codec registration, manifests,
   remote envelopes, and actor-ref serialization boundaries exist. Optional
@@ -98,16 +100,16 @@ runtime. Each phase has an explicit exit gate.
 
 ### Phase 1: Production Actor Execution Foundation
 
-Current checkpoint: actor startup, synchronous receive turns, system-message
-priority, throughput rescheduling, stop, and restart now run on the shared
-dispatcher without one OS thread per actor. Focused coverage pins lost-wakeup
-avoidance, single-turn execution, one-worker fairness and child-stop progress,
-factory-panic isolation, and 2,000 idle actors on two workers. Actor helper
-tasks now use a configurable, lazily started fixed worker pool with a bounded,
-non-blocking submission queue; task failures remain observable through
-`TaskHandle`, scoped actor refs reject stale completions across owner
-stop/restart, and 2,000 actor tasks complete on two workers. The real-time
-scheduler's per-timer sleeping threads remain the open Phase 1 execution work.
+Status: **complete**. Actor startup, synchronous receive turns, system-message
+priority, throughput rescheduling, stop, and restart run on the shared
+dispatcher without one OS thread per actor. Actor helper tasks use a
+configurable, lazily started fixed worker pool with a bounded, non-blocking
+submission queue. Real-time timers use one lazily started ordered scheduler
+driver; fixed-delay and fixed-rate cadence, cancellation, panic isolation, and
+system shutdown preserve their documented semantics, while manual time remains
+deterministic. Focused coverage pins lost-wakeup avoidance, single-turn
+execution, one-worker fairness and child-stop progress, saturation, shutdown,
+and 2,000 idle actors, actor tasks, scheduler callbacks, and actor timers.
 
 Task: replace the worker-thread-per-actor/task/timer baseline with an explicit
 dispatcher, task-executor, and scheduler ownership model while preserving the
@@ -137,6 +139,8 @@ production dispatcher ownership model in `docs/decisions.md` before replacing
 the baseline.
 
 ### Phase 2: Composed Remoting Runtime
+
+Status: **active**.
 
 Task: converge business messages and system protocols on one ActorSystem-owned
 remoting lifecycle and canonical transport address.
@@ -252,10 +256,12 @@ checkpoint, not an individual agent turn, test case, or validation command.
 
 ## Known Validation Status
 
-- The Phase 1 bounded task-executor checkpoint passes the complete workspace
-  format, clippy, and test gates. The one sharding timeout seen before changing
-  unused task pools to lazy start also passed 10 consecutive focused reruns and
-  the repeated full workspace gate:
+- The completed Phase 1 execution foundation passes the complete workspace
+  format, clippy, and test gates. Focused stress coverage runs 2,000 actor
+  tasks on two task workers, 2,000 scheduler callbacks on one driver, and 2,000
+  actor timers on that same driver. The one sharding timeout seen before
+  changing unused task pools to lazy start also passed 10 consecutive focused
+  reruns and repeated full workspace gates:
 
   ```bash
   cargo fmt --all -- --check

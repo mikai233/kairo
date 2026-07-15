@@ -1997,10 +1997,10 @@ test coverage. Remaining implementation follows the runtime dependency chain
 below. Passing later component tests does not bypass an earlier integration
 gate.
 
-1. `kairo-actor`: replace the per-actor/per-task/per-timer worker-thread
-   baseline with the recorded production dispatcher, task-executor, and
-   scheduler model. Preserve single-consumer typed mailboxes, system-message
-   priority, synchronous `Actor::receive`, and deterministic manual time.
+1. `kairo-actor`: completed the recorded production dispatcher, bounded task
+   executor, and single-driver scheduler model while preserving single-consumer
+   typed mailboxes, system-message priority, synchronous `Actor::receive`, and
+   deterministic manual time.
 2. `kairo-remote`: converge business and system traffic on one
    ActorSystem-owned listener and association lifecycle. Add heterogeneous
    manifest dispatch, bounded non-blocking lanes, reliable ordered system

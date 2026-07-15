@@ -326,3 +326,31 @@ fn actor_system_schedule_once_after_termination_is_cancelled() {
     assert!(observed_rx.recv_timeout(Duration::ZERO).is_err());
     assert!(system.dead_letters().is_empty());
 }
+
+#[test]
+fn actor_system_termination_cancels_pending_scheduler_work() {
+    let scheduler = ManualScheduler::new();
+    let system = ActorSystem::builder("test")
+        .manual_scheduler(scheduler.clone())
+        .build()
+        .unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let actor = system
+        .spawn(
+            "scheduled",
+            Props::new(move || ScheduledProbe {
+                observed: observed_tx,
+            }),
+        )
+        .unwrap();
+    let pending = system.schedule_once(Duration::from_secs(1), actor, ScheduledMsg::Record("late"));
+    assert_eq!(scheduler.pending_count(), 1);
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+
+    assert!(pending.is_cancelled());
+    assert_eq!(scheduler.pending_count(), 0);
+    scheduler.advance(Duration::from_secs(1));
+    assert!(observed_rx.recv_timeout(Duration::ZERO).is_err());
+    assert!(system.dead_letters().is_empty());
+}
