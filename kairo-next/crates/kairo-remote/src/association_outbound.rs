@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::{Arc, Mutex};
 
 use kairo_serialization::RemoteEnvelope;
@@ -5,12 +7,17 @@ use kairo_serialization::RemoteEnvelope;
 use crate::{RemoteAssociation, RemoteOutbound, Result};
 
 #[derive(Clone)]
+/// Guards an outbound transport with shared association lifecycle state.
+///
+/// Terminal association states reject a send before the inner outbound is
+/// invoked.
 pub struct AssociationRemoteOutbound {
     association: Arc<Mutex<RemoteAssociation>>,
     outbound: Arc<dyn RemoteOutbound>,
 }
 
 impl AssociationRemoteOutbound {
+    /// Creates a guarded outbound with newly shared ownership of `association`.
     pub fn new(association: RemoteAssociation, outbound: Arc<dyn RemoteOutbound>) -> Self {
         Self {
             association: Arc::new(Mutex::new(association)),
@@ -18,6 +25,7 @@ impl AssociationRemoteOutbound {
         }
     }
 
+    /// Creates a guarded outbound using existing shared association state.
     pub fn shared(
         association: Arc<Mutex<RemoteAssociation>>,
         outbound: Arc<dyn RemoteOutbound>,
@@ -28,10 +36,12 @@ impl AssociationRemoteOutbound {
         }
     }
 
+    /// Returns the shared association lifecycle state.
     pub fn association(&self) -> &Arc<Mutex<RemoteAssociation>> {
         &self.association
     }
 
+    /// Returns the guarded inner outbound.
     pub fn outbound(&self) -> &Arc<dyn RemoteOutbound> {
         &self.outbound
     }

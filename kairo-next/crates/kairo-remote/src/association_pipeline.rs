@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -10,6 +12,8 @@ use crate::{
 };
 
 #[derive(Clone)]
+/// Complete outbound association path from lifecycle guard through envelope
+/// framing, lane classification, stream framing, and byte sinks.
 pub struct AssociationOutboundPipeline {
     association: Arc<Mutex<RemoteAssociation>>,
     stream_sink: Arc<StreamLaneSink>,
@@ -18,6 +22,7 @@ pub struct AssociationOutboundPipeline {
 }
 
 impl AssociationOutboundPipeline {
+    /// Creates a direct-writer pipeline with a new idle association.
     pub fn new(
         remote_address: impl Into<String>,
         classifier: RemoteLaneClassifier,
@@ -34,6 +39,7 @@ impl AssociationOutboundPipeline {
         )
     }
 
+    /// Creates a direct-writer pipeline from owned association state.
     pub fn from_association(
         association: RemoteAssociation,
         classifier: RemoteLaneClassifier,
@@ -50,6 +56,8 @@ impl AssociationOutboundPipeline {
         )
     }
 
+    /// Creates a direct-writer pipeline using existing shared association
+    /// state.
     pub fn shared(
         association: Arc<Mutex<RemoteAssociation>>,
         classifier: RemoteLaneClassifier,
@@ -75,6 +83,11 @@ impl AssociationOutboundPipeline {
         }
     }
 
+    /// Creates a pipeline with one bounded non-blocking writer queue per lane.
+    ///
+    /// The first background writer failure closes the association and all three
+    /// underlying lane sinks. A control-lane queue overflow quarantines the
+    /// current remote incarnation synchronously.
     pub fn shared_queued(
         association: Arc<Mutex<RemoteAssociation>>,
         classifier: RemoteLaneClassifier,
@@ -126,22 +139,30 @@ impl AssociationOutboundPipeline {
         ))
     }
 
+    /// Returns the shared association lifecycle state.
     pub fn association(&self) -> &Arc<Mutex<RemoteAssociation>> {
         &self.association
     }
 
+    /// Returns the three-lane stream sink.
     pub fn stream_sink(&self) -> &Arc<StreamLaneSink> {
         &self.stream_sink
     }
 
+    /// Returns the envelope framing and lane-classification outbound.
     pub fn lane_outbound(&self) -> &Arc<LaneRemoteOutbound> {
         &self.lane_outbound
     }
 
+    /// Returns the association-state-guarded outbound.
     pub fn guarded_outbound(&self) -> &AssociationRemoteOutbound {
         &self.outbound
     }
 
+    /// Closes the association and all three stream writers.
+    ///
+    /// The association retains its first terminal reason. All writers are still
+    /// asked to close, and the first close failure is returned.
     pub fn close(&self, reason: impl Into<String>) -> Result<()> {
         self.association
             .lock()

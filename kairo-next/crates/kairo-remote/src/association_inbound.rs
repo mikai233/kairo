@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -19,6 +21,8 @@ where
     }
 }
 
+/// Maintains independent incremental readers for an association's control,
+/// ordinary, and large inbound streams.
 pub struct AssociationRemoteInbound<M> {
     control: StreamFrameInbound,
     ordinary: StreamFrameInbound,
@@ -30,11 +34,15 @@ impl<M> AssociationRemoteInbound<M>
 where
     M: RemoteMessage,
 {
+    /// Creates a three-lane association inbound that decodes envelopes into one
+    /// typed inbound pipeline.
     pub fn new(inbound: FramedRemoteInbound<M>) -> Self {
         let handler = Arc::new(DeliverRemoteFrame { inbound }) as Arc<dyn RemoteFrameHandler>;
         Self::from_handler(handler)
     }
 
+    /// Creates a three-lane association inbound backed by a shared decoded-frame
+    /// handler.
     pub fn from_handler(handler: Arc<dyn RemoteFrameHandler>) -> Self {
         Self {
             control: StreamFrameInbound::new(handler.clone()),
@@ -44,30 +52,37 @@ where
         }
     }
 
+    /// Returns the decoded control stream identifier, if its header arrived.
     pub fn control_stream_id(&self) -> Option<RemoteStreamId> {
         self.control.stream_id()
     }
 
+    /// Returns the decoded ordinary stream identifier, if its header arrived.
     pub fn ordinary_stream_id(&self) -> Option<RemoteStreamId> {
         self.ordinary.stream_id()
     }
 
+    /// Returns the decoded large stream identifier, if its header arrived.
     pub fn large_stream_id(&self) -> Option<RemoteStreamId> {
         self.large.stream_id()
     }
 
+    /// Adds control-lane bytes and returns the number of frames delivered.
     pub fn push_control_bytes(&mut self, chunk: Bytes) -> Result<usize> {
         self.control.push_bytes(chunk)
     }
 
+    /// Adds ordinary-lane bytes and returns the number of frames delivered.
     pub fn push_ordinary_bytes(&mut self, chunk: Bytes) -> Result<usize> {
         self.ordinary.push_bytes(chunk)
     }
 
+    /// Adds large-lane bytes and returns the number of frames delivered.
     pub fn push_large_bytes(&mut self, chunk: Bytes) -> Result<usize> {
         self.large.push_bytes(chunk)
     }
 
+    /// Finishes all lane readers, rejecting any truncated stream.
     pub fn finish(self) -> Result<()> {
         self.control.finish()?;
         self.ordinary.finish()?;

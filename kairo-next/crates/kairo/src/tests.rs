@@ -152,6 +152,9 @@ fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error:
     let documented_modules = [
         "kairo-next/crates/kairo-remote/src/association.rs",
         "kairo-next/crates/kairo-remote/src/association_cache.rs",
+        "kairo-next/crates/kairo-remote/src/association_inbound.rs",
+        "kairo-next/crates/kairo-remote/src/association_outbound.rs",
+        "kairo-next/crates/kairo-remote/src/association_pipeline.rs",
         "kairo-next/crates/kairo-remote/src/association_registry.rs",
         "kairo-next/crates/kairo-remote/src/association_routes.rs",
         "kairo-next/crates/kairo-remote/src/codec.rs",
