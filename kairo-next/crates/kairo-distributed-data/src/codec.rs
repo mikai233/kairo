@@ -176,6 +176,13 @@ mod tests {
                     from_version: 3,
                     to_version: 5,
                     payload: Bytes::from_static(&[0, 1, 2, 3]),
+                    pruning: vec![ReplicatorPruningEntry {
+                        removed: ReplicaId::new("removed"),
+                        state: ReplicatorPruningState::Initialized {
+                            owner: ReplicaId::new("owner"),
+                            seen: vec![ReplicaId::new("peer")],
+                        },
+                    }],
                 },
                 ReplicatorDelta {
                     key: "set-b".to_string(),
@@ -184,6 +191,7 @@ mod tests {
                     from_version: 6,
                     to_version: 6,
                     payload: Bytes::from_static(&[4, 5, 6]),
+                    pruning: Vec::new(),
                 },
             ],
         };
@@ -223,6 +231,37 @@ mod tests {
             registry.deserialize::<ReplicatorDeltaNack>(nack).unwrap(),
             ReplicatorDeltaNack
         );
+    }
+
+    #[test]
+    fn ddata_delta_protocol_decodes_v1_without_pruning_metadata() {
+        let registry = registry();
+        let mut writer = WireWriter::new();
+        writer.write_string("remote").unwrap();
+        writer.write_bool(false);
+        writer.write_u64(1);
+        writer.write_string("counter").unwrap();
+        writer.write_string(crate::GCOUNTER_MANIFEST).unwrap();
+        writer.write_u16(crate::CRDT_CODEC_VERSION);
+        writer.write_u64(1);
+        writer.write_u64(2);
+        writer.write_bytes(&Bytes::from_static(&[1, 2, 3])).unwrap();
+        let serialized = SerializedMessage::new(
+            REPLICATOR_DELTA_PROPAGATION_SERIALIZER_ID,
+            Manifest::new(ReplicatorDeltaPropagation::MANIFEST),
+            1,
+            writer.finish(),
+        );
+
+        let decoded = registry
+            .deserialize::<ReplicatorDeltaPropagation>(serialized)
+            .unwrap();
+
+        assert_eq!(decoded.from, ReplicaId::new("remote"));
+        assert_eq!(decoded.deltas.len(), 1);
+        assert!(decoded.deltas[0].pruning.is_empty());
+        assert_eq!(decoded.deltas[0].from_version, 1);
+        assert_eq!(decoded.deltas[0].to_version, 2);
     }
 
     #[test]
@@ -465,6 +504,7 @@ mod tests {
                     from_version: 1,
                     to_version: 2,
                     payload: Bytes::from_static(&[1, 2, 3]),
+                    pruning: Vec::new(),
                 }],
             })
             .expect_err("empty CRDT manifest should fail");

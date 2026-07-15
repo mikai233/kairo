@@ -233,11 +233,20 @@ where
                 codec,
                 reply_to,
             } => {
-                let report = self.delta_receive.apply_propagation(
-                    &mut self.state,
-                    &propagation,
-                    codec.as_ref(),
-                );
+                let report = if let Some(self_replica) = &self.self_replica {
+                    self.delta_receive.apply_propagation_with_seen(
+                        &mut self.state,
+                        &propagation,
+                        codec.as_ref(),
+                        self_replica,
+                    )
+                } else {
+                    self.delta_receive.apply_propagation(
+                        &mut self.state,
+                        &propagation,
+                        codec.as_ref(),
+                    )
+                };
                 tell_or_actor_error(&reply_to, report)?;
             }
             ReplicatorActorMsg::ApplyWrite {
@@ -301,7 +310,15 @@ where
                 tell_or_actor_error(&reply_to, report)?;
             }
             ReplicatorActorMsg::CollectDeltaPropagations { reply_to } => {
-                let propagations = self.delta_log.collect_propagations();
+                let mut propagations = self.delta_log.collect_propagations();
+                for propagation in propagations.values_mut() {
+                    propagation.attach_pruning(|key| {
+                        self.state
+                            .envelope(key)
+                            .map(|envelope| envelope.pruning().clone())
+                            .unwrap_or_default()
+                    });
+                }
                 tell_or_actor_error(&reply_to, propagations)?;
             }
             ReplicatorActorMsg::CleanupDeltaEntries => {

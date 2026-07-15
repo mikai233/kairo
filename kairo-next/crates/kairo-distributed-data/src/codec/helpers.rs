@@ -38,21 +38,40 @@ pub(super) fn write_delta(
     writer.write_u16(delta.crdt_version);
     writer.write_u64(delta.from_version);
     writer.write_u64(delta.to_version);
-    writer.write_bytes(&delta.payload)
+    writer.write_bytes(&delta.payload)?;
+    writer.write_u64(len_to_u64(delta.pruning.len())?);
+    for entry in &delta.pruning {
+        write_pruning_entry(writer, entry)?;
+    }
+    Ok(())
 }
 
 pub(super) fn read_delta(
     reader: &mut WireReader<'_>,
+    version: u16,
 ) -> kairo_serialization::Result<ReplicatorDelta> {
     let key = reader.read_string()?;
     let crdt_manifest = read_manifest_string(reader)?;
+    let crdt_version = reader.read_u16()?;
+    let from_version = reader.read_u64()?;
+    let to_version = reader.read_u64()?;
+    let payload = reader.read_bytes()?;
+    let pruning = if version >= 2 {
+        let count = u64_to_len(reader.read_u64()?)?;
+        (0..count)
+            .map(|_| read_pruning_entry(reader))
+            .collect::<kairo_serialization::Result<Vec<_>>>()?
+    } else {
+        Vec::new()
+    };
     Ok(ReplicatorDelta {
         key,
         crdt_manifest,
-        crdt_version: reader.read_u16()?,
-        from_version: reader.read_u64()?,
-        to_version: reader.read_u64()?,
-        payload: reader.read_bytes()?,
+        crdt_version,
+        from_version,
+        to_version,
+        payload,
+        pruning,
     })
 }
 

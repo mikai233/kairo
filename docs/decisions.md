@@ -4337,3 +4337,31 @@ Consequences:
   selected on a tick.
 - Empty collection attempts still advance the counter and can trigger cleanup,
   matching Pekko's selector behavior.
+
+## ADR-0136: Delta Propagation V2 Carries Pruning Metadata
+
+Status: Accepted
+
+Context:
+Pekko wraps every propagated CRDT delta in the key's current data envelope so
+removed-replica pruning metadata cannot lag behind the operation based on it.
+Kairo's delta-propagation v1 record carried only the CRDT manifest, codec
+version, payload, and source-version range. A delta could therefore arrive
+without an initialized or performed marker and temporarily restore causal state
+that full-state gossip had already pruned elsewhere.
+
+Decision:
+Delta-propagation wire version 2 appends the key's deterministic pruning table
+to every serialized delta range. The composed replicator snapshots pruning from
+its current full-state envelope after selecting ranges and before publication.
+Receivers merge pruning before applying the delta, clean contributions covered
+by retained performed markers, and mark initialized markers seen by the local
+replica before acknowledging. The codec continues to accept version 1 and maps
+its absent pruning field to an empty table.
+
+Consequences:
+- Delta and full-state paths preserve the same removed-node safety boundary.
+- Rolling upgrades can receive v1 traffic, with full-state gossip retaining its
+  existing responsibility for pruning convergence from older senders.
+- New senders emit version 2; manifests and serializer identifiers remain
+  unchanged because the codec version owns the schema evolution.

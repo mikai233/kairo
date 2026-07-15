@@ -261,7 +261,7 @@ pub struct ReplicatorDeltaPropagation {
 
 impl RemoteMessage for ReplicatorDeltaPropagation {
     const MANIFEST: &'static str = "kairo.ddata.delta-propagation";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
 }
 
 /// Serialized CRDT delta and its inclusive per-source version range.
@@ -275,6 +275,8 @@ pub struct ReplicatorDelta {
     pub crdt_version: u16,
     /// Codec-owned delta payload bytes.
     pub payload: Bytes,
+    /// Current pruning metadata for the delta's logical key.
+    pub pruning: Vec<ReplicatorPruningEntry>,
     /// First source version represented by the payload.
     pub from_version: u64,
     /// Last source version represented by the payload.
@@ -294,9 +296,16 @@ impl ReplicatorDelta {
             crdt_manifest: data.manifest().to_string(),
             crdt_version: data.version(),
             payload: data.into_payload(),
+            pruning: Vec::new(),
             from_version,
             to_version,
         }
+    }
+
+    /// Replaces the key's pruning metadata carried with this delta range.
+    pub fn with_pruning(mut self, pruning: Vec<ReplicatorPruningEntry>) -> Self {
+        self.pruning = pruning;
+        self
     }
 }
 
@@ -381,7 +390,7 @@ mod tests {
                 ReplicatorDeltaPropagation::MANIFEST,
                 ReplicatorDeltaPropagation::VERSION
             ),
-            ("kairo.ddata.delta-propagation", 1)
+            ("kairo.ddata.delta-propagation", 2)
         );
         assert_eq!(
             (ReplicatorDeltaAck::MANIFEST, ReplicatorDeltaAck::VERSION),

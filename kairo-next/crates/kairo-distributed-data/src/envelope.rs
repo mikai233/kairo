@@ -198,6 +198,26 @@ where
     }
 }
 
+impl<D> DataEnvelope<D>
+where
+    D: DeltaReplicatedData + RemovedNodePruning,
+{
+    /// Applies a delta after merging pruning metadata and expiring old markers.
+    ///
+    /// Retained performed markers clean removed-replica contributions from the
+    /// resulting full value, including contributions carried by the delta.
+    pub fn merge_delta_pruned(
+        &self,
+        delta: &D::Delta,
+        pruning: &PruningTable,
+        now_millis: u64,
+    ) -> Self {
+        let pruning = self.pruning.merge_without_obsolete(pruning, now_millis);
+        let data = cleanup_performed(&self.data.merge_delta(delta), &pruning);
+        Self { data, pruning }
+    }
+}
+
 fn cleanup_performed<D>(data: &D, pruning: &PruningTable) -> D
 where
     D: RemovedNodePruning,

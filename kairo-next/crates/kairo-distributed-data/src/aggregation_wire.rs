@@ -97,7 +97,7 @@ where
         .transpose()
 }
 
-fn encode_pruning_table(pruning: &PruningTable) -> Vec<ReplicatorPruningEntry> {
+pub(crate) fn encode_pruning_table(pruning: &PruningTable) -> Vec<ReplicatorPruningEntry> {
     pruning
         .states()
         .iter()
@@ -116,7 +116,7 @@ fn encode_pruning_table(pruning: &PruningTable) -> Vec<ReplicatorPruningEntry> {
         .collect()
 }
 
-fn decode_pruning_table(
+pub(crate) fn decode_pruning_table(
     entries: &[ReplicatorPruningEntry],
 ) -> kairo_serialization::Result<PruningTable> {
     let mut pruning = PruningTable::new();

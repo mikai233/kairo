@@ -5,13 +5,20 @@ fn delta_wire_encodes_manifest_tagged_propagation_entries() {
     let key = ReplicatorKey::new("counter");
     let remote = replica("remote");
     let local = replica("local");
+    let removed = replica("removed");
+    let owner = replica("owner");
+    let seen = replica("seen");
+    let mut pruning = PruningTable::new();
+    pruning.initialize(removed.clone(), owner.clone());
+    pruning.mark_seen(&removed, seen.clone());
     let mut log = DeltaPropagationLog::new([remote]);
     log.record_delta(key.clone(), Some(delta_counter("a", 1)));
     log.record_delta(key.clone(), Some(delta_counter("b", 2)));
-    let propagation = log
+    let mut propagation = log
         .collect_propagations()
         .remove(&replica("remote"))
         .unwrap();
+    propagation.attach_pruning(|_| pruning.clone());
 
     let wire = encode_delta_propagation(local.clone(), true, &propagation, &GCounterCodec).unwrap();
 
@@ -23,6 +30,7 @@ fn delta_wire_encodes_manifest_tagged_propagation_entries() {
     assert_eq!(wire.deltas[0].crdt_version, crate::CRDT_CODEC_VERSION);
     assert_eq!(wire.deltas[0].from_version, 1);
     assert_eq!(wire.deltas[0].to_version, 2);
+    assert_eq!(wire.deltas[0].pruning.len(), 1);
 
     let decoded = decode_delta_propagation(&wire, &GCounterCodec).unwrap();
     assert_eq!(decoded.len(), 1);
@@ -30,6 +38,11 @@ fn delta_wire_encodes_manifest_tagged_propagation_entries() {
     assert_eq!(decoded[0].from_version(), 1);
     assert_eq!(decoded[0].to_version(), 2);
     assert_eq!(decoded[0].delta().value().unwrap(), 3);
+    let PruningState::Initialized(initialized) = decoded[0].pruning().get(&removed).unwrap() else {
+        panic!("expected initialized pruning marker");
+    };
+    assert_eq!(initialized.owner(), &owner);
+    assert!(initialized.seen().contains(&seen));
 }
 
 #[test]
@@ -41,6 +54,7 @@ fn delta_wire_rejects_unregistered_crdt_manifest_for_codec() {
         payload: bytes::Bytes::new(),
         from_version: 1,
         to_version: 1,
+        pruning: Vec::new(),
     };
     let wire = crate::ReplicatorDeltaPropagation {
         from: replica("remote"),

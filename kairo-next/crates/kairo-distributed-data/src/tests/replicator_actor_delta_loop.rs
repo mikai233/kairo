@@ -68,10 +68,19 @@ fn replicator_actor_collects_delta_propagations_from_local_updates() {
     let key = ReplicatorKey::new("counter");
     let remote = replica("remote");
     let node = replica("local");
+    let removed = replica("removed");
+    let owner = replica("owner");
 
     replicator
         .tell(ReplicatorActorMsg::SetDeltaNodes {
             nodes: vec![remote.clone()],
+        })
+        .unwrap();
+    replicator
+        .tell(ReplicatorActorMsg::WriteFull {
+            key: key.clone(),
+            envelope: DataEnvelope::new(GCounter::new())
+                .init_removed_node_pruning(removed.clone(), owner.clone()),
         })
         .unwrap();
     replicator
@@ -105,6 +114,10 @@ fn replicator_actor_collects_delta_propagations_from_local_updates() {
     assert_eq!(entry.from_version(), 1);
     assert_eq!(entry.to_version(), 1);
     assert_eq!(entry.delta().value().unwrap(), 3);
+    let PruningState::Initialized(initialized) = entry.pruning().get(&removed).unwrap() else {
+        panic!("expected initialized pruning marker");
+    };
+    assert_eq!(initialized.owner(), &owner);
 
     system.terminate(Duration::from_secs(1)).unwrap();
 }
@@ -130,10 +143,19 @@ fn replicator_actor_delta_loop_publishes_and_cleans_on_manual_tick() {
     let (update_ref, update_rx) = forward_ref(&system, "update-replies");
     let (tick_ref, tick_rx) = forward_ref::<DeltaPropagationTickReport>(&system, "tick-replies");
     let key = ReplicatorKey::new("counter");
+    let removed = replica("removed");
+    let owner = replica("owner");
 
     replicator
         .tell(ReplicatorActorMsg::SetDeltaNodes {
             nodes: vec![replica("remote")],
+        })
+        .unwrap();
+    replicator
+        .tell(ReplicatorActorMsg::WriteFull {
+            key: key.clone(),
+            envelope: DataEnvelope::new(GCounter::new())
+                .init_removed_node_pruning(removed.clone(), owner.clone()),
         })
         .unwrap();
     replicator
@@ -163,6 +185,11 @@ fn replicator_actor_delta_loop_publishes_and_cleans_on_manual_tick() {
     assert!(!outbound.reply);
     assert_eq!(outbound.deltas.len(), 1);
     assert_eq!(outbound.deltas[0].key, key.as_str());
+    let decoded = decode_delta_propagation(&outbound, &GCounterCodec).unwrap();
+    let PruningState::Initialized(initialized) = decoded[0].pruning().get(&removed).unwrap() else {
+        panic!("expected initialized pruning marker");
+    };
+    assert_eq!(initialized.owner(), &owner);
 
     let (tick_ref, tick_rx) = forward_ref::<DeltaPropagationTickReport>(&system, "tick-replies-2");
     replicator

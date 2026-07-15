@@ -14,7 +14,7 @@ use crate::{
     DeltaTransportReport, DirectReadResult, DirectWriteResult, GCounter, GCounterCodec, GSet,
     GSetStringCodec, GSetStringDeltaCodec, GetResponse, LWWRegister, LWWRegisterStringCodec, ORMap,
     ORMapStringGSetCodec, ORMapStringGSetDeltaCodec, ORSet, ORSetStringCodec,
-    ORSetStringDeltaCodec, PNCounter, PNCounterCodec, PruningPerformed, PruningState,
+    ORSetStringDeltaCodec, PNCounter, PNCounterCodec, PruningPerformed, PruningState, PruningTable,
     ReadAggregationOutcome, ReadAggregationPlan, ReadAggregatorState, ReadConsistency,
     RemovedNodePruning, RemovedNodePruningTick, RemovedNodePruningTickReport, ReplicaId,
     ReplicatedData, ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg, ReplicatorAggregation,

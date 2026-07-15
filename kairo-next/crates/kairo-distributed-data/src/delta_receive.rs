@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    CrdtDataCodec, DeltaReplicatedData, ReplicaId, ReplicatorDeltaAck, ReplicatorDeltaNack,
-    ReplicatorDeltaPropagation, ReplicatorKey, ReplicatorState, decode_delta,
+    CrdtDataCodec, DeltaReplicatedData, PruningTable, RemovedNodePruning, ReplicaId,
+    ReplicatorDeltaAck, ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorKey,
+    ReplicatorState, decode_delta,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,7 +129,35 @@ impl DeltaReceiveTracker {
         codec: &Codec,
     ) -> DeltaPropagationReceiveReport
     where
-        D: DeltaReplicatedData,
+        D: DeltaReplicatedData + RemovedNodePruning,
+        Codec: CrdtDataCodec<D::Delta> + ?Sized,
+    {
+        self.apply_propagation_inner(state, propagation, codec, None)
+    }
+
+    pub(crate) fn apply_propagation_with_seen<D, Codec>(
+        &mut self,
+        state: &mut ReplicatorState<D>,
+        propagation: &ReplicatorDeltaPropagation,
+        codec: &Codec,
+        seen_by: &ReplicaId,
+    ) -> DeltaPropagationReceiveReport
+    where
+        D: DeltaReplicatedData + RemovedNodePruning,
+        Codec: CrdtDataCodec<D::Delta> + ?Sized,
+    {
+        self.apply_propagation_inner(state, propagation, codec, Some(seen_by))
+    }
+
+    fn apply_propagation_inner<D, Codec>(
+        &mut self,
+        state: &mut ReplicatorState<D>,
+        propagation: &ReplicatorDeltaPropagation,
+        codec: &Codec,
+        seen_by: Option<&ReplicaId>,
+    ) -> DeltaPropagationReceiveReport
+    where
+        D: DeltaReplicatedData + RemovedNodePruning,
         Codec: CrdtDataCodec<D::Delta> + ?Sized,
     {
         let mut statuses = Vec::with_capacity(propagation.deltas.len());
@@ -137,13 +166,16 @@ impl DeltaReceiveTracker {
         for delta in &propagation.deltas {
             match decode_delta(delta, codec) {
                 Ok(decoded) => {
-                    statuses.push(self.apply_delta(
+                    let pruning = decoded.pruning().clone();
+                    statuses.push(self.apply_delta_pruned(
                         state,
                         propagation.from.clone(),
                         decoded.key().clone(),
                         decoded.from_version(),
                         decoded.to_version(),
                         decoded.into_delta(),
+                        pruning,
+                        seen_by,
                     ));
                 }
                 Err(error) => failures.push(DeltaReceiveFailure::DecodeFailed {
@@ -158,6 +190,66 @@ impl DeltaReceiveTracker {
             reply_requested: propagation.reply,
             statuses,
             failures,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn apply_delta_pruned<D>(
+        &mut self,
+        state: &mut ReplicatorState<D>,
+        from: ReplicaId,
+        key: ReplicatorKey,
+        from_version: u64,
+        to_version: u64,
+        delta: D::Delta,
+        pruning: PruningTable,
+        seen_by: Option<&ReplicaId>,
+    ) -> DeltaReceiveStatus
+    where
+        D: DeltaReplicatedData + RemovedNodePruning,
+    {
+        if from_version == 0 || to_version < from_version {
+            return DeltaReceiveStatus::InvalidRange {
+                from,
+                key,
+                from_version,
+                to_version,
+            };
+        }
+
+        let previous_version = self.current_version(&from, &key);
+        if previous_version >= to_version {
+            return DeltaReceiveStatus::AlreadyHandled {
+                from,
+                key,
+                current_version: previous_version,
+                to_version,
+            };
+        }
+
+        let expected_from_version = previous_version + 1;
+        if from_version > expected_from_version {
+            return DeltaReceiveStatus::Missing {
+                from,
+                key,
+                current_version: previous_version,
+                expected_from_version,
+                from_version,
+                to_version,
+            };
+        }
+
+        let merged = state.write_delta_pruned(key.clone(), delta, &pruning, wall_millis());
+        let seen_changed =
+            seen_by.is_some_and(|seen_by| state.mark_key_pruning_seen(&key, seen_by.clone()));
+        self.versions
+            .insert((from.clone(), key.clone()), to_version);
+        DeltaReceiveStatus::Applied {
+            from,
+            key,
+            previous_version,
+            to_version,
+            changed: merged || seen_changed,
         }
     }
 
@@ -215,4 +307,12 @@ impl DeltaReceiveTracker {
             changed,
         }
     }
+}
+
+fn wall_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or(std::time::Duration::ZERO)
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
 }

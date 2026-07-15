@@ -7,7 +7,15 @@ where
 {
     pub(super) fn run_delta_propagation_tick(&mut self) -> DeltaPropagationTickReport {
         match &self.delta_loop {
-            Some(delta_loop) => delta_loop.run_tick(&mut self.delta_log),
+            Some(delta_loop) => {
+                let state = &self.state;
+                delta_loop.run_tick_with_pruning(&mut self.delta_log, |key| {
+                    state
+                        .envelope(key)
+                        .map(|envelope| envelope.pruning().clone())
+                        .unwrap_or_default()
+                })
+            }
             None => DeltaPropagationTickReport::skipped(self.delta_log.propagation_count()),
         }
     }

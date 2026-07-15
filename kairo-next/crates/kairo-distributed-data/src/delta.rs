@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::{ReplicaId, ReplicatedData, ReplicatorKey};
+use crate::{PruningTable, ReplicaId, ReplicatedData, ReplicatorKey};
 
 const DEFAULT_GOSSIP_INTERVAL_DIVISOR: usize = 5;
 const MIN_NODE_SLICE_SIZE: usize = 2;
@@ -31,6 +31,15 @@ impl<Delta> DeltaPropagation<Delta> {
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
+
+    pub(crate) fn attach_pruning(
+        &mut self,
+        mut pruning_for_key: impl FnMut(&ReplicatorKey) -> PruningTable,
+    ) {
+        for (key, entry) in &mut self.entries {
+            entry.pruning = pruning_for_key(key);
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +48,7 @@ pub struct DeltaPropagationEntry<Delta> {
     delta: Delta,
     from_version: u64,
     to_version: u64,
+    pruning: PruningTable,
 }
 
 impl<Delta> DeltaPropagationEntry<Delta> {
@@ -48,6 +58,7 @@ impl<Delta> DeltaPropagationEntry<Delta> {
             delta,
             from_version,
             to_version,
+            pruning: PruningTable::new(),
         }
     }
 
@@ -64,6 +75,11 @@ impl<Delta> DeltaPropagationEntry<Delta> {
     /// Returns the last version represented by the payload.
     pub fn to_version(&self) -> u64 {
         self.to_version
+    }
+
+    /// Returns pruning metadata captured for this delta range's key.
+    pub fn pruning(&self) -> &PruningTable {
+        &self.pruning
     }
 }
 

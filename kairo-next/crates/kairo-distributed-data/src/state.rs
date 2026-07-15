@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    DataEnvelope, DeltaReplicatedData, GetResponse, PruningPerformed, PruningState,
+    DataEnvelope, DeltaReplicatedData, GetResponse, PruningPerformed, PruningState, PruningTable,
     RemovedNodePruning, RemovedNodePruningFailure, ReplicaId, ReplicatedDelta, ReplicatorChange,
     ReplicatorKey, UpdateOutcome,
 };
@@ -185,6 +185,25 @@ where
         let next = match self.entries.get(&key) {
             Some(existing) => existing.merge_pruned(&envelope, now_millis),
             None => envelope,
+        };
+        self.set_data(key, next)
+    }
+
+    /// Applies a delta together with its current removed-replica pruning metadata.
+    ///
+    /// Pruning tables merge before the delta is applied. Retained performed
+    /// markers clean late removed-replica contributions from the resulting
+    /// full value, and obsolete performed markers expire at `now_millis`.
+    pub fn write_delta_pruned(
+        &mut self,
+        key: ReplicatorKey,
+        delta: D::Delta,
+        pruning: &PruningTable,
+        now_millis: u64,
+    ) -> bool {
+        let next = match self.entries.get(&key) {
+            Some(existing) => existing.merge_delta_pruned(&delta, pruning, now_millis),
+            None => DataEnvelope::new(delta.zero()).merge_delta_pruned(&delta, pruning, now_millis),
         };
         self.set_data(key, next)
     }

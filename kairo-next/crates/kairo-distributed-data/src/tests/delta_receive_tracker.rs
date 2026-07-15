@@ -170,6 +170,7 @@ fn delta_receive_tracker_summarizes_missing_or_decode_failure_as_nack() {
             payload: bytes::Bytes::new(),
             from_version: 1,
             to_version: 1,
+            pruning: Vec::new(),
         }],
     };
     let decode_report = tracker.apply_propagation(&mut state, &decode_failure_wire, &GCounterCodec);
@@ -183,4 +184,61 @@ fn delta_receive_tracker_summarizes_missing_or_decode_failure_as_nack() {
         decode_report.reply(),
         Some(DeltaReceiveReply::Nack(_))
     ));
+}
+
+#[test]
+fn delta_receive_applies_pruning_before_late_removed_replica_data() {
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("remote");
+    let removed = replica("removed");
+    let mut pruning = PruningTable::new();
+    pruning.mark_performed(removed.clone(), u64::MAX);
+    let mut log = DeltaPropagationLog::new([replica("local")]);
+    log.record_delta(key.clone(), Some(delta_counter("removed", 4)));
+    let mut propagation = log.collect_propagations().into_values().next().unwrap();
+    propagation.attach_pruning(|_| pruning.clone());
+    let wire = encode_delta_propagation(remote, false, &propagation, &GCounterCodec).unwrap();
+    let mut state = ReplicatorState::<GCounter>::new();
+    let mut tracker = DeltaReceiveTracker::new();
+
+    let report = tracker.apply_propagation(&mut state, &wire, &GCounterCodec);
+
+    assert!(report.is_success());
+    let envelope = state.envelope(&key).unwrap();
+    assert_eq!(envelope.data().value().unwrap(), 0);
+    assert!(matches!(
+        envelope.pruning().get(&removed),
+        Some(PruningState::Performed(_))
+    ));
+}
+
+#[test]
+fn delta_receive_marks_initialized_pruning_seen_by_receiver() {
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("remote");
+    let local = replica("local");
+    let removed = replica("removed");
+    let mut pruning = PruningTable::new();
+    pruning.initialize(removed.clone(), remote.clone());
+    let mut log = DeltaPropagationLog::new([local.clone()]);
+    log.record_delta(key.clone(), Some(delta_counter("remote", 2)));
+    let mut propagation = log.collect_propagations().into_values().next().unwrap();
+    propagation.attach_pruning(|_| pruning.clone());
+    let wire = encode_delta_propagation(remote, false, &propagation, &GCounterCodec).unwrap();
+    let mut state = ReplicatorState::<GCounter>::new();
+    let mut tracker = DeltaReceiveTracker::new();
+
+    let report = tracker.apply_propagation_with_seen(&mut state, &wire, &GCounterCodec, &local);
+
+    assert!(report.is_success());
+    let PruningState::Initialized(initialized) = state
+        .envelope(&key)
+        .unwrap()
+        .pruning()
+        .get(&removed)
+        .unwrap()
+    else {
+        panic!("expected initialized pruning marker");
+    };
+    assert!(initialized.seen().contains(&local));
 }

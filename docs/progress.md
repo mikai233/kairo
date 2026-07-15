@@ -207,6 +207,10 @@ Status terms in this document mean:
   The delta propagation loop now hard-gates collection-before-publication,
   empty-tick counting, post-publication cleanup cadence, skipped reports, and
   transport diagnostics.
+  Delta propagation v2 now carries each key's current pruning metadata, while
+  retaining v1 decode compatibility. Receive applies pruning before delta data,
+  cleans late removed-replica contributions under performed markers, and marks
+  initialized markers seen before acknowledging.
   Removed-node pruning now hard-gates deterministic owner and performed-marker
   merges, seen-by-all readiness, all-reachable dissemination clocks, inclusive
   expiry, tick effects, and first-observation retention under duplicate removal

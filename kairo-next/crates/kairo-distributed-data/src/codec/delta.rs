@@ -5,7 +5,8 @@ use super::{
     REPLICATOR_DELTA_ACK_SERIALIZER_ID, REPLICATOR_DELTA_NACK_SERIALIZER_ID,
     REPLICATOR_DELTA_PROPAGATION_SERIALIZER_ID,
     helpers::{
-        ensure_empty_payload, ensure_version, len_to_u64, read_delta, u64_to_len, write_delta,
+        ensure_empty_payload, ensure_version, ensure_version_range, len_to_u64, read_delta,
+        u64_to_len, write_delta,
     },
 };
 use crate::{ReplicaId, ReplicatorDeltaAck, ReplicatorDeltaNack, ReplicatorDeltaPropagation};
@@ -34,14 +35,19 @@ impl MessageCodec<ReplicatorDeltaPropagation> for ReplicatorDeltaPropagationCode
         payload: Bytes,
         version: u16,
     ) -> kairo_serialization::Result<ReplicatorDeltaPropagation> {
-        ensure_version::<ReplicatorDeltaPropagation>(version)?;
+        ensure_version_range(
+            ReplicatorDeltaPropagation::MANIFEST,
+            version,
+            1,
+            ReplicatorDeltaPropagation::VERSION,
+        )?;
         let mut reader = WireReader::new(&payload);
         let from = ReplicaId::new(reader.read_string()?);
         let reply = reader.read_bool()?;
         let len = u64_to_len(reader.read_u64()?)?;
         let mut deltas = Vec::with_capacity(len);
         for _ in 0..len {
-            deltas.push(read_delta(&mut reader)?);
+            deltas.push(read_delta(&mut reader, version)?);
         }
         let message = ReplicatorDeltaPropagation {
             from,

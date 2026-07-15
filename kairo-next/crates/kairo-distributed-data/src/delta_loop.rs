@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use crate::{
     CrdtDataCodec, DeltaPropagation, DeltaPropagationLog, DeltaPropagationTransport,
-    DeltaTransportReport, ReplicaId, ReplicatedData,
+    DeltaTransportReport, PruningTable, ReplicaId, ReplicatedData, ReplicatorKey,
 };
 
 const DEFAULT_CLEANUP_EVERY_TICKS: u64 = 5;
@@ -92,7 +92,23 @@ where
     /// replicas or delta payloads. The selected batch, including an empty one,
     /// is passed to the sink before cleanup is considered.
     pub fn run_tick(&self, log: &mut DeltaPropagationLog<Delta>) -> DeltaPropagationTickReport {
-        let propagations = log.collect_propagations();
+        self.run_tick_with_pruning(log, |_| PruningTable::new())
+    }
+
+    /// Runs one tick and attaches each key's current pruning metadata.
+    ///
+    /// The resolver is evaluated after collection and before publication. A
+    /// composed replicator supplies pruning from its current full-state
+    /// envelope so a delta never outruns removed-replica lifecycle markers.
+    pub fn run_tick_with_pruning(
+        &self,
+        log: &mut DeltaPropagationLog<Delta>,
+        mut pruning_for_key: impl FnMut(&ReplicatorKey) -> PruningTable,
+    ) -> DeltaPropagationTickReport {
+        let mut propagations = log.collect_propagations();
+        for propagation in propagations.values_mut() {
+            propagation.attach_pruning(&mut pruning_for_key);
+        }
         let transport = self.sink.publish(propagations);
         let propagation_count = log.propagation_count();
         let cleaned_delta_entries = propagation_count.is_multiple_of(self.cleanup_every_ticks);
