@@ -14,7 +14,8 @@ use kairo_remote::{
 use kairo_serialization::RemoteMessage;
 
 use crate::{
-    ClusterSystemInbound, GossipEnvelope, Heartbeat, HeartbeatRsp, Join, UniqueAddress, Welcome,
+    ClusterSystemInbound, GossipEnvelope, Heartbeat, HeartbeatRsp, InitJoin, InitJoinAck,
+    InitJoinNack, Join, UniqueAddress, Welcome,
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -196,6 +197,9 @@ impl ClusterTcpAssociationRuntime {
 
 pub fn cluster_lane_classifier() -> RemoteLaneClassifier {
     let mut classifier = RemoteLaneClassifier::default();
+    classifier.add_control_manifest(InitJoin::MANIFEST);
+    classifier.add_control_manifest(InitJoinAck::MANIFEST);
+    classifier.add_control_manifest(InitJoinNack::MANIFEST);
     classifier.add_control_manifest(Join::MANIFEST);
     classifier.add_control_manifest(Welcome::MANIFEST);
     classifier.add_control_manifest(GossipEnvelope::MANIFEST);
@@ -548,6 +552,20 @@ mod tests {
 
         assert_eq!(
             classifier.classify(&envelope, 128),
+            kairo_remote::RemoteStreamId::Control
+        );
+        let seed_contact = RemoteEnvelope::new(
+            ActorRefWireData::new("kairo://receiver@127.0.0.1:2552/system/cluster/core/daemon")
+                .unwrap(),
+            None,
+            registry
+                .serialize(&InitJoin {
+                    joining_config_digest: bytes::Bytes::new(),
+                })
+                .unwrap(),
+        );
+        assert_eq!(
+            classifier.classify(&seed_contact, 128),
             kairo_remote::RemoteStreamId::Control
         );
     }

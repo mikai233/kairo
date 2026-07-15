@@ -81,6 +81,7 @@ mod remote;
 mod remote_tcp;
 mod seed_join;
 mod seed_join_actor;
+mod seed_join_wire;
 mod shared_remote_runtime;
 #[cfg(test)]
 mod shared_remote_runtime_tests;
@@ -161,6 +162,10 @@ pub use seed_join::{
 pub use seed_join_actor::{
     ClusterSeedJoinProcess, ClusterSeedJoinProcessMsg, ClusterSeedJoinProcessSettings,
     ClusterSeedJoinProcessSettingsError, ClusterSeedJoinProcessSnapshot,
+};
+pub use seed_join_wire::{
+    ClusterInitJoinRequest, ClusterSeedJoinIncompatible, ClusterSeedJoinWireError,
+    ClusterSeedJoinWireInbound, ClusterSeedJoinWireOutbound, ClusterSeedJoinWireOutboundActor,
 };
 pub use shared_remote_runtime::{CLUSTER_SYSTEM_MANIFESTS, register_cluster_system_inbound};
 pub use system_inbound::{

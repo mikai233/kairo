@@ -5,7 +5,9 @@ use std::sync::Arc;
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Recipient};
 use kairo_serialization::{Registry, RemoteMessage, SerializationError, SerializedMessage};
 
-use crate::{ClusterMembershipMsg, GossipEnvelope, Join, UniqueAddress, Welcome};
+use crate::{
+    ClusterMembershipMsg, ClusterSeedJoinProcessMsg, GossipEnvelope, Join, UniqueAddress, Welcome,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterSerializedMembership {
@@ -179,6 +181,7 @@ pub struct ClusterMembershipWireInbound {
     self_node: UniqueAddress,
     registry: Arc<Registry>,
     membership: ActorRef<ClusterMembershipMsg>,
+    seed_join_process: Option<ActorRef<ClusterSeedJoinProcessMsg>>,
     reply_routes: BTreeMap<String, ActorRef<ClusterMembershipMsg>>,
 }
 
@@ -192,8 +195,14 @@ impl ClusterMembershipWireInbound {
             self_node,
             registry,
             membership,
+            seed_join_process: None,
             reply_routes: BTreeMap::new(),
         }
+    }
+
+    pub fn with_seed_join_process(mut self, process: ActorRef<ClusterSeedJoinProcessMsg>) -> Self {
+        self.seed_join_process = Some(process);
+        self
     }
 
     pub fn with_reply_route(
@@ -248,8 +257,20 @@ impl ClusterMembershipWireInbound {
             Welcome::MANIFEST => {
                 let welcome = self.registry.deserialize::<Welcome>(message)?;
                 self.membership
-                    .tell(ClusterMembershipMsg::Welcome(Box::new(welcome)))
-                    .map_err(|error| ClusterMembershipWireError::Send(error.reason().to_string()))
+                    .tell(ClusterMembershipMsg::Welcome(Box::new(welcome.clone())))
+                    .map_err(|error| {
+                        ClusterMembershipWireError::Send(error.reason().to_string())
+                    })?;
+                if let Some(process) = &self.seed_join_process {
+                    process
+                        .tell(ClusterSeedJoinProcessMsg::Welcome {
+                            from: welcome.from.address,
+                        })
+                        .map_err(|error| {
+                            ClusterMembershipWireError::Send(error.reason().to_string())
+                        })?;
+                }
+                Ok(())
             }
             GossipEnvelope::MANIFEST => {
                 let envelope = self.registry.deserialize::<GossipEnvelope>(message)?;

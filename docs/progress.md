@@ -273,8 +273,15 @@ typed actor, emits typed contact/join effects, schedules fixed-delay retry and
 seed/join timeout ticks with actor-owned timers, and cancels both timers on a
 terminal outcome or actor stop. Manual-time tests cover automatic retry,
 first-seed timeout formation, lost-Welcome recontact, completion, and stop
-cleanup. Wiring those effects to composed remoting, periodic gossip, and
-coordinated leave remain the active Phase 3 implementation work.
+cleanup. `ClusterSeedJoinWireOutbound` now carries contact and Join effects over
+the shared remoting control lane using address-based daemon envelopes, while
+local self-join and incompatible configuration stay typed local deliveries.
+`ClusterSeedJoinWireInbound` validates daemon sender paths, uses that sender as
+the Ack/Nack origin, routes InitJoin to a typed responder boundary, and routes
+Ack/Nack to the seed process. Welcome now reaches membership and then completes
+the seed process. The initialized/uninitialized InitJoin responder, full daemon
+composition, periodic gossip, and coordinated leave remain the active Phase 3
+implementation work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -5897,6 +5904,16 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after seed-join remoting integration:
+
+```bash
+cargo test -p kairo-cluster seed_join_wire --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after actor-owned seed-join scheduling:
 

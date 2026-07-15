@@ -209,13 +209,17 @@ fn wire_inbound_delivers_welcome_to_membership_actor() {
     let seed = node("seed", 1);
     let joining = node("joining", 2);
     let membership = spawn_membership(&kit, joining.clone(), "membership");
+    let seed_join = kit
+        .create_probe::<ClusterSeedJoinProcessMsg>("seed-join")
+        .unwrap();
     let gossip_probe = kit.create_probe::<Gossip>("gossip").unwrap();
     let gossip = Gossip::from_members([
         member(seed.clone(), MemberStatus::Up),
         member(joining.clone(), MemberStatus::Joining),
     ]);
     let inbound =
-        ClusterMembershipWireInbound::new(joining.clone(), registry.clone(), membership.clone());
+        ClusterMembershipWireInbound::new(joining.clone(), registry.clone(), membership.clone())
+            .with_seed_join_process(seed_join.actor_ref());
 
     inbound
         .receive(ClusterSerializedMembership::new(
@@ -232,6 +236,10 @@ fn wire_inbound_delivers_welcome_to_membership_actor() {
     let current = gossip_probe.expect_msg(Duration::from_secs(1)).unwrap();
     assert!(current.has_member(&joining));
     assert!(current.seen_by().contains(&joining));
+    assert!(matches!(
+        seed_join.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterSeedJoinProcessMsg::Welcome { from } if from == node("seed", 1).address
+    ));
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

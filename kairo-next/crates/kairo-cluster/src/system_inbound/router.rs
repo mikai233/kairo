@@ -3,10 +3,11 @@ use kairo_remote::{RemoteError, RemoteFrameHandler, RemoteStreamId, decode_remot
 use kairo_serialization::{ActorRefWireData, RemoteEnvelope, RemoteMessage};
 
 use crate::{
-    ClusterMembershipWireInbound, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
-    DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, GossipEnvelope,
-    Heartbeat, HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound, HeartbeatRsp, Join,
-    UniqueAddress, Welcome,
+    ClusterMembershipWireInbound, ClusterSeedJoinWireInbound,
+    DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH,
+    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, GossipEnvelope, Heartbeat,
+    HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound, HeartbeatRsp, InitJoin,
+    InitJoinAck, InitJoinNack, Join, UniqueAddress, Welcome,
 };
 
 use super::ClusterSystemInboundError;
@@ -17,6 +18,7 @@ pub struct ClusterSystemInbound {
     membership: Option<ClusterMembershipWireInbound>,
     heartbeat_receiver: Option<HeartbeatRemoteReceiverInbound>,
     heartbeat_response: Option<HeartbeatRemoteResponseInbound>,
+    seed_join: Option<ClusterSeedJoinWireInbound>,
 }
 
 impl ClusterSystemInbound {
@@ -26,6 +28,7 @@ impl ClusterSystemInbound {
             membership: None,
             heartbeat_receiver: None,
             heartbeat_response: None,
+            seed_join: None,
         }
     }
 
@@ -44,8 +47,25 @@ impl ClusterSystemInbound {
         self
     }
 
+    pub fn with_seed_join(mut self, inbound: ClusterSeedJoinWireInbound) -> Self {
+        self.seed_join = Some(inbound);
+        self
+    }
+
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<(), ClusterSystemInboundError> {
         match envelope.message.manifest.as_str() {
+            InitJoin::MANIFEST | InitJoinAck::MANIFEST | InitJoinNack::MANIFEST => {
+                validate_recipient(
+                    &self.self_node,
+                    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH,
+                    &envelope.recipient,
+                )?;
+                self.seed_join
+                    .as_ref()
+                    .ok_or(ClusterSystemInboundError::MissingHandler("seed join"))?
+                    .receive(envelope)?;
+                Ok(())
+            }
             Join::MANIFEST | Welcome::MANIFEST | GossipEnvelope::MANIFEST => {
                 validate_recipient(
                     &self.self_node,
@@ -104,6 +124,9 @@ pub fn is_cluster_system_manifest(manifest: &str) -> bool {
     matches!(
         manifest,
         Join::MANIFEST
+            | InitJoin::MANIFEST
+            | InitJoinAck::MANIFEST
+            | InitJoinNack::MANIFEST
             | Welcome::MANIFEST
             | GossipEnvelope::MANIFEST
             | Heartbeat::MANIFEST

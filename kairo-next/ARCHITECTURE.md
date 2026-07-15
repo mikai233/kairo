@@ -1346,6 +1346,16 @@ the retry interval. Manual ticks remain available for deterministic tests, and
 stopping the process cancels all pending timer generations through normal actor
 lifecycle cleanup.
 
+`ClusterSeedJoinWireOutbound` executes those effects at the transport boundary.
+It sends `InitJoin` and `Join` to address-based daemon recipients through the
+shared `RemoteOutbound`, handles `JoinSelf` locally, and reports incompatible
+configuration through a typed terminal-event ref. `ClusterSeedJoinWireInbound`
+routes `InitJoin` to a typed responder boundary and Ack/Nack to the seed process.
+Both recipient and sender must be the canonical cluster daemon path; the
+validated sender address is the state-machine origin, while an Ack's advertised
+address is only its canonical Join target. Welcome delivery goes to membership
+and then notifies the seed process so successful formation cancels its timers.
+
 Membership transport:
 
 - `ClusterMembershipWireOutbound` serializes `Join`, `Welcome`, and
@@ -1354,7 +1364,8 @@ Membership transport:
   `RemoteEnvelope` metadata addressed to `/system/cluster/core/daemon` on the
   target node.
 - `ClusterSystemInbound` is the cluster system-frame router for decoded remote
-  envelopes. It dispatches membership manifests to
+  envelopes. It dispatches seed-contact manifests to
+  `ClusterSeedJoinWireInbound`, membership manifests to
   `ClusterMembershipWireInbound`, heartbeat requests to
   `HeartbeatRemoteReceiverInbound`, and heartbeat responses to
   `HeartbeatRemoteResponseInbound` after validating the stable system actor
@@ -1371,8 +1382,8 @@ Membership transport:
   dialing-side lane readers, and routes live socket frames into
   `ClusterSystemInbound`; composed ActorSystems should use the shared remoting
   registration while higher cluster runtime ownership is migrated.
-- Cluster TCP runtime traffic uses a cluster lane classifier so `Join`,
-  `Welcome`, `GossipEnvelope`, `Heartbeat`, and `HeartbeatRsp` all travel on
+- Cluster TCP runtime traffic uses a cluster lane classifier so seed contact,
+  `Join`, `Welcome`, `GossipEnvelope`, `Heartbeat`, and `HeartbeatRsp` all travel on
   the control/system lane.
 - `ClusterAssociationPeerState` is the pure cluster-derived association
   planner. It consumes `CurrentClusterState` snapshots and cluster events,

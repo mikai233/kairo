@@ -1,12 +1,13 @@
 use std::fmt::{self, Display, Formatter};
 
-use crate::{ClusterHeartbeatRemoteError, ClusterMembershipWireError};
+use crate::{ClusterHeartbeatRemoteError, ClusterMembershipWireError, ClusterSeedJoinWireError};
 
 #[derive(Debug)]
 pub enum ClusterSystemInboundError {
     Heartbeat(ClusterHeartbeatRemoteError),
     InvalidRecipientPath(String),
     Membership(ClusterMembershipWireError),
+    SeedJoin(ClusterSeedJoinWireError),
     MissingHandler(&'static str),
     MissingRemoteHost { node: String },
     Serialization(kairo_serialization::SerializationError),
@@ -22,6 +23,7 @@ impl Display for ClusterSystemInboundError {
                 write!(f, "cluster recipient path `{path}` must start with `/`")
             }
             Self::Membership(error) => write!(f, "{error}"),
+            Self::SeedJoin(error) => write!(f, "{error}"),
             Self::MissingHandler(handler) => {
                 write!(f, "cluster system inbound has no {handler} handler")
             }
@@ -53,6 +55,12 @@ impl From<ClusterHeartbeatRemoteError> for ClusterSystemInboundError {
 impl From<ClusterMembershipWireError> for ClusterSystemInboundError {
     fn from(error: ClusterMembershipWireError) -> Self {
         Self::Membership(error)
+    }
+}
+
+impl From<ClusterSeedJoinWireError> for ClusterSystemInboundError {
+    fn from(error: ClusterSeedJoinWireError) -> Self {
+        Self::SeedJoin(error)
     }
 }
 

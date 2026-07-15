@@ -7,7 +7,7 @@ use kairo_serialization::{ActorRefWireData, Manifest, Registry, RemoteMessage, S
 use super::*;
 use crate::{
     DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH,
-    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, Heartbeat, HeartbeatRsp, Join, UniqueAddress,
+    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, Heartbeat, HeartbeatRsp, InitJoin, Join, UniqueAddress,
     register_cluster_protocol_codecs,
 };
 
@@ -29,12 +29,37 @@ fn wire_for(node: &UniqueAddress, path: &str) -> ActorRefWireData {
 }
 
 #[test]
-fn cluster_system_manifest_helper_matches_membership_and_heartbeat_protocols() {
+fn cluster_system_manifest_helper_matches_seed_membership_and_heartbeat_protocols() {
+    assert!(is_cluster_system_manifest(InitJoin::MANIFEST));
     assert!(is_cluster_system_manifest(Join::MANIFEST));
     assert!(is_cluster_system_manifest(Heartbeat::MANIFEST));
     assert!(is_cluster_system_manifest(HeartbeatRsp::MANIFEST));
     assert!(!is_cluster_system_manifest(
         "kairo.cluster-tools.pubsub.status"
+    ));
+}
+
+#[test]
+fn system_inbound_reports_missing_seed_join_handler_after_recipient_validation() {
+    let self_node = node("receiver", 2552, 2);
+    let sender = node("sender", 2551, 1);
+    let registry = registry();
+    let envelope = kairo_serialization::RemoteEnvelope::new(
+        wire_for(&self_node, DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH),
+        Some(wire_for(&sender, DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH)),
+        registry
+            .serialize(&InitJoin {
+                joining_config_digest: Bytes::from_static(b"digest"),
+            })
+            .unwrap(),
+    );
+    let error = ClusterSystemInbound::new(self_node)
+        .receive(envelope)
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        ClusterSystemInboundError::MissingHandler("seed join")
     ));
 }
 

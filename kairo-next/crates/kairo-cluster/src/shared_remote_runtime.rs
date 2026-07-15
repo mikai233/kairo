@@ -5,10 +5,14 @@ use kairo_remote::{
 use kairo_serialization::RemoteMessage;
 
 use crate::{
-    ClusterSystemInbound, GossipEnvelope, Heartbeat, HeartbeatRsp, Join, UniqueAddress, Welcome,
+    ClusterSystemInbound, GossipEnvelope, Heartbeat, HeartbeatRsp, InitJoin, InitJoinAck,
+    InitJoinNack, Join, UniqueAddress, Welcome,
 };
 
-pub const CLUSTER_SYSTEM_MANIFESTS: [&str; 5] = [
+pub const CLUSTER_SYSTEM_MANIFESTS: [&str; 8] = [
+    InitJoin::MANIFEST,
+    InitJoinAck::MANIFEST,
+    InitJoinNack::MANIFEST,
     Join::MANIFEST,
     Welcome::MANIFEST,
     GossipEnvelope::MANIFEST,

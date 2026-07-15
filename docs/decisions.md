@@ -3291,6 +3291,11 @@ of a known incarnation. Gossip status and exit confirmation use
 incarnation safety. Unknown versions, invalid enum codes, and trailing bytes
 are rejected.
 
+Seed-contact envelopes use `/system/cluster/core/daemon` as both recipient and
+sender path. The validated sender address is the contact origin used by the
+formation state machine; `InitJoinAck.address` remains the responder's
+canonical Join target and cannot substitute for transport origin validation.
+
 Consequences:
 - Cluster formation can add actor ownership without reopening the public wire
   format.
@@ -3298,5 +3303,7 @@ Consequences:
   changes membership truth.
 - Configuration compatibility is explicit without making TOML, another parser,
   or sensitive configuration part of the wire contract.
+- Ack/Nack acceptance is bound to the contacted remote daemon rather than a
+  payload-supplied address.
 - Rolling-version behavior can be extended by adding intentional codec versions
   rather than relying on Rust enum layout or type names.
