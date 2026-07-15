@@ -5,7 +5,7 @@ use bytes::Bytes;
 use kairo_cluster::{
     ClusterDaemonBootstrapSettings, ClusterGossipProcessSettings, ClusterMembershipMsg,
     DeadlineFailureDetectorSettings, Gossip, HeartbeatSenderSettings, MemberStatus,
-    register_cluster_daemon, register_cluster_protocol_codecs,
+    ReachabilityStatus, register_cluster_daemon, register_cluster_protocol_codecs,
 };
 use kairo_remote::{
     RemoteSettings, TcpRemoteActorRuntime, TcpRemoteReconnectSettings,
@@ -89,12 +89,12 @@ impl ComposedPubSubNode {
                     HeartbeatSenderSettings::new(
                         5,
                         DeadlineFailureDetectorSettings::new(
-                            Duration::from_millis(15),
                             Duration::from_millis(100),
+                            Duration::from_secs(2),
                         )
                         .unwrap(),
                     )
-                    .with_heartbeat_expected_response_after(Duration::from_millis(10)),
+                    .with_heartbeat_expected_response_after(Duration::from_millis(500)),
                 ),
         )
         .unwrap();
@@ -160,6 +160,11 @@ impl ComposedPubSubNode {
 
     fn shutdown(self) {
         self.kit.system().stop(self.cluster.root());
+        self.runtime.shutdown().unwrap();
+        self.kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    fn crash(self) {
         self.runtime.shutdown().unwrap();
         self.kit.shutdown(Duration::from_secs(1)).unwrap();
     }
@@ -277,5 +282,178 @@ fn composed_extension_converges_subscription_and_publishes_remotely() {
         .unwrap();
 
     peer.shutdown();
+    seed.shutdown();
+}
+
+#[test]
+fn composed_extension_removes_crashed_subscriber_and_keeps_live_delivery() {
+    let registry = registry();
+    let seed = ComposedPubSubNode::start("pubsub-fault-seed", 1, 111, vec![], registry.clone());
+    await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+        (seed
+            .gossip()
+            .member(seed.cluster.self_node())
+            .map(|member| member.status)
+            == Some(MemberStatus::Up))
+        .then_some(())
+        .ok_or_else(|| "pubsub fault seed has not formed".to_string())
+    })
+    .unwrap();
+    let live = ComposedPubSubNode::start(
+        "pubsub-fault-live",
+        2,
+        112,
+        vec![seed.cluster.self_node().address.clone()],
+        registry.clone(),
+    );
+    let crashed = ComposedPubSubNode::start(
+        "pubsub-fault-crashed",
+        3,
+        113,
+        vec![seed.cluster.self_node().address.clone()],
+        registry,
+    );
+    let live_node = live.cluster.self_node().clone();
+    let crashed_node = crashed.cluster.self_node().clone();
+
+    await_assert(Duration::from_secs(5), Duration::from_millis(10), || {
+        let seed_peers = seed.connector().peers;
+        let live_peers = live.connector().peers;
+        let crashed_peers = crashed.connector().peers;
+        (seed_peers.len() == 2
+            && seed_peers.contains(&live_node)
+            && seed_peers.contains(&crashed_node)
+            && live_peers.len() == 2
+            && live_peers.contains(seed.cluster.self_node())
+            && live_peers.contains(&crashed_node)
+            && crashed_peers.len() == 2
+            && crashed_peers.contains(seed.cluster.self_node())
+            && crashed_peers.contains(&live_node))
+        .then_some(())
+        .ok_or_else(|| "pubsub fault topology has not formed".to_string())
+    })
+    .unwrap();
+
+    let topic = TopicName::new("fault-orders");
+    let live_subscriber = live
+        .kit
+        .create_probe::<TestMessage>("live-subscriber")
+        .unwrap();
+    let live_ack = live
+        .kit
+        .create_probe::<PubSubSubscribeAck>("live-subscribe-ack")
+        .unwrap();
+    live.pubsub
+        .mediator()
+        .tell(DistributedPubSubMediatorMsg::Subscribe {
+            topic: topic.clone(),
+            subscriber: live_subscriber.actor_ref(),
+            reply_to: Some(live_ack.actor_ref()),
+        })
+        .unwrap();
+    live_ack.expect_msg(Duration::from_secs(1)).unwrap();
+
+    let crashed_subscriber = crashed
+        .kit
+        .create_probe::<TestMessage>("crashed-subscriber")
+        .unwrap();
+    let crashed_ack = crashed
+        .kit
+        .create_probe::<PubSubSubscribeAck>("crashed-subscribe-ack")
+        .unwrap();
+    crashed
+        .pubsub
+        .mediator()
+        .tell(DistributedPubSubMediatorMsg::Subscribe {
+            topic: topic.clone(),
+            subscriber: crashed_subscriber.actor_ref(),
+            reply_to: Some(crashed_ack.actor_ref()),
+        })
+        .unwrap();
+    crashed_ack.expect_msg(Duration::from_secs(1)).unwrap();
+
+    await_assert(Duration::from_secs(4), Duration::from_millis(20), || {
+        let targets = seed.registry().broadcast_targets(&topic, false);
+        (targets.len() == 2 && targets.contains(&live_node) && targets.contains(&crashed_node))
+            .then_some(())
+            .ok_or_else(|| format!("pubsub subscriptions have not converged: {targets:?}"))
+    })
+    .unwrap();
+
+    crashed.crash();
+    await_assert(Duration::from_secs(7), Duration::from_millis(25), || {
+        let gossip = seed.gossip();
+        (gossip
+            .reachability()
+            .status(seed.cluster.self_node(), &crashed_node)
+            == ReachabilityStatus::Unreachable)
+            .then_some(())
+            .ok_or_else(|| "crashed pubsub member is not yet unreachable".to_string())
+    })
+    .unwrap();
+    seed.cluster
+        .cluster()
+        .down(crashed_node.address.clone())
+        .unwrap();
+
+    await_assert(Duration::from_secs(5), Duration::from_millis(20), || {
+        let seed_gossip = seed.gossip();
+        let live_gossip = live.gossip();
+        (seed_gossip.member(&crashed_node).is_none()
+            && live_gossip.member(&crashed_node).is_none()
+            && seed_gossip.tombstones().contains_key(&crashed_node)
+            && live_gossip.tombstones().contains_key(&crashed_node))
+        .then_some(())
+        .ok_or_else(|| "crashed pubsub member has not been removed".to_string())
+    })
+    .unwrap();
+    await_assert(Duration::from_secs(3), Duration::from_millis(20), || {
+        let seed_peers = seed.connector().peers;
+        let live_peers = live.connector().peers;
+        let seed_registry = seed.registry();
+        let live_registry = live.registry();
+        let targets = seed_registry.broadcast_targets(&topic, false);
+        (seed_peers == vec![live_node.clone()]
+            && live_peers == vec![seed.cluster.self_node().clone()]
+            && seed_registry.bucket(&crashed_node).is_none()
+            && live_registry.bucket(&crashed_node).is_none()
+            && targets == vec![live_node.clone()])
+        .then_some(())
+        .ok_or_else(|| {
+            format!(
+                "pubsub survivors retain crashed member state: seed_peers={seed_peers:?}, live_peers={live_peers:?}, targets={targets:?}"
+            )
+        })
+    })
+    .unwrap();
+
+    let report = seed
+        .kit
+        .create_probe::<DistributedPubSubPublishReport>("post-crash-publish-report")
+        .unwrap();
+    seed.pubsub
+        .mediator()
+        .tell(DistributedPubSubMediatorMsg::Publish {
+            topic,
+            message: TestMessage("after-crash".to_string()),
+            mode: TopicPublishMode::Broadcast,
+            reply_to: Some(report.actor_ref()),
+        })
+        .unwrap();
+    let report = report.expect_msg(Duration::from_secs(2)).unwrap();
+    assert_eq!(report.plan.remote_nodes(), vec![live_node]);
+    assert_eq!(report.delivery.sent_to().len(), 1);
+    assert!(report.delivery.is_success());
+    live_subscriber
+        .expect_msg_eq(
+            TestMessage("after-crash".to_string()),
+            Duration::from_secs(2),
+        )
+        .unwrap();
+    live_subscriber
+        .expect_no_msg(Duration::from_millis(100))
+        .unwrap();
+
+    live.shutdown();
     seed.shutdown();
 }

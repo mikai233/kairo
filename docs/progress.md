@@ -15,10 +15,10 @@ work.
 Current active stage: **foundation convergence before M13**, with Phases 1-3
 complete and Phase 4 distributed integration now active. The three-node final
 acceptance workflow now passes through the public composed runtime. Remaining
-Phase 4 work is comparable same-runtime fault coverage for pubsub, plus broader
-distributed-data pruning and partition depth, rather than
-the sharding architecture itself. M13 begins only after those remaining gaps
-can be treated as tuning and release hardening rather than replacement.
+Phase 4 work is broader distributed-data pruning and partition depth, rather
+than the sharding or cluster-tools architecture itself. M13 begins only after
+those remaining gaps can be treated as tuning and release hardening rather
+than replacement.
 
 Status terms in this document mean:
 
@@ -106,16 +106,19 @@ Status terms in this document mean:
   acceptance demo now composes the real cluster daemon, singleton coordinator,
   node-local ORSet replicas, periodic rebalance/handoff, coordinated oldest-node
   leave, and remembered-entity restart before the next business message.
-- M10 cluster tools: substantial component coverage. Singleton and pubsub
-  state, remote delivery, TCP peer runtime, examples, and composed public
-  extensions exist. Real two-node tests cover pubsub convergence, named
+- M10 cluster tools: complete through its acceptance boundary. Singleton and
+  pubsub state, remote delivery, TCP peer runtime, examples, and composed
+  public extensions exist. Real two-node tests cover pubsub convergence, named
   singleton handover, local-protocol handover, role-scoped sharding coordinator
   use, and oldest-node coordinator transfer. A three-node singleton fault test
   crashes the oldest owner without leave, observes failure detection,
   explicitly downs it, and proves membership removal lets one next-oldest
   successor start and drain buffered local-protocol traffic exactly once while
-  both survivors route remote traffic to that owner. Comparable pubsub fault
-  validation remains open.
+  both survivors route remote traffic to that owner. A companion three-node
+  pubsub fault test converges live and doomed subscriptions, crashes the doomed
+  subscriber without unregistering, and proves downing removes its peer route
+  and registry bucket on both survivors while a new publish targets and reaches
+  only the live subscriber.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -492,8 +495,8 @@ observes an unmoved remembered entity restart on a survivor before sending its
 next command. The Phase 4 three-node acceptance exit gate is therefore met,
 and distributed data now has a same-runtime crash/down survivor-quorum
 scenario. Singleton now also has a same-runtime abrupt-oldest recovery
-scenario. Comparable pubsub fault coverage, plus broader ddata
-pruning/partition coverage, remains the active gate.
+scenario, and pubsub has a same-runtime crashed-subscriber cleanup scenario.
+Broader ddata pruning/partition coverage remains the active gate.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -515,6 +518,14 @@ publish from the peer through the shared association. The pubsub actors expose
 the bridge this composition needs: a mediator mirrors local topic, group, and
 logical-path mutations into its gossip actor, while accepted known-peer deltas
 return through a typed sink for merge into the mediator routing registry.
+A three-node fault test now converges one live and one doomed subscription at
+the seed, crashes the doomed subscriber without cluster leave, waits for
+heartbeat unreachability, and explicitly downs it. Both survivors remove and
+tombstone the member, drop its connector peer and registry bucket, and retain
+only the live topic target. A post-failure publish report contains exactly one
+successful remote target and the live subscriber receives the message once.
+This matches Pekko mediator behavior that downed and removed members are
+immediately removed from both its node set and registry.
 The singleton foundation now also closes its typed remote-manager seam:
 `LocalSingletonManagerActor<A>` can send only remote handover/takeover effects
 to a transport sink while retaining child lifecycle effects locally, and
@@ -6145,10 +6156,10 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after singleton oldest-owner crash recovery:
+Latest Phase 4 validation after pubsub crashed-subscriber cleanup:
 
 ```bash
-cargo test -p kairo-cluster-tools cluster_singleton::tests::composed_singleton_recovers_buffered_delivery_after_oldest_crash -- --nocapture
+cargo test -p kairo-cluster-tools extension::tests::composed_extension_removes_crashed_subscriber_and_keeps_live_delivery -- --nocapture
 cargo test -p kairo-cluster-tools
 cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
