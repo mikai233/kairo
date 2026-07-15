@@ -90,10 +90,12 @@ Status terms in this document mean:
   them after live regions register. The coordinator store target now also
   consumes the existing GSet-backed distributed-data store protocol with
   explicit read/update errors. The public entity definition now composes that
-  coordinator store with shard-local ORSet store children, and an in-process
-  two-node failover test proves a new region owner starts a remembered entity
-  before its next message. Real transport-backed multi-node ddata replication
-  and the final acceptance demo remain open.
+  coordinator store with shard-local ORSet store children. A real two-node TCP
+  test runs one node-local ORSet ddata extension per ActorSystem, waits until
+  the remembered entity delta reaches the non-owner replica, crashes the owner
+  region, and proves the new owner starts that entity before its next message.
+  Ddata-backed coordinator singleton failover and the final acceptance demo
+  remain open.
 - M10 cluster tools: substantial component coverage. Singleton and pubsub
   state, remote delivery, TCP peer runtime, examples, and composed public
   extensions exist. Real two-node tests cover pubsub convergence, named
@@ -437,12 +439,15 @@ same adapter. `Entity::with_ddata_remember_entities` now closes the public
 remembered-entity composition gap: it supplies the coordinator GSet store plus
 the shard ORSet replicator, each entity-backed shard owns its store child and
 waits for recovery before delivery, and store updates complete before the
-business actor starts. A two-node in-process test crashes the current region,
-reports `RegionStopped`, and proves the successor starts the persisted entity
-without a new business request before delivering the next message. The test
-uses one shared replicator actor to isolate sharding lifecycle behavior; real
-transport-backed ddata replication between node-local replicators, broader
-ddata type registration, and process/fault coverage remain open.
+business actor starts. The acceptance test now uses one node-local ORSet ddata
+extension per ActorSystem over the shared TCP runtime. It observes the entity
+delta on the non-owner replica before crashing the current region, reports
+`RegionStopped`, and proves the successor starts the persisted entity without a
+new business request before delivering the next message. An additive
+`RememberCoordinatorORSetDDataStoreActor` lets coordinator shard ids and shard
+entity ids share that one typed ddata registration. Ddata-backed coordinator
+singleton failover, broader ddata type registration outside this sharding
+composition, and process/fault coverage remain open.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6094,7 +6099,7 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after public distributed-data remember-entities composition:
+Latest Phase 4 validation after transport-backed distributed-data remember-entities recovery:
 
 ```bash
 cargo test -p kairo-cluster-sharding --all-targets --all-features

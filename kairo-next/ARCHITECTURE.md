@@ -1903,8 +1903,12 @@ Implementation shape:
   `CoordinatorRememberStoreError`, preserving failure instead of treating a
   failed read as an empty store.
 - `Entity::with_ddata_remember_entities` accepts one
-  `DDataRememberEntitiesSettings` value that selects the coordinator GSet
-  store and the shard ORSet replicator together. Every entity-backed shard
+  `DDataRememberEntitiesSettings` value that selects the coordinator ddata
+  store and the shard ORSet replicator together. A transport-composed setup may
+  instead supply `RememberCoordinatorORSetDDataStoreActor`, which keeps the
+  coordinator key add-only while sharing the same typed ORSet replicator used
+  by shard stores. This avoids multiple typed ddata registrations competing for
+  the one stable ddata endpoint. Every entity-backed shard
   spawns its own typed ddata store child, loads all remembered entity
   partitions before replaying deliveries, persists starts before creating the
   business actor, and starts loaded entities before accepting new traffic.

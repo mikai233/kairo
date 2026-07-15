@@ -8,7 +8,11 @@ use kairo_cluster::{
     register_cluster_daemon, register_cluster_protocol_codecs,
 };
 use kairo_cluster_tools::{ClusterSingletonSettings, register_cluster_tools_protocol_codecs};
-use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
+use kairo_distributed_data::{
+    DistributedDataHandle, DistributedDataSettings, GetResponse, ORSet, ORSetStringCodec,
+    ORSetStringDeltaCodec, ReadConsistency, ReplicatorActorMsg, ReplicatorWireCodecs,
+    register_ddata_protocol_codecs, register_distributed_data,
+};
 use kairo_remote::{RemoteSettings, TcpRemoteReconnectSettings, register_remote_protocol_codecs};
 use kairo_serialization::{MessageCodec, SerializationError, SerializationRegistry};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
@@ -109,6 +113,8 @@ struct ComposedShardingNode {
     gossip_probe: TestProbe<Gossip>,
     received: Arc<Mutex<Vec<(String, String)>>>,
     started: Arc<Mutex<Vec<String>>>,
+    ddata: Option<DistributedDataHandle<ORSet<String>>>,
+    ddata_probe: TestProbe<GetResponse<ORSet<String>>>,
 }
 
 impl ComposedShardingNode {
@@ -131,6 +137,7 @@ impl ComposedShardingNode {
             None,
             None,
             None,
+            false,
             true,
         )
     }
@@ -155,6 +162,7 @@ impl ComposedShardingNode {
             None,
             None,
             false,
+            false,
         )
     }
 
@@ -178,6 +186,7 @@ impl ComposedShardingNode {
             Some("backend".to_string()),
             None,
             None,
+            false,
             true,
         )
     }
@@ -202,19 +211,19 @@ impl ComposedShardingNode {
             None,
             Some(store),
             None,
+            false,
             true,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn start_with_ddata_remember_entities(
+    fn start_with_transport_ddata_remember_entities(
         system: &str,
         node_uid: u64,
         remote_uid: u64,
         seed_nodes: Vec<kairo_actor::Address>,
         registry: Arc<Registry>,
         type_key: EntityTypeKey<TestMessage>,
-        settings: DDataRememberEntitiesSettings,
     ) -> Self {
         Self::start_with_options(
             system,
@@ -226,7 +235,8 @@ impl ComposedShardingNode {
             type_key,
             None,
             None,
-            Some(settings),
+            None,
+            true,
             true,
         )
     }
@@ -243,6 +253,7 @@ impl ComposedShardingNode {
         coordinator_role: Option<String>,
         coordinator_store: Option<Arc<Mutex<BTreeSet<String>>>>,
         ddata_remember_entities: Option<DDataRememberEntitiesSettings>,
+        transport_ddata_remember_entities: bool,
         use_singleton: bool,
     ) -> Self {
         let kit = ActorSystemTestKit::new(system).unwrap();
@@ -278,6 +289,19 @@ impl ComposedShardingNode {
                 ),
         )
         .unwrap();
+        let ddata_registration = transport_ddata_remember_entities.then(|| {
+            register_distributed_data(
+                &mut builder,
+                cluster_registration.clone(),
+                DistributedDataSettings::new(ReplicatorWireCodecs::<ORSet<String>>::new(
+                    Arc::new(ORSetStringDeltaCodec),
+                    Arc::new(ORSetStringCodec),
+                ))
+                .with_gossip_interval(Duration::from_millis(20))
+                .with_delta_propagation_interval(Duration::from_millis(10)),
+            )
+            .unwrap()
+        });
         let sharding_settings = ClusterShardingSettings::default()
             .with_registration_retry_interval(Duration::from_millis(20));
         let sharding_registration = if use_singleton {
@@ -298,6 +322,11 @@ impl ComposedShardingNode {
         .unwrap();
         let runtime = builder.bind().unwrap();
         let cluster = cluster_registration.activate(&runtime).unwrap();
+        let transport_ddata = ddata_registration.map(|registration| {
+            registration
+                .activate(&runtime)
+                .expect("transport ddata should activate")
+        });
         let sharding = sharding_registration.activate(&runtime).unwrap();
         let received = Arc::new(Mutex::new(Vec::new()));
         let started = Arc::new(Mutex::new(Vec::new()));
@@ -327,6 +356,26 @@ impl ComposedShardingNode {
         if let Some(settings) = ddata_remember_entities {
             entity = entity.with_ddata_remember_entities(settings);
         }
+        if let Some(ddata) = transport_ddata.as_ref() {
+            let replica = ddata.self_replica();
+            let store = kit
+                .system()
+                .spawn_system(
+                    "ddata-coordinator-remember-store",
+                    crate::RememberCoordinatorORSetDDataStoreActor::props(
+                        type_key.name(),
+                        replica.clone(),
+                        ddata.replicator().clone(),
+                    ),
+                )
+                .unwrap();
+            entity = entity.with_ddata_remember_entities(DDataRememberEntitiesSettings::new(
+                store,
+                replica,
+                ddata.replicator().clone(),
+                Duration::from_secs(1),
+            ));
+        }
         sharding.init(entity).unwrap();
         let (coordinator, region) = {
             let entities = sharding.entities.lock().unwrap();
@@ -340,6 +389,7 @@ impl ComposedShardingNode {
                 initialized._region.clone(),
             )
         };
+        let ddata_probe = kit.create_probe("ddata-read").unwrap();
         Self {
             coordinator_probe: kit.create_probe("coordinator-state").unwrap(),
             region_probe: kit.create_probe("region-state").unwrap(),
@@ -352,6 +402,8 @@ impl ComposedShardingNode {
             region,
             received,
             started,
+            ddata: transport_ddata,
+            ddata_probe,
         }
     }
 
@@ -403,6 +455,39 @@ impl ComposedShardingNode {
             .unwrap()
     }
 
+    fn ddata_contains_remembered_entity(
+        &self,
+        type_name: &str,
+        shard: &str,
+        entity_id: &str,
+    ) -> Result<(), String> {
+        let ddata = self
+            .ddata
+            .as_ref()
+            .ok_or_else(|| "distributed data is not enabled".to_string())?;
+        let index = crate::remember_entity_key_index(entity_id);
+        let key = crate::remember_entity_shard_replicator_key(type_name, shard, index)
+            .map_err(|error| error.to_string())?;
+        ddata
+            .replicator()
+            .tell(ReplicatorActorMsg::Get {
+                key,
+                consistency: ReadConsistency::local(),
+                reply_to: self.ddata_probe.actor_ref(),
+            })
+            .map_err(|error| error.reason().to_string())?;
+        match self
+            .ddata_probe
+            .expect_msg(Duration::from_millis(250))
+            .map_err(|error| error.to_string())?
+        {
+            GetResponse::Success { data, .. } if data.contains(&entity_id.to_string()) => Ok(()),
+            response => Err(format!(
+                "successor ddata has not converged entity {entity_id}: {response:?}"
+            )),
+        }
+    }
+
     fn shutdown(self) {
         self.kit.system().stop(self.cluster.root());
         self.runtime.shutdown().unwrap();
@@ -415,6 +500,7 @@ fn registry() -> Arc<Registry> {
     register_remote_protocol_codecs(&mut registry).unwrap();
     register_cluster_protocol_codecs(&mut registry).unwrap();
     register_cluster_tools_protocol_codecs(&mut registry).unwrap();
+    register_ddata_protocol_codecs(&mut registry).unwrap();
     register_sharding_protocol_codecs(&mut registry).unwrap();
     registry
         .register::<TestMessage, _>(TestMessageCodec)
@@ -657,46 +743,15 @@ fn singleton_successor_recovers_remembered_shard_allocation() {
 
 #[test]
 fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
-    let stores = ActorSystemTestKit::new("sharding-ddata-remember-stores").unwrap();
-    let coordinator_replicator = stores
-        .system()
-        .spawn_system(
-            "coordinator-replicator",
-            Props::new(ReplicatorActor::<GSet<String>>::new),
-        )
-        .unwrap();
-    let coordinator_store = stores
-        .system()
-        .spawn_system(
-            "coordinator-store",
-            crate::RememberCoordinatorDDataStoreActor::props(
-                "ddata-account",
-                coordinator_replicator,
-            ),
-        )
-        .unwrap();
-    let shard_replicator = stores
-        .system()
-        .spawn_system(
-            "shard-replicator",
-            Props::new(ReplicatorActor::<ORSet<String>>::new),
-        )
-        .unwrap();
     let registry = registry();
     let type_key = EntityTypeKey::new("ddata-account");
-    let seed = ComposedShardingNode::start_with_ddata_remember_entities(
+    let seed = ComposedShardingNode::start_with_transport_ddata_remember_entities(
         "sharding-ddata-seed",
         40,
         140,
         Vec::new(),
         registry.clone(),
         type_key.clone(),
-        DDataRememberEntitiesSettings::new(
-            coordinator_store.clone(),
-            ReplicaId::new("seed"),
-            shard_replicator.clone(),
-            Duration::from_secs(1),
-        ),
     );
     await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
         (seed
@@ -708,19 +763,13 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
         .ok_or_else(|| "ddata remember seed has not formed".to_string())
     })
     .unwrap();
-    let peer = ComposedShardingNode::start_with_ddata_remember_entities(
+    let peer = ComposedShardingNode::start_with_transport_ddata_remember_entities(
         "sharding-ddata-peer",
         41,
         141,
         vec![seed.cluster.self_node().address.clone()],
         registry,
         type_key.clone(),
-        DDataRememberEntitiesSettings::new(
-            coordinator_store,
-            ReplicaId::new("peer"),
-            shard_replicator,
-            Duration::from_secs(1),
-        ),
     );
     await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
         let state = seed.coordinator_state();
@@ -764,6 +813,10 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
     } else {
         (&peer, &seed)
     };
+    await_assert(Duration::from_secs(4), Duration::from_millis(20), || {
+        successor.ddata_contains_remembered_entity(type_key.name(), &shard, entity_id)
+    })
+    .unwrap();
     let owner_region = seed
         .coordinator_state()
         .allocations
@@ -799,7 +852,6 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
     if let Err(error) = recovery {
         peer.shutdown();
         seed.shutdown();
-        stores.shutdown(Duration::from_secs(1)).unwrap();
         panic!("{error}");
     }
     let state = seed.coordinator_state();
@@ -830,7 +882,6 @@ fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
 
     peer.shutdown();
     seed.shutdown();
-    stores.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

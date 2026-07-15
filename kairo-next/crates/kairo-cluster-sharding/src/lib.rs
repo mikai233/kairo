@@ -233,7 +233,8 @@ pub use remember_actor::{
 };
 pub use remember_ddata::{
     RememberCoordinatorDDataStoreActor, RememberCoordinatorDDataStoreMsg,
-    RememberCoordinatorDDataStoreSnapshot, remember_coordinator_shards_key,
+    RememberCoordinatorDDataStoreSnapshot, RememberCoordinatorORSetDDataStoreActor,
+    remember_coordinator_shards_key,
 };
 pub use remember_shard_ddata::{
     RememberShardDDataStoreActor, RememberShardDDataStoreMsg, RememberShardDDataStoreSnapshot,

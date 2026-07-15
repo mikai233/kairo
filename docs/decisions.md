@@ -3923,6 +3923,40 @@ Consequences:
   public capability rather than two unrelated test hooks.
 - Store actors remain typed local protocols; only distributed-data CRDT state
   crosses nodes through the ddata layer.
-- In-process multi-node coverage can share a real replicator actor to isolate
-  sharding failover semantics, but release acceptance still requires
-  node-local replicators connected through the transport-backed ddata runtime.
+- Focused tests may share a replicator actor to isolate sharding semantics;
+  distributed acceptance uses node-local replicators connected through the
+  transport-backed ddata runtime.
+
+## ADR-0123: Remember Entities Shares One ORSet DData Registration
+
+Status: Accepted
+
+Context:
+Kairo's distributed-data extension is typed by one CRDT family and owns one
+stable `/system/ddata` endpoint. Registering separate GSet and ORSet extensions
+on the same node would collide on actor paths and the same fixed system
+manifests. Pekko uses one erased replicator for many CRDT types, but introducing
+an erased global data enum would weaken Kairo's typed boundary.
+
+Decision:
+Transport-composed remember-entities uses one `ORSet<String>` distributed-data
+registration. Shard stores retain their partitioned add/remove ORSet behavior.
+`RememberCoordinatorORSetDDataStoreActor` implements the existing typed
+coordinator-store protocol over the same replicator and uses only ORSet add
+operations for the coordinator shard-id key. No coordinator path removes a
+shard id, so its observable state remains the same monotonic set as the GSet
+implementation.
+
+The GSet-backed coordinator store remains available for callers that already
+provide a compatible replicator. The public entity settings accept either
+implementation through the unchanged `RememberCoordinatorDDataStoreMsg`
+protocol.
+
+Consequences:
+- Node-local sharding replicas can use the existing transport-backed typed
+  ddata extension without a second endpoint or dynamic CRDT envelope.
+- The coordinator pays ORSet metadata overhead for an add-only key in exchange
+  for preserving one typed transport registration.
+- A real two-node test now observes the entity id on the non-owner replica
+  before region failure and recovery; coordinator singleton failover over this
+  store remains a separate acceptance gate.

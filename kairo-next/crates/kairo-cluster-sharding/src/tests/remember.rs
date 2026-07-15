@@ -277,6 +277,64 @@ fn remember_coordinator_ddata_store_adds_and_loads_shards() {
 }
 
 #[test]
+fn remember_coordinator_orset_ddata_store_adds_and_loads_shards() {
+    let kit =
+        kairo_testkit::ActorSystemTestKit::new("remember-coordinator-orset-ddata-store").unwrap();
+    let replicator = kit
+        .system()
+        .spawn(
+            "replicator",
+            Props::new(ReplicatorActor::<ORSet<String>>::new),
+        )
+        .unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberCoordinatorORSetDDataStoreActor::props(
+                "orders",
+                ReplicaId::new("node-a"),
+                replicator,
+            ),
+        )
+        .unwrap();
+    let updates = kit
+        .create_probe::<Result<crate::RememberCoordinatorUpdateDone, ShardingError>>("updates")
+        .unwrap();
+    let shards = kit
+        .create_probe::<Result<crate::RememberedShards, ShardingError>>("shards")
+        .unwrap();
+
+    for shard in ["1", "1", "2"] {
+        store
+            .tell(RememberCoordinatorDDataStoreMsg::AddShard {
+                shard: shard.to_string(),
+                reply_to: updates.actor_ref(),
+            })
+            .unwrap();
+        assert_eq!(
+            updates.expect_msg(Duration::from_millis(500)).unwrap(),
+            Ok(crate::RememberCoordinatorUpdateDone {
+                shard: shard.to_string(),
+            })
+        );
+    }
+    store
+        .tell(RememberCoordinatorDDataStoreMsg::GetShards {
+            reply_to: shards.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        shards.expect_msg(Duration::from_millis(500)).unwrap(),
+        Ok(crate::RememberedShards {
+            shards: BTreeSet::from(["1".to_string(), "2".to_string()]),
+        })
+    );
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn remember_coordinator_ddata_store_updates_emit_gset_delta_wire() {
     let kit = kairo_testkit::ActorSystemTestKit::new("remember-coordinator-ddata-store-delta-wire")
         .unwrap();
