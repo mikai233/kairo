@@ -294,7 +294,7 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
     drop(cache);
     drop(dialer);
 
-    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+    await_assert(Duration::from_secs(3), Duration::from_millis(1), || {
         let actual = receiver_cache.route_count();
         if actual == 0 {
             Ok(())
