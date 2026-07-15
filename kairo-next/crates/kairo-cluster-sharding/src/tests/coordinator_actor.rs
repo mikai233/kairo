@@ -73,6 +73,60 @@ fn coordinator_actor_applies_registration_and_allocates_shard_home() {
 }
 
 #[test]
+fn coordinator_actor_keeps_departing_region_excluded_when_it_registers_late() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-late-departing-region").unwrap();
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_least_shard_strategy(CoordinatorState::new()),
+        )
+        .unwrap();
+    let state = kit
+        .create_probe::<Result<CoordinatorStateSnapshot, ShardingError>>("state")
+        .unwrap();
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("home")
+        .unwrap();
+
+    coordinator
+        .tell(ShardCoordinatorMsg::MarkRegionTerminating {
+            region: "region-a".to_string(),
+        })
+        .unwrap();
+    for region in ["region-a", "region-b"] {
+        coordinator
+            .tell(ShardCoordinatorMsg::ApplyEvent {
+                event: CoordinatorEvent::ShardRegionRegistered {
+                    region: region.to_string(),
+                },
+                reply_to: Some(state.actor_ref()),
+            })
+            .unwrap();
+        state
+            .expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap();
+    }
+
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-b".to_string(),
+            shard: "new-shard".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+
+    assert!(matches!(
+        home.expect_msg(Duration::from_millis(500))
+            .unwrap()
+            .unwrap(),
+        GetShardHomePlan::Allocated { host_region, .. } if host_region == "region-b"
+    ));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn coordinator_actor_dispatches_host_shard_on_new_allocation() {
     let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-actor-host-dispatch").unwrap();
     let coordinator = kit
@@ -642,7 +696,7 @@ fn coordinator_actor_reports_unavailable_regions_in_state_snapshot() {
     );
 
     coordinator
-        .tell(ShardCoordinatorMsg::UnmarkRegionUnavailable {
+        .tell(ShardCoordinatorMsg::RegionStopped {
             region: "region-b".to_string(),
         })
         .unwrap();
@@ -651,13 +705,9 @@ fn coordinator_actor_reports_unavailable_regions_in_state_snapshot() {
             reply_to: snapshot.actor_ref(),
         })
         .unwrap();
-    assert!(
-        snapshot
-            .expect_msg(Duration::from_millis(500))
-            .unwrap()
-            .unavailable_regions
-            .is_empty()
-    );
+    let stopped = snapshot.expect_msg(Duration::from_millis(500)).unwrap();
+    assert!(stopped.unavailable_regions.is_empty());
+    assert!(!stopped.allocations.contains_key("region-b"));
 
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }

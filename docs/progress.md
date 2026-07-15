@@ -218,6 +218,15 @@ Status terms in this document mean:
   participant snapshots, rebalance completion, availability suppression, and
   graceful region shutdown. Failed shutdown handoffs release the region for a
   retry, and duplicate rebalance starts preserve existing deferred requesters.
+  The coordinator actor now carries the same hard gate across local and remote
+  registration, shard-home ownership, periodic rebalance, handoff completion,
+  region death watch, graceful shutdown, remember-store loading and failure,
+  construction modes, and diagnostic snapshots while keeping stable wire
+  decoding in dedicated adapters.
+  The composed membership connector now marks departing regions terminating
+  before applying coordinator discovery, so singleton handover cannot allocate
+  a new shard to a late-registering leaving region and strand an accepted
+  envelope there; removed regions also clear retained availability markers.
   The region runtime now hard-gates its bidirectional home cache, globally
   bounded per-shard FIFO buffers, local startup, remote forwarding, region-stop
   cleanup, and Pekko-aligned begin-handoff and reorder-prevention contracts.

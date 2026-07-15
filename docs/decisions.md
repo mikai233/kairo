@@ -3652,12 +3652,18 @@ traffic remains `EntityRef<M>`, `ActorRef<ShardingEnvelope<M>>`, and registered
 Activation installs one non-generic `ClusterSharding` ActorSystem extension.
 `init` spawns a coordinator candidate, entity-backed region, envelope router,
 and membership connector for the type. The connector derives remote targets
-only from cluster snapshots/events and updates targets before forwarding the
-same membership fact to coordinator discovery. Initialization requires an
-explicit `M` stop message so host-shard dispatch and later handoff share a
-fully configured transport rather than recording allocations that cannot be
-started. Coordinator replies may reconstruct a local home only when its
-`RegionId` is itself valid canonical actor-ref wire data.
+only from cluster snapshots/events. Before forwarding the same membership fact
+to coordinator discovery, it projects member lifecycle into coordinator region
+eligibility: `Up`/`WeaklyUp` members are eligible, `Leaving`/`Exiting` members
+are terminating, `Joining` members do not affect an unregistered region,
+`Down` members are terminating, and `Removed` members are stopped. This
+ordering prevents a late region registration during singleton handover from
+making a departing region eligible for a new shard.
+Initialization requires an explicit `M` stop message so host-shard dispatch and
+later handoff share a fully configured transport rather than recording
+allocations that cannot be started. Coordinator replies may reconstruct a
+local home only when its `RegionId` is itself valid canonical actor-ref wire
+data.
 
 Consequences:
 - Multiple typed entity kinds share one listener, association lifecycle, and
@@ -3666,6 +3672,8 @@ Consequences:
   encoded business message, and start the remote entity on demand.
 - Gossip membership remains the source of coordinator and region targets;
   remoting does not create cluster truth.
+- Coordinator allocation eligibility follows member lifecycle before region
+  discovery or registration effects from the same cluster event are applied.
 - Coordinator singleton failover/state recovery, proxy-only role placement,
   composed remember stores, and process/fault acceptance remain later M9 and
   Phase 4 checkpoints.

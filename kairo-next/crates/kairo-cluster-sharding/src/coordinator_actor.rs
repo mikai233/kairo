@@ -1,3 +1,6 @@
+#![deny(missing_docs)]
+//! Typed shard-coordinator actor, mailbox protocol, and diagnostic snapshot.
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
@@ -18,11 +21,18 @@ use crate::{
     ShardStarted, ShardStopped, ShardingError, remote_region_id,
 };
 
+/// Actor-timer key used for the coordinator's periodic rebalance cadence.
 pub const REBALANCE_TIMER_KEY: &str = "sharding-coordinator-rebalance";
 
 mod construction;
 mod remember_store;
 
+/// Mailbox-owning coordinator for region registration, shard allocation, and handoff.
+///
+/// The actor serializes mutations to [`CoordinatorRuntime`], starts handoff
+/// workers when configured, and optionally loads and updates a remember-shard
+/// store. Remote wire messages are validated by dedicated adapters before they
+/// are converted into [`ShardCoordinatorMsg`] variants.
 pub struct ShardCoordinatorActor<M = ()>
 where
     M: Send + 'static,
@@ -39,123 +49,209 @@ where
 }
 
 #[derive(Clone)]
+/// Local mailbox protocol for [`ShardCoordinatorActor`].
+///
+/// This enum is not a stable wire contract. Variants prefixed with `Remote`
+/// are trusted re-entry points used after the stable coordinator wire protocol
+/// has been decoded and its sender and recipient identities validated.
 pub enum ShardCoordinatorMsg<M = ()>
 where
     M: Send + 'static,
 {
+    /// Applies one already validated coordinator domain event.
     ApplyEvent {
+        /// Event to apply to the coordinator state machine.
         event: CoordinatorEvent,
+        /// Optional observer for the resulting state or validation failure.
         reply_to: Option<ActorRef<Result<CoordinatorStateSnapshot, ShardingError>>>,
     },
+    /// Changes the startup guard that defers allocation until regions register.
     SetAllRegionsRegistered {
+        /// Whether every expected region has registered.
         all_registered: bool,
     },
+    /// Enables or clears coordinated-shutdown preparation.
     SetPreparingForShutdown {
+        /// Whether shutdown preparation is active.
         preparing: bool,
     },
+    /// Excludes a region from new allocations while graceful shutdown runs.
     MarkGracefulShutdown {
+        /// Draining region.
         region: RegionId,
     },
+    /// Makes a previously draining region eligible again.
     UnmarkGracefulShutdown {
+        /// Region whose graceful-shutdown marker is cleared.
         region: RegionId,
     },
+    /// Excludes a region whose termination is already being processed.
     MarkRegionTerminating {
+        /// Terminating region.
         region: RegionId,
     },
+    /// Clears a region's termination-in-progress marker.
     UnmarkRegionTerminating {
+        /// Region whose termination marker is cleared.
         region: RegionId,
     },
+    /// Excludes a currently unavailable region from allocation and rebalance.
     MarkRegionUnavailable {
+        /// Unavailable region.
         region: RegionId,
     },
+    /// Returns a recovered region to allocation and rebalance eligibility.
     UnmarkRegionUnavailable {
+        /// Recovered region.
         region: RegionId,
     },
+    /// Plans graceful shutdown for a local region and starts its handoff workers.
     GracefulShutdownReq {
+        /// Region requesting graceful shutdown.
         region: RegionId,
+        /// Optional observer for the shutdown plan.
         reply_to: Option<ActorRef<RegionShutdownPlan>>,
     },
+    /// Resolves or allocates the home of a shard for a local requester.
     RequestShardHome {
+        /// Region asking for the shard home.
         requester: RegionId,
+        /// Shard to resolve.
         shard: ShardId,
+        /// Recipient for the reply, allocation, deferral, or typed failure.
         reply_to: ActorRef<Result<GetShardHomePlan, ShardingError>>,
     },
+    /// Registers a local region, watches it, and allocates remembered shards.
     RegisterLocalRegion {
+        /// Local handoff and host-shard delivery target.
         target: HandoffRegionTarget<M>,
+        /// Recipient for the post-registration snapshot or failure.
         reply_to: ActorRef<Result<CoordinatorStateSnapshot, ShardingError>>,
     },
+    /// Re-enters a validated remote region registration command.
     RegisterRemoteRegion {
+        /// Stable remote region actor identity.
         region: ActorRefWireData,
+        /// Optional transport target used for handoff and shard hosting.
         target: Option<HandoffRegionTarget<M>>,
+        /// Stable remote reply route for the registration acknowledgement.
         reply: CoordinatorRemoteReplyTarget,
     },
+    /// Re-enters a decoded graceful-shutdown request from a remote region.
     RemoteGracefulShutdownReq {
+        /// Stable remote region actor identity.
         region: ActorRefWireData,
     },
+    /// Removes a stopped local region and reallocates remembered shards.
     RegionStopped {
+        /// Stopped region.
         region: RegionId,
     },
+    /// Re-enters a decoded stopped-region notification from a remote region.
     RemoteRegionStopped {
+        /// Stable stopped-region actor identity.
         region: ActorRefWireData,
     },
+    /// Resolves or allocates a shard home for a validated remote requester.
     RequestRemoteShardHome {
+        /// Stable actor identity of the requesting region.
         requester: ActorRefWireData,
+        /// Shard to resolve.
         shard: ShardId,
+        /// Stable remote route for a shard-home reply.
         reply: CoordinatorRemoteReplyTarget,
     },
+    /// Computes a rebalance plan and starts configured handoff workers.
     PlanRebalance {
+        /// Recipient for the plan or typed failure.
         reply_to: ActorRef<Result<RebalancePlan, ShardingError>>,
     },
+    /// Completes an explicitly driven rebalance attempt.
     CompleteRebalance {
+        /// Shard whose handoff completed or timed out.
         shard: ShardId,
+        /// Whether every handoff participant acknowledged completion.
         ok: bool,
+        /// Recipient for the deallocation or cleanup result.
         reply_to: ActorRef<Result<RebalanceCompletionPlan, ShardingError>>,
     },
+    /// Returns a spawned handoff worker's terminal result to the coordinator.
     HandoffWorkerDone(HandoffWorkerDone),
+    /// Observes best-effort local `HostShard` delivery.
     HostShardObserved {
+        /// Shard whose host command was delivered.
         shard: ShardId,
     },
+    /// Re-enters a decoded remote `ShardStarted` acknowledgement.
     RemoteHostShardObserved {
+        /// Stable actor identity of the hosting region.
         region: ActorRefWireData,
+        /// Acknowledgement emitted by the region.
         started: ShardStarted,
     },
+    /// Re-enters a decoded remote begin-handoff acknowledgement.
     RemoteBeginHandOffAck {
+        /// Stable actor identity of the acknowledging region.
         region: ActorRefWireData,
+        /// Phase-one handoff acknowledgement.
         ack: BeginHandOffAck,
     },
+    /// Re-enters a decoded remote shard-stopped acknowledgement.
     RemoteShardStopped {
+        /// Stable actor identity of the acknowledging region.
         region: ActorRefWireData,
+        /// Phase-two handoff acknowledgement.
         stopped: ShardStopped,
     },
+    /// Runs one periodic rebalance turn.
     RebalanceTick {
+        /// Optional observer for the resulting plan.
         reply_to: Option<ActorRef<Result<RebalancePlan, ShardingError>>>,
     },
+    /// Returns the initial remember-store load to the actor mailbox.
     RememberStoreLoadResult {
+        /// Loaded shards or the preserved ask/store failure.
         result: Result<RememberedShards, CoordinatorRememberStoreError>,
     },
+    /// Returns one remember-store update to the actor mailbox.
     RememberStoreUpdateResult {
+        /// Persisted shard acknowledgement or the preserved ask/store failure.
         result: Result<RememberCoordinatorUpdateDone, CoordinatorRememberStoreError>,
     },
+    /// Starts or replaces the fixed-delay rebalance timer.
     StartRebalanceTimer {
+        /// Delay before the first rebalance turn.
         initial_delay: Duration,
+        /// Delay between later rebalance turns.
         interval: Duration,
     },
+    /// Cancels periodic rebalancing and clears its configured interval.
     StopRebalanceTimer,
+    /// Stops the coordinator, including while its remember store is loading.
     Terminate,
+    /// Requests a diagnostic state snapshot.
     GetState {
+        /// Recipient for the current snapshot.
         reply_to: ActorRef<CoordinatorStateSnapshot>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic snapshot of coordinator allocation and lifecycle state.
 pub struct CoordinatorStateSnapshot {
     /// Whether every currently known shard region has completed registration.
     pub all_regions_registered: bool,
+    /// Shards currently assigned to each registered region.
     pub allocations: BTreeMap<RegionId, Vec<ShardId>>,
+    /// Registered proxy identifiers retained by coordinator state.
     pub proxies: BTreeSet<RegionId>,
+    /// Remembered shards that do not currently have a region home.
     pub unallocated_shards: BTreeSet<ShardId>,
+    /// Shards in handoff and the regions waiting for their home.
     pub rebalance_in_progress: BTreeMap<ShardId, Vec<RegionId>>,
+    /// Registered regions excluded because cluster reachability is unavailable.
     pub unavailable_regions: BTreeSet<RegionId>,
+    /// Whether coordinator state retains deallocated shards for later recovery.
     pub remember_entities: bool,
 }
 
@@ -466,6 +562,7 @@ where
     ) -> ActorResult {
         self.runtime.unmark_graceful_shutdown(&region);
         self.runtime.unmark_region_terminating(&region);
+        self.runtime.unmark_region_unavailable(&region);
         if let Some(handoff) = &mut self.handoff {
             handoff.forward_region_terminated(&region)?;
             handoff.remove_region_target(&region);

@@ -10,7 +10,7 @@ use kairo_actor::{
 };
 use kairo_cluster::{
     Cluster, ClusterDaemonRegistration, ClusterEvent, ClusterExtension, ClusterSubscriptionEvent,
-    ClusterSubscriptionInitialState, Member, MemberEvent, UniqueAddress,
+    ClusterSubscriptionInitialState, Member, MemberEvent, MemberStatus, UniqueAddress,
 };
 use kairo_cluster_tools::{
     ClusterSingleton, ClusterSingletonBootstrapError, ClusterSingletonRef,

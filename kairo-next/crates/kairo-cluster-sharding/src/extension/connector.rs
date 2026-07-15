@@ -29,6 +29,36 @@ where
     subscription: Option<ActorRef<ClusterSubscriptionEvent>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CoordinatorRegionLifecycle {
+    Eligible,
+    Pending,
+    Terminating,
+    Removed,
+}
+
+fn coordinator_region_lifecycle(status: &MemberStatus) -> CoordinatorRegionLifecycle {
+    match status {
+        MemberStatus::Up | MemberStatus::WeaklyUp => CoordinatorRegionLifecycle::Eligible,
+        MemberStatus::Leaving | MemberStatus::Exiting => CoordinatorRegionLifecycle::Terminating,
+        MemberStatus::Joining => CoordinatorRegionLifecycle::Pending,
+        MemberStatus::Down => CoordinatorRegionLifecycle::Terminating,
+        MemberStatus::Removed => CoordinatorRegionLifecycle::Removed,
+    }
+}
+
+fn member_event_member(event: &MemberEvent) -> &Member {
+    match event {
+        MemberEvent::Joined(member)
+        | MemberEvent::WeaklyUp(member)
+        | MemberEvent::Up(member)
+        | MemberEvent::Left(member)
+        | MemberEvent::Exited(member)
+        | MemberEvent::Downed(member)
+        | MemberEvent::Removed { member, .. } => member,
+    }
+}
+
 impl<M> ClusterShardingConnector<M>
 where
     M: Clone + Send + 'static,
@@ -94,6 +124,37 @@ where
             .map_err(|error| ActorError::Message(error.reason().to_string()))
     }
 
+    fn sync_coordinator_region_lifecycle(&self, member: &Member) -> ActorResult {
+        let region_wire = ActorRefWireData::new(format!(
+            "{}{}",
+            member.unique_address.address, self.config.region_path
+        ))
+        .map_err(|error| ActorError::Message(error.to_string()))?;
+        let region = remote_region_id(&region_wire);
+        match coordinator_region_lifecycle(&member.status) {
+            CoordinatorRegionLifecycle::Eligible => {
+                self.tell_coordinator(ShardCoordinatorMsg::UnmarkRegionTerminating {
+                    region: region.clone(),
+                })?;
+                self.tell_coordinator(ShardCoordinatorMsg::UnmarkRegionUnavailable { region })
+            }
+            CoordinatorRegionLifecycle::Pending => Ok(()),
+            CoordinatorRegionLifecycle::Terminating => {
+                self.tell_coordinator(ShardCoordinatorMsg::MarkRegionTerminating { region })
+            }
+            CoordinatorRegionLifecycle::Removed => {
+                self.tell_coordinator(ShardCoordinatorMsg::RegionStopped { region })
+            }
+        }
+    }
+
+    fn tell_coordinator(&self, message: ShardCoordinatorMsg<M>) -> ActorResult {
+        self.config
+            .coordinator
+            .tell(message)
+            .map_err(|error| ActorError::Message(error.reason().to_string()))
+    }
+
     fn apply_event(&mut self, event: &ClusterEvent) {
         let ClusterEvent::Member(event) = event else {
             return;
@@ -150,6 +211,9 @@ where
                     .cloned()
                     .map(|member| (member.unique_address.ordering_key(), member))
                     .collect();
+                for member in &state.members {
+                    self.sync_coordinator_region_lifecycle(member)?;
+                }
                 self.update_targets()?;
                 self.config
                     .region
@@ -157,6 +221,9 @@ where
                     .map_err(|error| ActorError::Message(error.reason().to_string()))
             }
             ClusterShardingConnectorMsg::Cluster(ClusterSubscriptionEvent::Event(event)) => {
+                if let ClusterEvent::Member(member_event) = &event {
+                    self.sync_coordinator_region_lifecycle(member_event_member(member_event))?;
+                }
                 self.apply_event(&event);
                 self.update_targets()?;
                 self.config
@@ -165,5 +232,38 @@ where
                     .map_err(|error| ActorError::Message(error.reason().to_string()))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coordinator_region_lifecycle_excludes_departing_members() {
+        assert_eq!(
+            coordinator_region_lifecycle(&MemberStatus::Leaving),
+            CoordinatorRegionLifecycle::Terminating
+        );
+        assert_eq!(
+            coordinator_region_lifecycle(&MemberStatus::Exiting),
+            CoordinatorRegionLifecycle::Terminating
+        );
+    }
+
+    #[test]
+    fn coordinator_region_lifecycle_recovers_only_live_members() {
+        assert_eq!(
+            coordinator_region_lifecycle(&MemberStatus::Up),
+            CoordinatorRegionLifecycle::Eligible
+        );
+        assert_eq!(
+            coordinator_region_lifecycle(&MemberStatus::Down),
+            CoordinatorRegionLifecycle::Terminating
+        );
+        assert_eq!(
+            coordinator_region_lifecycle(&MemberStatus::Removed),
+            CoordinatorRegionLifecycle::Removed
+        );
     }
 }

@@ -1,6 +1,10 @@
 use super::*;
 
 impl ShardCoordinatorActor<()> {
+    /// Creates a coordinator with an explicit allocation strategy.
+    ///
+    /// This constructor omits periodic rebalancing, remember storage, and
+    /// handoff transport; callers may drive its pure planning messages directly.
     pub fn new(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -18,6 +22,7 @@ impl ShardCoordinatorActor<()> {
         }
     }
 
+    /// Creates a coordinator that schedules periodic rebalance turns.
     pub fn with_rebalance_interval(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -36,6 +41,10 @@ impl ShardCoordinatorActor<()> {
         }
     }
 
+    /// Creates a coordinator that loads and updates an external local remember store.
+    ///
+    /// User traffic is stashed until the initial load succeeds. An ask or store
+    /// failure stops this actor so its lifecycle owner can replace it cleanly.
     pub fn with_remember_store(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -55,6 +64,10 @@ impl ShardCoordinatorActor<()> {
         }
     }
 
+    /// Creates a coordinator that owns an in-memory remember-store child.
+    ///
+    /// The supplied state seeds the child and is loaded before coordinator
+    /// requests are served.
     pub fn with_local_remember_store(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -77,10 +90,12 @@ impl ShardCoordinatorActor<()> {
         }
     }
 
+    /// Creates a coordinator using the default bounded least-shards strategy.
     pub fn with_least_shard_strategy(state: CoordinatorState) -> Self {
         Self::new(state, LeastShardAllocationStrategy::default())
     }
 
+    /// Returns restartable actor properties for [`Self::new`].
     pub fn props(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -88,6 +103,7 @@ impl ShardCoordinatorActor<()> {
         Props::new(move || Self::new(state, strategy))
     }
 
+    /// Returns restartable actor properties with periodic rebalancing enabled.
     pub fn props_with_rebalance_interval(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -96,10 +112,14 @@ impl ShardCoordinatorActor<()> {
         Props::new(move || Self::with_rebalance_interval(state, strategy, interval))
     }
 
+    /// Returns restartable actor properties using the default allocation strategy.
     pub fn props_with_least_shard_strategy(state: CoordinatorState) -> Props<Self> {
         Props::new(move || Self::with_least_shard_strategy(state))
     }
 
+    /// Returns restartable actor properties backed by an external local remember store.
+    ///
+    /// `stash_capacity` bounds traffic retained while the initial store load is pending.
     pub fn props_with_remember_store(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -111,6 +131,9 @@ impl ShardCoordinatorActor<()> {
             .with_stash_capacity(stash_capacity)
     }
 
+    /// Returns restartable actor properties with an owned in-memory remember store.
+    ///
+    /// `stash_capacity` bounds traffic retained while the initial store load is pending.
     pub fn props_with_local_remember_store(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -132,6 +155,10 @@ where
         self
     }
 
+    /// Creates a coordinator with two-phase shard handoff orchestration.
+    ///
+    /// The transport receives region commands and `stop_message` is forwarded
+    /// to entities during phase-two handoff.
     pub fn with_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -156,6 +183,7 @@ where
         }
     }
 
+    /// Creates a handoff-capable coordinator with an owned in-memory remember store.
     pub fn with_local_remember_store_and_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -185,6 +213,7 @@ where
         }
     }
 
+    /// Creates a handoff-capable coordinator backed by an external local remember store.
     pub fn with_remember_store_and_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -211,6 +240,10 @@ where
         }
     }
 
+    /// Creates a handoff-capable coordinator backed by distributed-data storage.
+    ///
+    /// The store preserves shard existence across coordinator replacement; it
+    /// does not preserve stale region ownership.
     pub fn with_ddata_remember_store_and_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -240,6 +273,7 @@ where
         }
     }
 
+    /// Returns restartable actor properties with two-phase handoff enabled.
     pub fn props_with_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -267,6 +301,9 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Returns restartable handoff properties backed by an external local remember store.
+    ///
+    /// `stash_capacity` bounds traffic retained while the initial store load is pending.
     pub fn props_with_remember_store_and_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -319,6 +356,9 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Returns restartable handoff properties backed by distributed-data storage.
+    ///
+    /// `stash_capacity` bounds traffic retained while the initial store load is pending.
     pub fn props_with_ddata_remember_store_and_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -370,6 +410,7 @@ where
         .with_stash_capacity(stash_capacity)
     }
 
+    /// Borrows the pure coordinator runtime for diagnostics and focused tests.
     pub fn runtime(&self) -> &CoordinatorRuntime {
         &self.runtime
     }

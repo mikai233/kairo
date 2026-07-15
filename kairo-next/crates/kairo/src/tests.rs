@@ -283,6 +283,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
     let documented_modules = [
         "kairo-next/crates/kairo-cluster-sharding/src/allocation.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/coordinator_actor.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator_handoff.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator_store.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator_system_inbound.rs",
