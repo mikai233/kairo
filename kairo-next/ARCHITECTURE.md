@@ -2224,6 +2224,11 @@ Cluster-tools inbound routing:
 
 - `ClusterToolsSystemInbound<M>` is the transport-neutral inbound dispatch
   boundary for cluster-tools remote envelopes,
+- `register_cluster_tools_system_inbound` registers all eight stable
+  cluster-tools manifests on the control lane of the ActorSystem-owned
+  `TcpRemoteActorRuntimeBuilder`; its bind-time factory receives the effective
+  canonical `UniqueAddress` and shared association cache, so cluster tools do
+  not need a second TCP listener,
 - it routes pubsub status/delta manifests to the pubsub gossip wire inbound,
   pubsub publish/path manifests to the pubsub delivery inbound, and singleton
   handover manifests to the singleton manager inbound,

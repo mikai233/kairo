@@ -3669,3 +3669,34 @@ Consequences:
 - Coordinator singleton failover/state recovery, proxy-only role placement,
   composed remember stores, and process/fault acceptance remain later M9 and
   Phase 4 checkpoints.
+
+## ADR-0116: Cluster Tools Register On The Shared Control Lane
+
+Status: Accepted
+
+Context:
+Cluster-tools pubsub and singleton already had stable codecs, focused inbound
+adapters, and a combined `ClusterToolsSystemInbound<M>`, but their runnable TCP
+bootstrap owned a separate listener and route lifecycle. Composed applications
+need those protocols to share the ActorSystem's canonical address,
+associations, lane classification, and shutdown ownership with ordinary
+remoting and clustering before higher-level singleton and pubsub extensions
+can be authoritative consumers of cluster events.
+
+Decision:
+`register_cluster_tools_system_inbound<M>` registers all eight stable pubsub
+and singleton manifests on the control lane of an existing
+`TcpRemoteActorRuntimeBuilder`. Its factory runs after bind with the effective
+canonical `UniqueAddress` and the shared association cache, then returns the
+existing transport-neutral `ClusterToolsSystemInbound<M>`. The function does
+not bind, dial, infer peers, or own shutdown; those responsibilities remain in
+the shared remoting and cluster lifecycle.
+
+Consequences:
+- Pubsub gossip, serialized pubsub delivery, and singleton handover can enter
+  their existing actor boundaries through the same listener and association.
+- Stable control classification is configured once by the shared runtime
+  builder instead of by a cluster-tools-specific listener.
+- The legacy standalone cluster-tools TCP bootstrap remains a focused-test and
+  compatibility boundary while public singleton/pubsub extensions and their
+  cluster-event connectors are composed in later checkpoints.

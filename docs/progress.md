@@ -402,8 +402,15 @@ oldest coordinator, allocates shards to the oldest node, drains the remote
 requester's buffers after `ShardHome`, and delivers both decoded business
 messages to their remote entity actors. Coordinator failover/recovery on the
 composed lifecycle, role-based proxy-only hosting, broader ddata type
-registration, cluster-tools composition, and process/fault coverage remain
-open.
+registration, and process/fault coverage remain open. Cluster tools now have
+their first composed transport seam: `register_cluster_tools_system_inbound`
+registers all eight stable pubsub and singleton manifests on the control lane
+of the ActorSystem-owned remoting runtime and constructs the existing inbound
+router with the effective canonical node plus shared association cache. A live
+socket test carries pubsub status, serialized pubsub business delivery, and
+singleton handover through one shared association into their actor boundaries.
+Public singleton/pubsub extensions and authoritative cluster-event connectors
+remain open.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.

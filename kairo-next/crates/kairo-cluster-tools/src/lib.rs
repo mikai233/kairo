@@ -58,6 +58,7 @@ mod codec;
 mod protocol;
 mod pubsub;
 mod remote_tcp;
+mod shared_remote_runtime;
 mod singleton;
 mod system_inbound;
 mod tcp_peer_bootstrap;
@@ -96,6 +97,9 @@ pub use pubsub::{
 pub use remote_tcp::{
     ClusterToolsTcpAssociationRuntime, cluster_tools_association_identity_for,
     cluster_tools_lane_classifier,
+};
+pub use shared_remote_runtime::{
+    CLUSTER_TOOLS_SYSTEM_MANIFESTS, register_cluster_tools_system_inbound,
 };
 pub use singleton::{
     DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, LocalSingletonManagerActor, LocalSingletonManagerMsg,

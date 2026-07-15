@@ -2167,6 +2167,7 @@ fn prelude_exposes_cluster_tools_entry_points() {
     let topic = TopicName::new("events");
     assert_eq!(topic.as_str(), "events");
     assert_eq!(SingletonScope::for_role("backend").role(), Some("backend"));
+    assert_eq!(CLUSTER_TOOLS_SYSTEM_MANIFESTS.len(), 8);
     let _ = TopicPublishMode::Broadcast;
     let _ = std::mem::size_of::<Option<LocalPubSub<String>>>();
     let _ = std::mem::size_of::<Option<DistributedPubSubMediatorActor<String>>>();
