@@ -262,9 +262,15 @@ before lifecycle ownership is added. `InitJoin`, `InitJoinAck`, `InitJoinNack`,
 sequential serializer IDs, explicit field encodings, registered hand-written
 codecs, and malformed-version/trailing-byte coverage. Seed compatibility uses
 digest bytes plus an explicit `ClusterConfigCheck`; it does not serialize full
-configuration or turn discovery into membership truth. Actor-owned seed retry,
-first-ack join, periodic gossip, and coordinated leave remain the active Phase
-3 implementation work.
+configuration or turn discovery into membership truth. `ClusterSeedJoinState`
+now pins the deterministic formation state machine: it contacts every seed but
+self, accepts only the first compatible/unchecked Ack from a contacted origin,
+self-forms only when the first seed receives every Nack or reaches its seed
+timeout, keeps non-first seeds retrying instead of self-forming, retries Join
+after a lost Welcome by restarting seed contact, and terminates explicitly on
+incompatible configuration.
+Actor-owned scheduling and wire effects, periodic gossip, and coordinated leave
+remain the active Phase 3 implementation work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -5887,6 +5893,15 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after the deterministic seed-join state machine:
+
+```bash
+cargo test -p kairo-cluster seed_join --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after fixing the cluster-daemon wire contract:
 

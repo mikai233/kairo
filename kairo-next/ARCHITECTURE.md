@@ -1325,6 +1325,18 @@ Startup:
 5. Joining node adopts `Welcome.gossip`, marks itself seen, starts heartbeat and
    periodic gossip.
 
+`ClusterSeedJoinState` is the deterministic owner below the future daemon
+actor. It validates a non-empty duplicate-free ordered seed list, contacts all
+configured seeds except self with the same opaque config digest, and accepts
+only the first compatible or unchecked acknowledgement from a contacted
+origin. The first configured seed may form a new cluster by joining itself only
+when every other seed has replied with `InitJoinNack` or the overall seed
+timeout expires. A non-first seed never self-forms; its timeout starts another
+contact attempt. After selecting a target, a join timeout restarts seed contact;
+another first Ack produces the repeated `Join` that recovers a lost `Welcome`.
+A matching `Welcome` completes formation. Incompatible configuration is a
+terminal, explicit effect rather than a silent retry.
+
 Membership transport:
 
 - `ClusterMembershipWireOutbound` serializes `Join`, `Welcome`, and
