@@ -189,3 +189,90 @@ fn read_aggregator_merges_results_and_reports_not_found_or_failure() {
         }
     );
 }
+
+#[test]
+fn aggregators_ignore_unknown_and_duplicate_identified_replies() {
+    let key = ReplicatorKey::new("counter");
+    let nodes = vec![replica("a"), replica("b")];
+    let mut write = WriteAggregatorState::new(
+        key.clone(),
+        &WriteConsistency::to(3, Duration::from_secs(1)).unwrap(),
+        nodes.clone(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        write.record_ack(&replica("unknown")),
+        WriteAggregationOutcome::InProgress
+    );
+    assert_eq!(
+        write.record_nack(&replica("a")),
+        WriteAggregationOutcome::Failed {
+            required: 2,
+            available: 1,
+        }
+    );
+    assert_eq!(
+        write.record_ack(&replica("a")),
+        WriteAggregationOutcome::InProgress
+    );
+    assert_eq!(
+        write.record_ack(&replica("a")),
+        WriteAggregationOutcome::InProgress
+    );
+    assert_eq!(
+        write.record_nack(&replica("a")),
+        WriteAggregationOutcome::InProgress
+    );
+    assert_eq!(
+        write.record_ack(&replica("b")),
+        WriteAggregationOutcome::Success
+    );
+
+    let mut read = ReadAggregatorState::<GCounter>::new(
+        key,
+        &ReadConsistency::from(3, Duration::from_secs(1)).unwrap(),
+        nodes,
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        read.record_read_from(&replica("unknown"), None),
+        ReadAggregationOutcome::InProgress
+    );
+    assert_eq!(
+        read.record_read_from(&replica("a"), None),
+        ReadAggregationOutcome::InProgress
+    );
+    assert_eq!(
+        read.record_read_from(
+            &replica("a"),
+            Some(DataEnvelope::new(full_counter("a", 10)))
+        ),
+        ReadAggregationOutcome::InProgress
+    );
+    assert_eq!(
+        read.record_read_from(&replica("b"), None),
+        ReadAggregationOutcome::NotFound
+    );
+}
+
+#[test]
+fn replica_selection_caps_delayed_secondaries_at_ten() {
+    let nodes = (0..15)
+        .map(|index| replica(&format!("node-{index:02}")))
+        .collect::<Vec<_>>();
+    let aggregator = WriteAggregatorState::new(
+        ReplicatorKey::new("counter"),
+        &WriteConsistency::to(2, Duration::from_secs(1)).unwrap(),
+        nodes,
+    )
+    .unwrap();
+
+    let selection = aggregator.select_replicas(&BTreeSet::new());
+
+    assert_eq!(selection.primary(), &[replica("node-00")]);
+    assert_eq!(selection.secondary().len(), 10);
+    assert_eq!(selection.secondary()[0], replica("node-01"));
+    assert_eq!(selection.secondary()[9], replica("node-10"));
+}

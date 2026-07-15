@@ -226,6 +226,10 @@ Status terms in this document mean:
   request correlation, and pruning-aware merge contracts; configured
   replicators also record the receiving replica on initialized pruning markers
   before acknowledging a write.
+  Read/write quorum aggregation now hard-gates local-inclusive majority math,
+  reachable-first primary selection, the ten-secondary retry cap, distinct
+  known-source reply accounting, ACK-over-NACK precedence, timeout/failure
+  outcomes, and merged read results.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

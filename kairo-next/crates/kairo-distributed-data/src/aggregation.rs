@@ -1,3 +1,11 @@
+#![deny(missing_docs)]
+//! Quorum calculation, replica selection, and read/write aggregation state.
+//!
+//! The state machines in this module count the local replica implicitly and
+//! operate on a caller-supplied list of distinct remote replicas. Reachable
+//! remotes are selected before unreachable remotes, while completion depends
+//! on replies rather than reachability observations.
+
 use std::collections::BTreeSet;
 
 use crate::{
@@ -7,66 +15,92 @@ use crate::{
 const MAX_SECONDARY_NODES: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure to construct a remote aggregation state machine.
 pub enum AggregationError {
+    /// Local consistency does not require a remote aggregation state machine.
     LocalConsistencyUnsupported,
-    NotEnoughReplicas { required: usize, available: usize },
+    /// The requested write consistency cannot be met by the known remotes.
+    NotEnoughReplicas {
+        /// Number of remote acknowledgements required after counting local.
+        required: usize,
+        /// Number of known remote replicas.
+        available: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Primary and delayed-secondary remote replicas for one aggregation attempt.
 pub struct ReplicaSelection {
     primary: Vec<ReplicaId>,
     secondary: Vec<ReplicaId>,
 }
 
 impl ReplicaSelection {
+    /// Returns replicas contacted immediately.
     pub fn primary(&self) -> &[ReplicaId] {
         &self.primary
     }
 
+    /// Returns up to ten remaining replicas eligible for delayed contact.
     pub fn secondary(&self) -> &[ReplicaId] {
         &self.secondary
     }
 }
 
 #[derive(Debug, Clone)]
+/// Prepared write aggregation state together with its initial target selection.
 pub struct WriteAggregationPlan {
     state: WriteAggregatorState,
     selection: ReplicaSelection,
 }
 
 impl WriteAggregationPlan {
+    /// Combines an aggregation state machine with a target selection.
     pub fn new(state: WriteAggregatorState, selection: ReplicaSelection) -> Self {
         Self { state, selection }
     }
 
+    /// Returns the write aggregation state machine.
     pub fn state(&self) -> &WriteAggregatorState {
         &self.state
     }
 
+    /// Consumes the plan and returns its write aggregation state machine.
     pub fn into_state(self) -> WriteAggregatorState {
         self.state
     }
 
+    /// Returns the initial primary and secondary targets.
     pub fn selection(&self) -> &ReplicaSelection {
         &self.selection
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Current completion result of a write aggregation.
 pub enum WriteAggregationOutcome {
+    /// More remote replies may still satisfy the requested consistency.
     InProgress,
+    /// Enough distinct known replicas acknowledged the write.
     Success,
+    /// Negative acknowledgements make the requested consistency impossible.
     Failed {
+        /// Number of remote acknowledgements required.
         required: usize,
+        /// Maximum number of remote acknowledgements still available.
         available: usize,
     },
+    /// The deadline elapsed before enough acknowledgements arrived.
     Timeout {
+        /// Number of remote acknowledgements required.
         required: usize,
+        /// Number of distinct remote acknowledgements received.
         acknowledged: usize,
     },
 }
 
 #[derive(Debug, Clone)]
+/// Tracks distinct remote ACK and NACK replies for one write.
 pub struct WriteAggregatorState {
     key: ReplicatorKey,
     remote_nodes: Vec<ReplicaId>,
@@ -76,6 +110,10 @@ pub struct WriteAggregatorState {
 }
 
 impl WriteAggregatorState {
+    /// Creates a write aggregator for distinct known `remote_nodes`.
+    ///
+    /// The local replica is counted implicitly. Local consistency is rejected,
+    /// as is a remote quorum that cannot be met by the supplied replica list.
     pub fn new(
         key: ReplicatorKey,
         consistency: &WriteConsistency,
@@ -91,18 +129,25 @@ impl WriteAggregatorState {
         })
     }
 
+    /// Returns the key being written.
     pub fn key(&self) -> &ReplicatorKey {
         &self.key
     }
 
+    /// Returns the number of distinct remote ACKs needed for success.
     pub fn required_remote_acks(&self) -> usize {
         self.required_remote_acks
     }
 
+    /// Returns the known remote replica universe.
     pub fn remote_nodes(&self) -> &[ReplicaId] {
         &self.remote_nodes
     }
 
+    /// Records an ACK from a known replica and returns the current outcome.
+    ///
+    /// Unknown and duplicate replies are ignored. An ACK supersedes an earlier
+    /// NACK from the same replica.
     pub fn record_ack(&mut self, replica: &ReplicaId) -> WriteAggregationOutcome {
         if self.remote_nodes.contains(replica) {
             self.nacked.remove(replica);
@@ -111,6 +156,10 @@ impl WriteAggregatorState {
         self.outcome()
     }
 
+    /// Records a NACK from a known replica and returns the current outcome.
+    ///
+    /// Unknown and duplicate replies are ignored, and a completed ACK cannot
+    /// be superseded by a later NACK.
     pub fn record_nack(&mut self, replica: &ReplicaId) -> WriteAggregationOutcome {
         if self.remote_nodes.contains(replica) && !self.acked.contains(replica) {
             self.nacked.insert(replica.clone());
@@ -118,6 +167,7 @@ impl WriteAggregatorState {
         self.outcome()
     }
 
+    /// Produces success or a timeout using the replies received so far.
     pub fn timeout(&self) -> WriteAggregationOutcome {
         if self.acked.len() >= self.required_remote_acks {
             WriteAggregationOutcome::Success
@@ -129,6 +179,7 @@ impl WriteAggregatorState {
         }
     }
 
+    /// Returns the current write completion outcome without changing state.
     pub fn outcome(&self) -> WriteAggregationOutcome {
         if self.acked.len() >= self.required_remote_acks {
             return WriteAggregationOutcome::Success;
@@ -145,20 +196,35 @@ impl WriteAggregatorState {
         }
     }
 
+    /// Selects reachable primary replicas first and caps delayed secondaries.
     pub fn select_replicas(&self, unreachable: &BTreeSet<ReplicaId>) -> ReplicaSelection {
         select_replicas(&self.remote_nodes, unreachable, self.required_remote_acks)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Current completion result of a read aggregation.
 pub enum ReadAggregationOutcome<D> {
+    /// More distinct remote replies are required.
     InProgress,
-    Success { envelope: DataEnvelope<D> },
+    /// The requested quorum returned and at least one value was found.
+    Success {
+        /// Merge of the local value and every received remote value.
+        envelope: DataEnvelope<D>,
+    },
+    /// The requested quorum returned without finding the key.
     NotFound,
-    Failure { required: usize, received: usize },
+    /// The deadline elapsed or the known remote set cannot meet the quorum.
+    Failure {
+        /// Number of remote results required after counting local.
+        required: usize,
+        /// Number of accepted remote results received.
+        received: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
+/// Prepared read aggregation state together with its initial target selection.
 pub struct ReadAggregationPlan<D>
 where
     D: DeltaReplicatedData,
@@ -171,24 +237,29 @@ impl<D> ReadAggregationPlan<D>
 where
     D: DeltaReplicatedData,
 {
+    /// Combines a read aggregation state machine with a target selection.
     pub fn new(state: ReadAggregatorState<D>, selection: ReplicaSelection) -> Self {
         Self { state, selection }
     }
 
+    /// Returns the read aggregation state machine.
     pub fn state(&self) -> &ReadAggregatorState<D> {
         &self.state
     }
 
+    /// Consumes the plan and returns its read aggregation state machine.
     pub fn into_state(self) -> ReadAggregatorState<D> {
         self.state
     }
 
+    /// Returns the initial primary and secondary targets.
     pub fn selection(&self) -> &ReplicaSelection {
         &self.selection
     }
 }
 
 #[derive(Debug, Clone)]
+/// Tracks distinct remote read replies and their merged value.
 pub struct ReadAggregatorState<D>
 where
     D: DeltaReplicatedData,
@@ -205,6 +276,12 @@ impl<D> ReadAggregatorState<D>
 where
     D: DeltaReplicatedData,
 {
+    /// Creates a read aggregator for distinct known `remote_nodes`.
+    ///
+    /// The local replica is counted implicitly, and `local_value` participates
+    /// in the merged result without counting as a remote reply. Local
+    /// consistency is rejected. An unavailable quorum is represented by the
+    /// state's immediate [`ReadAggregationOutcome::Failure`] outcome.
     pub fn new(
         key: ReplicatorKey,
         consistency: &ReadConsistency,
@@ -222,18 +299,26 @@ where
         })
     }
 
+    /// Returns the key being read.
     pub fn key(&self) -> &ReplicatorKey {
         &self.key
     }
 
+    /// Returns the number of distinct remote results needed for completion.
     pub fn required_remote_reads(&self) -> usize {
         self.required_remote_reads
     }
 
+    /// Returns the known remote replica universe.
     pub fn remote_nodes(&self) -> &[ReplicaId] {
         &self.remote_nodes
     }
 
+    /// Records a trusted, unidentified remote result.
+    ///
+    /// This lower-level operation counts every call. Transport-facing code
+    /// should use [`Self::record_read_from`] to reject unknown and duplicate
+    /// sources.
     pub fn record_read(&mut self, envelope: Option<DataEnvelope<D>>) -> ReadAggregationOutcome<D> {
         self.received += 1;
         self.result = match (self.result.take(), envelope) {
@@ -245,6 +330,9 @@ where
         self.outcome()
     }
 
+    /// Records at most one result from a known remote replica.
+    ///
+    /// Unknown and duplicate sources are ignored.
     pub fn record_read_from(
         &mut self,
         replica: &ReplicaId,
@@ -256,6 +344,7 @@ where
         self.record_read(envelope)
     }
 
+    /// Produces the current terminal result or a read failure at the deadline.
     pub fn timeout(&self) -> ReadAggregationOutcome<D> {
         match self.outcome() {
             ReadAggregationOutcome::InProgress => ReadAggregationOutcome::Failure {
@@ -266,6 +355,7 @@ where
         }
     }
 
+    /// Returns the current read completion outcome without changing state.
     pub fn outcome(&self) -> ReadAggregationOutcome<D> {
         if self.required_remote_reads > self.remote_nodes.len() {
             return ReadAggregationOutcome::Failure {
@@ -286,11 +376,16 @@ where
         }
     }
 
+    /// Selects reachable primary replicas first and caps delayed secondaries.
     pub fn select_replicas(&self, unreachable: &BTreeSet<ReplicaId>) -> ReplicaSelection {
         select_replicas(&self.remote_nodes, unreachable, self.required_remote_reads)
     }
 }
 
+/// Calculates a capped majority including an optional minimum and extra votes.
+///
+/// The result never exceeds `total_replicas`. An `additional` count extends
+/// the simple majority before the minimum cap and total cap are applied.
 pub fn calculate_majority(min_cap: usize, total_replicas: usize, additional: usize) -> usize {
     let majority = (total_replicas / 2) + 1;
     total_replicas.min((majority + additional).max(min_cap))
