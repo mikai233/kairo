@@ -133,6 +133,11 @@ Status terms in this document mean:
   cluster-control manifest registration, and recipient-validating inbound
   dispatch now also deny missing public documentation, preserving bind-before-
   activation ownership and explicit protocol-handler failures.
+  Membership-derived association targets and the shared-runtime peer connector
+  now hard-gate self-address filtering, local-observer reachability, replacement
+  incarnation ordering, unreachable-peer retention for heartbeat recovery, and
+  serialized transport-command ownership without promoting transport to
+  cluster truth.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Formatter};
 
@@ -9,8 +11,14 @@ use crate::{
 };
 
 #[derive(Debug)]
+/// Failure while deriving a remote association target from cluster membership.
 pub enum ClusterAssociationPeerError {
-    MissingRemoteHost { node: String },
+    /// A non-self cluster member has no host and therefore cannot be dialed remotely.
+    MissingRemoteHost {
+        /// Stable diagnostic identity of the member.
+        node: String,
+    },
+    /// The remote association address is invalid.
     Remote(RemoteError),
 }
 
@@ -33,15 +41,20 @@ impl From<RemoteError> for ClusterAssociationPeerError {
     }
 }
 
+/// Result of deriving or reconciling cluster-managed association peers.
 pub type ClusterAssociationPeerResult<T> = Result<T, ClusterAssociationPeerError>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A cluster member paired with the transport address used to reach its actor system.
 pub struct ClusterAssociationPeerTarget {
     node: UniqueAddress,
     association: RemoteAssociationAddress,
 }
 
 impl ClusterAssociationPeerTarget {
+    /// Derives a dialable transport target from the member's canonical address.
+    ///
+    /// Local-only addresses are rejected because cluster peers must be remotely reachable.
     pub fn new(node: UniqueAddress) -> ClusterAssociationPeerResult<Self> {
         let host =
             node.address
@@ -58,22 +71,32 @@ impl ClusterAssociationPeerTarget {
         Ok(Self { node, association })
     }
 
+    /// Returns the exact member incarnation represented by this target.
     pub fn node(&self) -> &UniqueAddress {
         &self.node
     }
 
+    /// Returns the actor-system transport address used for association management.
     pub fn association(&self) -> &RemoteAssociationAddress {
         &self.association
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Transport intent emitted when the membership-derived peer set changes.
 pub enum ClusterAssociationPeerChange {
+    /// Establish or adopt an association for the target member.
     Dial(ClusterAssociationPeerTarget),
+    /// Remove the managed association for the target member.
     Remove(ClusterAssociationPeerTarget),
 }
 
 #[derive(Debug, Clone)]
+/// Deterministic projection from cluster snapshots and events to remote peer intent.
+///
+/// Gossip remains the membership authority. This state only tracks the peers implied by that
+/// membership view, excludes every incarnation at the local canonical address, and emits removals
+/// before dials so an address can safely move to a replacement UID.
 pub struct ClusterAssociationPeerState {
     self_node: UniqueAddress,
     members: BTreeMap<String, Member>,
@@ -83,6 +106,7 @@ pub struct ClusterAssociationPeerState {
 }
 
 impl ClusterAssociationPeerState {
+    /// Creates an empty projection for `self_node` that excludes locally unreachable peers.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             self_node,
@@ -93,19 +117,30 @@ impl ClusterAssociationPeerState {
         }
     }
 
+    /// Controls whether locally unreachable members remain desired transport peers.
+    ///
+    /// Retention is useful in composed cluster runtimes because keeping the association gives
+    /// heartbeat traffic a route on which to observe recovery. It does not make the member
+    /// reachable in gossip.
     pub fn with_unreachable_peers_retained(mut self, retain: bool) -> Self {
         self.retain_unreachable = retain;
         self
     }
 
+    /// Returns the local node identity used for self filtering and reachability observation.
     pub fn self_node(&self) -> &UniqueAddress {
         &self.self_node
     }
 
+    /// Returns the current desired peer targets in deterministic member order.
     pub fn active_targets(&self) -> Vec<ClusterAssociationPeerTarget> {
         self.active.values().cloned().collect()
     }
 
+    /// Replaces the projected membership view and returns the required transport changes.
+    ///
+    /// Only the snapshot's locally unreachable set is considered; observations made by other
+    /// members do not govern this node's transport routes.
     pub fn apply_snapshot(
         &mut self,
         snapshot: CurrentClusterState,
@@ -124,6 +159,10 @@ impl ClusterAssociationPeerState {
         self.reconcile()
     }
 
+    /// Applies one cluster-domain event and returns the required transport changes.
+    ///
+    /// Removing the local canonical address clears every desired peer. A full reachability event
+    /// replaces the local observer row rather than accumulating stale subjects.
     pub fn apply_event(
         &mut self,
         event: ClusterEvent,

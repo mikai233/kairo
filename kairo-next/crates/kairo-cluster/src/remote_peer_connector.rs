@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::VecDeque;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
@@ -12,19 +14,29 @@ use crate::{
 const PEER_REMOVAL_REASON: &str = "cluster membership removed managed peer";
 
 #[derive(Debug, Clone)]
+/// Commands accepted by the cluster-to-remoting peer connector actor.
 pub enum ClusterRemotePeerConnectorMsg {
+    /// Applies a current cluster snapshot or subsequent domain event.
     Cluster(ClusterSubscriptionEvent),
+    /// Completes the serialized transport command currently in flight.
     CommandComplete(Result<(), String>),
+    /// Requests a diagnostic snapshot of desired peers and queued transport work.
     Snapshot {
+        /// Recipient for the diagnostic snapshot.
         reply_to: ActorRef<ClusterRemotePeerConnectorSnapshot>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic state of a cluster-to-remoting peer connector.
 pub struct ClusterRemotePeerConnectorSnapshot {
+    /// Membership-derived peers that the connector currently intends to manage.
     pub desired_targets: Vec<ClusterAssociationPeerTarget>,
+    /// Number of transport changes waiting behind the current command.
     pub queued_commands: usize,
+    /// Whether a blocking connect or disconnect operation is running outside the actor turn.
     pub command_in_flight: bool,
+    /// Most recent transport-command failure, cleared by the next successful command.
     pub last_error: Option<String>,
 }
 
@@ -44,6 +56,10 @@ pub struct ClusterRemotePeerConnector {
 }
 
 impl ClusterRemotePeerConnector {
+    /// Creates a connector for one cluster facade and shared remote peer manager.
+    ///
+    /// Locally unreachable peers are retained so heartbeat traffic can drive recovery; membership
+    /// reachability itself remains owned by gossip and the failure detector.
     pub fn new(
         cluster: Cluster,
         self_node: UniqueAddress,

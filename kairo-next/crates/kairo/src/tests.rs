@@ -212,6 +212,7 @@ fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error:
 fn cluster_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let documented_modules = [
+        "kairo-next/crates/kairo-cluster/src/association_peers.rs",
         "kairo-next/crates/kairo-cluster/src/codec/control.rs",
         "kairo-next/crates/kairo-cluster/src/codec/daemon.rs",
         "kairo-next/crates/kairo-cluster/src/codec/gossip.rs",
@@ -247,6 +248,7 @@ fn cluster_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::err
         "kairo-next/crates/kairo-cluster/src/protocol.rs",
         "kairo-next/crates/kairo-cluster/src/reachability.rs",
         "kairo-next/crates/kairo-cluster/src/remote.rs",
+        "kairo-next/crates/kairo-cluster/src/remote_peer_connector.rs",
         "kairo-next/crates/kairo-cluster/src/seed_join.rs",
         "kairo-next/crates/kairo-cluster/src/seed_join_actor.rs",
         "kairo-next/crates/kairo-cluster/src/seed_join_wire.rs",
