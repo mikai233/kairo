@@ -142,6 +142,15 @@ the baseline.
 
 Status: **active**.
 
+Current checkpoint: ADR-0103 records one non-generic, manifest-dispatched TCP
+runtime per remote-enabled ActorSystem, including bounded non-blocking lane
+ownership and defensive handshake limits. ADR-0104 records incarnation-scoped
+sequenced delivery for lifecycle-critical system manifests while refreshable
+control traffic remains at-most-once. The existing `TcpRemoteActorSystem<M>`
+and subsystem-specific TCP runtimes remain the implementation baseline to
+converge; the first code checkpoint is heterogeneous business-protocol delivery
+through one listener and association.
+
 Task: converge business messages and system protocols on one ActorSystem-owned
 remoting lifecycle and canonical transport address.
 

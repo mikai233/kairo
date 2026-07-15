@@ -3030,3 +3030,129 @@ Consequences:
 - The transition requires focused lost-wakeup, single-turn, fairness,
   saturation, shutdown, and high-cardinality actor/timer tests before Phase 1
   is complete.
+
+## ADR-0103: One ActorSystem Owns One Manifest-Dispatched Remoting Runtime
+
+Status: Accepted
+
+Context:
+The current `TcpRemoteActorSystem<M>` proves typed TCP business delivery,
+bidirectional handshaken associations, remote watch, and coordinated shutdown,
+but its inbound boundary is generic over one business protocol. Cluster,
+distributed data, sharding, and cluster tools consequently assemble separate
+TCP listeners and association caches around their own frame handlers. That
+cannot satisfy the composed-runtime gate: one node needs one canonical address,
+one association incarnation registry, and one listener capable of carrying
+unrelated registered business protocols plus system traffic. Pekko's remote
+provider owns one transport lifecycle and dispatches serialized messages only
+after the association boundary; Kairo needs the same ownership without making
+an erased message type the user API.
+
+Decision:
+Each remote-enabled `ActorSystem` has exactly one `kairo-remote` runtime for a
+canonical transport address and local system UID. That runtime owns the TCP
+listener, dialer, association cache, address/UID registry, remote-watch actor,
+lane writers/readers, inbound manifest table, and coordinated-shutdown task.
+Cluster and the higher distributed crates register protocol manifests and
+handlers with this runtime; they do not bind their own listeners or create
+parallel association registries.
+
+The runtime itself is not generic over one business message. Its builder
+accepts typed protocol registrations before bind, rejects duplicate manifests,
+and freezes the codec and inbound-handler tables when the listener starts. A
+typed registration for `M: RemoteMessage` installs an internal manifest handler
+that deserializes `M` with the shared registry and delivers it through the local
+typed actor registry. System registrations install focused handlers for their
+stable manifests. Internal type erasure is allowed only in this codec/manifest
+dispatch table; `ActorRef<M>`, `RemoteActorRef<M>`, and `ResolvedActorRef<M>`
+remain the public send and resolution boundaries.
+
+Each association owns bounded non-blocking control, ordinary, and optional
+large-message queues plus one writer owner per concrete lane. `tell` and remote
+system sends enqueue framed work and never call `TcpStream::write_all` from an
+actor turn. Ordinary or large-lane overflow returns an explicit delivery error
+and diagnostic. Control-lane overflow is an association failure because it can
+break lifecycle ordering. Writer or reader failure closes the whole association
+incarnation and is reported to the runtime lifecycle owner rather than leaving
+partially live sibling lanes.
+
+Handshake processing has configurable byte, read-timeout, lane-assembly
+timeout, and pending-partial-association limits. Concurrent lane arrivals are
+grouped by the complete remote address and UID; wrong-target, mixed-identity,
+duplicate-lane, oversized, timed-out, and over-limit handshakes are rejected
+before a route is installed. Runtime shutdown stops protocol system actors,
+rejects new sends, drains or closes lane owners within the shutdown budget,
+removes routes, stops readers and the listener, and completes once even when
+called through coordinated shutdown and an explicit handle.
+
+Consequences:
+- Two unrelated business protocols and all registered system manifests can use
+  the same listener and association without a global business-message enum.
+- Canonical address, association UID, quarantine state, and shutdown ordering
+  have one owner per ActorSystem.
+- Existing cluster/ddata/sharding/tools socket runtimes become adapters or are
+  retired as their handlers move behind the composed runtime.
+- Registration is an intentional startup contract; adding a new wire protocol
+  requires a stable manifest, codec, and inbound handler before bind.
+- Bounded queues make slow-peer behavior explicit and keep socket blocking off
+  actor dispatcher threads.
+
+## ADR-0104: Reliable System Delivery Is Sequenced Per Association Incarnation
+
+Status: Accepted
+
+Context:
+TCP preserves bytes on one connection, but actor lifecycle messages must also
+survive association replacement and reconnect without duplication or silent
+reordering. Pekko wraps reliable system messages with a per-association
+sequence number, retains unacknowledged messages in a bounded buffer, emits
+cumulative acknowledgements, resends on a timer, deduplicates old sequence
+numbers, and quarantines after buffer overflow or terminal acknowledgement
+silence. Not every control message needs that cost: handshakes, heartbeats, and
+periodic gossip are control traffic but are safe to refresh at-most-once.
+
+Decision:
+Lane choice and reliability are separate manifest properties. All system and
+control protocols use the control lane, but only manifests registered as
+`ReliableSystem` enter reliable delivery. Remote watch, unwatch, termination,
+and other lifecycle protocols whose loss can violate actor or sharding
+semantics use this class. Handshakes, heartbeat probes/replies, periodic gossip,
+and refreshable status traffic remain at-most-once control messages.
+
+The reliable sender state is scoped to `(remote address, remote UID)`. After a
+handshake completes, sequence numbers begin at one and increase monotonically.
+The sender wraps each stable `RemoteEnvelope` in a stable reliable-system wire
+envelope, retains it in a bounded unacknowledged buffer before enqueueing, and
+transmits retained entries in sequence order. The receiver keeps the next
+expected sequence for the sending incarnation:
+
+- the expected sequence is delivered once and advances the cumulative ack;
+- an older sequence is a duplicate, is not delivered again, and receives the
+  current cumulative ack;
+- a future sequence is not delivered out of order and receives a nack carrying
+  the highest contiguous sequence.
+
+Acks and nacks include the association identities needed to reject stale
+replies from an earlier UID. Acks cumulatively remove retained entries. A
+single ActorSystem-scheduler retry tick per active association resends
+unacknowledged entries in order after the configured interval. A new remote UID
+clears old sequence state and routes the old unacknowledged messages to the
+remote-delivery failure/dead-letter boundary; sequence state is never reused
+across incarnations.
+
+Reliable-buffer overflow, control-queue overflow, acknowledgement silence past
+the configured give-up deadline, or an invalid ack/nack transition quarantines
+the exact remote incarnation, closes its routes, fails retained delivery
+records explicitly, and rejects further ordinary system sends until a new UID
+completes a handshake. Ordinary business-message failure remains at-most-once
+and does not by itself quarantine a healthy association.
+
+Consequences:
+- Reliable system messages are ordered and deduplicated across retry/reconnect
+  while ordinary business traffic stays at-most-once.
+- Retry and acknowledgement state cannot leak from an old process incarnation
+  at the same host/port into the new one.
+- Control protocols declare whether loss is terminal or refreshable instead of
+  treating every control-lane frame as reliable.
+- Buffer and give-up limits make terminal failure observable and bounded rather
+  than allowing an association to retain lifecycle messages forever.
