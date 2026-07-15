@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
@@ -15,6 +17,7 @@ use crate::{
 
 const GOSSIP_TIMER: &str = "cluster-gossip";
 
+/// Scheduling policy for periodic gossip negotiation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClusterGossipProcessSettings {
     interval: Duration,
@@ -22,6 +25,12 @@ pub struct ClusterGossipProcessSettings {
 }
 
 impl ClusterGossipProcessSettings {
+    /// Creates settings with automatic periodic ticks enabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClusterGossipProcessSettingsError::ZeroInterval`] when
+    /// `interval` is zero.
     pub fn new(interval: Duration) -> Result<Self, ClusterGossipProcessSettingsError> {
         if interval.is_zero() {
             return Err(ClusterGossipProcessSettingsError::ZeroInterval);
@@ -32,14 +41,17 @@ impl ClusterGossipProcessSettings {
         })
     }
 
+    /// Returns the delay between periodic gossip rounds.
     pub fn interval(self) -> Duration {
         self.interval
     }
 
+    /// Returns whether the process schedules its own periodic ticks.
     pub fn automatic_ticks(self) -> bool {
         self.automatic_ticks
     }
 
+    /// Enables or disables actor-owned periodic tick scheduling.
     pub fn with_automatic_ticks(mut self, automatic_ticks: bool) -> Self {
         self.automatic_ticks = automatic_ticks;
         self
@@ -55,8 +67,10 @@ impl Default for ClusterGossipProcessSettings {
     }
 }
 
+/// Invalid gossip-process configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClusterGossipProcessSettingsError {
+    /// The periodic gossip interval was zero.
     ZeroInterval,
 }
 
@@ -70,18 +84,26 @@ impl Display for ClusterGossipProcessSettingsError {
 
 impl Error for ClusterGossipProcessSettingsError {}
 
+/// Outbound result of one gossip selection or status-negotiation step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClusterGossipAction {
+    /// Send only causal version and seen digest metadata.
     SendStatus {
+        /// Remote cluster member receiving the status.
         target: UniqueAddress,
+        /// Local version and seen digest.
         status: GossipStatus,
     },
+    /// Send a complete gossip snapshot.
     SendGossip {
+        /// Remote cluster member receiving the snapshot.
         target: UniqueAddress,
+        /// Addressed full-gossip envelope.
         envelope: Box<GossipEnvelope>,
     },
 }
 
+/// Deterministic target-selection and gossip-status negotiation state.
 #[derive(Debug, Clone)]
 pub struct ClusterGossipState {
     self_node: UniqueAddress,
@@ -90,6 +112,7 @@ pub struct ClusterGossipState {
 }
 
 impl ClusterGossipState {
+    /// Creates gossip state for one local unique address.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             self_node,
@@ -98,6 +121,11 @@ impl ClusterGossipState {
         }
     }
 
+    /// Selects the next reachable peer and action for a periodic round.
+    ///
+    /// Peers that have not seen the current view are preferred and receive full
+    /// gossip. When every candidate has seen it, round-robin selection sends a
+    /// compact status instead. Self and locally unreachable peers are excluded.
     pub fn initiate(&mut self, gossip: &Gossip) -> Option<ClusterGossipAction> {
         let mut valid: Vec<_> = gossip
             .members()
@@ -131,6 +159,11 @@ impl ClusterGossipState {
         }
     }
 
+    /// Negotiates one received gossip status against the local snapshot.
+    ///
+    /// A seen-digest mismatch, older remote version, or concurrent version sends
+    /// full local gossip. A newer remote version receives local status so it can
+    /// answer with its full view. Equal versions and seen digests need no reply.
     pub fn receive_status(
         &mut self,
         gossip: &Gossip,
@@ -189,11 +222,16 @@ impl ClusterGossipState {
     }
 }
 
+/// Failure while encoding, routing, or delivering gossip protocol messages.
 #[derive(Debug)]
 pub enum ClusterGossipWireError {
+    /// Remote membership envelope construction or delivery failed.
     Remote(ClusterMembershipRemoteEnvelopeError),
+    /// The local gossip actor rejected a decoded message.
     Send(String),
+    /// Gossip protocol serialization or deserialization failed.
     Serialization(SerializationError),
+    /// An inbound message used a manifest not handled by this adapter.
     UnsupportedManifest(String),
 }
 
@@ -224,6 +262,7 @@ impl From<SerializationError> for ClusterGossipWireError {
     }
 }
 
+/// Serializes gossip actions and sends addressed membership envelopes remotely.
 #[derive(Clone)]
 pub struct ClusterGossipWireOutbound {
     registry: Arc<Registry>,
@@ -231,10 +270,12 @@ pub struct ClusterGossipWireOutbound {
 }
 
 impl ClusterGossipWireOutbound {
+    /// Creates an outbound adapter from a concrete remote transport.
     pub fn new(registry: Arc<Registry>, remote: impl RemoteOutbound + 'static) -> Self {
         Self::from_arc(registry, Arc::new(remote))
     }
 
+    /// Creates an outbound adapter from a shared remote transport.
     pub fn from_arc(registry: Arc<Registry>, remote: Arc<dyn RemoteOutbound>) -> Self {
         Self {
             registry,
@@ -242,6 +283,12 @@ impl ClusterGossipWireOutbound {
         }
     }
 
+    /// Serializes and sends one selected gossip action.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for missing codecs, serialization failure, invalid
+    /// addressing, or remote envelope delivery failure.
     pub fn send(&self, action: ClusterGossipAction) -> Result<(), ClusterGossipWireError> {
         let (target, message) = match action {
             ClusterGossipAction::SendStatus { target, status } => {
@@ -257,13 +304,21 @@ impl ClusterGossipWireOutbound {
     }
 }
 
+/// Actor protocol for periodic gossip selection and status negotiation.
 #[derive(Debug, Clone)]
 pub enum ClusterGossipProcessMsg {
+    /// Start one periodic leader-action and gossip round.
     Tick,
+    /// Current membership gossip returned by the membership actor.
     CurrentGossip(Gossip),
+    /// Status metadata received from a remote peer.
     Status(GossipStatus),
 }
 
+/// Actor that drives best-effort periodic gossip exchange.
+///
+/// Transport send failures are retried by later rounds and do not terminate the
+/// process; local serialization and protocol-composition failures remain fatal.
 pub struct ClusterGossipProcess {
     state: ClusterGossipState,
     membership: ActorRef<ClusterMembershipMsg>,
@@ -276,6 +331,7 @@ pub struct ClusterGossipProcess {
 }
 
 impl ClusterGossipProcess {
+    /// Creates a gossip process from pure state, membership actor, and wire adapter.
     pub fn new(
         state: ClusterGossipState,
         membership: ActorRef<ClusterMembershipMsg>,
@@ -369,6 +425,7 @@ impl Actor for ClusterGossipProcess {
     }
 }
 
+/// Deserializes remote gossip status messages into the gossip process mailbox.
 #[derive(Clone)]
 pub struct ClusterGossipWireInbound {
     registry: Arc<Registry>,
@@ -376,10 +433,17 @@ pub struct ClusterGossipWireInbound {
 }
 
 impl ClusterGossipWireInbound {
+    /// Creates an inbound status adapter.
     pub fn new(registry: Arc<Registry>, process: ActorRef<ClusterGossipProcessMsg>) -> Self {
         Self { registry, process }
     }
 
+    /// Deserializes and delivers one gossip status message.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unsupported manifest, missing or invalid codec,
+    /// or a stopped gossip process.
     pub fn receive_message(
         &self,
         message: SerializedMessage,

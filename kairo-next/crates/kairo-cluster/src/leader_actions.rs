@@ -1,28 +1,51 @@
+#![deny(missing_docs)]
+
 use std::collections::HashSet;
 
 use crate::{Convergence, ConvergenceBlocker, Gossip, Member, MemberStatus, UniqueAddress};
 
+/// Membership changes produced by one convergence-gated leader action pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeaderActionOutcome {
+    /// Resulting gossip, including a new local version when state changed.
     pub gossip: Gossip,
+    /// Members promoted to `Up` or advanced to `Exiting`.
     pub changed_members: Vec<Member>,
+    /// Down or exiting members removed and tombstoned by unique address.
     pub removed_members: Vec<UniqueAddress>,
 }
 
 impl LeaderActionOutcome {
+    /// Returns whether the pass changed or removed any member.
     pub fn changed(&self) -> bool {
         !self.changed_members.is_empty() || !self.removed_members.is_empty()
     }
 }
 
+/// Reason leader actions could not be applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LeaderActionError {
-    NotConverged { blockers: Vec<ConvergenceBlocker> },
+    /// Seen or reachability convergence is not complete.
+    NotConverged {
+        /// Members currently preventing convergence.
+        blockers: Vec<ConvergenceBlocker>,
+    },
 }
 
+/// Applies Pekko-style membership transitions allowed only after convergence.
 pub struct LeaderActions;
 
 impl LeaderActions {
+    /// Promotes joining members, advances leaving members, and removes terminal members.
+    ///
+    /// A changed result increments the local vector-clock dimension and replaces
+    /// the seen table with `self_node`. Down or exiting members are removed only
+    /// when unreachable, terminated, or explicitly confirmed exiting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LeaderActionError::NotConverged`] with the current blockers when
+    /// the snapshot has not converged.
     pub fn on_convergence(
         gossip: &Gossip,
         self_node: &UniqueAddress,

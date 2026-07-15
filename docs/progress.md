@@ -105,7 +105,10 @@ Status terms in this document mean:
   injected membership snapshots. The daemon now installs one ActorSystem-owned
   `ClusterExtension` with explicit one-shot join ownership. A process-level
   abrupt-restart test proves that a new UID at the same canonical address downs
-  and tombstones the old incarnation, retries Join, and converges to `Up`.
+  and tombstones the old incarnation, retries Join, and converges to `Up`. The
+  gossip target/status negotiation and convergence-gated leader-action APIs now
+  document their best-effort delivery, causal comparison, promotion, exit, and
+  removal contracts and deny missing public documentation.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed
