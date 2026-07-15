@@ -7,7 +7,8 @@ use std::sync::{
 use std::time::Duration;
 
 use kairo_actor::{
-    Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props, Recipient,
+    Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, ManualScheduler, Props,
+    Recipient,
 };
 use kairo_remote::RemoteSettings;
 use kairo_serialization::ActorRefWireData;
@@ -90,6 +91,27 @@ where
     }
 }
 
+struct CaptureSenderAndSend<M> {
+    target: ActorRef<M>,
+    tx: mpsc::Sender<ActorRefWireData>,
+}
+
+impl<M> SenderAwareRecipient<M> for CaptureSenderAndSend<M>
+where
+    M: Send + 'static,
+{
+    fn tell_with_sender(
+        &self,
+        message: M,
+        sender: &ActorRefWireData,
+    ) -> Result<(), kairo_actor::SendError<M>> {
+        if let Err(error) = self.tx.send(sender.clone()) {
+            return Err(kairo_actor::SendError::new(message, error.to_string()));
+        }
+        self.target.tell(message)
+    }
+}
+
 fn replica(id: &str) -> ReplicaId {
     ReplicaId::new(id)
 }
@@ -126,6 +148,32 @@ fn sender_aware_aggregation_target(
         SendToActor { target: read_ref },
         CaptureSender::<ReplicatorWrite>::new(write_sender_tx),
         CaptureSender::<ReplicatorRead>::new(read_sender_tx),
+    )
+}
+
+fn sender_aware_forwarding_target(
+    replica_id: &str,
+    write_ref: ActorRef<ReplicatorWrite>,
+    read_ref: ActorRef<ReplicatorRead>,
+    write_sender_tx: mpsc::Sender<ActorRefWireData>,
+    read_sender_tx: mpsc::Sender<ActorRefWireData>,
+) -> crate::AggregationTarget {
+    crate::AggregationTarget::new_sender_aware(
+        replica(replica_id),
+        SendToActor {
+            target: write_ref.clone(),
+        },
+        SendToActor {
+            target: read_ref.clone(),
+        },
+        CaptureSenderAndSend {
+            target: write_ref,
+            tx: write_sender_tx,
+        },
+        CaptureSenderAndSend {
+            target: read_ref,
+            tx: read_sender_tx,
+        },
     )
 }
 
@@ -457,6 +505,231 @@ fn read_session_waits_for_read_repair_before_success() {
         }
         other => panic!("expected get success, got {other:?}"),
     }
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn aggregation_sessions_publish_secondaries_after_one_fifth_timeout() {
+    let manual = ManualScheduler::new();
+    let system = ActorSystem::builder("ddata-aggregation-session-secondaries")
+        .manual_scheduler(manual.clone())
+        .build()
+        .unwrap();
+    let (primary_write_ref, primary_writes) = probe::<ReplicatorWrite>(&system, "primary-writes");
+    let (secondary_write_ref, secondary_writes) =
+        probe::<ReplicatorWrite>(&system, "secondary-writes");
+    let (write_read_ref, _write_reads) = probe::<ReplicatorRead>(&system, "write-reads");
+    let (read_write_ref, _read_writes) = probe::<ReplicatorWrite>(&system, "read-writes");
+    let (primary_read_ref, primary_reads) = probe::<ReplicatorRead>(&system, "primary-reads");
+    let (secondary_read_ref, secondary_reads) = probe::<ReplicatorRead>(&system, "secondary-reads");
+    let (write_reply_to, write_replies) =
+        probe::<UpdateResponse<GCounter>>(&system, "write-replies");
+    let (read_reply_to, read_replies) = probe::<GetResponse<GCounter>>(&system, "read-replies");
+    let (write_events_ref, write_events) =
+        probe::<WriteAggregationSessionEvent>(&system, "write-events");
+    let (read_events_ref, read_events) =
+        probe::<ReadAggregationSessionEvent>(&system, "read-events");
+    let (write_sender_tx, write_sender_rx) = mpsc::channel();
+    let (write_read_sender_tx, _write_read_sender_rx) = mpsc::channel();
+    let (read_write_sender_tx, _read_write_sender_rx) = mpsc::channel();
+    let (read_sender_tx, read_sender_rx) = mpsc::channel();
+    let primary = replica("a");
+    let secondary = replica("b");
+    let remote_nodes = vec![primary.clone(), secondary.clone()];
+    let timeout = Duration::from_millis(100);
+
+    let write_key = ReplicatorKey::new("write-counter");
+    let write_state = WriteAggregatorState::new(
+        write_key.clone(),
+        &WriteConsistency::to(2, timeout).unwrap(),
+        remote_nodes.clone(),
+    )
+    .unwrap();
+    let write_plan = WriteAggregationPlan::new(
+        write_state.clone(),
+        write_state.select_replicas(&BTreeSet::new()),
+    );
+    let write_envelope = DataEnvelope::new(counter("local", 3));
+    let write_outcome = UpdateOutcome::new(write_key, true, Some(counter("local", 3)));
+    let mut write_transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    write_transport.insert_target(sender_aware_forwarding_target(
+        "a",
+        primary_write_ref,
+        write_read_ref.clone(),
+        write_sender_tx.clone(),
+        write_read_sender_tx.clone(),
+    ));
+    write_transport.insert_target(sender_aware_forwarding_target(
+        "b",
+        secondary_write_ref,
+        write_read_ref,
+        write_sender_tx,
+        write_read_sender_tx,
+    ));
+
+    let read_key = ReplicatorKey::new("read-counter");
+    let read_state = ReadAggregatorState::<GCounter>::new(
+        read_key,
+        &ReadConsistency::from(2, timeout).unwrap(),
+        remote_nodes,
+        None,
+    )
+    .unwrap();
+    let read_plan = ReadAggregationPlan::new(
+        read_state.clone(),
+        read_state.select_replicas(&BTreeSet::new()),
+    );
+    let mut read_transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    read_transport.insert_target(sender_aware_forwarding_target(
+        "a",
+        read_write_ref.clone(),
+        primary_read_ref,
+        read_write_sender_tx.clone(),
+        read_sender_tx.clone(),
+    ));
+    read_transport.insert_target(sender_aware_forwarding_target(
+        "b",
+        read_write_ref,
+        secondary_read_ref,
+        read_write_sender_tx,
+        read_sender_tx,
+    ));
+
+    system
+        .spawn(
+            "write-session",
+            Props::new(move || {
+                WriteAggregationSession::with_events(
+                    write_plan,
+                    write_envelope,
+                    write_outcome,
+                    write_transport,
+                    timeout,
+                    write_reply_to.clone(),
+                    write_events_ref.clone(),
+                )
+            }),
+        )
+        .unwrap();
+    system
+        .spawn(
+            "read-session",
+            Props::new(move || {
+                ReadAggregationSession::with_events(
+                    read_plan,
+                    Arc::new(GCounterCodec),
+                    read_transport,
+                    timeout,
+                    read_reply_to.clone(),
+                    read_events_ref.clone(),
+                )
+            }),
+        )
+        .unwrap();
+
+    let write_aggregator = match write_events.recv_timeout(Duration::from_secs(1)).unwrap() {
+        WriteAggregationSessionEvent::Started { reply_to, report } => {
+            assert_eq!(report.sent_to(), std::slice::from_ref(&primary));
+            reply_to
+        }
+        other => panic!("expected write session start, got {other:?}"),
+    };
+    let read_aggregator = match read_events.recv_timeout(Duration::from_secs(1)).unwrap() {
+        ReadAggregationSessionEvent::Started { reply_to, report } => {
+            assert_eq!(report.sent_to(), std::slice::from_ref(&primary));
+            reply_to
+        }
+        other => panic!("expected read session start, got {other:?}"),
+    };
+    primary_writes.recv_timeout(Duration::from_secs(1)).unwrap();
+    primary_reads.recv_timeout(Duration::from_secs(1)).unwrap();
+    let primary_write_sender = write_sender_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    let primary_read_sender = read_sender_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        secondary_writes
+            .recv_timeout(Duration::from_millis(50))
+            .is_err()
+    );
+    assert!(
+        secondary_reads
+            .recv_timeout(Duration::from_millis(50))
+            .is_err()
+    );
+
+    manual.advance(Duration::from_millis(19));
+    assert!(
+        secondary_writes
+            .recv_timeout(Duration::from_millis(50))
+            .is_err()
+    );
+    assert!(
+        secondary_reads
+            .recv_timeout(Duration::from_millis(50))
+            .is_err()
+    );
+
+    manual.advance(Duration::from_millis(1));
+    secondary_writes
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    secondary_reads
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(
+        write_sender_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        primary_write_sender
+    );
+    assert_eq!(
+        read_sender_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        primary_read_sender
+    );
+    assert!(matches!(
+        write_events.recv_timeout(Duration::from_secs(1)).unwrap(),
+        WriteAggregationSessionEvent::SecondaryPublished { report }
+            if report.sent_to() == std::slice::from_ref(&secondary)
+    ));
+    assert!(matches!(
+        read_events.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ReadAggregationSessionEvent::SecondaryPublished { report }
+            if report.sent_to() == std::slice::from_ref(&secondary)
+    ));
+
+    write_aggregator
+        .tell(WriteAggregationActorMsg::Reply(
+            ReplicatorWireReply::WriteAck {
+                from: secondary.clone(),
+                message: ReplicatorWriteAck,
+            },
+        ))
+        .unwrap();
+    assert!(matches!(
+        write_replies.recv_timeout(Duration::from_secs(1)).unwrap(),
+        UpdateResponse::Success(_)
+    ));
+
+    read_aggregator
+        .tell(ReadAggregationActorMsg::Reply(
+            ReplicatorWireReply::ReadResult {
+                from: secondary,
+                message: encode_read_result(
+                    Some(&DataEnvelope::new(counter("b", 5))),
+                    &GCounterCodec,
+                )
+                .unwrap(),
+            },
+        ))
+        .unwrap();
+    assert!(matches!(
+        read_replies
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        GetResponse::Success { data, .. } if data.value().unwrap() == 5
+    ));
 
     system.terminate(Duration::from_secs(1)).unwrap();
 }

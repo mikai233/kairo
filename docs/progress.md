@@ -239,6 +239,11 @@ Status terms in this document mean:
   initialized markers record the receiving replica, and the repair is
   acknowledged before client success; composed two-node coverage proves the
   value is immediately available to a subsequent local read.
+  Read/write aggregation sessions now hard-gate primary publication, stable
+  sender identity, child reply adaptation, full-state delta-NACK retry,
+  read-repair ordering, client response mapping, and Pekko-aligned delayed
+  secondary publication at one fifth of the consistency timeout. Deterministic
+  manual-time coverage proves a secondary reply can complete either quorum.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
