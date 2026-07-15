@@ -242,6 +242,24 @@ fn shard_runtime_handoff_starts_entity_stopper_for_active_entities() {
 }
 
 #[test]
+fn shard_runtime_does_not_restart_remembered_entity_during_handoff() {
+    let mut runtime = ShardRuntime::new_with_remember_entities("shard-1", 10);
+    runtime.recover_remembered_entities(["entity-1".to_string()]);
+    assert!(matches!(
+        runtime.handoff("stop"),
+        ShardHandOffPlan::StartEntityStopper { .. }
+    ));
+
+    assert_eq!(
+        runtime.entity_terminated("entity-1"),
+        crate::EntityTerminatedPlan::Removed {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+    assert_eq!(runtime.entity_state(&"entity-1".to_string()), None);
+}
+
+#[test]
 fn shard_runtime_handoff_stops_immediately_while_preparing_shutdown() {
     let mut runtime = ShardRuntime::new("shard-1", 10);
     runtime.deliver(ShardingEnvelope::new("entity-1", "first"));

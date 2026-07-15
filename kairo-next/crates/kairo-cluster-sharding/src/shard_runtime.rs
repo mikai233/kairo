@@ -366,6 +366,11 @@ impl<M> ShardRuntime<M> {
     pub fn entity_terminated(&mut self, entity_id: impl Into<EntityId>) -> EntityTerminatedPlan<M> {
         let entity_id = entity_id.into();
         match self.entities.get(&entity_id).copied() {
+            Some(_) if self.handoff_in_progress => {
+                self.entities.remove(&entity_id);
+                self.message_buffers.remove(&entity_id);
+                EntityTerminatedPlan::Removed { entity_id }
+            }
             Some(ShardEntityState::Active) if self.remember_entities() => {
                 self.entities
                     .insert(entity_id.clone(), ShardEntityState::WaitingForRestart);
