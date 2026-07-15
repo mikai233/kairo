@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -21,6 +23,11 @@ use crate::{
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 const CLUSTER_TCP_SHUTDOWN_REASON: &str = "cluster tcp association runtime shutdown";
 
+/// Standalone TCP association runtime for cluster control traffic.
+///
+/// The runtime owns one listener, a shared bidirectional route cache, accepted-association
+/// identities, and every outbound pipeline/reader it creates. It is the lower-level transport
+/// used by the cluster TCP peer route components; gossip remains the source of peer intent.
 pub struct ClusterTcpAssociationRuntime {
     self_node: UniqueAddress,
     local_address: RemoteAssociationAddress,
@@ -35,6 +42,11 @@ pub struct ClusterTcpAssociationRuntime {
 }
 
 impl ClusterTcpAssociationRuntime {
+    /// Binds a cluster TCP listener and constructs its manifest-aware inbound router.
+    ///
+    /// A configured port of zero is replaced with the listener's effective port before the local
+    /// cluster and association identities are exposed. `node_uid` identifies the cluster member
+    /// incarnation, while `local_system_uid` identifies the remoting ActorSystem incarnation.
     pub fn bind(
         local_system: impl Into<String>,
         node_uid: u64,
@@ -104,26 +116,32 @@ impl ClusterTcpAssociationRuntime {
         })
     }
 
+    /// Returns the canonical local cluster member identity.
     pub fn self_node(&self) -> &UniqueAddress {
         &self.self_node
     }
 
+    /// Returns the canonical transport address advertised during association handshakes.
     pub fn local_address(&self) -> &RemoteAssociationAddress {
         &self.local_address
     }
 
+    /// Returns the effective remote settings, including an ephemeral port selected by bind.
     pub fn settings(&self) -> &RemoteSettings {
         &self.settings
     }
 
+    /// Returns the shared bidirectional association route cache.
     pub fn association_cache(&self) -> &RemoteAssociationCache {
         &self.association_cache
     }
 
+    /// Returns the registry of accepted remote association identities.
     pub fn association_registry(&self) -> &RemoteAssociationRegistry {
         &self.association_registry
     }
 
+    /// Establishes an outbound association and retains ownership of its pipeline and reader.
     pub fn dial(
         &self,
         address: RemoteAssociationAddress,
@@ -142,10 +160,16 @@ impl ClusterTcpAssociationRuntime {
         Ok(registration)
     }
 
+    /// Removes and closes the cached route for `address` with the default cluster reason.
+    ///
+    /// Returns whether a route was present.
     pub fn remove_route(&self, address: &RemoteAssociationAddress) -> bool {
         self.remove_route_with_reason(address, "cluster tcp association route removed")
     }
 
+    /// Removes and closes the cached route for `address` with an explicit diagnostic `reason`.
+    ///
+    /// Returns whether a route was present.
     pub fn remove_route_with_reason(
         &self,
         address: &RemoteAssociationAddress,
@@ -156,10 +180,16 @@ impl ClusterTcpAssociationRuntime {
             .is_some()
     }
 
+    /// Stops the runtime using the default shutdown timeout policy.
     pub fn shutdown(self) -> RemoteResult<TcpAssociationListenerReport> {
         self.shutdown_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
     }
 
+    /// Closes cached routes, stops owned readers and the listener, and reports accepted peers.
+    ///
+    /// The cache is cleared again after the listener joins so routes registered concurrently by a
+    /// closing association cannot escape shutdown. The timeout parameter is currently retained for
+    /// API symmetry; this legacy standalone runtime does not apply a shutdown deadline.
     pub fn shutdown_with_timeout(
         self,
         _timeout: Duration,
@@ -195,6 +225,7 @@ impl ClusterTcpAssociationRuntime {
     }
 }
 
+/// Builds the lane classifier that prioritizes seed, membership, gossip, and heartbeat traffic.
 pub fn cluster_lane_classifier() -> RemoteLaneClassifier {
     let mut classifier = RemoteLaneClassifier::default();
     classifier.add_control_manifest(InitJoin::MANIFEST);
@@ -208,6 +239,7 @@ pub fn cluster_lane_classifier() -> RemoteLaneClassifier {
     classifier
 }
 
+/// Builds the remoting handshake identity for a named cluster ActorSystem incarnation.
 pub fn cluster_association_identity_for(
     system: &str,
     settings: &RemoteSettings,

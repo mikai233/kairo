@@ -138,6 +138,10 @@ Status terms in this document mean:
   incarnation ordering, unreachable-peer retention for heartbeat recovery, and
   serialized transport-command ownership without promoting transport to
   cluster truth.
+  The standalone cluster TCP runtime, control-lane classifier, fixed-interval
+  reconnect policy, and membership-derived route owner now hard-gate effective
+  bind identity, cache adoption, duplicate suppression, replacement redial,
+  owned-route cleanup, and late-route-safe shutdown contracts.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed

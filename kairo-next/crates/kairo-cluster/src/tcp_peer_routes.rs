@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Formatter};
 
@@ -8,9 +10,13 @@ use crate::{
 };
 
 #[derive(Debug)]
+/// Failure while applying membership-derived TCP route intent.
 pub enum ClusterTcpPeerRouteError {
+    /// Establishing the target association failed.
     Dial {
+        /// Exact member incarnation whose association was requested.
         target: Box<ClusterAssociationPeerTarget>,
+        /// Underlying transport failure.
         source: Box<RemoteError>,
     },
 }
@@ -38,6 +44,7 @@ impl std::error::Error for ClusterTcpPeerRouteError {
 }
 
 impl ClusterTcpPeerRouteError {
+    /// Returns the peer target whose route operation failed.
     pub fn target(&self) -> &ClusterAssociationPeerTarget {
         match self {
             Self::Dial { target, .. } => target.as_ref(),
@@ -45,22 +52,34 @@ impl ClusterTcpPeerRouteError {
     }
 }
 
+/// Result of applying membership-derived TCP route changes.
 pub type ClusterTcpPeerRouteResult<T> = Result<T, ClusterTcpPeerRouteError>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Observable outcome of applying a batch of TCP peer route changes.
 pub struct ClusterTcpPeerRouteReport {
+    /// Targets for which a new outbound association was established.
     pub dialed: Vec<ClusterAssociationPeerTarget>,
+    /// Targets whose cached route was removed and closed.
     pub removed: Vec<ClusterAssociationPeerTarget>,
+    /// Targets already in the requested state or absent during removal.
     pub skipped: Vec<ClusterAssociationPeerTarget>,
 }
 
 impl ClusterTcpPeerRouteReport {
+    /// Returns whether the batch contained no route work.
     pub fn is_empty(&self) -> bool {
         self.dialed.is_empty() && self.removed.is_empty() && self.skipped.is_empty()
     }
 }
 
 #[derive(Default)]
+/// Owner of TCP route registrations derived from cluster membership.
+///
+/// This component does not store membership state. It applies already-derived dial/remove intent,
+/// adopts compatible routes found in the shared cache, suppresses duplicate dials, and remembers
+/// removals so a later incarnation at the same target is re-established instead of adopting a
+/// stale route.
 pub struct ClusterTcpPeerRoutes {
     registrations: BTreeMap<String, ClusterTcpPeerRouteEntry>,
     removed_peers: BTreeSet<String>,
@@ -72,18 +91,22 @@ struct ClusterTcpPeerRouteEntry {
 }
 
 impl ClusterTcpPeerRoutes {
+    /// Creates an empty route owner.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the number of managed peer targets.
     pub fn route_count(&self) -> usize {
         self.registrations.len()
     }
 
+    /// Returns whether the exact member incarnation has a managed route entry.
     pub fn contains_peer(&self, target: &ClusterAssociationPeerTarget) -> bool {
         self.registrations.contains_key(&peer_key(target))
     }
 
+    /// Returns managed targets in deterministic member order.
     pub fn active_targets(&self) -> Vec<ClusterAssociationPeerTarget> {
         self.registrations
             .values()
@@ -91,6 +114,9 @@ impl ClusterTcpPeerRoutes {
             .collect()
     }
 
+    /// Applies membership-derived changes in iteration order.
+    ///
+    /// Processing stops at the first dial failure and reports that target through the error.
     pub fn apply_changes(
         &mut self,
         runtime: &ClusterTcpAssociationRuntime,
@@ -110,6 +136,7 @@ impl ClusterTcpPeerRoutes {
         Ok(report)
     }
 
+    /// Removes every managed route while preserving unrelated runtime routes.
     pub fn clear(&mut self, runtime: &ClusterTcpAssociationRuntime) -> ClusterTcpPeerRouteReport {
         let targets = self.active_targets();
         let mut report = ClusterTcpPeerRouteReport::default();
