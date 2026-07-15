@@ -150,13 +150,19 @@ fn user_facing_crates_deny_missing_public_documentation() -> Result<(), Box<dyn 
 fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let documented_modules = [
+        "kairo-next/crates/kairo-remote/src/codec.rs",
+        "kairo-next/crates/kairo-remote/src/frame.rs",
+        "kairo-next/crates/kairo-remote/src/inbound.rs",
+        "kairo-next/crates/kairo-remote/src/inbound_router.rs",
         "kairo-next/crates/kairo-remote/src/local_address.rs",
         "kairo-next/crates/kairo-remote/src/local_delivery.rs",
         "kairo-next/crates/kairo-remote/src/outbound.rs",
+        "kairo-next/crates/kairo-remote/src/protocol.rs",
         "kairo-next/crates/kairo-remote/src/provider.rs",
         "kairo-next/crates/kairo-remote/src/remote_ref.rs",
         "kairo-next/crates/kairo-remote/src/resolved_ref.rs",
         "kairo-next/crates/kairo-remote/src/settings.rs",
+        "kairo-next/crates/kairo-remote/src/system_inbound.rs",
         "kairo-next/crates/kairo-remote/src/transport.rs",
     ];
 

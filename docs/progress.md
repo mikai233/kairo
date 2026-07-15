@@ -74,7 +74,8 @@ Status terms in this document mean:
   focused process-level delivery and bounded-shutdown tests. Its implicit
   shutdown budget now has a three-second floor and outlives configured connect
   attempts so reconnect work cannot consume the complete system-actor stop
-  budget. The typed reference, provider, outbound transport, local delivery,
+  budget. The typed reference/provider, stable system protocol codecs, frame
+  and manifest routing, typed inbound/outbound transport, local delivery,
   settings, and canonical-address boundary now documents its complete public
   surface and denies missing documentation module by module. Cluster and other
   extension adoption proceeds in Phases 3 and 4.

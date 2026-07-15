@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_serialization::{
     ActorRefWireData, MessageCodec, Registry, SerializationError, SerializationRegistry,
@@ -9,13 +11,20 @@ use crate::{
     WatchRemote,
 };
 
+/// Stable serializer identifier for [`WatchRemote`].
 pub const WATCH_REMOTE_SERIALIZER_ID: u32 = 1_000;
+/// Stable serializer identifier for [`UnwatchRemote`].
 pub const UNWATCH_REMOTE_SERIALIZER_ID: u32 = 1_001;
+/// Stable serializer identifier for [`RemoteHeartbeat`].
 pub const REMOTE_HEARTBEAT_SERIALIZER_ID: u32 = 1_002;
+/// Stable serializer identifier for [`RemoteHeartbeatAck`].
 pub const REMOTE_HEARTBEAT_ACK_SERIALIZER_ID: u32 = 1_003;
+/// Stable serializer identifier for [`AddressTerminated`].
 pub const ADDRESS_TERMINATED_SERIALIZER_ID: u32 = 1_004;
+/// Stable serializer identifier for [`RemoteTerminated`].
 pub const REMOTE_TERMINATED_SERIALIZER_ID: u32 = 1_005;
 
+/// Registers the remote death-watch and reliable-delivery system codecs.
 pub fn register_remote_protocol_codecs(registry: &mut Registry) -> kairo_serialization::Result<()> {
     registry.register::<WatchRemote, _>(WatchRemoteCodec)?;
     registry.register::<UnwatchRemote, _>(UnwatchRemoteCodec)?;
@@ -28,6 +37,7 @@ pub fn register_remote_protocol_codecs(registry: &mut Registry) -> kairo_seriali
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for [`WatchRemote`] protocol messages.
 pub struct WatchRemoteCodec;
 
 impl MessageCodec<WatchRemote> for WatchRemoteCodec {
@@ -55,6 +65,7 @@ impl MessageCodec<WatchRemote> for WatchRemoteCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for [`UnwatchRemote`] protocol messages.
 pub struct UnwatchRemoteCodec;
 
 impl MessageCodec<UnwatchRemote> for UnwatchRemoteCodec {
@@ -82,6 +93,7 @@ impl MessageCodec<UnwatchRemote> for UnwatchRemoteCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for [`RemoteTerminated`] protocol messages.
 pub struct RemoteTerminatedCodec;
 
 impl MessageCodec<RemoteTerminated> for RemoteTerminatedCodec {
@@ -113,6 +125,7 @@ impl MessageCodec<RemoteTerminated> for RemoteTerminatedCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for [`RemoteHeartbeat`] protocol messages.
 pub struct RemoteHeartbeatCodec;
 
 impl MessageCodec<RemoteHeartbeat> for RemoteHeartbeatCodec {
@@ -138,6 +151,7 @@ impl MessageCodec<RemoteHeartbeat> for RemoteHeartbeatCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for [`RemoteHeartbeatAck`] protocol messages.
 pub struct RemoteHeartbeatAckCodec;
 
 impl MessageCodec<RemoteHeartbeatAck> for RemoteHeartbeatAckCodec {
@@ -167,6 +181,7 @@ impl MessageCodec<RemoteHeartbeatAck> for RemoteHeartbeatAckCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for [`AddressTerminated`] protocol messages.
 pub struct AddressTerminatedCodec;
 
 impl MessageCodec<AddressTerminated> for AddressTerminatedCodec {

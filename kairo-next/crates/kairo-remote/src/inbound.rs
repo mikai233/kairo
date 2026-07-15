@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -7,34 +9,54 @@ use kairo_serialization::{
 
 use crate::Result;
 
+/// A deserialized remote message together with its recipient and optional
+/// sender wire metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundMessage<M> {
+    /// Actor reference targeted by the remote envelope.
     pub recipient: ActorRefWireData,
+    /// Actor reference supplied as sender, if any.
     pub sender: Option<ActorRefWireData>,
+    /// Deserialized typed message.
     pub message: M,
 }
 
+/// Diagnostic emitted when an inbound envelope cannot be decoded or delivered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteInboundDiagnostic {
+    /// The registered codec could not deserialize the envelope payload.
     SerializationFailure {
+        /// Recipient metadata retained from the failed envelope.
         recipient: ActorRefWireData,
+        /// Optional sender metadata retained from the failed envelope.
         sender: Option<ActorRefWireData>,
+        /// Serializer identifier declared by the failed payload.
         serializer_id: SerializerId,
+        /// Stable message manifest declared by the failed payload.
         manifest: String,
+        /// Schema version declared by the failed payload.
         version: u16,
+        /// Human-readable decoding failure reason.
         reason: String,
     },
+    /// The decoded message could not be delivered to its local target.
     DeliveryFailure {
+        /// Recipient metadata retained from the failed envelope.
         recipient: ActorRefWireData,
+        /// Optional sender metadata retained from the failed envelope.
         sender: Option<ActorRefWireData>,
+        /// Human-readable delivery failure reason.
         reason: String,
     },
 }
 
+/// Observer for failures at the remote inbound boundary.
 pub trait RemoteInboundDiagnostics: Send + Sync + 'static {
+    /// Records one inbound diagnostic event.
     fn record(&self, diagnostic: RemoteInboundDiagnostic);
 }
 
+/// Selects which inbound failure categories reach a diagnostics observer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RemoteInboundDiagnosticFilter {
     serialization_failures: bool,
@@ -42,6 +64,7 @@ pub struct RemoteInboundDiagnosticFilter {
 }
 
 impl RemoteInboundDiagnosticFilter {
+    /// Creates a filter with independent serialization and delivery controls.
     pub fn new(serialization_failures: bool, delivery_failures: bool) -> Self {
         Self {
             serialization_failures,
@@ -49,22 +72,27 @@ impl RemoteInboundDiagnosticFilter {
         }
     }
 
+    /// Creates a filter that observes every inbound failure category.
     pub fn all() -> Self {
         Self::new(true, true)
     }
 
+    /// Creates a filter that disables inbound diagnostics.
     pub fn disabled() -> Self {
         Self::new(false, false)
     }
 
+    /// Returns whether serialization failures are observed.
     pub fn serialization_failures(&self) -> bool {
         self.serialization_failures
     }
 
+    /// Returns whether delivery failures are observed.
     pub fn delivery_failures(&self) -> bool {
         self.delivery_failures
     }
 
+    /// Returns whether this filter observes `diagnostic`.
     pub fn observes(&self, diagnostic: &RemoteInboundDiagnostic) -> bool {
         match diagnostic {
             RemoteInboundDiagnostic::SerializationFailure { .. } => self.serialization_failures,
@@ -72,6 +100,9 @@ impl RemoteInboundDiagnosticFilter {
         }
     }
 
+    /// Applies this filter to a diagnostics observer.
+    ///
+    /// Returns `None` when all categories are disabled.
     pub fn wrap(
         self,
         diagnostics: Arc<dyn RemoteInboundDiagnostics>,
@@ -117,10 +148,12 @@ where
     }
 }
 
+/// Delivery boundary for a deserialized remote message.
 pub trait RemoteInboundDelivery<M>: Send + Sync + 'static
 where
     M: Send + 'static,
 {
+    /// Delivers one typed inbound message to its local target.
     fn deliver(&self, message: InboundMessage<M>) -> Result<()>;
 }
 
@@ -134,6 +167,8 @@ where
     }
 }
 
+/// Deserializes one remote message type and forwards it to a typed delivery
+/// boundary.
 pub struct RemoteInbound<M> {
     registry: Arc<Registry>,
     delivery: Arc<dyn RemoteInboundDelivery<M>>,
@@ -145,6 +180,7 @@ impl<M> RemoteInbound<M>
 where
     M: RemoteMessage,
 {
+    /// Creates a typed inbound pipeline using `registry` and `delivery`.
     pub fn new(registry: Arc<Registry>, delivery: Arc<dyn RemoteInboundDelivery<M>>) -> Self {
         Self {
             registry,
@@ -154,11 +190,16 @@ where
         }
     }
 
+    /// Attaches an observer for serialization and delivery failures.
     pub fn with_diagnostics(mut self, diagnostics: Arc<dyn RemoteInboundDiagnostics>) -> Self {
         self.diagnostics = Some(diagnostics);
         self
     }
 
+    /// Deserializes and delivers one remote envelope.
+    ///
+    /// Failures are reported to the configured diagnostics observer before
+    /// being returned to the caller.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<()> {
         let recipient = envelope.recipient;
         let sender = envelope.sender;

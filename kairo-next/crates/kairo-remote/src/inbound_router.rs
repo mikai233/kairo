@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -13,6 +15,7 @@ use crate::{
 
 /// Internal wire-boundary handler for one or more stable manifests.
 pub trait RemoteEnvelopeHandler: Send + Sync + 'static {
+    /// Handles one serialized remote envelope.
     fn receive(&self, envelope: RemoteEnvelope) -> Result<()>;
 }
 
@@ -40,6 +43,8 @@ struct RegisteredRemoteEnvelopeHandler {
 }
 
 impl ManifestRemoteInboundRouter {
+    /// Creates an empty business-protocol router with a dedicated remote
+    /// death-watch handler.
     pub fn new(death_watch: RemoteDeathWatchSystemInbound) -> Self {
         Self {
             protocols: HashMap::new(),
@@ -47,6 +52,10 @@ impl ManifestRemoteInboundRouter {
         }
     }
 
+    /// Registers the stable manifest for one typed inbound protocol.
+    ///
+    /// Duplicate registrations and manifests reserved for remote death watch
+    /// are rejected.
     pub fn register<M>(&mut self, inbound: RemoteInbound<M>) -> Result<()>
     where
         M: RemoteMessage,
@@ -67,6 +76,11 @@ impl ManifestRemoteInboundRouter {
         Ok(())
     }
 
+    /// Registers an erased handler for a set of stable manifests restricted to
+    /// `required_lane`.
+    ///
+    /// Registration is atomic: no manifest is inserted when any supplied
+    /// manifest is duplicated or reserved for remote death watch.
     pub fn register_handler(
         &mut self,
         manifests: &[String],
@@ -95,10 +109,12 @@ impl ManifestRemoteInboundRouter {
         Ok(())
     }
 
+    /// Iterates over the registered business and extension manifests.
     pub fn registered_manifests(&self) -> impl Iterator<Item = &str> {
         self.protocols.keys().map(String::as_str)
     }
 
+    /// Routes one envelope by stable manifest and validates its transport lane.
     pub fn receive(&self, stream_id: RemoteStreamId, envelope: RemoteEnvelope) -> Result<()> {
         let manifest = envelope.message.manifest.as_str();
         if is_remote_death_watch_manifest(manifest) {
@@ -132,6 +148,8 @@ impl RemoteFrameHandler for ManifestRemoteInboundRouter {
     }
 }
 
+/// Routes decoded frames between one typed business inbound and the remote
+/// death-watch system inbound.
 pub struct RemoteInboundFrameRouter<M> {
     business: RemoteInbound<M>,
     death_watch: RemoteDeathWatchSystemInbound,
@@ -142,6 +160,7 @@ impl<M> RemoteInboundFrameRouter<M>
 where
     M: RemoteMessage,
 {
+    /// Creates a router for one business message type and remote death watch.
     pub fn new(business: RemoteInbound<M>, death_watch: RemoteDeathWatchSystemInbound) -> Self {
         Self {
             business,
@@ -150,10 +169,12 @@ where
         }
     }
 
+    /// Returns the typed business inbound pipeline.
     pub fn business(&self) -> &RemoteInbound<M> {
         &self.business
     }
 
+    /// Returns the remote death-watch inbound pipeline.
     pub fn death_watch(&self) -> &RemoteDeathWatchSystemInbound {
         &self.death_watch
     }
@@ -180,6 +201,8 @@ where
     }
 }
 
+/// Returns whether `manifest` belongs to the built-in remote death-watch
+/// protocol.
 pub fn is_remote_death_watch_manifest(manifest: &str) -> bool {
     matches!(
         manifest,

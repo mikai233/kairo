@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_serialization::{RemoteEnvelope, WireReader, WireWriter};
 
@@ -6,6 +8,8 @@ use crate::{RemoteError, Result};
 const REMOTE_ENVELOPE_FRAME_MAGIC: u64 = 0x4b4149524f52454d;
 const REMOTE_ENVELOPE_FRAME_VERSION: u16 = 1;
 
+/// Encodes a serialized remote envelope with the Kairo frame magic and version
+/// header.
 pub fn encode_remote_envelope_frame(envelope: &RemoteEnvelope) -> Result<Bytes> {
     let mut writer = WireWriter::new();
     writer.write_u64(REMOTE_ENVELOPE_FRAME_MAGIC);
@@ -15,6 +19,10 @@ pub fn encode_remote_envelope_frame(envelope: &RemoteEnvelope) -> Result<Bytes> 
     Ok(Bytes::from(frame))
 }
 
+/// Decodes and validates one complete Kairo remote-envelope frame.
+///
+/// Unknown frame versions, invalid envelope metadata, truncation, and trailing
+/// bytes are rejected.
 pub fn decode_remote_envelope_frame(bytes: Bytes) -> Result<RemoteEnvelope> {
     let mut reader = WireReader::new(&bytes);
     let magic = reader.read_u64()?;

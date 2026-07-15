@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -22,6 +24,8 @@ pub struct ActorSystemRemoteInboundRegistry {
 }
 
 impl ActorSystemRemoteInboundRegistry {
+    /// Creates an empty manifest registry that resolves envelope recipient
+    /// paths directly through `system`.
     pub fn new(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -31,6 +35,8 @@ impl ActorSystemRemoteInboundRegistry {
         Self::build(system, registry, death_watch, local_system_uid, None, None)
     }
 
+    /// Creates an empty manifest registry that maps the actor system's owned
+    /// canonical remote address back to local paths.
     pub fn with_remote_settings(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -48,6 +54,8 @@ impl ActorSystemRemoteInboundRegistry {
         )
     }
 
+    /// Creates a canonical-address-aware manifest registry with inbound failure
+    /// diagnostics.
     pub fn with_remote_settings_and_diagnostics(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -87,6 +95,10 @@ impl ActorSystemRemoteInboundRegistry {
         }
     }
 
+    /// Registers one remote message type for local actor-system delivery.
+    ///
+    /// Registration fails when the stable manifest is already registered or
+    /// reserved for remote death watch.
     pub fn register<M>(&mut self) -> Result<&mut Self>
     where
         M: RemoteMessage,
@@ -106,6 +118,7 @@ impl ActorSystemRemoteInboundRegistry {
         Ok(self)
     }
 
+    /// Returns the manifest router used by the composed runtime.
     pub fn router(&self) -> &ManifestRemoteInboundRouter {
         &self.router
     }
@@ -121,6 +134,8 @@ impl RemoteFrameHandler for ActorSystemRemoteInboundRegistry {
     }
 }
 
+/// Actor-system-backed inbound pipeline for one business message type plus the
+/// built-in remote death-watch protocol.
 pub struct ActorSystemRemoteInbound<M> {
     router: RemoteInboundFrameRouter<M>,
     _message: PhantomData<fn(M)>,
@@ -130,6 +145,8 @@ impl<M> ActorSystemRemoteInbound<M>
 where
     M: RemoteMessage,
 {
+    /// Creates an inbound pipeline that resolves recipient paths directly
+    /// through `system`.
     pub fn new(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -146,6 +163,7 @@ where
         )
     }
 
+    /// Creates a direct-path inbound pipeline with failure diagnostics.
     pub fn with_diagnostics(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -163,6 +181,8 @@ where
         )
     }
 
+    /// Creates an inbound pipeline that maps the actor system's owned canonical
+    /// remote address back to local paths.
     pub fn with_remote_settings(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -180,6 +200,8 @@ where
         )
     }
 
+    /// Creates a canonical-address-aware inbound pipeline with failure
+    /// diagnostics.
     pub fn with_remote_settings_and_diagnostics(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -220,10 +242,12 @@ where
         }
     }
 
+    /// Returns the frame router for business and remote death-watch messages.
     pub fn router(&self) -> &RemoteInboundFrameRouter<M> {
         &self.router
     }
 
+    /// Converts this pipeline into a lane-aware association inbound.
     pub fn into_association_inbound(self) -> AssociationRemoteInbound<M> {
         AssociationRemoteInbound::from_handler(Arc::new(self))
     }
