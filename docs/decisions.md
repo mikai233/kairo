@@ -3433,3 +3433,45 @@ Consequences:
   command ordering remains actor-owned.
 - The older cluster-only TCP bootstrap remains a compatibility boundary until
   callers migrate to the composed daemon.
+
+## ADR-0111: Heartbeat Reachability Retains Recovery Routes
+
+Status: Accepted
+
+Context:
+The composed daemon had heartbeat wire codecs and inbound handlers but no owner
+for the stable sender, receiver, periodic scheduling, or membership-derived
+remote routes. Feeding a local failure-detector verdict into gossip also creates
+a lifecycle hazard: if the same unreachable observation removes managed peer
+intent, the transport loses the route needed for a later heartbeat response to
+prove recovery.
+
+Decision:
+The cluster root owns real actors at `/system/cluster/heartbeatSender` and
+`/system/cluster/heartbeatReceiver`. A typed `ClusterHeartbeatConnector`
+subscribes with the current cluster snapshot, creates one remote heartbeat route
+for each non-self member, initializes the sender only after those routes exist,
+and forwards later membership and reachability events. Removal stops a route;
+transient outbound send failure does not, because heartbeat traffic is
+refreshable and later ticks must retry.
+
+`HeartbeatSender` evaluates its deadline failure detector on periodic ticks and
+reports only verdict transitions to `ClusterMembership`. These records always
+use the local node as observer; heartbeat never removes a member directly. A
+successful response after a reported failure emits the corresponding reachable
+observation.
+
+The composed `ClusterRemotePeerConnector` keeps managed reconnect intent for
+locally unreachable members and removes it only when membership reaches
+`Removed`. The legacy cluster-only peer planner retains its existing behavior
+of removing locally unreachable routes.
+
+Consequences:
+- Healthy composed nodes exchange heartbeat requests and responses through the
+  same control lane and association lifecycle as other cluster protocols.
+- Local detector failure becomes gossip reachability and can recover without an
+  external route reinstall or injected membership snapshot.
+- Unreachable members continue to consume reconnect attempts until membership
+  removal; reconnect backoff and transport quarantine remain remoting concerns.
+- Membership truth stays gossip plus local observations, not transport route
+  state or discovery.

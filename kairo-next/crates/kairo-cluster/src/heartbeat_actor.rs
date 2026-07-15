@@ -7,8 +7,9 @@ use std::{
 use kairo_actor::{Actor, ActorRef, ActorResult, Context};
 
 use crate::{
-    ClusterEvent, CurrentClusterState, DeadlineFailureDetectorSettings, Heartbeat, HeartbeatRsp,
-    HeartbeatSenderState, Member, MemberEvent, ReachabilityEvent, UniqueAddress,
+    ClusterEvent, ClusterMembershipMsg, CurrentClusterState, DeadlineFailureDetectorSettings,
+    Heartbeat, HeartbeatRsp, HeartbeatSenderState, Member, MemberEvent, ReachabilityEvent,
+    UniqueAddress,
 };
 
 const HEARTBEAT_TIMER_KEY: &str = "cluster-heartbeat";
@@ -90,6 +91,16 @@ impl HeartbeatSenderSettings {
     }
 }
 
+impl Default for HeartbeatSenderSettings {
+    fn default() -> Self {
+        Self::new(
+            5,
+            DeadlineFailureDetectorSettings::new(Duration::from_secs(1), Duration::from_secs(3))
+                .expect("default heartbeat interval is non-zero"),
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum HeartbeatReceiverMsg {
     Heartbeat {
@@ -101,6 +112,7 @@ pub enum HeartbeatReceiverMsg {
 #[derive(Debug, Clone)]
 pub enum HeartbeatSenderMsg {
     Init(CurrentClusterState),
+    RegisterMembership(ActorRef<ClusterMembershipMsg>),
     RegisterReceiver {
         node: UniqueAddress,
         receiver: ActorRef<HeartbeatReceiverMsg>,
@@ -123,6 +135,7 @@ pub struct HeartbeatSenderSnapshot {
     pub sequence_nr: u64,
     pub active_receivers: HashSet<UniqueAddress>,
     pub monitored_receivers: HashSet<UniqueAddress>,
+    pub unavailable_receivers: HashSet<UniqueAddress>,
 }
 
 pub struct HeartbeatReceiver {
@@ -163,6 +176,8 @@ pub struct HeartbeatSender {
     sequence_nr: u64,
     initialized: bool,
     clock: Arc<dyn HeartbeatClock>,
+    membership: Option<ActorRef<ClusterMembershipMsg>>,
+    reported_unreachable: HashSet<UniqueAddress>,
 }
 
 impl HeartbeatSender {
@@ -191,6 +206,8 @@ impl HeartbeatSender {
             sequence_nr: 0,
             initialized: false,
             clock,
+            membership: None,
+            reported_unreachable: HashSet::new(),
         })
     }
 
@@ -247,6 +264,7 @@ impl HeartbeatSender {
         if member.unique_address != self.self_node {
             self.state = self.state.remove_member(&member.unique_address, now);
             self.routes.remove(&member.unique_address);
+            self.reported_unreachable.remove(&member.unique_address);
         }
     }
 
@@ -277,6 +295,7 @@ impl HeartbeatSender {
 
     fn heartbeat_response(&mut self, response: HeartbeatRsp, now: Duration) {
         self.state = self.state.heartbeat_response(&response.from, now);
+        self.reconcile_failure_detector(now);
     }
 
     fn expected_first_heartbeat(&mut self, from: UniqueAddress, now: Duration) {
@@ -284,10 +303,19 @@ impl HeartbeatSender {
     }
 
     fn snapshot(&self) -> HeartbeatSenderSnapshot {
+        let now = self.clock.now();
         let active_receivers = self.state.active_receivers();
         let monitored_receivers = active_receivers
             .iter()
             .filter(|node| self.state.failure_detector().is_monitoring(node))
+            .cloned()
+            .collect();
+        let unavailable_receivers = active_receivers
+            .iter()
+            .filter(|node| {
+                self.state.failure_detector().is_monitoring(node)
+                    && !self.state.failure_detector().is_available(node, now)
+            })
             .cloned()
             .collect();
         HeartbeatSenderSnapshot {
@@ -295,6 +323,33 @@ impl HeartbeatSender {
             sequence_nr: self.sequence_nr,
             active_receivers,
             monitored_receivers,
+            unavailable_receivers,
+        }
+    }
+
+    fn reconcile_failure_detector(&mut self, now: Duration) {
+        let Some(membership) = &self.membership else {
+            return;
+        };
+        let active = self.state.active_receivers();
+        self.reported_unreachable
+            .retain(|node| active.contains(node));
+        for node in active {
+            if !self.state.failure_detector().is_monitoring(&node) {
+                continue;
+            }
+            let available = self.state.failure_detector().is_available(&node, now);
+            if !available && self.reported_unreachable.insert(node.clone()) {
+                let _ = membership.tell(ClusterMembershipMsg::MarkUnreachable {
+                    observer: self.self_node.clone(),
+                    subject: node,
+                });
+            } else if available && self.reported_unreachable.remove(&node) {
+                let _ = membership.tell(ClusterMembershipMsg::MarkReachable {
+                    observer: self.self_node.clone(),
+                    subject: node,
+                });
+            }
         }
     }
 }
@@ -322,6 +377,9 @@ impl Actor for HeartbeatSender {
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             HeartbeatSenderMsg::Init(snapshot) => self.init(snapshot),
+            HeartbeatSenderMsg::RegisterMembership(membership) => {
+                self.membership = Some(membership)
+            }
             HeartbeatSenderMsg::RegisterReceiver { node, receiver } => {
                 self.register_receiver(node, receiver)
             }
@@ -331,7 +389,9 @@ impl Actor for HeartbeatSender {
             }
             HeartbeatSenderMsg::ClusterEvent(_) => {}
             HeartbeatSenderMsg::HeartbeatTick if self.initialized => {
-                self.heartbeat(ctx, self.clock.now());
+                let now = self.clock.now();
+                self.reconcile_failure_detector(now);
+                self.heartbeat(ctx, now);
             }
             HeartbeatSenderMsg::HeartbeatTick => {}
             HeartbeatSenderMsg::HeartbeatResponse(response) if self.initialized => {

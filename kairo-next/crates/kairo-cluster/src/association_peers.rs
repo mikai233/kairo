@@ -79,6 +79,7 @@ pub struct ClusterAssociationPeerState {
     members: BTreeMap<String, Member>,
     locally_unreachable: BTreeSet<String>,
     active: BTreeMap<String, ClusterAssociationPeerTarget>,
+    retain_unreachable: bool,
 }
 
 impl ClusterAssociationPeerState {
@@ -88,7 +89,13 @@ impl ClusterAssociationPeerState {
             members: BTreeMap::new(),
             locally_unreachable: BTreeSet::new(),
             active: BTreeMap::new(),
+            retain_unreachable: false,
         }
+    }
+
+    pub fn with_unreachable_peers_retained(mut self, retain: bool) -> Self {
+        self.retain_unreachable = retain;
+        self
     }
 
     pub fn self_node(&self) -> &UniqueAddress {
@@ -208,7 +215,7 @@ impl ClusterAssociationPeerState {
             let key = member.unique_address.ordering_key();
             if member.status == MemberStatus::Removed
                 || self.is_self_address(&member.unique_address)
-                || self.locally_unreachable.contains(&key)
+                || (!self.retain_unreachable && self.locally_unreachable.contains(&key))
             {
                 continue;
             }
@@ -349,6 +356,26 @@ mod tests {
             )))
             .unwrap();
         assert_eq!(dialed_nodes(&dialed), vec![peer]);
+    }
+
+    #[test]
+    fn composed_mode_retains_unreachable_peer_for_heartbeat_recovery() {
+        let self_node = node("self", 2551, 1);
+        let peer = node("peer", 2552, 2);
+        let mut peers =
+            ClusterAssociationPeerState::new(self_node).with_unreachable_peers_retained(true);
+        peers
+            .apply_snapshot(state(vec![member(peer.clone())], vec![]))
+            .unwrap();
+
+        let changes = peers
+            .apply_event(ClusterEvent::Reachability(ReachabilityEvent::Unreachable(
+                member(peer.clone()),
+            )))
+            .unwrap();
+
+        assert!(changes.is_empty());
+        assert_eq!(peers.active_targets()[0].node(), &peer);
     }
 
     #[test]

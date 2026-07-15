@@ -1254,8 +1254,17 @@ Cluster heartbeat actors:
 
 - `HeartbeatReceiver`: replies to heartbeat.
 - `HeartbeatSender`: selects monitored peers, sends heartbeat, records replies.
-- `FailureDetectorReaper`: periodically converts detector verdicts into
-  reachability records.
+- the sender periodically converts detector verdict changes into
+  `ClusterMembership` reachability records observed only by the local node.
+- `ClusterHeartbeatConnector`: subscribes with an initial membership snapshot,
+  owns one typed remote receiver route for every non-self member, and forwards
+  membership and reachability events to the sender.
+
+The composed cluster daemon owns the real stable
+`/system/cluster/heartbeatSender` and `/system/cluster/heartbeatReceiver`
+actors. Heartbeat route sends are refreshable best-effort traffic: a transient
+transport failure does not stop the route actor, so the next scheduled tick can
+retry after association recovery.
 
 Remote heartbeat transport:
 
@@ -1411,10 +1420,12 @@ Membership transport:
   `HeartbeatRsp` all travel on the control/system lane.
 - `ClusterAssociationPeerState` is the pure cluster-derived association
   planner. It consumes `CurrentClusterState` snapshots and cluster events,
-  excludes self, removes peers marked unreachable by the local node, preserves
-  peers only from membership state, and emits explicit dial/remove effects for
-  TCP runtime owners. Observations from other nodes do not by themselves remove
-  a peer, matching Pekko's `validNodeForGossip` rule.
+  excludes self, preserves peers only from membership state, and emits explicit
+  dial/remove effects for TCP runtime owners. The legacy cluster-only bootstrap
+  removes peers marked unreachable by the local node. The composed daemon keeps
+  managed reconnect intent for those members so heartbeat responses can prove
+  recovery; only removal clears that intent. Observations from other nodes do
+  not by themselves remove a peer, matching Pekko's `validNodeForGossip` rule.
 - `ClusterTcpPeerRoutes` applies those dial/remove effects to a
   `ClusterTcpAssociationRuntime`, owns per-peer route registrations, closes and
   removes cached routes when peers are removed, and deliberately keeps

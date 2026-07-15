@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -153,6 +154,68 @@ fn sender_applies_cluster_membership_and_reachability_events() {
     assert!(snapshot.active_receivers.contains(&node_c));
 }
 
+#[test]
+fn sender_reports_self_observed_unreachable_and_reachable_transitions() {
+    let kit = ActorSystemTestKit::new("cluster-heartbeat-sender-observations").unwrap();
+    let sender_node = node("sender", 1);
+    let receiver_node = node("receiver", 2);
+    let clock = TestHeartbeatClock::new(Duration::ZERO);
+    let sender = spawn_sender(&kit, sender_node.clone(), clock.clone(), "sender");
+    let membership = kit
+        .create_probe::<ClusterMembershipMsg>("membership")
+        .unwrap();
+
+    sender
+        .tell(HeartbeatSenderMsg::RegisterMembership(
+            membership.actor_ref(),
+        ))
+        .unwrap();
+    sender
+        .tell(HeartbeatSenderMsg::Init(cluster_state(
+            sender_node.clone(),
+            [receiver_node.clone()],
+            [],
+        )))
+        .unwrap();
+    sender
+        .tell(HeartbeatSenderMsg::ExpectedFirstHeartbeat(
+            receiver_node.clone(),
+        ))
+        .unwrap();
+    assert!(
+        request_snapshot(&kit, &sender)
+            .monitored_receivers
+            .contains(&receiver_node)
+    );
+    clock.set(Duration::from_millis(4_001));
+    sender.tell(HeartbeatSenderMsg::HeartbeatTick).unwrap();
+
+    assert!(matches!(
+        membership.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterMembershipMsg::MarkUnreachable { observer, subject }
+            if observer == sender_node && subject == receiver_node
+    ));
+    assert!(
+        request_snapshot(&kit, &sender)
+            .unavailable_receivers
+            .contains(&receiver_node)
+    );
+
+    clock.set(Duration::from_millis(4_100));
+    sender
+        .tell(HeartbeatSenderMsg::HeartbeatResponse(HeartbeatRsp {
+            from: receiver_node.clone(),
+            sequence_nr: 1,
+            creation_time_nanos: 0,
+        }))
+        .unwrap();
+    assert!(matches!(
+        membership.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterMembershipMsg::MarkReachable { observer, subject }
+            if observer == sender_node && subject == receiver_node
+    ));
+}
+
 fn spawn_sender(
     kit: &ActorSystemTestKit,
     self_node: UniqueAddress,
@@ -174,8 +237,12 @@ fn request_snapshot(
     kit: &ActorSystemTestKit,
     sender: &ActorRef<HeartbeatSenderMsg>,
 ) -> HeartbeatSenderSnapshot {
+    static SNAPSHOT_ID: AtomicU64 = AtomicU64::new(1);
     let probe = kit
-        .create_probe::<HeartbeatSenderSnapshot>("snapshot")
+        .create_probe::<HeartbeatSenderSnapshot>(format!(
+            "snapshot-{}",
+            SNAPSHOT_ID.fetch_add(1, Ordering::Relaxed)
+        ))
         .unwrap();
     sender
         .tell(HeartbeatSenderMsg::SendSnapshot {

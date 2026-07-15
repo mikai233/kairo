@@ -51,7 +51,8 @@ impl ClusterRemotePeerConnector {
     ) -> Self {
         Self {
             cluster,
-            peers: ClusterAssociationPeerState::new(self_node),
+            peers: ClusterAssociationPeerState::new(self_node)
+                .with_unreachable_peers_retained(true),
             peer_manager,
             subscription: None,
             commands: VecDeque::new(),

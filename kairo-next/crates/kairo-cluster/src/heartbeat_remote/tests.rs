@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -6,7 +7,7 @@ use kairo_remote::{RemoteAssociationAddress, RemoteAssociationCache, Result};
 use kairo_serialization::{
     ActorRefWireData, Manifest, Registry, RemoteEnvelope, RemoteMessage, SerializedMessage,
 };
-use kairo_testkit::ActorSystemTestKit;
+use kairo_testkit::{ActorSystemTestKit, await_assert};
 
 use super::*;
 use crate::{
@@ -60,6 +61,20 @@ impl kairo_remote::RemoteOutbound for CollectingRemoteOutbound {
             .push(envelope);
         self.changed.notify_all();
         Ok(())
+    }
+}
+
+#[derive(Default)]
+struct FailingRemoteOutbound {
+    attempts: AtomicUsize,
+}
+
+impl kairo_remote::RemoteOutbound for FailingRemoteOutbound {
+    fn send(&self, _envelope: RemoteEnvelope) -> Result<()> {
+        self.attempts.fetch_add(1, Ordering::Relaxed);
+        Err(kairo_remote::RemoteError::Outbound(
+            "route not installed".to_string(),
+        ))
     }
 }
 
@@ -169,6 +184,53 @@ fn outbound_actor_wraps_heartbeat_for_remote_receiver_path() {
     assert_eq!(sent[0].recipient, receiver_wire(&target));
     assert_eq!(sent[0].sender, Some(sender_wire()));
     assert_eq!(sent[0].message.serializer_id, HEARTBEAT_SERIALIZER_ID);
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn outbound_actor_survives_transient_transport_send_failure() {
+    let kit = ActorSystemTestKit::new("cluster-heartbeat-remote-retry").unwrap();
+    let registry = registry();
+    let failing = Arc::new(FailingRemoteOutbound::default());
+    let outbound = kit
+        .system()
+        .spawn(
+            "remote-heartbeat",
+            Props::new({
+                let registry = registry.clone();
+                let failing = failing.clone();
+                move || {
+                    HeartbeatRemoteReceiverOutbound::from_arc(
+                        node("receiver", 2),
+                        registry.clone(),
+                        sender_wire(),
+                        failing.clone() as Arc<dyn kairo_remote::RemoteOutbound>,
+                    )
+                }
+            }),
+        )
+        .unwrap();
+    let reply_probe = kit.create_probe::<HeartbeatSenderMsg>("reply").unwrap();
+    for sequence_nr in 1..=2 {
+        outbound
+            .tell(HeartbeatReceiverMsg::Heartbeat {
+                heartbeat: Heartbeat {
+                    from: node("sender", 1),
+                    sequence_nr,
+                    creation_time_nanos: 0,
+                },
+                reply_to: reply_probe.actor_ref(),
+            })
+            .unwrap();
+    }
+
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        (failing.attempts.load(Ordering::Relaxed) == 2)
+            .then_some(())
+            .ok_or_else(|| "heartbeat retries were not processed".to_string())
+    })
+    .unwrap();
+    assert!(!outbound.is_stopped());
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

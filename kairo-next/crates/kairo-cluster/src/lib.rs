@@ -72,6 +72,7 @@ mod gossip;
 mod gossip_process;
 mod heartbeat;
 mod heartbeat_actor;
+mod heartbeat_connector;
 mod heartbeat_remote;
 mod init_join_responder;
 mod leader;
@@ -148,6 +149,7 @@ pub use heartbeat_actor::{
     HeartbeatClock, HeartbeatReceiver, HeartbeatReceiverMsg, HeartbeatSender, HeartbeatSenderMsg,
     HeartbeatSenderSettings, HeartbeatSenderSnapshot, SystemHeartbeatClock,
 };
+pub use heartbeat_connector::{ClusterHeartbeatConnector, ClusterHeartbeatConnectorMsg};
 pub use heartbeat_remote::{
     ClusterHeartbeatRemoteError, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
     DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, HeartbeatRemoteReceiverInbound,

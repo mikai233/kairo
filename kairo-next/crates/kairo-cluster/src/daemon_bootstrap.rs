@@ -9,18 +9,22 @@ use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, IgnoreRef, 
 use kairo_remote::{
     RemoteAssociationAddress, RemoteError, TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder,
 };
+use kairo_serialization::ActorRefWireData;
 
 use crate::{
     CLUSTER_SYSTEM_MANIFESTS, Cluster, ClusterEventPublisher, ClusterGossipProcess,
     ClusterGossipProcessMsg, ClusterGossipProcessSettings, ClusterGossipState,
-    ClusterGossipWireInbound, ClusterGossipWireOutbound, ClusterInitJoinResponder,
-    ClusterInitJoinResponderMsg, ClusterInitJoinResponderPort, ClusterInitJoinResponderState,
-    ClusterMembership, ClusterMembershipMsg, ClusterMembershipRemoteEnvelopeOutbound,
-    ClusterMembershipWireInbound, ClusterMembershipWireOutbound,
-    ClusterMembershipWireOutboundActor, ClusterRemotePeerConnector, ClusterSeedJoinProcess,
-    ClusterSeedJoinProcessMsg, ClusterSeedJoinProcessSettings, ClusterSeedJoinState,
-    ClusterSeedJoinWireInbound, ClusterSeedJoinWireOutbound, ClusterSeedJoinWireOutboundActor,
-    ClusterSystemInbound, UniqueAddress,
+    ClusterGossipWireInbound, ClusterGossipWireOutbound, ClusterHeartbeatConnector,
+    ClusterInitJoinResponder, ClusterInitJoinResponderMsg, ClusterInitJoinResponderPort,
+    ClusterInitJoinResponderState, ClusterMembership, ClusterMembershipMsg,
+    ClusterMembershipRemoteEnvelopeOutbound, ClusterMembershipWireInbound,
+    ClusterMembershipWireOutbound, ClusterMembershipWireOutboundActor, ClusterRemotePeerConnector,
+    ClusterSeedJoinProcess, ClusterSeedJoinProcessMsg, ClusterSeedJoinProcessSettings,
+    ClusterSeedJoinState, ClusterSeedJoinWireInbound, ClusterSeedJoinWireOutbound,
+    ClusterSeedJoinWireOutboundActor, ClusterSystemInbound,
+    DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH,
+    HeartbeatReceiver, HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound,
+    HeartbeatSender, HeartbeatSenderMsg, HeartbeatSenderSettings, UniqueAddress,
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(2);
@@ -33,6 +37,7 @@ pub struct ClusterDaemonBootstrapSettings {
     config_digest: Option<Bytes>,
     seed_process: ClusterSeedJoinProcessSettings,
     gossip_process: ClusterGossipProcessSettings,
+    heartbeat_sender: HeartbeatSenderSettings,
 }
 
 impl ClusterDaemonBootstrapSettings {
@@ -44,6 +49,7 @@ impl ClusterDaemonBootstrapSettings {
             config_digest: Some(Bytes::new()),
             seed_process: ClusterSeedJoinProcessSettings::default(),
             gossip_process: ClusterGossipProcessSettings::default(),
+            heartbeat_sender: HeartbeatSenderSettings::default(),
         }
     }
     pub fn with_seed_nodes(mut self, value: Vec<kairo_actor::Address>) -> Self {
@@ -64,6 +70,10 @@ impl ClusterDaemonBootstrapSettings {
     }
     pub fn with_gossip_process_settings(mut self, value: ClusterGossipProcessSettings) -> Self {
         self.gossip_process = value;
+        self
+    }
+    pub fn with_heartbeat_sender_settings(mut self, value: HeartbeatSenderSettings) -> Self {
+        self.heartbeat_sender = value;
         self
     }
 }
@@ -104,6 +114,7 @@ pub struct ClusterDaemonHandle {
     daemon: ActorRef<ClusterDaemonMsg>,
     membership: ActorRef<ClusterMembershipMsg>,
     gossip_process: ActorRef<ClusterGossipProcessMsg>,
+    heartbeat_sender: ActorRef<HeartbeatSenderMsg>,
     seed_process: ActorRef<ClusterSeedJoinProcessMsg>,
     responder: ActorRef<ClusterInitJoinResponderMsg>,
 }
@@ -122,6 +133,9 @@ impl ClusterDaemonHandle {
     }
     pub fn gossip_process(&self) -> &ActorRef<ClusterGossipProcessMsg> {
         &self.gossip_process
+    }
+    pub fn heartbeat_sender(&self) -> &ActorRef<HeartbeatSenderMsg> {
+        &self.heartbeat_sender
     }
     pub fn seed_process(&self) -> &ActorRef<ClusterSeedJoinProcessMsg> {
         &self.seed_process
@@ -205,6 +219,8 @@ pub fn register_cluster_daemon(
             config_digest: factory_settings.config_digest.clone(),
             seed_process: factory_settings.seed_process.with_start_immediately(false),
             gossip_process: factory_settings.gossip_process,
+            heartbeat_sender_settings: factory_settings.heartbeat_sender.clone(),
+            heartbeat_sender: None,
             registry: context.registry().clone(),
             outbound: context.outbound().clone(),
             ready: tx,
@@ -227,6 +243,7 @@ pub fn register_cluster_daemon(
             daemon,
             membership,
             gossip_process,
+            heartbeat_sender,
             seed_process,
             responder,
         } = ready;
@@ -237,6 +254,7 @@ pub fn register_cluster_daemon(
             daemon,
             membership,
             gossip_process,
+            heartbeat_sender,
             seed_process,
             responder,
         };
@@ -257,6 +275,8 @@ struct DaemonConfig {
     config_digest: Option<Bytes>,
     seed_process: ClusterSeedJoinProcessSettings,
     gossip_process: ClusterGossipProcessSettings,
+    heartbeat_sender_settings: HeartbeatSenderSettings,
+    heartbeat_sender: Option<ActorRef<HeartbeatSenderMsg>>,
     registry: Arc<kairo_serialization::Registry>,
     outbound: Arc<dyn kairo_remote::RemoteOutbound>,
     ready: mpsc::Sender<Result<DaemonReady, RemoteError>>,
@@ -267,6 +287,7 @@ struct DaemonReady {
     daemon: ActorRef<ClusterDaemonMsg>,
     membership: ActorRef<ClusterMembershipMsg>,
     gossip_process: ActorRef<ClusterGossipProcessMsg>,
+    heartbeat_sender: ActorRef<HeartbeatSenderMsg>,
     seed_process: ActorRef<ClusterSeedJoinProcessMsg>,
     responder: ActorRef<ClusterInitJoinResponderMsg>,
 }
@@ -291,10 +312,34 @@ enum ClusterDaemonMsg {
 impl Actor for ClusterRoot {
     type Msg = ();
     fn started(&mut self, ctx: &mut Context<()>) -> ActorResult {
-        let c = self
+        let mut c = self
             .config
             .take()
             .ok_or_else(|| ActorError::Message("missing cluster core config".to_string()))?;
+        if c.heartbeat_sender_settings.monitored_by_nr_of_members == 0 {
+            return Err(ActorError::Message(
+                "cluster heartbeat monitored member count must be greater than zero".to_string(),
+            ));
+        }
+        let heartbeat_sender = ctx.spawn(
+            "heartbeatSender",
+            Props::new({
+                let node = c.self_node.clone();
+                let settings = c.heartbeat_sender_settings.clone();
+                move || {
+                    HeartbeatSender::new(node.clone(), settings.clone())
+                        .expect("validated cluster heartbeat settings")
+                }
+            }),
+        )?;
+        ctx.spawn(
+            "heartbeatReceiver",
+            Props::new({
+                let node = c.self_node.clone();
+                move || HeartbeatReceiver::new(node.clone())
+            }),
+        )?;
+        c.heartbeat_sender = Some(heartbeat_sender);
         ctx.spawn("core", Props::new(move || ClusterCore { config: Some(c) }))?;
         Ok(())
     }
@@ -381,6 +426,43 @@ fn build_daemon_graph(
             let r = c.roles.clone();
             let p = publisher.clone();
             move || ClusterMembership::new(n, r, p)
+        }),
+    )?;
+    let heartbeat_sender = c
+        .heartbeat_sender
+        .clone()
+        .ok_or_else(|| ActorError::Message("missing cluster heartbeat sender".to_string()))?;
+    let heartbeat_sender_wire = ActorRefWireData::new(format!(
+        "{}{}",
+        self_node.address, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH
+    ))
+    .map_err(|error| ActorError::Message(error.to_string()))?;
+    let heartbeat_receiver_wire = ActorRefWireData::new(format!(
+        "{}{}",
+        self_node.address, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH
+    ))
+    .map_err(|error| ActorError::Message(error.to_string()))?;
+    ctx.spawn(
+        "heartbeat-connector",
+        Props::new({
+            let cluster = Cluster::new(publisher.clone());
+            let node = self_node.clone();
+            let membership = membership.clone();
+            let sender = heartbeat_sender.clone();
+            let sender_wire = heartbeat_sender_wire.clone();
+            let registry = c.registry.clone();
+            let outbound = c.outbound.clone();
+            move || {
+                ClusterHeartbeatConnector::new(
+                    cluster.clone(),
+                    node.clone(),
+                    membership.clone(),
+                    sender.clone(),
+                    sender_wire.clone(),
+                    registry.clone(),
+                    outbound.clone(),
+                )
+            }
         }),
     )?;
     let gossip_process = ctx.spawn(
@@ -491,15 +573,29 @@ fn build_daemon_graph(
         ClusterInitJoinResponderPort::new(responder.clone()),
     );
     let gossip_inbound = ClusterGossipWireInbound::new(c.registry.clone(), gossip_process.clone());
+    let heartbeat_receiver_inbound = HeartbeatRemoteReceiverInbound::from_arc(
+        self_node.clone(),
+        c.registry.clone(),
+        c.outbound.clone(),
+    )
+    .with_sender(Some(heartbeat_receiver_wire));
+    let heartbeat_response_inbound = HeartbeatRemoteResponseInbound::new(
+        heartbeat_sender_wire,
+        c.registry.clone(),
+        heartbeat_sender.clone(),
+    );
     Ok(DaemonReady {
         inbound: ClusterSystemInbound::new(self_node)
             .with_membership(membership_inbound)
             .with_gossip(gossip_inbound)
+            .with_heartbeat_receiver(heartbeat_receiver_inbound)
+            .with_heartbeat_response(heartbeat_response_inbound)
             .with_seed_join(seed_inbound),
         publisher,
         daemon: ctx.myself().clone(),
         membership,
         gossip_process,
+        heartbeat_sender,
         seed_process,
         responder,
     })
@@ -509,13 +605,17 @@ fn build_daemon_graph(
 mod tests {
     use std::time::Duration;
 
-    use kairo_remote::{RemoteSettings, TcpRemoteActorRuntime, register_remote_protocol_codecs};
+    use kairo_remote::{
+        RemoteSettings, TcpRemoteActorRuntime, TcpRemoteReconnectSettings,
+        register_remote_protocol_codecs,
+    };
     use kairo_serialization::Registry;
     use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
     use super::*;
     use crate::{
-        ClusterSeedJoinPhase, ClusterSeedJoinProcessSnapshot, Gossip, MemberStatus,
+        ClusterSeedJoinPhase, ClusterSeedJoinProcessSnapshot, DeadlineFailureDetectorSettings,
+        Gossip, HeartbeatSenderSnapshot, MemberStatus, ReachabilityStatus,
         register_cluster_protocol_codecs,
     };
 
@@ -544,6 +644,7 @@ mod tests {
         runtime: TcpRemoteActorRuntime,
         handle: ClusterDaemonHandle,
         state: TestProbe<Gossip>,
+        heartbeat_state: TestProbe<HeartbeatSenderSnapshot>,
     }
 
     impl ComposedNode {
@@ -560,6 +661,13 @@ mod tests {
                 registry,
                 RemoteSettings::new("127.0.0.1", 0),
                 remote_uid,
+            )
+            .with_reconnect_settings(
+                TcpRemoteReconnectSettings::new(
+                    Duration::from_millis(200),
+                    Duration::from_millis(400),
+                )
+                .unwrap(),
             );
             let registration = register_cluster_daemon(
                 &mut builder,
@@ -568,22 +676,49 @@ mod tests {
                     .with_config_digest(Some(Bytes::from_static(b"cluster")))
                     .with_gossip_process_settings(
                         ClusterGossipProcessSettings::new(Duration::from_millis(15)).unwrap(),
+                    )
+                    .with_heartbeat_sender_settings(
+                        HeartbeatSenderSettings::new(
+                            5,
+                            DeadlineFailureDetectorSettings::new(
+                                Duration::from_millis(15),
+                                Duration::from_millis(45),
+                            )
+                            .unwrap(),
+                        )
+                        .with_heartbeat_expected_response_after(Duration::from_millis(10)),
                     ),
             )
             .unwrap();
             let runtime = builder.bind().unwrap();
             let handle = registration.activate(&runtime).unwrap();
             let state = kit.create_probe::<Gossip>("state").unwrap();
+            let heartbeat_state = kit
+                .create_probe::<HeartbeatSenderSnapshot>("heartbeat-state")
+                .unwrap();
             Self {
                 kit,
                 runtime,
                 handle,
                 state,
+                heartbeat_state,
             }
         }
 
         fn gossip(&self) -> Gossip {
             current_gossip(&self.state, &self.handle)
+        }
+
+        fn heartbeat(&self) -> HeartbeatSenderSnapshot {
+            self.handle
+                .heartbeat_sender()
+                .tell(HeartbeatSenderMsg::SendSnapshot {
+                    reply_to: self.heartbeat_state.actor_ref(),
+                })
+                .unwrap();
+            self.heartbeat_state
+                .expect_msg(Duration::from_secs(1))
+                .unwrap()
         }
 
         fn shutdown(self) {
@@ -757,8 +892,142 @@ mod tests {
         })
         .unwrap();
 
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let snapshots = [seed.heartbeat(), second.heartbeat(), third.heartbeat()];
+            snapshots
+                .iter()
+                .all(|snapshot| {
+                    snapshot.initialized
+                        && snapshot.sequence_nr >= 8
+                        && snapshot.active_receivers.len() == 2
+                        && snapshot.monitored_receivers.len() == 2
+                        && snapshot.unavailable_receivers.is_empty()
+                })
+                .then_some(())
+                .ok_or_else(|| "automatic remote heartbeat responses are not healthy".to_string())
+        })
+        .unwrap();
+
         third.shutdown();
         second.shutdown();
+        seed.shutdown();
+    }
+
+    #[test]
+    fn composed_heartbeat_failure_marks_peer_unreachable_in_gossip() {
+        let registry = registry();
+        let seed = ComposedNode::start("daemon-fd-seed", 41, 4041, vec![], registry.clone());
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.handle.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "failure-detector seed has not formed".to_string())
+        })
+        .unwrap();
+        let peer = ComposedNode::start(
+            "daemon-fd-peer",
+            42,
+            4042,
+            vec![seed.handle.self_node().address.clone()],
+            registry,
+        );
+        let peer_node = peer.handle.self_node().clone();
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let heartbeat = seed.heartbeat();
+            (heartbeat.monitored_receivers.contains(&peer_node)
+                && heartbeat.sequence_nr >= 3
+                && heartbeat.unavailable_receivers.is_empty())
+            .then_some(())
+            .ok_or_else(|| "peer heartbeat was not established".to_string())
+        })
+        .unwrap();
+
+        peer.kit.system().stop(peer.handle.root());
+        peer.runtime.shutdown().unwrap();
+        peer.kit.shutdown(Duration::from_secs(1)).unwrap();
+
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let gossip = seed.gossip();
+            (gossip
+                .reachability()
+                .status(seed.handle.self_node(), &peer_node)
+                == ReachabilityStatus::Unreachable)
+                .then_some(())
+                .ok_or_else(|| "heartbeat failure has not entered gossip reachability".to_string())
+        })
+        .unwrap();
+
+        seed.shutdown();
+    }
+
+    #[test]
+    fn composed_heartbeat_recovers_reconnected_peer_to_reachable() {
+        let registry = registry();
+        let seed = ComposedNode::start("daemon-recovery-seed", 51, 5051, vec![], registry.clone());
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.handle.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "recovery seed has not formed".to_string())
+        })
+        .unwrap();
+        let peer = ComposedNode::start(
+            "daemon-recovery-peer",
+            52,
+            5052,
+            vec![seed.handle.self_node().address.clone()],
+            registry,
+        );
+        let peer_node = peer.handle.self_node().clone();
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let heartbeat = seed.heartbeat();
+            (heartbeat.monitored_receivers.contains(&peer_node)
+                && heartbeat.sequence_nr >= 3
+                && heartbeat.unavailable_receivers.is_empty())
+            .then_some(())
+            .ok_or_else(|| "recovery heartbeat was not established".to_string())
+        })
+        .unwrap();
+        let peer_address = crate::ClusterAssociationPeerTarget::new(peer_node.clone())
+            .unwrap()
+            .association()
+            .clone();
+        seed.runtime
+            .association_cache()
+            .remove_route_and_close(&peer_address, "heartbeat recovery test route loss")
+            .expect("seed route should exist")
+            .unwrap();
+
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            (seed
+                .gossip()
+                .reachability()
+                .status(seed.handle.self_node(), &peer_node)
+                == ReachabilityStatus::Unreachable)
+                .then_some(())
+                .ok_or_else(|| "route loss was not observed as unreachable".to_string())
+        })
+        .unwrap();
+        await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+            let gossip = seed.gossip();
+            let heartbeat = seed.heartbeat();
+            (gossip
+                .reachability()
+                .status(seed.handle.self_node(), &peer_node)
+                == ReachabilityStatus::Reachable
+                && heartbeat.unavailable_receivers.is_empty())
+            .then_some(())
+            .ok_or_else(|| "reconnected peer has not recovered to reachable".to_string())
+        })
+        .unwrap();
+
+        peer.shutdown();
         seed.shutdown();
     }
 }

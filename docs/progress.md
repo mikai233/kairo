@@ -302,8 +302,15 @@ lifecycle, and the daemon starts a typed membership subscriber that turns
 reachable member changes into managed connect/disconnect intent outside actor
 receive turns. A three-runtime TCP test proves automatic seed formation,
 full-mesh route installation, convergence of every view, and promotion of all
-three members to `Up` without injected snapshots. Heartbeat scheduling and
-coordinated leave remain the active Phase 3 work.
+three members to `Up` without injected snapshots. The daemon now also owns the
+stable heartbeat sender and receiver actors, membership-derived remote routes,
+periodic failure-detector evaluation, and self-observed reachability updates.
+Composed peer ownership retains reconnect intent for unreachable members so a
+later heartbeat response can mark them reachable again. TCP tests prove healthy
+three-node heartbeat exchange, automatic `Unreachable` gossip after peer loss,
+and automatic `Reachable` recovery after managed reconnection. Coordinated
+leave and the cohesive public cluster operations remain the active Phase 3
+work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -5926,6 +5933,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after composed heartbeat reachability:
+
+```bash
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo check --workspace --all-targets --all-features
+cargo clippy -p kairo -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after composed three-node peer management:
 

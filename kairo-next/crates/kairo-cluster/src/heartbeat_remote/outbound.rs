@@ -80,8 +80,10 @@ impl Actor for HeartbeatRemoteReceiverOutbound {
     fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             HeartbeatReceiverMsg::Heartbeat { heartbeat, .. } => {
-                self.send_heartbeat(heartbeat)
-                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                match self.send_heartbeat(heartbeat) {
+                    Ok(()) | Err(ClusterHeartbeatRemoteError::Send { .. }) => {}
+                    Err(error) => return Err(ActorError::Message(error.to_string())),
+                }
             }
         }
         Ok(())
