@@ -859,6 +859,12 @@ TCP association dialing:
   `RemoteAssociationAddress` values, the sender system UID, and the lane id.
   Listeners reject lanes addressed to another local address, lanes from mixed
   remote association incarnations, or duplicate lane ids,
+- `TcpHandshakeReadSettings` bounds each handshake body and read duration on
+  accepted streams and symmetric dialer responses. The 64 KiB default body
+  limit is checked against the declared length before allocation, and the
+  five-second default read timeout rejects silent peers before their lane can
+  enter association assembly; both limits are replaceable on the composed
+  runtime builder,
 - after validating all lanes, actor-system listeners return the same stable
   handshake record in the reverse direction. Dialers validate all responses
   before installing a route, so both endpoints know the peer UID and lane

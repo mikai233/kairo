@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::{
     RemoteAssociationAddress, RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration,
-    RemoteByteSink, RemoteStreamId,
+    RemoteByteSink, RemoteStreamId, TcpHandshakeReadSettings,
 };
 
 use super::{
@@ -17,6 +17,7 @@ pub struct TcpAssociationDialer {
     connect_timeout: Option<Duration>,
     local_identity: Option<TcpAssociationIdentity>,
     handshake_response_required: bool,
+    handshake_read_settings: TcpHandshakeReadSettings,
 }
 
 impl TcpAssociationDialer {
@@ -26,6 +27,7 @@ impl TcpAssociationDialer {
             connect_timeout: None,
             local_identity: None,
             handshake_response_required: false,
+            handshake_read_settings: TcpHandshakeReadSettings::default(),
         }
     }
 
@@ -50,6 +52,11 @@ impl TcpAssociationDialer {
 
     pub fn with_handshake_response_required(mut self) -> Self {
         self.handshake_response_required = true;
+        self
+    }
+
+    pub fn with_handshake_read_settings(mut self, settings: TcpHandshakeReadSettings) -> Self {
+        self.handshake_read_settings = settings;
         self
     }
 
@@ -125,13 +132,16 @@ impl TcpAssociationDialer {
         let mut handshakes = Vec::with_capacity(streams.len());
         for stream in streams {
             stream
-                .set_read_timeout(self.connect_timeout)
+                .set_read_timeout(Some(self.handshake_read_settings.read_timeout()))
                 .map_err(|error| {
                     crate::RemoteError::Inbound(format!(
                         "tcp handshake response timeout setup failed: {error}"
                     ))
                 })?;
-            handshakes.push(super::read_tcp_association_handshake(stream)?);
+            handshakes.push(super::read_tcp_association_handshake_with_limit(
+                stream,
+                self.handshake_read_settings.max_payload_bytes(),
+            )?);
             stream.set_read_timeout(None).map_err(|error| {
                 crate::RemoteError::Inbound(format!(
                     "tcp handshake response timeout clear failed: {error}"

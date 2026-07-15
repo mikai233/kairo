@@ -45,6 +45,9 @@ pub enum RemoteError {
     /// format.
     #[error("invalid remote frame: {0}")]
     InvalidFrame(String),
+    /// TCP handshake resource settings were zero or otherwise unusable.
+    #[error("invalid tcp handshake settings: {0}")]
+    InvalidTcpHandshakeSettings(String),
     /// The association is closed and cannot accept more outbound traffic.
     #[error("remote association with `{remote}` is closed: {reason}")]
     AssociationClosed { remote: String, reason: String },

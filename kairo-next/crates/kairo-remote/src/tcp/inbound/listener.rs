@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use crate::tcp::{
     TcpAssociationHandshake, TcpAssociationIdentity, TcpAssociationReaderSupervisor,
-    TcpRemoteByteSink, encode_tcp_association_handshake, read_tcp_association_handshake,
-    validate_tcp_association_handshakes,
+    TcpHandshakeReadSettings, TcpRemoteByteSink, encode_tcp_association_handshake,
+    read_tcp_association_handshake_with_limit, validate_tcp_association_handshakes,
 };
 use crate::{
     RemoteAssociationAddress, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
@@ -35,6 +35,7 @@ pub struct TcpAssociationListener {
     accept_poll_interval: Duration,
     local_address: Option<RemoteAssociationAddress>,
     local_identity: Option<TcpAssociationIdentity>,
+    handshake_read_settings: TcpHandshakeReadSettings,
     association_registry: Option<RemoteAssociationRegistry>,
     route_installer: Option<RemoteAssociationRouteInstaller>,
 }
@@ -74,6 +75,7 @@ impl TcpAssociationListener {
             accept_poll_interval: DEFAULT_ACCEPT_POLL_INTERVAL,
             local_address: None,
             local_identity: None,
+            handshake_read_settings: TcpHandshakeReadSettings::default(),
             association_registry: None,
             route_installer: None,
         }
@@ -96,6 +98,11 @@ impl TcpAssociationListener {
     ) -> Self {
         self.local_identity = Some(TcpAssociationIdentity::new(local_address.clone(), uid));
         self.local_address = Some(local_address);
+        self
+    }
+
+    pub fn with_handshake_read_settings(mut self, settings: TcpHandshakeReadSettings) -> Self {
+        self.handshake_read_settings = settings;
         self
     }
 
@@ -289,7 +296,20 @@ impl TcpAssociationListener {
         handshakes: &mut Vec<TcpAssociationHandshake>,
     ) -> Result<Option<RemoteStreamId>> {
         if self.local_address.is_some() {
-            let handshake = read_tcp_association_handshake(stream)?;
+            stream
+                .set_read_timeout(Some(self.handshake_read_settings.read_timeout()))
+                .map_err(|error| {
+                    RemoteError::Inbound(format!(
+                        "tcp handshake read timeout setup failed: {error}"
+                    ))
+                })?;
+            let handshake = read_tcp_association_handshake_with_limit(
+                stream,
+                self.handshake_read_settings.max_payload_bytes(),
+            )?;
+            stream.set_read_timeout(None).map_err(|error| {
+                RemoteError::Inbound(format!("tcp handshake read timeout clear failed: {error}"))
+            })?;
             let stream_id = handshake.stream_id();
             handshakes.push(handshake);
             return Ok(Some(stream_id));

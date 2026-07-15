@@ -168,9 +168,14 @@ replies, one runtime-owned scheduler actor retries retained FIFO entries, and
 buffer overflow, invalid transitions, or acknowledgement give-up quarantine
 and close the exact incarnation while reporting retained failures. Remote
 death-watch lifecycle traffic exercises this path end to end; heartbeats remain
-refreshable at-most-once control traffic. Defensive handshake and association
-lifecycle limits are next. The older subsystem-specific TCP runtimes remain
-migration baselines until their higher runtime owners adopt the shared core.
+refreshable at-most-once control traffic. Handshake reads now have builder-
+configurable payload and duration bounds: the decoder rejects the declared
+length before allocating a body above the 64 KiB default, accepted streams time
+out silent peers before lane assembly, and symmetric dialers apply the same
+bounds to identity responses. Partial-lane assembly, concurrent-peer limits,
+and association-wide reader/writer failure ownership remain next. The older
+subsystem-specific TCP runtimes remain migration baselines until their higher
+runtime owners adopt the shared core.
 
 The reliable-delivery wire/state-machine layer and its composed runtime are now
 implemented: registered stable envelope/ack/nack codecs preserve a nested

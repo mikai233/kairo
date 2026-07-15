@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::time::Duration;
 
 use bytes::Bytes;
 use kairo_serialization::{WireReader, WireWriter};
@@ -8,6 +9,50 @@ use crate::{RemoteAssociationAddress, RemoteError, RemoteStreamId, Result};
 const TCP_HANDSHAKE_MAGIC: [u8; 4] = *b"KAH2";
 const TCP_HANDSHAKE_VERSION: u8 = 2;
 const TCP_HANDSHAKE_PREFIX_LEN: usize = TCP_HANDSHAKE_MAGIC.len() + 1 + 4;
+pub const DEFAULT_TCP_HANDSHAKE_MAX_PAYLOAD_BYTES: usize = 64 * 1024;
+pub const DEFAULT_TCP_HANDSHAKE_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TcpHandshakeReadSettings {
+    max_payload_bytes: usize,
+    read_timeout: Duration,
+}
+
+impl TcpHandshakeReadSettings {
+    pub fn new(max_payload_bytes: usize, read_timeout: Duration) -> Result<Self> {
+        if max_payload_bytes == 0 {
+            return Err(RemoteError::InvalidTcpHandshakeSettings(
+                "tcp handshake maximum payload bytes must be greater than zero".to_string(),
+            ));
+        }
+        if read_timeout.is_zero() {
+            return Err(RemoteError::InvalidTcpHandshakeSettings(
+                "tcp handshake read timeout must be greater than zero".to_string(),
+            ));
+        }
+        Ok(Self {
+            max_payload_bytes,
+            read_timeout,
+        })
+    }
+
+    pub fn max_payload_bytes(self) -> usize {
+        self.max_payload_bytes
+    }
+
+    pub fn read_timeout(self) -> Duration {
+        self.read_timeout
+    }
+}
+
+impl Default for TcpHandshakeReadSettings {
+    fn default() -> Self {
+        Self {
+            max_payload_bytes: DEFAULT_TCP_HANDSHAKE_MAX_PAYLOAD_BYTES,
+            read_timeout: DEFAULT_TCP_HANDSHAKE_READ_TIMEOUT,
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpAssociationIdentity {
@@ -80,7 +125,10 @@ pub fn encode_tcp_association_handshake(handshake: &TcpAssociationHandshake) -> 
     Ok(Bytes::from(bytes))
 }
 
-pub fn read_tcp_association_handshake(reader: &mut impl Read) -> Result<TcpAssociationHandshake> {
+pub fn read_tcp_association_handshake_with_limit(
+    reader: &mut impl Read,
+    max_payload_bytes: usize,
+) -> Result<TcpAssociationHandshake> {
     let mut prefix = [0_u8; TCP_HANDSHAKE_PREFIX_LEN];
     reader
         .read_exact(&mut prefix)
@@ -99,6 +147,11 @@ pub fn read_tcp_association_handshake(reader: &mut impl Read) -> Result<TcpAssoc
     let mut len = [0_u8; 4];
     len.copy_from_slice(&prefix[TCP_HANDSHAKE_MAGIC.len() + 1..]);
     let len = u32::from_be_bytes(len) as usize;
+    if len > max_payload_bytes {
+        return Err(RemoteError::InvalidFrame(format!(
+            "tcp association handshake payload length {len} exceeds limit {max_payload_bytes}"
+        )));
+    }
     let mut payload = vec![0_u8; len];
     reader.read_exact(&mut payload).map_err(|error| {
         RemoteError::Inbound(format!("tcp handshake payload read failed: {error}"))
@@ -213,7 +266,11 @@ mod tests {
         let mut bytes = encode_tcp_association_handshake(&handshake)
             .unwrap()
             .reader();
-        let decoded = read_tcp_association_handshake(&mut bytes).unwrap();
+        let decoded = read_tcp_association_handshake_with_limit(
+            &mut bytes,
+            DEFAULT_TCP_HANDSHAKE_MAX_PAYLOAD_BYTES,
+        )
+        .unwrap();
 
         assert_eq!(decoded, handshake);
     }
@@ -233,6 +290,26 @@ mod tests {
             .expect_err("trailing handshake payload byte should fail");
 
         assert!(error.to_string().contains("trailing byte"));
+    }
+
+    #[test]
+    fn tcp_handshake_rejects_oversized_payload_before_reading_or_allocating_body() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&TCP_HANDSHAKE_MAGIC);
+        bytes.push(TCP_HANDSHAKE_VERSION);
+        bytes.extend_from_slice(&65_u32.to_be_bytes());
+
+        let error = read_tcp_association_handshake_with_limit(&mut bytes.as_slice(), 64)
+            .expect_err("oversized handshake prefix should fail without a payload body");
+
+        assert!(matches!(error, RemoteError::InvalidFrame(_)));
+        assert!(error.to_string().contains("exceeds limit 64"));
+    }
+
+    #[test]
+    fn tcp_handshake_read_settings_reject_zero_resource_limits() {
+        assert!(TcpHandshakeReadSettings::new(0, Duration::from_secs(1)).is_err());
+        assert!(TcpHandshakeReadSettings::new(1, Duration::ZERO).is_err());
     }
 
     #[test]

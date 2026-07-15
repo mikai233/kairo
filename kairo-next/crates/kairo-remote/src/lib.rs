@@ -285,12 +285,14 @@ pub use stream_sink::{
 };
 pub use system_inbound::{ActorSystemRemoteInbound, ActorSystemRemoteInboundRegistry};
 pub use tcp::{
+    DEFAULT_TCP_HANDSHAKE_MAX_PAYLOAD_BYTES, DEFAULT_TCP_HANDSHAKE_READ_TIMEOUT,
     TcpAcceptedAssociation, TcpAssociationDialer, TcpAssociationFrameHandlerFactory,
     TcpAssociationHandshake, TcpAssociationIdentity, TcpAssociationListener,
     TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReadReport,
     TcpAssociationReaderFailure, TcpAssociationReaderHandle, TcpAssociationReaderRestartSettings,
     TcpAssociationReaderSupervisionDecision, TcpAssociationReaderSupervisor,
-    TcpAssociationStreamReader, TcpAssociationSupervisedReadReport, TcpRemoteByteSink,
+    TcpAssociationStreamReader, TcpAssociationSupervisedReadReport, TcpHandshakeReadSettings,
+    TcpRemoteByteSink, read_tcp_association_handshake_with_limit,
 };
 pub use tcp_runtime::{
     TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder, TcpRemoteActorRuntimeContext,

@@ -23,7 +23,8 @@ use crate::{
     RemoteError, RemoteLaneClassifier, RemoteOutbound, RemoteOutboundQueueSettings, RemoteSettings,
     RemoteStreamId, ResolvedActorRef, Result, TcpAssociationDialer, TcpAssociationListener,
     TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReaderHandle,
-    TcpAssociationStreamReader, UnwatchRemote, WatchRemote, is_remote_death_watch_manifest,
+    TcpAssociationStreamReader, TcpHandshakeReadSettings, UnwatchRemote, WatchRemote,
+    is_remote_death_watch_manifest,
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -106,6 +107,7 @@ pub struct TcpRemoteActorRuntimeBuilder {
     manifests: HashSet<String>,
     lane_classifier: RemoteLaneClassifier,
     outbound_queue_settings: RemoteOutboundQueueSettings,
+    handshake_read_settings: TcpHandshakeReadSettings,
     reliable_delivery_settings: ReliableSystemDeliverySettings,
     reliable_delivery_observer: Arc<dyn ReliableSystemDeliveryObserver>,
     reliable_manifests: HashSet<String>,
@@ -213,6 +215,7 @@ impl TcpRemoteActorRuntime {
             manifests: HashSet::new(),
             lane_classifier,
             outbound_queue_settings: RemoteOutboundQueueSettings::default(),
+            handshake_read_settings: TcpHandshakeReadSettings::default(),
             reliable_delivery_settings: ReliableSystemDeliverySettings::default(),
             reliable_delivery_observer: Arc::new(IgnoreReliableSystemDeliveryFailures),
             reliable_manifests: default_reliable_manifests(),
@@ -229,6 +232,11 @@ impl TcpRemoteActorRuntimeBuilder {
 
     pub fn with_outbound_queue_settings(mut self, settings: RemoteOutboundQueueSettings) -> Self {
         self.outbound_queue_settings = settings;
+        self
+    }
+
+    pub fn with_handshake_read_settings(mut self, settings: TcpHandshakeReadSettings) -> Self {
+        self.handshake_read_settings = settings;
         self
     }
 
@@ -343,6 +351,7 @@ impl TcpRemoteActorRuntimeBuilder {
             observer,
             lane_classifier,
             outbound_queue_settings,
+            handshake_read_settings,
             reliable_delivery_settings,
             reliable_delivery_observer,
             reliable_manifests,
@@ -447,12 +456,14 @@ impl TcpRemoteActorRuntimeBuilder {
                 },
             ))
             .with_local_identity(local_address.clone(), local_system_uid)
+            .with_handshake_read_settings(handshake_read_settings)
             .with_association_registry(association_registry.clone())
             .with_route_installer(installer.clone())
             .spawn_accept_loop()?;
         let dialer = TcpAssociationDialer::new(installer)
             .with_local_identity(local_address, local_system_uid)
             .with_handshake_response_required()
+            .with_handshake_read_settings(handshake_read_settings)
             .with_connect_timeout(effective_settings.connect_timeout_or_default());
         let provider = RemoteActorRefProvider::with_actor_system(
             system.clone(),

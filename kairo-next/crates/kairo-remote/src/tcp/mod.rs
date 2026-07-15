@@ -6,8 +6,10 @@ mod supervision;
 
 pub use self::dialer::TcpAssociationDialer;
 pub use self::handshake::{
-    TcpAssociationHandshake, TcpAssociationIdentity, encode_tcp_association_handshake,
-    read_tcp_association_handshake, validate_tcp_association_handshakes,
+    DEFAULT_TCP_HANDSHAKE_MAX_PAYLOAD_BYTES, DEFAULT_TCP_HANDSHAKE_READ_TIMEOUT,
+    TcpAssociationHandshake, TcpAssociationIdentity, TcpHandshakeReadSettings,
+    encode_tcp_association_handshake, read_tcp_association_handshake_with_limit,
+    validate_tcp_association_handshakes,
 };
 pub use self::inbound::{
     TcpAcceptedAssociation, TcpAssociationFrameHandlerFactory, TcpAssociationListener,

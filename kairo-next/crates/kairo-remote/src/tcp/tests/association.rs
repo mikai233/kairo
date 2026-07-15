@@ -338,3 +338,31 @@ fn tcp_listener_rejects_handshake_for_different_local_address() {
     assert!(error.to_string().contains("addressed to"));
     assert!(handler.frames().is_empty());
 }
+
+#[test]
+fn tcp_listener_times_out_silent_handshake_before_lane_assembly() {
+    let listener = TcpAssociationListener::bind(
+        ("127.0.0.1", 0),
+        Arc::new(CollectingFrameHandler::default()) as Arc<dyn RemoteFrameHandler>,
+    )
+    .unwrap()
+    .with_expected_streams(1);
+    let port = listener.local_addr().unwrap().port();
+    let listener = listener
+        .with_local_address(association_address("receiver", port))
+        .with_handshake_read_settings(
+            TcpHandshakeReadSettings::new(1_024, Duration::from_millis(20)).unwrap(),
+        );
+    let handle = thread::spawn(move || listener.accept_association());
+    let _silent = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+
+    let error = match handle
+        .join()
+        .expect("handshake timeout thread should not panic")
+    {
+        Ok(_) => panic!("silent handshake peer should time out"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(error, crate::RemoteError::Inbound(_)));
+}
