@@ -208,6 +208,9 @@ Status terms in this document mean:
   The complete remote region module now denies missing public documentation;
   its control bridge pins command-specific acknowledgements, coordinator/region
   reply identity, local-only stop/ref confinement, and the two handoff phases.
+  Coordinator handoff ownership and its route transport now carry the same
+  hard gate, including one-worker-per-shard tracking, best-effort host delivery,
+  cloned route snapshots, participant fan-out, and immediate delivery reports.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator

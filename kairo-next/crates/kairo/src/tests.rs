@@ -283,6 +283,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
     let documented_modules = [
         "kairo-next/crates/kairo-cluster-sharding/src/allocation.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/coordinator_handoff.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator_store.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/coordinator_system_inbound.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/codec/coordinator.rs",
@@ -304,6 +305,7 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
         "kairo-next/crates/kairo-cluster-sharding/src/envelope.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/extractor.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/hashing.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/handoff_transport.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/protocol.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_coordinator_discovery.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_registration.rs",
