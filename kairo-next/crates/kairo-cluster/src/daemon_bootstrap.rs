@@ -11,7 +11,9 @@ use kairo_remote::{
 };
 
 use crate::{
-    CLUSTER_SYSTEM_MANIFESTS, Cluster, ClusterEventPublisher, ClusterInitJoinResponder,
+    CLUSTER_SYSTEM_MANIFESTS, Cluster, ClusterEventPublisher, ClusterGossipProcess,
+    ClusterGossipProcessMsg, ClusterGossipProcessSettings, ClusterGossipState,
+    ClusterGossipWireInbound, ClusterGossipWireOutbound, ClusterInitJoinResponder,
     ClusterInitJoinResponderMsg, ClusterInitJoinResponderPort, ClusterInitJoinResponderState,
     ClusterMembership, ClusterMembershipMsg, ClusterMembershipRemoteEnvelopeOutbound,
     ClusterMembershipWireInbound, ClusterMembershipWireOutbound,
@@ -30,6 +32,7 @@ pub struct ClusterDaemonBootstrapSettings {
     roles: Vec<String>,
     config_digest: Option<Bytes>,
     seed_process: ClusterSeedJoinProcessSettings,
+    gossip_process: ClusterGossipProcessSettings,
 }
 
 impl ClusterDaemonBootstrapSettings {
@@ -40,6 +43,7 @@ impl ClusterDaemonBootstrapSettings {
             roles: Vec::new(),
             config_digest: Some(Bytes::new()),
             seed_process: ClusterSeedJoinProcessSettings::default(),
+            gossip_process: ClusterGossipProcessSettings::default(),
         }
     }
     pub fn with_seed_nodes(mut self, value: Vec<kairo_actor::Address>) -> Self {
@@ -56,6 +60,10 @@ impl ClusterDaemonBootstrapSettings {
     }
     pub fn with_seed_process_settings(mut self, value: ClusterSeedJoinProcessSettings) -> Self {
         self.seed_process = value;
+        self
+    }
+    pub fn with_gossip_process_settings(mut self, value: ClusterGossipProcessSettings) -> Self {
+        self.gossip_process = value;
         self
     }
 }
@@ -94,6 +102,7 @@ pub struct ClusterDaemonHandle {
     self_node: UniqueAddress,
     cluster: Cluster,
     membership: ActorRef<ClusterMembershipMsg>,
+    gossip_process: ActorRef<ClusterGossipProcessMsg>,
     seed_process: ActorRef<ClusterSeedJoinProcessMsg>,
     responder: ActorRef<ClusterInitJoinResponderMsg>,
 }
@@ -109,6 +118,9 @@ impl ClusterDaemonHandle {
     }
     pub fn membership(&self) -> &ActorRef<ClusterMembershipMsg> {
         &self.membership
+    }
+    pub fn gossip_process(&self) -> &ActorRef<ClusterGossipProcessMsg> {
+        &self.gossip_process
     }
     pub fn seed_process(&self) -> &ActorRef<ClusterSeedJoinProcessMsg> {
         &self.seed_process
@@ -183,6 +195,7 @@ pub fn register_cluster_daemon(
             seed_nodes: factory_settings.seed_nodes.clone(),
             config_digest: factory_settings.config_digest.clone(),
             seed_process: factory_settings.seed_process.with_start_immediately(false),
+            gossip_process: factory_settings.gossip_process,
             registry: context.registry().clone(),
             outbound: context.outbound().clone(),
             ready: tx,
@@ -203,6 +216,7 @@ pub fn register_cluster_daemon(
             inbound,
             publisher,
             membership,
+            gossip_process,
             seed_process,
             responder,
         } = ready;
@@ -211,6 +225,7 @@ pub fn register_cluster_daemon(
             self_node,
             cluster: Cluster::new(publisher),
             membership,
+            gossip_process,
             seed_process,
             responder,
         };
@@ -230,6 +245,7 @@ struct DaemonConfig {
     seed_nodes: Vec<kairo_actor::Address>,
     config_digest: Option<Bytes>,
     seed_process: ClusterSeedJoinProcessSettings,
+    gossip_process: ClusterGossipProcessSettings,
     registry: Arc<kairo_serialization::Registry>,
     outbound: Arc<dyn kairo_remote::RemoteOutbound>,
     ready: mpsc::Sender<Result<DaemonReady, RemoteError>>,
@@ -238,6 +254,7 @@ struct DaemonReady {
     inbound: ClusterSystemInbound,
     publisher: ActorRef<crate::ClusterEventPublisherMsg>,
     membership: ActorRef<ClusterMembershipMsg>,
+    gossip_process: ActorRef<ClusterGossipProcessMsg>,
     seed_process: ActorRef<ClusterSeedJoinProcessMsg>,
     responder: ActorRef<ClusterInitJoinResponderMsg>,
 }
@@ -319,6 +336,24 @@ fn build_daemon_graph(ctx: &Context<()>, c: &DaemonConfig) -> Result<DaemonReady
             let r = c.roles.clone();
             let p = publisher.clone();
             move || ClusterMembership::new(n, r, p)
+        }),
+    )?;
+    let gossip_process = ctx.spawn(
+        "gossip-process",
+        Props::new({
+            let state = ClusterGossipState::new(self_node.clone());
+            let membership = membership.clone();
+            let outbound =
+                ClusterGossipWireOutbound::from_arc(c.registry.clone(), c.outbound.clone());
+            let settings = c.gossip_process;
+            move || {
+                ClusterGossipProcess::new(
+                    state.clone(),
+                    membership.clone(),
+                    outbound.clone(),
+                    settings,
+                )
+            }
         }),
     )?;
     let wire = ClusterSeedJoinWireOutbound::new(
@@ -410,12 +445,15 @@ fn build_daemon_graph(ctx: &Context<()>, c: &DaemonConfig) -> Result<DaemonReady
         seed_process.clone(),
         ClusterInitJoinResponderPort::new(responder.clone()),
     );
+    let gossip_inbound = ClusterGossipWireInbound::new(c.registry.clone(), gossip_process.clone());
     Ok(DaemonReady {
         inbound: ClusterSystemInbound::new(self_node)
             .with_membership(membership_inbound)
+            .with_gossip(gossip_inbound)
             .with_seed_join(seed_inbound),
         publisher,
         membership,
+        gossip_process,
         seed_process,
         responder,
     })
@@ -468,7 +506,10 @@ mod tests {
         let seed_registration = register_cluster_daemon(
             &mut seed_builder,
             ClusterDaemonBootstrapSettings::new(1)
-                .with_config_digest(Some(Bytes::from_static(b"cluster"))),
+                .with_config_digest(Some(Bytes::from_static(b"cluster")))
+                .with_gossip_process_settings(
+                    ClusterGossipProcessSettings::new(Duration::from_millis(20)).unwrap(),
+                ),
         )
         .unwrap();
         let seed_runtime = seed_builder.bind().unwrap();
@@ -519,7 +560,10 @@ mod tests {
             &mut joining_builder,
             ClusterDaemonBootstrapSettings::new(2)
                 .with_seed_nodes(vec![seed_handle.self_node().address.clone()])
-                .with_config_digest(Some(Bytes::from_static(b"cluster"))),
+                .with_config_digest(Some(Bytes::from_static(b"cluster")))
+                .with_gossip_process_settings(
+                    ClusterGossipProcessSettings::new(Duration::from_millis(20)).unwrap(),
+                ),
         )
         .unwrap();
         let joining_runtime = joining_builder.bind().unwrap();
@@ -529,13 +573,22 @@ mod tests {
         await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
             let seed_gossip = current_gossip(&seed_state, &seed_handle);
             let joining_gossip = current_gossip(&joining_state, &joining_handle);
-            if seed_gossip.has_member(joining_handle.self_node())
-                && joining_gossip.has_member(seed_handle.self_node())
-                && joining_gossip.has_member(joining_handle.self_node())
-            {
+            let both_up = [seed_handle.self_node(), joining_handle.self_node()]
+                .into_iter()
+                .all(|node| {
+                    seed_gossip.member(node).map(|member| member.status) == Some(MemberStatus::Up)
+                        && joining_gossip.member(node).map(|member| member.status)
+                            == Some(MemberStatus::Up)
+                });
+            let both_converged = [seed_handle.self_node(), joining_handle.self_node()]
+                .into_iter()
+                .all(|node| {
+                    seed_gossip.seen_by().contains(node) && joining_gossip.seen_by().contains(node)
+                });
+            if both_up && both_converged {
                 Ok(())
             } else {
-                Err("Join/Welcome seed flow has not completed".to_string())
+                Err("periodic gossip has not converged both members to Up".to_string())
             }
         })
         .unwrap();

@@ -39,6 +39,7 @@ kairo-benchmarks
 | Crate | Why it is present |
 | --- | --- |
 | `bytes` | Stable wire buffers and frame payloads for serialization, remoting, cluster, distributed-data, sharding, tools, and examples. |
+| `sha1` | Pekko-compatible, non-security digest of the cluster gossip seen table for status negotiation. |
 | `thiserror` | Explicit error enums without hand-written `Display` boilerplate in actor, serialization, and remote crates. |
 | `proc-macro2`, `quote`, `syn` | Derive macro implementation for stable remote-message metadata. |
 | `toml` | Optional facade configuration feature for the initial TOML loader. |
@@ -51,15 +52,23 @@ active dependency surface.
 
 | Crate | Version | License |
 | --- | ---: | --- |
+| `block-buffer` | 0.10.4 | MIT OR Apache-2.0 |
 | `bytes` | 1.11.1 | MIT |
+| `cfg-if` | 1.0.4 | MIT OR Apache-2.0 |
+| `cpufeatures` | 0.2.17 | MIT OR Apache-2.0 |
+| `crypto-common` | 0.1.7 | MIT OR Apache-2.0 |
+| `digest` | 0.10.7 | MIT OR Apache-2.0 |
 | `equivalent` | 1.0.2 | Apache-2.0 OR MIT |
+| `generic-array` | 0.14.7 | MIT |
 | `hashbrown` | 0.17.1 | MIT OR Apache-2.0 |
 | `indexmap` | 2.14.0 | Apache-2.0 OR MIT |
+| `libc` | 0.2.186 | MIT OR Apache-2.0 |
 | `proc-macro2` | 1.0.106 | MIT OR Apache-2.0 |
 | `quote` | 1.0.45 | MIT OR Apache-2.0 |
 | `serde_core` | 1.0.228 | MIT OR Apache-2.0 |
 | `serde_derive` | 1.0.228 | MIT OR Apache-2.0 |
 | `serde_spanned` | 1.1.1 | MIT OR Apache-2.0 |
+| `sha1` | 0.10.7 | MIT OR Apache-2.0 |
 | `syn` | 2.0.117 | MIT OR Apache-2.0 |
 | `thiserror` | 2.0.18 | MIT OR Apache-2.0 |
 | `thiserror-impl` | 2.0.18 | MIT OR Apache-2.0 |
@@ -67,7 +76,9 @@ active dependency surface.
 | `toml_datetime` | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 |
 | `toml_parser` | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 |
 | `toml_writer` | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 |
+| `typenum` | 1.20.1 | MIT OR Apache-2.0 |
 | `unicode-ident` | 1.0.19 | (MIT OR Apache-2.0) AND Unicode-3.0 |
+| `version_check` | 0.9.5 | MIT OR Apache-2.0 |
 | `winnow` | 1.0.3 | MIT |
 
 ## Policy Check

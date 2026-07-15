@@ -69,6 +69,7 @@ mod event_publisher;
 mod events;
 mod failure_detector;
 mod gossip;
+mod gossip_process;
 mod heartbeat;
 mod heartbeat_actor;
 mod heartbeat_remote;
@@ -136,6 +137,11 @@ pub use failure_detector::{
     FailureDetectorRegistry,
 };
 pub use gossip::Gossip;
+pub use gossip_process::{
+    ClusterGossipAction, ClusterGossipProcess, ClusterGossipProcessMsg,
+    ClusterGossipProcessSettings, ClusterGossipProcessSettingsError, ClusterGossipState,
+    ClusterGossipWireError, ClusterGossipWireInbound, ClusterGossipWireOutbound,
+};
 pub use heartbeat::{HeartbeatError, HeartbeatNodeRing, HeartbeatSenderState};
 pub use heartbeat_actor::{
     HeartbeatClock, HeartbeatReceiver, HeartbeatReceiverMsg, HeartbeatSender, HeartbeatSenderMsg,

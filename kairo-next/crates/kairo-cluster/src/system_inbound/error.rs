@@ -1,10 +1,14 @@
 use std::fmt::{self, Display, Formatter};
 
-use crate::{ClusterHeartbeatRemoteError, ClusterMembershipWireError, ClusterSeedJoinWireError};
+use crate::{
+    ClusterGossipWireError, ClusterHeartbeatRemoteError, ClusterMembershipWireError,
+    ClusterSeedJoinWireError,
+};
 
 #[derive(Debug)]
 pub enum ClusterSystemInboundError {
     Heartbeat(ClusterHeartbeatRemoteError),
+    Gossip(ClusterGossipWireError),
     InvalidRecipientPath(String),
     Membership(ClusterMembershipWireError),
     SeedJoin(ClusterSeedJoinWireError),
@@ -19,6 +23,7 @@ impl Display for ClusterSystemInboundError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::Heartbeat(error) => write!(f, "{error}"),
+            Self::Gossip(error) => write!(f, "{error}"),
             Self::InvalidRecipientPath(path) => {
                 write!(f, "cluster recipient path `{path}` must start with `/`")
             }
@@ -55,6 +60,12 @@ impl From<ClusterHeartbeatRemoteError> for ClusterSystemInboundError {
 impl From<ClusterMembershipWireError> for ClusterSystemInboundError {
     fn from(error: ClusterMembershipWireError) -> Self {
         Self::Membership(error)
+    }
+}
+
+impl From<ClusterGossipWireError> for ClusterSystemInboundError {
+    fn from(error: ClusterGossipWireError) -> Self {
+        Self::Gossip(error)
     }
 }
 

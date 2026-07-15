@@ -1,13 +1,16 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use kairo_actor::Address;
 use kairo_serialization::{ActorRefWireData, Manifest, Registry, RemoteMessage, SerializedMessage};
+use kairo_testkit::ActorSystemTestKit;
 
 use super::*;
 use crate::{
-    DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH,
-    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, Heartbeat, HeartbeatRsp, InitJoin, Join, UniqueAddress,
+    ClusterGossipProcessMsg, ClusterGossipWireInbound, DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH,
+    DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, GossipStatus,
+    Heartbeat, HeartbeatRsp, InitJoin, Join, UniqueAddress, VectorClock,
     register_cluster_protocol_codecs,
 };
 
@@ -32,11 +35,44 @@ fn wire_for(node: &UniqueAddress, path: &str) -> ActorRefWireData {
 fn cluster_system_manifest_helper_matches_seed_membership_and_heartbeat_protocols() {
     assert!(is_cluster_system_manifest(InitJoin::MANIFEST));
     assert!(is_cluster_system_manifest(Join::MANIFEST));
+    assert!(is_cluster_system_manifest(GossipStatus::MANIFEST));
     assert!(is_cluster_system_manifest(Heartbeat::MANIFEST));
     assert!(is_cluster_system_manifest(HeartbeatRsp::MANIFEST));
     assert!(!is_cluster_system_manifest(
         "kairo.cluster-tools.pubsub.status"
     ));
+}
+
+#[test]
+fn system_inbound_routes_gossip_status_to_process() {
+    let kit = ActorSystemTestKit::new("system-inbound-gossip").unwrap();
+    let self_node = node("receiver", 2552, 2);
+    let sender = node("sender", 2551, 1);
+    let registry = registry();
+    let process = kit
+        .create_probe::<ClusterGossipProcessMsg>("gossip-process")
+        .unwrap();
+    let status = GossipStatus {
+        from: sender,
+        version: VectorClock::new().increment("sender"),
+        seen_digest: Bytes::from_static(b"seen"),
+    };
+    let envelope = kairo_serialization::RemoteEnvelope::new(
+        wire_for(&self_node, DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH),
+        None,
+        registry.serialize(&status).unwrap(),
+    );
+
+    ClusterSystemInbound::new(self_node)
+        .with_gossip(ClusterGossipWireInbound::new(registry, process.actor_ref()))
+        .receive(envelope)
+        .unwrap();
+
+    assert!(matches!(
+        process.expect_msg(Duration::from_secs(1)).unwrap(),
+        ClusterGossipProcessMsg::Status(actual) if actual == status
+    ));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

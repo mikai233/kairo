@@ -1460,6 +1460,15 @@ Receiving `GossipStatus`:
 5. If remote is newer, send status back; if local is newer or concurrent, send
    full gossip.
 
+The seen digest is SHA-1 over the comma-separated canonical addresses of the
+sorted seen table, matching Pekko's non-security convergence digest. The
+composed daemon owns a typed periodic gossip process. It prefers reachable
+members that have not seen the current view, sends them full gossip, and uses
+deterministic round-robin selection among equivalent candidates; once the peer
+is in the seen table it sends `GossipStatus`. Each periodic round also requests
+leader actions from the membership owner. Transport failure is best-effort and
+does not stop gossip scheduling; a later round retries.
+
 Receiving `GossipEnvelope`:
 
 1. Validate `to == self_unique_address`.

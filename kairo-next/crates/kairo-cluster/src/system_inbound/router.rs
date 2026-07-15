@@ -3,9 +3,9 @@ use kairo_remote::{RemoteError, RemoteFrameHandler, RemoteStreamId, decode_remot
 use kairo_serialization::{ActorRefWireData, RemoteEnvelope, RemoteMessage};
 
 use crate::{
-    ClusterMembershipWireInbound, ClusterSeedJoinWireInbound,
+    ClusterGossipWireInbound, ClusterMembershipWireInbound, ClusterSeedJoinWireInbound,
     DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH,
-    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, GossipEnvelope, Heartbeat,
+    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, GossipEnvelope, GossipStatus, Heartbeat,
     HeartbeatRemoteReceiverInbound, HeartbeatRemoteResponseInbound, HeartbeatRsp, InitJoin,
     InitJoinAck, InitJoinNack, Join, UniqueAddress, Welcome,
 };
@@ -15,6 +15,7 @@ use super::ClusterSystemInboundError;
 #[derive(Clone)]
 pub struct ClusterSystemInbound {
     self_node: UniqueAddress,
+    gossip: Option<ClusterGossipWireInbound>,
     membership: Option<ClusterMembershipWireInbound>,
     heartbeat_receiver: Option<HeartbeatRemoteReceiverInbound>,
     heartbeat_response: Option<HeartbeatRemoteResponseInbound>,
@@ -25,6 +26,7 @@ impl ClusterSystemInbound {
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             self_node,
+            gossip: None,
             membership: None,
             heartbeat_receiver: None,
             heartbeat_response: None,
@@ -34,6 +36,11 @@ impl ClusterSystemInbound {
 
     pub fn with_membership(mut self, inbound: ClusterMembershipWireInbound) -> Self {
         self.membership = Some(inbound);
+        self
+    }
+
+    pub fn with_gossip(mut self, inbound: ClusterGossipWireInbound) -> Self {
+        self.gossip = Some(inbound);
         self
     }
 
@@ -75,6 +82,18 @@ impl ClusterSystemInbound {
                 self.membership
                     .as_ref()
                     .ok_or(ClusterSystemInboundError::MissingHandler("membership"))?
+                    .receive_message(envelope.message)?;
+                Ok(())
+            }
+            GossipStatus::MANIFEST => {
+                validate_recipient(
+                    &self.self_node,
+                    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH,
+                    &envelope.recipient,
+                )?;
+                self.gossip
+                    .as_ref()
+                    .ok_or(ClusterSystemInboundError::MissingHandler("gossip"))?
                     .receive_message(envelope.message)?;
                 Ok(())
             }
@@ -129,6 +148,7 @@ pub fn is_cluster_system_manifest(manifest: &str) -> bool {
             | InitJoinNack::MANIFEST
             | Welcome::MANIFEST
             | GossipEnvelope::MANIFEST
+            | GossipStatus::MANIFEST
             | Heartbeat::MANIFEST
             | HeartbeatRsp::MANIFEST
     )

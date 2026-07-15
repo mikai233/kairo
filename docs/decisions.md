@@ -3347,3 +3347,45 @@ Consequences:
   validated envelope metadata.
 - Bootstrap activation is an explicit post-bind step until the public
   ActorSystem extension owns both operations behind one builder call.
+
+## ADR-0109: Periodic Gossip Uses Stable Seen Digests And Typed Ownership
+
+Status: Accepted
+
+Context:
+Seed admission establishes the initial membership view, but joined nodes do
+not reach convergence or advance `Joining` members without recurring gossip
+and leader actions. Pekko avoids full-state transfer when peers share a view by
+negotiating vector clocks and a digest of the seen table. Kairo needs the same
+observable negotiation rules without random scheduling making state-machine
+tests nondeterministic.
+
+Decision:
+`Gossip::seen_digest` is SHA-1 over the comma-separated canonical addresses of
+the sorted seen table. This intentionally matches Pekko's non-security digest;
+it is an equality optimization and is not used for authentication or
+membership identity.
+
+The daemon owns a typed `ClusterGossipProcess`. Each fixed-delay tick requests
+the authoritative gossip from `ClusterMembership`, asks that owner to run
+leader actions, and selects a locally reachable non-self member. Members not in
+the seen table are preferred and receive full gossip; otherwise the process
+sends `GossipStatus`. Candidate ordering and selection are deterministic
+round-robin rather than random. Receiving status follows Pekko's negotiation:
+unknown or locally unreachable senders are ignored, a different seen digest
+gets full gossip, a newer remote clock gets local status, an older or concurrent
+remote clock gets full gossip, and identical state ends the exchange.
+
+Status is routed through the shared cluster control lane at the real daemon
+path. Periodic outbound failure is best-effort and does not terminate the
+gossip actor, so later rounds can converge after association recovery.
+
+Consequences:
+- Seed-formed nodes can converge and advance to `Up` without injected ticks or
+  membership snapshots.
+- Full gossip remains the membership truth; status messages only choose which
+  side sends it.
+- Reproducible target selection diverges from Pekko's randomized probability
+  tuning but preserves reachability and different-view preference semantics.
+- SHA-1 is a narrow direct dependency for wire-compatible seen equality, not a
+  security primitive.

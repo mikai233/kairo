@@ -10,6 +10,7 @@ bytes = { workspace = true }
 kairo-actor = { workspace = true }
 kairo-remote = { workspace = true }
 kairo-serialization = { workspace = true }
+sha1 = { workspace = true }
 
 [dev-dependencies]
 kairo-testkit = { workspace = true }

@@ -20,6 +20,7 @@ kairo-cluster-tools = { path = "kairo-next/crates/kairo-cluster-tools" }
 kairo-cluster-sharding = { path = "kairo-next/crates/kairo-cluster-sharding" }
 kairo-testkit = { path = "kairo-next/crates/kairo-testkit" }
 bytes = "1.11"
+sha1 = "0.10"
 thiserror = "2.0"
 toml = "1.1"
 

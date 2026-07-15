@@ -1937,7 +1937,7 @@ fn facade_cluster_module_exposes_tcp_bootstrap_surface() {
     assert_eq!(bootstrap_settings.connector_name(), "facade-cluster-peer");
     assert_eq!(identity.node_uid(), 1);
     assert_eq!(identity.local_system_uid(), 11);
-    assert_eq!(crate::cluster::CLUSTER_SYSTEM_MANIFESTS.len(), 8);
+    assert_eq!(crate::cluster::CLUSTER_SYSTEM_MANIFESTS.len(), 9);
     assert!(crate::cluster::CLUSTER_SYSTEM_MANIFESTS.contains(&"kairo.cluster.init-join"));
     let _ = crate::cluster::ClusterDaemonBootstrapSettings::new(1);
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterDaemonHandle>>();

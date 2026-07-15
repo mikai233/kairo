@@ -292,8 +292,12 @@ effective canonical address, shared codec registry, and shared outbound. Its
 post-bind activation dials configured contacts before starting the seed process,
 and membership inbound lazily creates typed reply routes for unknown joining
 nodes. A two-runtime TCP test proves automatic InitJoin/Ack/Join/Welcome
-formation without injected membership snapshots. Periodic gossip, automatic
-leader convergence across the joined nodes, and coordinated leave remain the
+formation without injected membership snapshots. The composed daemon now also
+owns periodic gossip scheduling, stable seen-table digests, reachable peer
+selection, `GossipStatus` negotiation, full-gossip fallback, and periodic
+leader ticks. A two-runtime TCP test proves the joined views automatically
+converge with both members `Up` and both members in each seen table. Three-node
+peer-route composition, heartbeat scheduling, and coordinated leave remain the
 active Phase 3 work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
@@ -5918,13 +5922,12 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 3 validation after composed cluster-daemon bootstrap:
+Latest Phase 3 validation after periodic gossip convergence:
 
 ```bash
-cargo test -p kairo-cluster two_composed_runtimes_form_through_automatic_seed_contact --all-targets --all-features -- --nocapture
 cargo test -p kairo-cluster --all-targets --all-features
-cargo check --workspace --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
+cargo check --workspace --all-targets --all-features
 cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check

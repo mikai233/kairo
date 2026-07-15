@@ -1,5 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
+use bytes::Bytes;
+use sha1::{Digest, Sha1};
+
 use crate::{Member, MemberStatus, Reachability, UniqueAddress, VectorClock, VectorClockNode};
 
 pub type Timestamp = u64;
@@ -57,6 +60,22 @@ impl Gossip {
 
     pub fn seen_by(&self) -> &HashSet<UniqueAddress> {
         &self.seen
+    }
+
+    /// Returns the stable SHA-1 digest used by gossip-status negotiation.
+    ///
+    /// As in Pekko, the digest covers the comma-separated canonical addresses
+    /// of the sorted seen table. The member UID is used for sorting but is not
+    /// part of the hashed wire value.
+    pub fn seen_digest(&self) -> Bytes {
+        let mut seen: Vec<_> = self.seen.iter().collect();
+        seen.sort_by_key(|node| node.ordering_key());
+        let addresses = seen
+            .into_iter()
+            .map(|node| node.address.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        Bytes::copy_from_slice(&Sha1::digest(addresses.as_bytes()))
     }
 
     pub fn reachability(&self) -> &Reachability {
@@ -296,6 +315,25 @@ mod tests {
             &HashSet::from([node_a])
         );
         assert!(gossip.clear_seen().seen_by().is_empty());
+    }
+
+    #[test]
+    fn seen_digest_is_stable_across_insertion_order() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+
+        let left = Gossip::new().seen(node_b.clone()).seen(node_a.clone());
+        let right = Gossip::new().seen(node_a).seen(node_b);
+
+        assert_eq!(left.seen_digest(), right.seen_digest());
+        assert_eq!(left.seen_digest().len(), 20);
+        assert_eq!(
+            left.seen_digest().as_ref(),
+            &[
+                0x0e, 0x5a, 0x7e, 0x70, 0x3c, 0xe4, 0xa5, 0xf3, 0xa8, 0x11, 0x48, 0xa7, 0xd1, 0x18,
+                0xf8, 0x16, 0x06, 0xf1, 0x36, 0x58,
+            ]
+        );
     }
 
     #[test]
