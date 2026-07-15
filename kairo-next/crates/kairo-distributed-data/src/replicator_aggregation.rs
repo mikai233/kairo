@@ -5,6 +5,7 @@ use std::time::Duration;
 use kairo_actor::{ActorError, ActorRef, Context, Props};
 use kairo_remote::RemoteSettings;
 
+use crate::aggregation_session::ReadRepairRequest;
 use crate::{
     AggregationTransport, CrdtDataCodec, DataEnvelope, DeltaReplicatedData, GetResponse,
     ReadAggregationPlan, ReadAggregationSession, ReadAggregationSessionMsg, ReplicatedDelta,
@@ -167,13 +168,21 @@ where
         timeout: Duration,
         reply_to: ActorRef<GetResponse<D>>,
     ) -> Result<ActorRef<ReadAggregationSessionMsg<D>>, ActorError> {
+        let read_repair = ctx.message_adapter(|request: ReadRepairRequest<D>| {
+            ReplicatorActorMsg::ApplyReadRepair {
+                key: request.key,
+                envelope: request.envelope,
+                reply_to: request.reply_to,
+            }
+        })?;
         ctx.spawn_anonymous(Props::new({
             let transport = self.transport.clone();
             let data_codec = Arc::clone(&self.data_codec);
             let sender_settings = self.sender_settings.clone();
             move || {
                 let session =
-                    ReadAggregationSession::new(plan, data_codec, transport, timeout, reply_to);
+                    ReadAggregationSession::new(plan, data_codec, transport, timeout, reply_to)
+                        .with_read_repair(read_repair);
                 match sender_settings {
                     Some(settings) => session.with_sender_remote_settings(settings),
                     None => session,

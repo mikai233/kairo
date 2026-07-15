@@ -234,6 +234,11 @@ Status terms in this document mean:
   delta-to-full-state retry signaling, actor-owned deadlines, terminal stop,
   and immediate start-time completion for already-satisfied or impossible
   quorums.
+  Successful quorum reads now follow Pekko's read-repair handshake: the merged
+  envelope is applied to the parent replicator with pruning cleanup,
+  initialized markers record the receiving replica, and the repair is
+  acknowledged before client success; composed two-node coverage proves the
+  value is immediately available to a subsequent local read.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

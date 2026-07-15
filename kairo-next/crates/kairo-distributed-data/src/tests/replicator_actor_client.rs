@@ -306,6 +306,61 @@ fn replicator_actor_spawns_read_session_for_non_local_get() {
 }
 
 #[test]
+fn replicator_actor_applies_read_repair_before_acknowledging_session() {
+    let system = ActorSystem::builder("ddata-replicator-read-repair")
+        .build()
+        .unwrap();
+    let local = replica("local");
+    let removed = replica("removed");
+    let replicator = system
+        .spawn(
+            "replicator",
+            Props::new({
+                let local = local.clone();
+                move || ReplicatorActor::<GCounter>::new().with_self_replica(local.clone())
+            }),
+        )
+        .unwrap();
+    let (ack_ref, ack_rx) = forward_ref::<()>(&system, "repair-acks");
+    let (read_ref, read_rx) =
+        forward_ref::<Result<DirectReadResult, String>>(&system, "read-replies");
+    let key = ReplicatorKey::new("counter");
+    let envelope = DataEnvelope::new(full_counter("removed", 7))
+        .init_removed_node_pruning(removed.clone(), replica("owner"));
+
+    replicator
+        .tell(ReplicatorActorMsg::ApplyReadRepair {
+            key: key.clone(),
+            envelope,
+            reply_to: ack_ref,
+        })
+        .unwrap();
+    ack_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    replicator
+        .tell(ReplicatorActorMsg::ServeRead {
+            read: encode_read(&key, Some(replica("remote"))),
+            codec: Arc::new(GCounterCodec),
+            reply_to: read_ref,
+        })
+        .unwrap();
+    let result = read_rx
+        .recv_timeout(Duration::from_secs(1))
+        .unwrap()
+        .unwrap();
+    let repaired = decode_read_result(result.message(), &GCounterCodec)
+        .unwrap()
+        .unwrap();
+    assert_eq!(repaired.data().value().unwrap(), 7);
+    let PruningState::Initialized(initialized) = repaired.pruning().get(&removed).unwrap() else {
+        panic!("expected initialized pruning marker");
+    };
+    assert!(initialized.seen().contains(&local));
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn replicator_actor_sends_current_value_on_subscribe_and_flushes_later_changes() {
     let system = ActorSystem::builder("ddata-replicator-subscribe")
         .build()

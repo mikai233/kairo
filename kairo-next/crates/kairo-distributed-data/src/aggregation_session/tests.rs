@@ -370,6 +370,98 @@ fn read_session_spawns_aggregator_sends_primary_and_maps_result() {
 }
 
 #[test]
+fn read_session_waits_for_read_repair_before_success() {
+    let system = ActorSystem::builder("ddata-read-aggregation-repair")
+        .build()
+        .unwrap();
+    let (write_ref, _write_rx) = probe::<ReplicatorWrite>(&system, "writes");
+    let (read_ref, read_rx) = probe::<ReplicatorRead>(&system, "reads");
+    let (reply_to, replies) = probe::<GetResponse<GCounter>>(&system, "replies");
+    let (events_ref, events) = probe::<ReadAggregationSessionEvent>(&system, "events");
+    let (repair_ref, repairs) = probe::<ReadRepairRequest<GCounter>>(&system, "repairs");
+    let key = ReplicatorKey::new("counter");
+    let remote = replica("a");
+    let state = ReadAggregatorState::new(
+        key.clone(),
+        &ReadConsistency::from(2, Duration::from_secs(1)).unwrap(),
+        vec![remote.clone()],
+        None,
+    )
+    .unwrap();
+    let plan = ReadAggregationPlan::new(state.clone(), state.select_replicas(&BTreeSet::new()));
+    let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    transport.insert_target(aggregation_target("a", write_ref, read_ref));
+
+    let session = system
+        .spawn(
+            "read-session",
+            Props::new({
+                let events_ref = events_ref.clone();
+                let reply_to = reply_to.clone();
+                let repair_ref = repair_ref.clone();
+                move || {
+                    ReadAggregationSession::with_events(
+                        plan,
+                        Arc::new(GCounterCodec),
+                        transport,
+                        Duration::from_secs(5),
+                        reply_to,
+                        events_ref,
+                    )
+                    .with_read_repair(repair_ref)
+                }
+            }),
+        )
+        .unwrap();
+
+    let reply_actor = match events.recv_timeout(Duration::from_secs(1)).unwrap() {
+        ReadAggregationSessionEvent::Started { reply_to, .. } => reply_to,
+        other => panic!("expected session start, got {other:?}"),
+    };
+    read_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    session
+        .tell(ReadAggregationSessionMsg::ReadRepairApplied)
+        .unwrap();
+    assert!(replies.recv_timeout(Duration::from_millis(50)).is_err());
+    reply_actor
+        .tell(ReadAggregationActorMsg::Reply(
+            ReplicatorWireReply::ReadResult {
+                from: remote,
+                message: encode_read_result(
+                    Some(&DataEnvelope::new(counter("a", 9))),
+                    &GCounterCodec,
+                )
+                .unwrap(),
+            },
+        ))
+        .unwrap();
+
+    let repair = repairs.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(repair.key, key);
+    assert_eq!(repair.envelope.data().value().unwrap(), 9);
+    assert!(replies.recv_timeout(Duration::from_millis(50)).is_err());
+    assert!(events.recv_timeout(Duration::from_millis(50)).is_err());
+
+    repair.reply_to.tell(()).unwrap();
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(1)).unwrap(),
+        ReadAggregationSessionEvent::Completed(ReadAggregationSessionOutcome::Success)
+    ));
+    match replies.recv_timeout(Duration::from_secs(1)).unwrap() {
+        GetResponse::Success {
+            key: success_key,
+            data,
+        } => {
+            assert_eq!(success_key, key);
+            assert_eq!(data.value().unwrap(), 9);
+        }
+        other => panic!("expected get success, got {other:?}"),
+    }
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn write_session_can_publish_canonical_sender_ref() {
     let system = ActorSystem::builder("ddata-write-aggregation-canonical")
         .build()

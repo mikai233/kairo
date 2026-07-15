@@ -1707,6 +1707,25 @@ mod tests {
         assert_eq!(key, read_key);
         assert_eq!(data.value().unwrap(), 13);
 
+        let repaired = peer
+            .kit
+            .create_probe::<GetResponse<GCounter>>("repaired-local-reads")
+            .unwrap();
+        peer.ddata
+            .replicator()
+            .tell(ReplicatorActorMsg::Get {
+                key: read_key.clone(),
+                consistency: ReadConsistency::local(),
+                reply_to: repaired.actor_ref(),
+            })
+            .unwrap();
+        let GetResponse::Success { data, .. } =
+            repaired.expect_msg(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("majority read replied before repairing local state");
+        };
+        assert_eq!(data.value().unwrap(), 13);
+
         peer.shutdown();
         seed.shutdown();
     }

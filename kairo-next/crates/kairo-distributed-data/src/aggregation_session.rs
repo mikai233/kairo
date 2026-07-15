@@ -226,6 +226,16 @@ where
     D: DeltaReplicatedData + Send + 'static,
 {
     Aggregation(ReadAggregationActorEvent<D>),
+    ReadRepairApplied,
+}
+
+pub(crate) struct ReadRepairRequest<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+{
+    pub(crate) key: ReplicatorKey,
+    pub(crate) envelope: DataEnvelope<D>,
+    pub(crate) reply_to: ActorRef<()>,
 }
 
 pub struct ReadAggregationSession<D, Codec>
@@ -239,6 +249,8 @@ where
     timeout: Duration,
     reply_to: ActorRef<GetResponse<D>>,
     events: Option<ActorRef<ReadAggregationSessionEvent>>,
+    read_repair: Option<ActorRef<ReadRepairRequest<D>>>,
+    pending_read_repair: Option<DataEnvelope<D>>,
     sender: Option<ActorRefWireData>,
     sender_settings: Option<RemoteSettings>,
 }
@@ -262,6 +274,8 @@ where
             timeout,
             reply_to,
             events: None,
+            read_repair: None,
+            pending_read_repair: None,
             sender: None,
             sender_settings: None,
         }
@@ -283,6 +297,8 @@ where
             timeout,
             reply_to,
             events: Some(events),
+            read_repair: None,
+            pending_read_repair: None,
             sender: None,
             sender_settings: None,
         }
@@ -290,6 +306,11 @@ where
 
     pub fn with_sender_remote_settings(mut self, settings: RemoteSettings) -> Self {
         self.sender_settings = Some(settings);
+        self
+    }
+
+    pub(crate) fn with_read_repair(mut self, read_repair: ActorRef<ReadRepairRequest<D>>) -> Self {
+        self.read_repair = Some(read_repair);
         self
     }
 }
@@ -321,6 +342,12 @@ where
     fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
             ReadAggregationSessionMsg::Aggregation(event) => self.receive_event(ctx, event),
+            ReadAggregationSessionMsg::ReadRepairApplied => {
+                let Some(envelope) = self.pending_read_repair.take() else {
+                    return Ok(());
+                };
+                self.complete(ctx, ReadAggregationOutcome::Success { envelope })
+            }
         }
     }
 }
@@ -345,16 +372,40 @@ where
                     },
                 ))
             }
-            ReadAggregationActorEvent::Completed(outcome) => {
-                self.emit(ReadAggregationSessionEvent::Completed(
-                    ReadAggregationSessionOutcome::from(&outcome),
-                ))?;
-                let response =
-                    crate::aggregation_operation::read_aggregation_response(&self.key, outcome);
-                tell_or_actor_error(&self.reply_to, response)?;
-                ctx.stop(ctx.myself())
+            ReadAggregationActorEvent::Completed(ReadAggregationOutcome::Success { envelope }) => {
+                match &self.read_repair {
+                    Some(read_repair) => {
+                        self.pending_read_repair = Some(envelope.clone());
+                        let reply_to = ctx.message_adapter(move |()| {
+                            ReadAggregationSessionMsg::ReadRepairApplied
+                        })?;
+                        tell_or_actor_error(
+                            read_repair,
+                            ReadRepairRequest {
+                                key: self.key.clone(),
+                                envelope,
+                                reply_to,
+                            },
+                        )
+                    }
+                    None => self.complete(ctx, ReadAggregationOutcome::Success { envelope }),
+                }
             }
+            ReadAggregationActorEvent::Completed(outcome) => self.complete(ctx, outcome),
         }
+    }
+
+    fn complete(
+        &self,
+        ctx: &mut Context<ReadAggregationSessionMsg<D>>,
+        outcome: ReadAggregationOutcome<D>,
+    ) -> ActorResult {
+        self.emit(ReadAggregationSessionEvent::Completed(
+            ReadAggregationSessionOutcome::from(&outcome),
+        ))?;
+        let response = crate::aggregation_operation::read_aggregation_response(&self.key, outcome);
+        tell_or_actor_error(&self.reply_to, response)?;
+        ctx.stop(ctx.myself())
     }
 
     fn emit(&self, event: ReadAggregationSessionEvent) -> ActorResult {

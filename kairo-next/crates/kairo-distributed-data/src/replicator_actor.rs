@@ -85,6 +85,11 @@ where
         key: ReplicatorKey,
         envelope: DataEnvelope<D>,
     },
+    ApplyReadRepair {
+        key: ReplicatorKey,
+        envelope: DataEnvelope<D>,
+        reply_to: ActorRef<()>,
+    },
     WriteDelta {
         key: ReplicatorKey,
         delta: D::Delta,
@@ -206,6 +211,18 @@ where
             } => self.handle_update(ctx, key, initial, consistency, modify, reply_to)?,
             ReplicatorActorMsg::WriteFull { key, envelope } => {
                 self.state.write_full(key, envelope);
+            }
+            ReplicatorActorMsg::ApplyReadRepair {
+                key,
+                envelope,
+                reply_to,
+            } => {
+                self.state
+                    .write_full_pruned(key.clone(), envelope, wall_millis());
+                if let Some(self_replica) = &self.self_replica {
+                    self.state.mark_key_pruning_seen(&key, self_replica.clone());
+                }
+                tell_or_actor_error(&reply_to, ())?;
             }
             ReplicatorActorMsg::WriteDelta { key, delta } => {
                 self.state.write_delta(key, delta);
@@ -403,4 +420,12 @@ where
     target
         .tell(message)
         .map_err(|error| ActorError::Message(error.reason().to_string()))
+}
+
+fn wall_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or(std::time::Duration::ZERO)
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
 }
