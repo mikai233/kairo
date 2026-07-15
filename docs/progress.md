@@ -74,7 +74,10 @@ Status terms in this document mean:
   focused process-level delivery and bounded-shutdown tests. Its implicit
   shutdown budget now has a three-second floor and outlives configured connect
   attempts so reconnect work cannot consume the complete system-actor stop
-  budget. Cluster and other extension adoption proceeds in Phases 3 and 4.
+  budget. The typed reference, provider, outbound transport, local delivery,
+  settings, and canonical-address boundary now documents its complete public
+  surface and denies missing documentation module by module. Cluster and other
+  extension adoption proceeds in Phases 3 and 4.
 - M5 gossip data model: near complete. Vector clocks, gossip, reachability,
   convergence, leader selection, and event diffing have strong pure-state test
   coverage without a central membership authority. Remote membership reply
@@ -175,9 +178,9 @@ Status terms in this document mean:
   every public crate. Process-level remoting now also proves bidirectional
   v1/v2 compatibility through the stable serializer-id/manifest contract and
   codec-owned schema migration, while the facade, actor/serialization
-  foundation, and testkit now enforce complete public-item documentation;
-  final sign-off focuses on release quality rather than replacement
-  architecture.
+  foundation, testkit, and typed remoting boundary now enforce complete
+  public-item documentation; final sign-off focuses on release quality rather
+  than replacement architecture.
 
 ## Execution Plan Before M13
 

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -15,6 +17,12 @@ use crate::{
 };
 
 #[derive(Clone)]
+/// Resolves typed actor references across the local registry and remote
+/// transport boundary.
+///
+/// Providers built with a local actor system recognize that system's local and
+/// canonical remote addresses as locally owned. Providers built with [`Self::new`]
+/// resolve only explicitly remote addresses.
 pub struct RemoteActorRefProvider {
     system_name: String,
     local_provider: Option<LocalActorRefProvider>,
@@ -25,6 +33,10 @@ pub struct RemoteActorRefProvider {
 }
 
 impl RemoteActorRefProvider {
+    /// Creates a remote-only provider for `system_name`.
+    ///
+    /// This form has no local registry and therefore cannot serialize local
+    /// actor references or provide guardian references.
     pub fn new(
         system_name: impl Into<String>,
         settings: RemoteSettings,
@@ -41,6 +53,7 @@ impl RemoteActorRefProvider {
         }
     }
 
+    /// Creates a provider backed by an actor system's local reference provider.
     pub fn with_actor_system(
         system: ActorSystem,
         settings: RemoteSettings,
@@ -50,6 +63,7 @@ impl RemoteActorRefProvider {
         Self::with_local_provider(system.provider(), settings, registry, outbound)
     }
 
+    /// Creates a provider backed by an explicit local reference provider.
     pub fn with_local_provider(
         local_provider: LocalActorRefProvider,
         settings: RemoteSettings,
@@ -70,14 +84,20 @@ impl RemoteActorRefProvider {
         }
     }
 
+    /// Returns the actor-system name associated with this provider.
     pub fn system_name(&self) -> &str {
         &self.system_name
     }
 
+    /// Returns the remote address and connection settings.
     pub fn settings(&self) -> &RemoteSettings {
         &self.settings
     }
 
+    /// Resolves an explicitly remote path to a typed remote actor reference.
+    ///
+    /// Local paths and canonical addresses owned by this provider are rejected;
+    /// use [`Self::resolve_actor_ref`] when either locality is acceptable.
     pub fn resolve<M>(&self, path: impl Into<String>) -> Result<RemoteActorRef<M>>
     where
         M: RemoteMessage,
@@ -86,6 +106,8 @@ impl RemoteActorRefProvider {
         self.resolve_wire(wire)
     }
 
+    /// Resolves a path to a local or remote typed actor reference according to
+    /// address ownership.
     pub fn resolve_actor_ref<M>(&self, path: impl Into<String>) -> Result<ResolvedActorRef<M>>
     where
         M: RemoteMessage,
@@ -94,6 +116,8 @@ impl RemoteActorRefProvider {
         self.resolve_actor_ref_wire(wire)
     }
 
+    /// Resolves parsed actor-reference wire data according to address
+    /// ownership.
     pub fn resolve_actor_ref_wire<M>(&self, wire: ActorRefWireData) -> Result<ResolvedActorRef<M>>
     where
         M: RemoteMessage,
@@ -111,6 +135,7 @@ impl RemoteActorRefProvider {
         self.resolve_wire(wire).map(ResolvedActorRef::Remote)
     }
 
+    /// Creates a serialization resolver for typed actor references.
     pub fn resolver<M>(&self) -> RemoteActorRefResolver<M>
     where
         M: RemoteMessage,
@@ -118,6 +143,9 @@ impl RemoteActorRefProvider {
         RemoteActorRefResolver::new(self.clone())
     }
 
+    /// Converts a resolved local or remote reference into stable wire data.
+    ///
+    /// Local references are rewritten to this provider's canonical address.
     pub fn actor_ref_to_wire_data<M>(
         &self,
         actor_ref: &ResolvedActorRef<M>,
@@ -131,6 +159,11 @@ impl RemoteActorRefProvider {
         }
     }
 
+    /// Converts a locally owned actor reference to its canonical remote wire
+    /// representation.
+    ///
+    /// Returns an error if this provider has no local system or does not own
+    /// the reference's path.
     pub fn local_actor_ref_to_wire_data<M>(
         &self,
         actor_ref: &ActorRef<M>,
@@ -158,6 +191,9 @@ impl RemoteActorRefProvider {
         Ok(ActorRefWireData::new(canonical_path)?)
     }
 
+    /// Resolves parsed wire data as an explicitly remote actor reference.
+    ///
+    /// Local paths and canonical addresses owned by this provider are rejected.
     pub fn resolve_wire<M>(&self, wire: ActorRefWireData) -> Result<RemoteActorRef<M>>
     where
         M: RemoteMessage,
@@ -244,12 +280,15 @@ impl ActorRefProvider for RemoteActorRefProvider {
     }
 }
 
+/// Adapts a [`RemoteActorRefProvider`] to the serialization crate's typed
+/// actor-reference resolver contract.
 pub struct RemoteActorRefResolver<M> {
     provider: RemoteActorRefProvider,
     _message: PhantomData<fn(M)>,
 }
 
 impl<M> RemoteActorRefResolver<M> {
+    /// Creates a resolver backed by `provider`.
     pub fn new(provider: RemoteActorRefProvider) -> Self {
         Self {
             provider,
@@ -257,6 +296,7 @@ impl<M> RemoteActorRefResolver<M> {
         }
     }
 
+    /// Returns the backing remote actor-reference provider.
     pub fn provider(&self) -> &RemoteActorRefProvider {
         &self.provider
     }

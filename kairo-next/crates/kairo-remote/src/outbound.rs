@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_actor::{Recipient, SendError};
@@ -5,24 +7,34 @@ use kairo_serialization::RemoteEnvelope;
 
 use crate::Result;
 
+/// The serialized-envelope boundary between actor references and a remote
+/// association or transport.
 pub trait RemoteOutbound: Send + Sync + 'static {
+    /// Sends one serialized remote envelope.
     fn send(&self, envelope: RemoteEnvelope) -> Result<()>;
 
+    /// Closes the outbound path for the supplied diagnostic reason.
+    ///
+    /// Stateless implementations may keep the default no-op behavior.
     fn close(&self, _reason: &str) -> Result<()> {
         Ok(())
     }
 }
 
 #[derive(Clone)]
+/// Adapts a [`RemoteOutbound`] implementation to the actor [`Recipient`]
+/// interface for serialized envelopes.
 pub struct RemoteOutboundRecipient {
     outbound: Arc<dyn RemoteOutbound>,
 }
 
 impl RemoteOutboundRecipient {
+    /// Wraps an owned outbound implementation.
     pub fn new(outbound: impl RemoteOutbound + 'static) -> Self {
         Self::from_arc(Arc::new(outbound))
     }
 
+    /// Wraps a shared outbound trait object.
     pub fn from_arc(outbound: Arc<dyn RemoteOutbound>) -> Self {
         Self { outbound }
     }

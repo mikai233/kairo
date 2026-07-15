@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::marker::PhantomData;
 
 use kairo_actor::ActorSystem;
@@ -7,6 +9,10 @@ use crate::local_address::CanonicalLocalAddress;
 use crate::{InboundMessage, RemoteError, RemoteInboundDelivery, RemoteSettings, Result};
 
 #[derive(Clone)]
+/// Delivers deserialized remote messages through a local actor system.
+///
+/// When configured with remote settings, canonical remote paths owned by the
+/// system are mapped back to their local registry paths before resolution.
 pub struct LocalActorInboundDelivery<M> {
     system: ActorSystem,
     canonical_address: Option<CanonicalLocalAddress>,
@@ -14,6 +20,7 @@ pub struct LocalActorInboundDelivery<M> {
 }
 
 impl<M> LocalActorInboundDelivery<M> {
+    /// Creates a delivery adapter that resolves recipient paths as supplied.
     pub fn new(system: ActorSystem) -> Self {
         Self {
             system,
@@ -22,6 +29,8 @@ impl<M> LocalActorInboundDelivery<M> {
         }
     }
 
+    /// Creates a delivery adapter that recognizes the actor system's owned
+    /// canonical remote address.
     pub fn with_remote_settings(system: ActorSystem, settings: RemoteSettings) -> Self {
         Self {
             canonical_address: Some(CanonicalLocalAddress::from_system_settings(
@@ -32,6 +41,7 @@ impl<M> LocalActorInboundDelivery<M> {
         }
     }
 
+    /// Returns the local actor system used for recipient resolution.
     pub fn system(&self) -> &ActorSystem {
         &self.system
     }

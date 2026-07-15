@@ -1,10 +1,16 @@
+#![deny(missing_docs)]
+
 use kairo_actor::{ActorPath, ActorRef, Recipient, SendError};
 use kairo_serialization::RemoteMessage;
 
 use crate::RemoteActorRef;
 
+/// A typed actor reference resolved to either the local actor registry or a
+/// remote transport.
 pub enum ResolvedActorRef<M> {
+    /// A reference owned by the local actor system.
     Local(ActorRef<M>),
+    /// A reference reached through remoting.
     Remote(RemoteActorRef<M>),
 }
 
@@ -12,6 +18,7 @@ impl<M> ResolvedActorRef<M>
 where
     M: Send + 'static,
 {
+    /// Returns the resolved actor path.
     pub fn path(&self) -> &ActorPath {
         match self {
             Self::Local(actor_ref) => actor_ref.path(),
@@ -19,14 +26,17 @@ where
         }
     }
 
+    /// Returns `true` when this reference resolves locally.
     pub fn is_local(&self) -> bool {
         matches!(self, Self::Local(_))
     }
 
+    /// Returns `true` when this reference resolves remotely.
     pub fn is_remote(&self) -> bool {
         matches!(self, Self::Remote(_))
     }
 
+    /// Returns the local reference, if this reference resolves locally.
     pub fn as_local(&self) -> Option<&ActorRef<M>> {
         match self {
             Self::Local(actor_ref) => Some(actor_ref),
@@ -34,6 +44,7 @@ where
         }
     }
 
+    /// Returns the remote reference, if this reference resolves remotely.
     pub fn as_remote(&self) -> Option<&RemoteActorRef<M>> {
         match self {
             Self::Local(_) => None,
@@ -46,6 +57,9 @@ impl<M> ResolvedActorRef<M>
 where
     M: RemoteMessage,
 {
+    /// Sends a message through the selected local or remote delivery path.
+    ///
+    /// On failure, the returned [`SendError`] retains ownership of `message`.
     pub fn tell(&self, message: M) -> Result<(), SendError<M>> {
         match self {
             Self::Local(actor_ref) => actor_ref.tell(message),

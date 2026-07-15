@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -9,7 +11,9 @@ use crate::{
     encode_remote_envelope_frame,
 };
 
+/// A transport sink that accepts fully encoded remote protocol frames.
 pub trait RemoteFrameSink: Send + Sync + 'static {
+    /// Sends one encoded frame.
     fn send_frame(&self, frame: Bytes) -> Result<()>;
 }
 
@@ -23,15 +27,18 @@ where
 }
 
 #[derive(Clone)]
+/// A remote outbound that encodes envelopes before writing transport frames.
 pub struct FramedRemoteOutbound {
     sink: Arc<dyn RemoteFrameSink>,
 }
 
 impl FramedRemoteOutbound {
+    /// Creates an outbound adapter backed by `sink`.
     pub fn new(sink: Arc<dyn RemoteFrameSink>) -> Self {
         Self { sink }
     }
 
+    /// Returns the underlying frame sink.
     pub fn sink(&self) -> &Arc<dyn RemoteFrameSink> {
         &self.sink
     }
@@ -44,6 +51,8 @@ impl RemoteOutbound for FramedRemoteOutbound {
     }
 }
 
+/// A remote inbound adapter that decodes protocol frames before typed
+/// deserialization and delivery.
 pub struct FramedRemoteInbound<M> {
     inbound: RemoteInbound<M>,
     _message: PhantomData<fn(M)>,
@@ -53,6 +62,7 @@ impl<M> FramedRemoteInbound<M>
 where
     M: RemoteMessage,
 {
+    /// Creates a framed adapter around a typed remote inbound.
     pub fn new(inbound: RemoteInbound<M>) -> Self {
         Self {
             inbound,
@@ -60,10 +70,12 @@ where
         }
     }
 
+    /// Decodes and delivers one remote protocol frame.
     pub fn receive_frame(&self, frame: Bytes) -> Result<()> {
         self.inbound.receive(decode_remote_envelope_frame(frame)?)
     }
 
+    /// Returns the underlying typed inbound pipeline.
     pub fn inbound(&self) -> &RemoteInbound<M> {
         &self.inbound
     }

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Formatter};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -10,6 +12,10 @@ use kairo_serialization::{
 
 use crate::{RemoteOutbound, Result};
 
+/// A typed reference to an actor reached through a remote outbound transport.
+///
+/// Messages are serialized with the configured registry before being passed to
+/// the outbound transport. Clones share the stopped state.
 pub struct RemoteActorRef<M> {
     path: ActorPath,
     recipient: ActorRefWireData,
@@ -20,6 +26,8 @@ pub struct RemoteActorRef<M> {
 }
 
 impl<M> RemoteActorRef<M> {
+    /// Creates a reference for `recipient` using the supplied codec registry
+    /// and outbound transport.
     pub fn new(
         recipient: ActorRefWireData,
         registry: Arc<Registry>,
@@ -35,18 +43,24 @@ impl<M> RemoteActorRef<M> {
         }
     }
 
+    /// Returns the actor path represented by this reference.
     pub fn path(&self) -> &ActorPath {
         &self.path
     }
 
+    /// Returns the stable wire representation of the recipient.
     pub fn recipient(&self) -> &ActorRefWireData {
         &self.recipient
     }
 
+    /// Returns whether this reference has been marked as stopped locally.
     pub fn is_stopped(&self) -> bool {
         self.stopped.load(Ordering::Acquire)
     }
 
+    /// Marks this reference and all its clones as stopped.
+    ///
+    /// Subsequent sends fail without serializing or forwarding the message.
     pub fn mark_stopped(&self) {
         self.stopped.store(true, Ordering::Release);
     }
@@ -78,6 +92,8 @@ impl<M> RemoteActorRef<M>
 where
     M: RemoteMessage,
 {
+    /// Serializes a message and builds the remote envelope sent to the
+    /// recipient.
     pub fn build_envelope(
         &self,
         message: &M,
@@ -87,10 +103,17 @@ where
         Ok(self.envelope_from_serialized(serialized, sender))
     }
 
+    /// Sends a message without an explicit sender reference.
+    ///
+    /// On failure, the returned [`SendError`] retains ownership of `message`.
     pub fn tell(&self, message: M) -> std::result::Result<(), SendError<M>> {
         self.tell_with_sender(message, None)
     }
 
+    /// Sends a message with optional sender wire metadata.
+    ///
+    /// On serialization, stopped-reference, or outbound failure, the returned
+    /// [`SendError`] retains ownership of `message`.
     pub fn tell_with_sender(
         &self,
         message: M,

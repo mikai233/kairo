@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use kairo_actor::ActorSystem;
 use kairo_serialization::ActorRefWireData;
 

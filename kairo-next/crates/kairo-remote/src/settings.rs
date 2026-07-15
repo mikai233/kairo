@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::time::Duration;
 
 /// Runtime settings for remote actor addressing and TCP dialing.
