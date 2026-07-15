@@ -90,6 +90,14 @@ adapters. Do not introduce `AsyncActor` for the initial rewrite model.
 Local-only messages do not need serialization metadata. Add remote metadata only
 when a message crosses a remote boundary.
 
+For rolling remote-message upgrades, keep the serializer id and manifest
+stable, increment `RemoteMessage::VERSION`, and teach `MessageCodec::decode` to
+read each schema version that can coexist. Compatibility is explicit in both
+directions: a newer codec can migrate an older payload, while an older codec
+must deliberately accept a newer wire version if forward-compatible traffic is
+required. Remoting carries the declared version unchanged and does not infer a
+schema from Rust types or negotiate an automatic downgrade.
+
 The runnable `ask_pipe_to_self` example shows local request/reply and external
 work returning through the actor mailbox without borrowing actor state across
 an await point:

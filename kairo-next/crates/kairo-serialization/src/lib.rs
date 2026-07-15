@@ -9,6 +9,13 @@
 //! caller registers an explicit [`MessageCodec`] for each message type. The
 //! wire contract is the tuple of serializer id, manifest, version, and bytes;
 //! it must not depend on Rust type names, enum discriminants, or memory layout.
+//! During a rolling upgrade, keep the serializer id and manifest stable, bump
+//! [`RemoteMessage::VERSION`] for the new schema, and make
+//! [`MessageCodec::decode`] handle every wire version that may coexist. Forward
+//! compatibility is also codec-owned: an older codec must explicitly accept a
+//! newer version when mixed-version traffic in that direction is required.
+//! The remoting transport preserves this metadata but does not negotiate a
+//! schema or silently downgrade payloads.
 //!
 //! ```
 //! use bytes::Bytes;

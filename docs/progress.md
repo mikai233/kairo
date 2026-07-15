@@ -151,8 +151,10 @@ Status terms in this document mean:
   validation, documentation, dependency audit, and benchmark scaffolding
   now include a declared Rust 1.88 MSRV, Linux/Windows/macOS stable test
   coverage, release-mode benchmark smoke, and verified release archives for
-  every public crate; final sign-off focuses on release quality rather than
-  replacement architecture.
+  every public crate. Process-level remoting now also proves bidirectional
+  v1/v2 compatibility through the stable serializer-id/manifest contract and
+  codec-owned schema migration; final sign-off focuses on release quality
+  rather than replacement architecture.
 
 ## Execution Plan Before M13
 
@@ -6154,8 +6156,8 @@ Implemented:
 Not yet implemented:
 
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
-  existing TCP association primitives, and broader cross-crate compatibility
-  fixtures.
+  existing TCP association primitives, and compatibility fixtures beyond the
+  current bidirectional process-level v1/v2 remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
