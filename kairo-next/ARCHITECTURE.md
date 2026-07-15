@@ -2202,6 +2202,10 @@ Composed cluster singleton:
 - `ClusterSingleton::init(Singleton<A>)` preserves `ActorRef<A::Msg>` as the
   local boundary and returns `ClusterSingletonRef<A::Msg>`; an internal `Any`
   map is used only to recover an idempotently initialized typed handle,
+- `ClusterSingleton::init_local` manages subsystem actors whose internal
+  protocol must remain local-only; ownership and handover still use the stable
+  remote control protocol, while the subsystem supplies its own explicit wire
+  adapter instead of forcing the internal enum to implement `RemoteMessage`,
 - multiple logical names share one listener and manifest router, with a fixed
   documented FNV-1a 64-bit name token selecting isolated manager, proxy,
   delivery, and connector paths,

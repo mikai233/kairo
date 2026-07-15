@@ -3768,6 +3768,14 @@ remote typed recipients only for eligible members. `Left` and `Exited` advance
 oldest selection while the cluster association is still retained, enabling the
 handover controls to finish before `Removed` becomes terminal.
 
+Subsystems whose actor protocol is intentionally local-only use
+`ClusterSingleton::init_local`. It runs the same manager, oldest tracker, and
+remote handover protocol, but does not register remote business-message targets
+for that name. The owning subsystem must retain its own stable wire adapter and
+may route decoded commands through the returned typed local proxy. This is the
+integration mode for protocols such as the sharding coordinator enum, which
+contains local reply refs and must not become a serialization contract.
+
 Consequences:
 - Multiple named and differently typed singletons share one listener and stable
   manifest set without a global business-message enum.

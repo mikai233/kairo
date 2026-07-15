@@ -21,6 +21,10 @@ use super::SingletonDeliveryMsg;
 
 const ROUTE_REFRESH_TIMER_KEY: &str = "cluster-singleton-route-refresh";
 
+pub(super) type SingletonRemoteTargetFactory<M> = Arc<
+    dyn Fn(&UniqueAddress) -> Result<SingletonProxyTarget<M>, ActorError> + Send + Sync + 'static,
+>;
+
 pub struct ClusterSingletonConnector<M>
 where
     M: Send + 'static,
@@ -30,9 +34,7 @@ where
     scope: SingletonScope,
     manager: ActorRef<LocalSingletonManagerMsg<M>>,
     proxy: ActorRef<SingletonProxyMsg<M>>,
-    registry: Arc<Registry>,
-    outbound: Arc<dyn RemoteOutbound>,
-    manager_path: String,
+    remote_target_factory: Option<SingletonRemoteTargetFactory<M>>,
     delivery: ActorRef<SingletonDeliveryMsg<M>>,
     route_refresh_interval: Duration,
     subscription: Option<ActorRef<ClusterSubscriptionEvent>>,
@@ -68,9 +70,7 @@ where
     pub scope: SingletonScope,
     pub manager: ActorRef<LocalSingletonManagerMsg<M>>,
     pub proxy: ActorRef<SingletonProxyMsg<M>>,
-    pub registry: Arc<Registry>,
-    pub outbound: Arc<dyn RemoteOutbound>,
-    pub manager_path: String,
+    pub remote_target_factory: Option<SingletonRemoteTargetFactory<M>>,
     pub delivery: ActorRef<SingletonDeliveryMsg<M>>,
     pub route_refresh_interval: Duration,
 }
@@ -86,9 +86,7 @@ where
             scope: self.scope.clone(),
             manager: self.manager.clone(),
             proxy: self.proxy.clone(),
-            registry: self.registry.clone(),
-            outbound: self.outbound.clone(),
-            manager_path: self.manager_path.clone(),
+            remote_target_factory: self.remote_target_factory.clone(),
             delivery: self.delivery.clone(),
             route_refresh_interval: self.route_refresh_interval,
         }
@@ -97,7 +95,7 @@ where
 
 impl<M> ClusterSingletonConnector<M>
 where
-    M: Clone + RemoteMessage + Send + 'static,
+    M: Clone + Send + 'static,
 {
     pub fn new(config: ClusterSingletonConnectorConfig<M>) -> Self {
         Self {
@@ -106,9 +104,7 @@ where
             scope: config.scope,
             manager: config.manager,
             proxy: config.proxy,
-            registry: config.registry,
-            outbound: config.outbound,
-            manager_path: config.manager_path,
+            remote_target_factory: config.remote_target_factory,
             delivery: config.delivery,
             route_refresh_interval: config.route_refresh_interval,
             subscription: None,
@@ -137,21 +133,15 @@ where
         if self.remote_routes.contains_key(&key) {
             return;
         }
-        let recipient =
-            match ActorRefWireData::new(format!("{}{}", node.address, self.manager_path)) {
-                Ok(recipient) => recipient,
-                Err(_) => return,
-            };
-        let target_path = ActorPath::new(format!("{}/singleton", recipient.path()));
-        let remote = SingletonMessageRemoteOutbound {
-            recipient,
-            registry: self.registry.clone(),
-            outbound: self.outbound.clone(),
-            message: std::marker::PhantomData,
+        let Some(factory) = &self.remote_target_factory else {
+            return;
+        };
+        let Ok(singleton) = factory(&node) else {
+            return;
         };
         let _ = self.proxy.tell(SingletonProxyMsg::RegisterTarget {
             node: node.clone(),
-            singleton: SingletonProxyTarget::from_recipient(target_path, remote),
+            singleton,
         });
         self.remote_routes.insert(key, node);
     }
@@ -214,7 +204,7 @@ where
 
 impl<M> Actor for ClusterSingletonConnector<M>
 where
-    M: Clone + RemoteMessage + Send + 'static,
+    M: Clone + Send + 'static,
 {
     type Msg = ClusterSingletonConnectorMsg<M>;
 
@@ -312,6 +302,30 @@ where
         }
         Ok(())
     }
+}
+
+pub(super) fn singleton_remote_target_factory<M>(
+    manager_path: String,
+    registry: Arc<Registry>,
+    outbound: Arc<dyn RemoteOutbound>,
+) -> SingletonRemoteTargetFactory<M>
+where
+    M: RemoteMessage + Send + 'static,
+{
+    Arc::new(move |node| {
+        let recipient = ActorRefWireData::new(format!("{}{}", node.address, manager_path))
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+        let target_path = ActorPath::new(format!("{}/singleton", recipient.path()));
+        Ok(SingletonProxyTarget::from_recipient(
+            target_path,
+            SingletonMessageRemoteOutbound {
+                recipient,
+                registry: registry.clone(),
+                outbound: outbound.clone(),
+                message: std::marker::PhantomData,
+            },
+        ))
+    })
 }
 
 #[derive(Clone)]

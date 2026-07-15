@@ -444,6 +444,12 @@ singleton registration, extension, typed definition/ref, settings, connector
 diagnostics, and stable envelope metadata. Existing TOML cluster-tools
 handover settings project directly into `ClusterSingletonSettings` through
 `ClusterToolsConfig::to_cluster_singleton_settings`.
+The public extension also supports `ClusterSingleton::init_local` for
+subsystem-owned local protocols. A real two-node test uses a message type with
+no `RemoteMessage` implementation, buffers a command at the future owner, and
+flushes it after the same remote handover completes. This provides the public
+lifecycle seam needed by sharding without serializing its internal coordinator
+enum.
 Singleton oldest tracking now advances on `Left`/`Exited` rather than waiting
 for `Removed`, so the manager state machine can perform its takeover handshake
 while the cluster association is deliberately still retained. Focused coverage

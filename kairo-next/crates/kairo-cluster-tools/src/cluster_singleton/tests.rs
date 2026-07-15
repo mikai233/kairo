@@ -60,6 +60,30 @@ struct SingletonActor {
     sink: kairo_actor::ActorRef<u8>,
 }
 
+#[derive(Debug, Clone)]
+enum LocalCommand {
+    Ping(u8),
+    Stop,
+}
+
+struct LocalProtocolSingleton {
+    sink: kairo_actor::ActorRef<u8>,
+}
+
+impl Actor for LocalProtocolSingleton {
+    type Msg = LocalCommand;
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            LocalCommand::Ping(value) => {
+                let _ = self.sink.tell(value);
+            }
+            LocalCommand::Stop => ctx.stop(ctx.myself())?,
+        }
+        Ok(())
+    }
+}
+
 impl Actor for SingletonActor {
     type Msg = Command;
 
@@ -80,8 +104,10 @@ struct SingletonNode {
     cluster: ClusterDaemonHandle,
     singleton: ClusterSingletonRef<Command>,
     secondary: ClusterSingletonRef<Command>,
+    local_protocol: ClusterSingletonRef<LocalCommand>,
     deliveries: TestProbe<u8>,
     secondary_deliveries: TestProbe<u8>,
+    local_deliveries: TestProbe<u8>,
     gossip: TestProbe<Gossip>,
     proxy_state: TestProbe<crate::SingletonProxySnapshot>,
 }
@@ -97,6 +123,9 @@ impl SingletonNode {
         let kit = ActorSystemTestKit::new(system).unwrap();
         let deliveries = kit.create_probe("singleton-deliveries").unwrap();
         let secondary_deliveries = kit.create_probe("secondary-singleton-deliveries").unwrap();
+        let local_deliveries = kit
+            .create_probe("local-protocol-singleton-deliveries")
+            .unwrap();
         let mut builder = TcpRemoteActorRuntime::builder(
             kit.system().clone(),
             registry,
@@ -169,6 +198,17 @@ impl SingletonNode {
             ))
             .unwrap();
         assert_ne!(singleton.proxy().path(), secondary.proxy().path());
+        let local_sink = local_deliveries.actor_ref();
+        let local_protocol = extension
+            .init_local(Singleton::new(
+                "sharding-coordinator-local-protocol",
+                move || {
+                    let sink = local_sink.clone();
+                    Props::new(move || LocalProtocolSingleton { sink: sink.clone() })
+                },
+                LocalCommand::Stop,
+            ))
+            .unwrap();
         Self {
             gossip: kit.create_probe("cluster-gossip").unwrap(),
             proxy_state: kit.create_probe("singleton-proxy-state").unwrap(),
@@ -177,8 +217,10 @@ impl SingletonNode {
             cluster,
             singleton,
             secondary,
+            local_protocol,
             deliveries,
             secondary_deliveries,
+            local_deliveries,
         }
     }
 
@@ -310,6 +352,11 @@ fn composed_singleton_routes_to_oldest_and_hands_over_when_it_leaves() {
             .map_err(|_| "second named singleton is not isolated and reachable".to_string())
     })
     .unwrap();
+    seed.local_protocol.tell(LocalCommand::Ping(21)).unwrap();
+    seed.local_deliveries
+        .expect_msg_eq(21, Duration::from_secs(1))
+        .unwrap();
+    peer.local_protocol.tell(LocalCommand::Ping(22)).unwrap();
 
     seed.cluster.cluster().leave_self().unwrap();
     let mut attempt: u8 = 2;
@@ -323,6 +370,9 @@ fn composed_singleton_routes_to_oldest_and_hands_over_when_it_leaves() {
             .map_err(|_| "singleton has not handed over to the peer".to_string())
     })
     .unwrap();
+    peer.local_deliveries
+        .expect_msg_eq(22, Duration::from_secs(2))
+        .unwrap();
     await_assert(Duration::from_secs(3), Duration::from_millis(25), || {
         peer.secondary.tell(Command::Ping(111)).unwrap();
         peer.secondary_deliveries

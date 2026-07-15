@@ -11,7 +11,7 @@ use kairo_cluster::{Cluster, ClusterDaemonRegistration, ClusterExtension, Unique
 use kairo_remote::{
     RemoteError, RemoteOutbound, TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder,
 };
-use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage};
+use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage, SerializedMessage};
 
 use crate::{
     LocalSingletonManagerActor, LocalSingletonManagerRemoteInbound, SingletonHandOverDone,
@@ -22,7 +22,10 @@ use crate::{
 
 mod connector;
 
-use connector::{ClusterSingletonConnector, ClusterSingletonConnectorConfig};
+use connector::{
+    ClusterSingletonConnector, ClusterSingletonConnectorConfig, SingletonRemoteTargetFactory,
+    singleton_remote_target_factory,
+};
 pub use connector::{ClusterSingletonConnectorMsg, ClusterSingletonConnectorSnapshot};
 
 pub const SINGLETON_SYSTEM_MANIFESTS: [&str; 4] = [
@@ -85,6 +88,8 @@ where
 
 type InboundHandler =
     Arc<dyn Fn(RemoteEnvelope) -> Result<(), RemoteError> + Send + Sync + 'static>;
+type MessageDecoder<M> =
+    Arc<dyn Fn(SerializedMessage) -> Result<M, RemoteError> + Send + Sync + 'static>;
 
 #[derive(Default)]
 struct SingletonInboundRegistry {
@@ -299,6 +304,14 @@ pub struct ClusterSingleton {
     singletons: Mutex<HashMap<String, Box<dyn Any + Send + Sync>>>,
 }
 
+struct InitializedSingleton<M>
+where
+    M: Send + 'static,
+{
+    singleton_ref: ClusterSingletonRef<M>,
+    remote_enabled: bool,
+}
+
 impl ClusterSingleton {
     pub fn get(system: &ActorSystem) -> Result<Arc<Self>, ActorError> {
         system.extension::<Self>()
@@ -311,6 +324,48 @@ impl ClusterSingleton {
     where
         A: Actor,
         A::Msg: Clone + RemoteMessage,
+    {
+        let registry = self.runtime.registry.clone();
+        let decoder: MessageDecoder<A::Msg> = Arc::new(move |message| {
+            registry
+                .deserialize::<A::Msg>(message)
+                .map_err(|error| RemoteError::Inbound(error.to_string()))
+        });
+        let manager_path = manager_path_for(&singleton.name);
+        let remote_targets = singleton_remote_target_factory(
+            manager_path,
+            self.runtime.registry.clone(),
+            self.runtime.outbound.clone(),
+        );
+        self.init_with(singleton, Some(decoder), Some(remote_targets), true)
+    }
+
+    /// Runs a cluster-wide singleton whose local actor protocol is not a wire contract.
+    ///
+    /// Handover still uses the stable singleton control protocol. The returned
+    /// proxy is useful to local integration actors; remote application traffic
+    /// must use the owning subsystem's explicit wire adapter.
+    pub fn init_local<A>(
+        &self,
+        singleton: Singleton<A>,
+    ) -> Result<ClusterSingletonRef<A::Msg>, ClusterSingletonBootstrapError>
+    where
+        A: Actor,
+        A::Msg: Clone,
+    {
+        self.init_with(singleton, None, None, false)
+    }
+
+    fn init_with<A>(
+        &self,
+        singleton: Singleton<A>,
+        decoder: Option<MessageDecoder<A::Msg>>,
+        remote_target_factory: Option<SingletonRemoteTargetFactory<A::Msg>>,
+        remote_enabled: bool,
+    ) -> Result<ClusterSingletonRef<A::Msg>, ClusterSingletonBootstrapError>
+    where
+        A: Actor,
+        A::Msg: Clone,
     {
         if singleton.name.trim().is_empty() {
             return Err(ClusterSingletonBootstrapError::InvalidSingletonName);
@@ -327,12 +382,17 @@ impl ClusterSingleton {
             .lock()
             .expect("cluster singleton extension poisoned");
         if let Some(existing) = singletons.get(&singleton.name) {
-            return existing
-                .downcast_ref::<ClusterSingletonRef<A::Msg>>()
-                .cloned()
+            let existing = existing
+                .downcast_ref::<InitializedSingleton<A::Msg>>()
                 .ok_or_else(|| ClusterSingletonBootstrapError::NameTypeConflict {
                     name: singleton.name.clone(),
+                })?;
+            if remote_enabled && !existing.remote_enabled {
+                return Err(ClusterSingletonBootstrapError::RemoteModeConflict {
+                    name: singleton.name.clone(),
                 });
+            }
+            return Ok(existing.singleton_ref.clone());
         }
 
         let token = stable_name_token(&singleton.name);
@@ -340,7 +400,7 @@ impl ClusterSingleton {
         let proxy_name = format!("singleton-{token:016x}-proxy");
         let connector_name = format!("singleton-{token:016x}-cluster");
         let delivery_name = format!("singleton-{token:016x}-delivery");
-        let manager_path = format!("/system/{manager_name}");
+        let manager_path = manager_path_for(&singleton.name);
         let recipient = format!("{}{}", self.runtime.self_node.address, manager_path);
 
         let remote_effects = SingletonManagerRemoteOutbound::from_arc(
@@ -391,14 +451,19 @@ impl ClusterSingleton {
             Arc::new({
                 let registry = self.runtime.registry.clone();
                 let delivery = delivery.clone();
+                let decoder = decoder.clone();
                 move |envelope| {
                     if envelope.message.manifest.as_str() == SingletonMessageEnvelope::MANIFEST {
+                        let decoder = decoder.as_ref().ok_or_else(|| {
+                            RemoteError::Inbound(
+                                "local-protocol cluster singleton rejects remote business messages"
+                                    .to_string(),
+                            )
+                        })?;
                         let envelope = registry
                             .deserialize::<SingletonMessageEnvelope>(envelope.message)
                             .map_err(|error| RemoteError::Inbound(error.to_string()))?;
-                        let message = registry
-                            .deserialize::<A::Msg>(envelope.message)
-                            .map_err(|error| RemoteError::Inbound(error.to_string()))?;
+                        let message = decoder(envelope.message)?;
                         delivery
                             .tell(SingletonDeliveryMsg::Deliver(message))
                             .map_err(|error| RemoteError::Inbound(error.reason().to_string()))
@@ -438,9 +503,7 @@ impl ClusterSingleton {
                     manager: manager.clone(),
                     proxy: proxy.clone(),
                     delivery: delivery.clone(),
-                    registry: self.runtime.registry.clone(),
-                    outbound: self.runtime.outbound.clone(),
-                    manager_path,
+                    remote_target_factory,
                     route_refresh_interval: self.settings.route_refresh_interval,
                 };
                 move || ClusterSingletonConnector::new(config.clone())
@@ -488,7 +551,13 @@ impl ClusterSingleton {
         )?;
 
         let singleton_ref = ClusterSingletonRef { proxy };
-        singletons.insert(singleton.name, Box::new(singleton_ref.clone()));
+        singletons.insert(
+            singleton.name,
+            Box::new(InitializedSingleton {
+                singleton_ref: singleton_ref.clone(),
+                remote_enabled,
+            }),
+        );
         Ok(singleton_ref)
     }
 }
@@ -547,6 +616,7 @@ pub enum ClusterSingletonBootstrapError {
     InvalidSingletonName,
     InvalidSingletonRole,
     NameTypeConflict { name: String },
+    RemoteModeConflict { name: String },
     NotMaterialized,
     Remote(RemoteError),
 }
@@ -563,6 +633,10 @@ impl Display for ClusterSingletonBootstrapError {
             Self::NameTypeConflict { name } => write!(
                 f,
                 "cluster singleton `{name}` was already initialized with another message type"
+            ),
+            Self::RemoteModeConflict { name } => write!(
+                f,
+                "cluster singleton `{name}` was initialized with a local-only protocol"
             ),
             Self::NotMaterialized => {
                 write!(f, "cluster singleton runtime has not been materialized")
@@ -643,6 +717,10 @@ fn stable_name_token(name: &str) -> u64 {
     name.as_bytes().iter().fold(OFFSET, |hash, byte| {
         (hash ^ u64::from(*byte)).wrapping_mul(PRIME)
     })
+}
+
+fn manager_path_for(name: &str) -> String {
+    format!("/system/singleton-{:016x}-manager", stable_name_token(name))
 }
 
 #[cfg(test)]
