@@ -470,6 +470,7 @@ where
             handoff.forward_region_terminated(&region)?;
             handoff.remove_region_target(&region);
         }
+        self.remote_regions.remove(&region);
         if !self.runtime.state().allocations().contains_region(&region) {
             return Ok(());
         }

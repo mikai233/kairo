@@ -24,6 +24,11 @@ impl CoordinatorRemoteRegions {
         self.regions.get(region)
     }
 
+    /// Removes and returns the wire ref retained for `region`.
+    pub fn remove(&mut self, region: &RegionId) -> Option<ActorRefWireData> {
+        self.regions.remove(region)
+    }
+
     pub fn len(&self) -> usize {
         self.regions.len()
     }
@@ -53,5 +58,18 @@ mod tests {
 
         assert_eq!(id, "kairo://remote@127.0.0.1:2552/system/sharding/region");
         assert_eq!(regions.wire_ref(&id), Some(&region));
+    }
+
+    #[test]
+    fn stopped_remote_region_wire_ref_is_forgotten() {
+        let region =
+            ActorRefWireData::new("kairo://remote@127.0.0.1:2552/system/sharding/region").unwrap();
+        let mut regions = CoordinatorRemoteRegions::new();
+        let id = regions.register(region.clone());
+
+        assert_eq!(regions.remove(&id), Some(region));
+        assert_eq!(regions.wire_ref(&id), None);
+        assert!(regions.is_empty());
+        assert_eq!(regions.remove(&id), None);
     }
 }

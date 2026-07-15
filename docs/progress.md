@@ -194,6 +194,8 @@ Status terms in this document mean:
   Stable remote coordinator target construction and the transport-neutral
   registration/shard-home bridges now hard-gate recipient validation, sender
   metadata, retry ownership, wire decoding, and immediate delivery failures.
+  Coordinator region termination now also releases the stopped remote
+  region's retained wire ref instead of leaving stale side-table state.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
