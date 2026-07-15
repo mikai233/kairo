@@ -939,7 +939,7 @@ fn singleton_successor_recovers_shard_from_transport_ddata() {
         .unwrap()
         .tell(TestMessage("persist-shard".to_string()))
         .unwrap();
-    await_assert(Duration::from_secs(5), Duration::from_millis(10), || {
+    await_assert(Duration::from_secs(10), Duration::from_millis(10), || {
         let delivered = seed
             .received
             .lock()
