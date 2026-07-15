@@ -212,6 +212,21 @@ where
         self.apply_pruning_updates(updates)
     }
 
+    /// Marks initialized pruning entries for `key` as seen by `seen_by`.
+    ///
+    /// Returns whether the key's pruning metadata changed. Missing keys and
+    /// envelopes without an applicable initialized marker are unchanged.
+    pub fn mark_key_pruning_seen(&mut self, key: &ReplicatorKey, seen_by: ReplicaId) -> bool {
+        let Some(next) = self
+            .entries
+            .get(key)
+            .map(|envelope| envelope.add_pruning_seen(seen_by))
+        else {
+            return false;
+        };
+        self.set_data(key.clone(), next)
+    }
+
     /// Initializes pruning on values that still contain `removed`.
     ///
     /// Existing performed markers are retained. An initialized marker with a

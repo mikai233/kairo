@@ -245,7 +245,16 @@ where
                 codec,
                 reply_to,
             } => {
-                let result = crate::apply_write(&mut self.state, &write, codec.as_ref());
+                let result = if let Some(self_replica) = &self.self_replica {
+                    crate::read_write_receive::apply_write_with_seen(
+                        &mut self.state,
+                        &write,
+                        codec.as_ref(),
+                        self_replica,
+                    )
+                } else {
+                    crate::apply_write(&mut self.state, &write, codec.as_ref())
+                };
                 tell_or_actor_error(&reply_to, result)?;
             }
             ReplicatorActorMsg::ServeRead {

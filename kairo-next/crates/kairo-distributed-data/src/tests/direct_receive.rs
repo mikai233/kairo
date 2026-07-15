@@ -71,3 +71,49 @@ fn direct_write_receive_nacks_decode_failures_without_changing_state() {
     ));
     assert!(!state.contains_key(&key));
 }
+
+#[test]
+fn receiver_seen_is_recorded_after_merging_local_pruning_metadata() {
+    let key = ReplicatorKey::new("counter");
+    let local = replica("local");
+    let remote = replica("remote");
+    let removed = replica("removed");
+    let local_envelope = DataEnvelope::new(
+        GCounter::new()
+            .increment(removed.clone(), 3)
+            .unwrap()
+            .reset_delta(),
+    )
+    .init_removed_node_pruning(removed.clone(), remote.clone());
+    let incoming = DataEnvelope::new(
+        GCounter::new()
+            .increment(remote.clone(), 5)
+            .unwrap()
+            .reset_delta(),
+    );
+    let write = encode_write(&key, Some(remote), &incoming, &GCounterCodec).unwrap();
+    let mut state = ReplicatorState::new();
+    assert!(state.write_full_pruned(key.clone(), local_envelope, 0));
+
+    let result = crate::read_write_receive::apply_write_with_seen(
+        &mut state,
+        &write,
+        &GCounterCodec,
+        &local,
+    );
+
+    assert!(matches!(
+        result,
+        DirectWriteResult::Ack { changed: true, .. }
+    ));
+    let PruningState::Initialized(initialized) = state
+        .envelope(&key)
+        .unwrap()
+        .pruning()
+        .get(&removed)
+        .unwrap()
+    else {
+        panic!("expected initialized pruning marker");
+    };
+    assert!(initialized.seen().contains(&local));
+}

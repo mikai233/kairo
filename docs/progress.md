@@ -212,6 +212,10 @@ Status terms in this document mean:
   direct-read/write, gossip/status, CRDT envelope and pruning, and versioned
   delta fields; one exhaustive regression pins every remote manifest/version
   tuple without relying on Rust implementation details.
+  Direct peer read/write receive now hard-gates ACK/NACK, successful absence,
+  request correlation, and pruning-aware merge contracts; configured
+  replicators also record the receiving replica on initialized pruning markers
+  before acknowledging a write.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
