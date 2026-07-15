@@ -25,8 +25,9 @@ implementation work belongs under `kairo-next/`.
 3. Update `docs/progress.md` if milestone status changed.
 4. Update `docs/decisions.md` when a new design decision is made.
 5. Update `docs/blocked.md` when progress is blocked by an external decision.
-6. In goal mode, commit at appropriate verified checkpoints when the run is
-   authorized to commit; otherwise leave a clear status report.
+6. In goal mode, do not commit merely because a turn ended. When the run is
+   authorized to commit, commit only at an appropriate verified logical
+   checkpoint as defined below; otherwise leave a clear status report.
 
 ## Hard Constraints
 
@@ -147,6 +148,56 @@ cargo run -p kairo-examples --example local_counter
 cargo run -p kairo-examples --example cluster_sharding_demo
 ```
 
+## Commit Checkpoint Discipline
+
+A commit is a verified logical checkpoint, not a transcript of an agent turn,
+one test case, or one validation command. Atomicity is semantic: a coherent
+commit may touch several files or crates when they implement one behavior.
+
+Commit only when all of the following are true:
+
+- The change is independently explainable, reviewable, and revertible.
+- The relevant focused tests pass and the tree does not rely on an immediate
+  follow-up commit to become correct.
+- Implementation, regression tests, and necessary user/status documentation
+  for the same behavior are included together.
+- The commit has one primary reason to change, even when that reason crosses
+  multiple crates.
+
+Do not split work solely to make commits smaller. By default, squash:
+
+- consecutive test cases for the same state machine, invariant, or test module;
+- an implementation and the tests that prove that implementation;
+- follow-up compile, lint, formatting, or wording fixes created while completing
+  the same task;
+- mirrored cluster, distributed-data, sharding, or cluster-tools changes that
+  enforce one cross-crate lifecycle invariant;
+- validation-only or progress-log edits associated with the same checkpoint.
+
+Keep commits separate when they provide a real review or rollback boundary,
+such as:
+
+- an accepted ADR or wire/public contract decision;
+- a behavior-neutral prerequisite refactor that stands on its own;
+- an independent regression fix with its own test;
+- unrelated behavior that should be reviewable and revertible separately.
+
+Commit-count guidance is a review heuristic, not a quota: an ordinary focused
+task should normally result in 1-5 final commits, and a full execution phase in
+roughly 5-15. If substantially more checkpoints are necessary, explain their
+independent review or rollback value in the status report.
+
+Temporary `fixup!` commits are acceptable only on an unpushed task branch.
+Squash them before push, merge, or handoff. Never rewrite published history
+unless the user explicitly authorizes it.
+
+`docs/progress.md` is a current status document, not an append-only command
+transcript. Update it only when milestone/phase status, an exit gate, a known
+gap, or the concise latest validation summary changes. Put detailed validation
+commands and results in the status report, commit body, PR, or CI logs.
+`docs/decisions.md` records durable design decisions, not implementation diary
+entries.
+
 ## Commit Message Convention
 
 Use Conventional Commits for all commits:
@@ -203,6 +254,8 @@ Expected behavior: ...
 Tests: ...
 Do not change: ...
 Validation: cargo test -p ...
+Commit boundary: describe which changes form one verified checkpoint and which
+separate ADR/refactor checkpoints, if any, are justified.
 ```
 
 Example:
@@ -224,4 +277,8 @@ Do not change:
   - Do not introduce remoting into `kairo-actor`.
 Validation:
   cargo test -p kairo-actor
+Commit boundary:
+  - Commit the mailbox loop, its focused tests, and the milestone status update
+    together after validation.
+  - Keep any prerequisite public Actor API decision in a separate ADR commit.
 ```

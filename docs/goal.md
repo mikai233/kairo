@@ -578,21 +578,30 @@ known remaining gaps are release issues, not foundational architecture gaps
 
 ## Remaining Task List
 
-1. Finish M0 documentation and progress tracking files.
-2. Implement `kairo-actor` local runtime core.
-3. Add lifecycle, supervision, death watch, timers, ask, adapters, and testkit.
-4. Implement `kairo-serialization` registry, derive metadata, and codec bridge.
-5. Implement `kairo-remote` provider, transport, associations, and remote watch.
-6. Implement cluster gossip data types and merge/convergence tests.
-7. Implement cluster runtime join, gossip, heartbeat, leader actions, and events.
-8. Implement distributed data CRDT replicator.
-9. Implement cluster sharding entity refs, regions, shards, coordinator, and
-   allocation.
-10. Add sharding handoff, rebalance, remember entities, and coordinator store.
-11. Implement singleton and pubsub cluster tools.
-12. Add configuration, extension, observability, and shutdown surfaces.
-13. Add examples, multi-node tests, user docs, migration notes, and benchmarks.
-14. Update the old project-facing README once the new facade is usable.
+The original component-scaffolding order has largely been executed. Remaining
+work is now gated by runnable vertical slices, not by the number of individual
+state machines or focused tests present. Detailed current status and exit gates
+live in `docs/progress.md`.
+
+1. Replace the initial worker-thread baseline with the production dispatcher,
+   task-executor, and scheduler ownership model while preserving synchronous
+   typed actor semantics.
+2. Compose remoting into one ActorSystem-owned lifecycle that supports
+   heterogeneous registered business protocols and all system manifests over a
+   shared canonical transport address, with bounded outbound lanes and reliable
+   system-message delivery.
+3. Complete the M6 cluster daemon: seed contact, init/join/welcome, periodic
+   gossip status/full gossip, heartbeat, convergence-gated leader actions,
+   leave/removal, and coordinated shutdown.
+4. Integrate distributed data, sharding, and cluster tools with that real
+   cluster/remoting lifecycle and expose cohesive ActorSystem extensions.
+5. Pass the three-node final acceptance demo, including join, leave, rebalance,
+   handoff, entity restart, and remember-store recovery without manually
+   injected membership state.
+6. Enter M13 release hardening only after items 1-5 no longer require
+   foundational architecture replacement; then complete performance tuning,
+   fault testing, API review, platform CI, documentation, and legacy removal
+   planning.
 
 ## Roadmap Maintenance Files
 

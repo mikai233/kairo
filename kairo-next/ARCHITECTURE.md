@@ -1991,20 +1991,36 @@ Cluster tests must include:
 
 ## Implementation Order
 
-1. `kairo-actor`: local typed spawn, tell, mailbox, stop, dead letters.
-2. `kairo-actor`: death watch, timers, ask, adapters, supervision.
-3. `kairo-serialization`: registry, stable manifests, system serializers.
-4. `kairo-remote`: provider, remote ref, TCP transport, remote watch.
-5. `kairo-cluster`: member, vector clock, gossip, reachability unit tests.
-6. `kairo-cluster`: join/welcome, gossip status/full gossip, heartbeat, leader
-   actions.
-7. `kairo-cluster-sharding`: local-only region/shard/coordinator flow.
-8. `kairo-cluster-tools`: singleton MVP for sharding coordinator.
-9. `kairo-cluster-sharding`: cluster-aware allocation, rebalance, handoff,
-   passivation.
-10. `kairo-distributed-data`: CRDT replicator and coordinator state store.
-11. `kairo-cluster-sharding`: remember entities.
-12. `kairo-testkit`: multi-node cluster and sharding test harness.
+The initial component order has produced substantial state-machine and focused
+test coverage. Remaining implementation follows the runtime dependency chain
+below. Passing later component tests does not bypass an earlier integration
+gate.
+
+1. `kairo-actor`: replace the per-actor/per-task/per-timer worker-thread
+   baseline with the recorded production dispatcher, task-executor, and
+   scheduler model. Preserve single-consumer typed mailboxes, system-message
+   priority, synchronous `Actor::receive`, and deterministic manual time.
+2. `kairo-remote`: converge business and system traffic on one
+   ActorSystem-owned listener and association lifecycle. Add heterogeneous
+   manifest dispatch, bounded non-blocking lanes, reliable ordered system
+   messages, and defensive handshake/lifecycle limits.
+3. `kairo-cluster`: build the public extension and daemon lifecycle around the
+   existing pure membership model and transport components. Complete seed
+   contact, init/join/welcome, gossip status/full gossip scheduling, heartbeat,
+   convergence-gated leader actions, leave/removal, and coordinated shutdown.
+4. `kairo-distributed-data`, `kairo-cluster-sharding`, and
+   `kairo-cluster-tools`: consume the composed remoting and real cluster event
+   lifecycle instead of independently assembled listeners or injected
+   membership snapshots.
+5. `kairo`: expose cohesive ActorSystem extensions and make the final sharding
+   workflow available through `ClusterSharding::get`, `init`, and
+   `entity_ref_for` without low-level actor assembly.
+6. `kairo-testkit` and examples: validate the complete join, leave, failure,
+   rebalance, handoff, restart, and recovery workflow with independently running
+   local nodes.
+7. M13: perform API hardening, failure review, release-mode performance tuning,
+   platform CI expansion, documentation convergence, and legacy removal
+   planning only after steps 1-6 no longer require architecture replacement.
 
 ## Critical Invariants
 

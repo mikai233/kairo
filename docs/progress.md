@@ -2,63 +2,241 @@
 
 ## Current Milestone
 
-The rewrite is no longer in the early M2-only phase. As of 2026-06-18, the
-new `kairo-next` workspace has substantial implementation coverage through
-local actors, serialization, remoting, gossip-based cluster membership,
-distributed data, cluster sharding, and cluster tools. The active work is now
-an M12/M13-style convergence pass: keep the full workspace green, remove
-remaining nondeterminism, align user-facing documentation with the implemented
-API, and harden examples and multi-node scenarios before treating the rewrite
-as release-ready.
+As of 2026-07-15, `kairo-next` has broad component coverage across local
+actors, serialization, remoting, gossip state, distributed data, sharding, and
+cluster tools. The component depth and validation history are substantial, but
+the rewrite has not yet reached an M13-only hardening phase. The production
+actor execution model, one composed remoting boundary, the complete cluster
+daemon lifecycle, and the final public extension APIs still require
+foundational integration work.
 
-Current active milestone: hardening, documentation convergence, and full
-workspace stabilization before M13 release readiness.
+Current active stage: **foundation convergence before M13**. M13 validation
+commands continue to run as regression gates, but passing those gates does not
+by itself mean that the M13 acceptance condition has been met. M13 begins only
+after the remaining architecture work can be treated as tuning and release
+hardening rather than replacement.
+
+Status terms in this document mean:
+
+- **Complete**: the milestone acceptance behavior works through its intended
+  public or end-to-end boundary.
+- **Substantial component coverage**: most state machines and focused tests
+  exist, but an integration or public-lifecycle gate is still open.
+- **In progress**: a milestone still has a foundational acceptance gap.
 
 ## Milestone Snapshot
 
 - M0 workspace, contracts, and roadmap: complete. New implementation lives in
   `kairo-next`, old `crates/` remains reference-only, the multi-crate boundary
   is enforced, and the Pekko reference path is documented.
-- M1 local actor runtime core: complete for the intended vertical slice. Typed
-  local actors can be spawned, messaged, stopped, observed, and routed through
-  actor paths and providers.
-- M2 lifecycle, supervision, patterns, and testkit: mostly complete. Lifecycle,
-  supervision, death watch, timers, scheduler, ask, pipe-to-self, adapters,
-  stash, event stream, receptionist, coordinated shutdown, probes, and manual
-  time support are implemented with focused tests.
+- M1 local actor vertical slice: complete. Typed local actors can be spawned,
+  messaged, stopped, observed, and routed through actor paths and providers.
+  The current worker-thread-per-actor implementation remains the baseline
+  recorded by ADR-0003, not the production dispatcher contract required before
+  release readiness.
+- M2 lifecycle, supervision, patterns, and testkit: substantial component
+  coverage. Lifecycle, supervision, death watch, timers, scheduler, ask,
+  pipe-to-self, adapters, stash, event stream, receptionist, coordinated
+  shutdown, probes, and manual time support have focused tests. A final actor
+  tree semantic audit and migration of tasks/timers away from per-operation OS
+  threads remain part of the execution-foundation phase.
 - M3 serialization and message metadata: mostly complete. Stable
   `RemoteMessage` metadata, derive support, codec registration, manifests,
-  remote envelopes, and actor-ref serialization boundaries exist.
-- M4 remoting: substantial implementation. Remote refs, provider composition,
-  associations, TCP runtime, inbound and outbound delivery, remote watch, and
-  remote examples/tests are present, but broader transport lifecycle hardening
-  is still part of the convergence pass.
-- M5 and M6 cluster membership: substantial implementation. Gossip, vector
-  clocks, reachability, convergence, membership actors, join/welcome flows,
-  heartbeat, downing hooks, and TCP peer bootstrap coverage exist. Additional
-  multi-node lifecycle coverage is still needed.
-- M7 distributed data: substantial implementation. Core CRDTs, replicator
+  remote envelopes, and actor-ref serialization boundaries exist. Optional
+  codec helpers and rolling-version fixtures remain, but the stable wire
+  contract is already in place.
+- M4 remoting: in progress. Remote refs, provider composition, associations,
+  TCP transport, inbound/outbound delivery, remote watch, and focused socket
+  tests exist. Release acceptance still requires one ActorSystem-owned boundary
+  that can carry heterogeneous registered protocols, bounded non-blocking
+  outbound lanes, reliable ordered system-message delivery, and defensive
+  handshake/lifecycle limits.
+- M5 gossip data model: near complete. Vector clocks, gossip, reachability,
+  convergence, leader selection, and event diffing have strong pure-state test
+  coverage without a central membership authority.
+- M6 cluster runtime and membership protocol: in progress. Membership actors,
+  join/welcome handling, heartbeat, downing hooks, remote envelopes, and TCP
+  peer bootstrap components exist. The acceptance gap is the integrated daemon
+  flow: seed contact, `InitJoin` acknowledgement, `GossipStatus`, periodic
+  gossip, automatic convergence to `Up`, leave to `Removed`, and coordinated
+  shutdown exercised without manually publishing membership snapshots.
+- M7 distributed data: substantial component coverage. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
-  connectors, TCP peer runtime, and examples are present.
-- M8 and M9 cluster sharding: substantial implementation. `EntityRef`,
+  connectors, TCP peer runtime, and examples exist. Product acceptance remains
+  gated by the composed M4/M6 runtime and process-level validation.
+- M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
-  stores, remote routes, and many local and multi-node tests exist.
-- M10 cluster tools: substantial implementation. Singleton and pubsub logic,
-  remote delivery, TCP peer runtime, and examples are present.
+  stores, remote routes, `ShardRegionBootstrap`, and focused multi-node tests
+  exist. The final cluster-integrated extension and acceptance demo remain open.
+- M10 cluster tools: substantial component coverage. Singleton and pubsub
+  state, remote delivery, TCP peer runtime, and examples exist; composed
+  cluster lifecycle validation remains open.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
-  publication controls, and coordinated-shutdown surfaces exist; richer logging
-  exporters and broader operator polish remain release hardening.
+  publication controls, and coordinated-shutdown surfaces exist. The remaining
+  foundation work is to make the distributed extensions share one ActorSystem
+  lifecycle rather than exposing independently assembled runtimes.
 - M12 examples, migration, and documentation: substantial implementation.
   Examples, migration guidance, README feature maps, workspace doctests,
-  rustdoc warning gates, and compile-tested public API snippets exist; final
-  narrative polish remains part of M13 release hardening.
-- M13 hardening and release readiness: not complete. Remaining work is focused
-  on full-workspace validation stability, multi-node hardening, performance and
-  failure-mode review, final documentation, and any cleanup needed before the
-  old implementation is unnecessary for normal builds.
+  rustdoc warning gates, and compile-tested public API snippets exist. Current
+  distributed examples still rely on low-level assembly or manually supplied
+  membership state and therefore do not yet constitute the final acceptance
+  workflow.
+- M13 hardening and release readiness: not active as the sole remaining phase.
+  Its validation, documentation, dependency audit, and benchmark scaffolding
+  already provide useful continuous gates, but final M13 sign-off follows the
+  execution plan below.
+
+## Execution Plan Before M13
+
+Work proceeds in dependency order. Later component-level fixes may continue
+when they are isolated, but they must not deepen coupling to a provisional
+runtime. Each phase has an explicit exit gate.
+
+### Phase 1: Production Actor Execution Foundation
+
+Task: replace the worker-thread-per-actor/task/timer baseline with an explicit
+dispatcher, task-executor, and scheduler ownership model while preserving the
+typed synchronous actor API.
+
+Expected behavior:
+
+- mailbox enqueue schedules an idle actor once and never runs two receives for
+  the same actor concurrently;
+- dispatcher throughput controls rescheduling rather than calling
+  `thread::yield_now` inside a dedicated actor thread;
+- actor tasks and timers do not require one sleeping OS thread per operation;
+- stop, restart, system-message priority, dead letters, and deterministic
+  manual-time behavior keep their existing observable semantics.
+
+Exit gate:
+
+- focused dispatcher race/fairness tests pass;
+- a stress test can run thousands of idle actors and timers without creating
+  one OS thread per actor or timer;
+- `cargo test -p kairo-actor --all-targets --all-features` and the full workspace
+  gates remain green.
+
+Do not change: do not add `AsyncActor`, require serialization for local
+messages, or weaken `ActorRef<M>` as the public boundary. Record the selected
+production dispatcher ownership model in `docs/decisions.md` before replacing
+the baseline.
+
+### Phase 2: Composed Remoting Runtime
+
+Task: converge business messages and system protocols on one ActorSystem-owned
+remoting lifecycle and canonical transport address.
+
+Expected behavior:
+
+- one running ActorSystem receives multiple unrelated registered
+  `RemoteMessage` protocols without a global business-message enum;
+- cluster, distributed-data, sharding, and cluster-tools system manifests share
+  the same listener, association registry, and per-peer association lifecycle;
+- `tell` enqueues into bounded lanes instead of blocking an actor turn on
+  `TcpStream::write_all`;
+- the system-message lane is ordered, acknowledged, retried, and quarantined on
+  terminal delivery failure;
+- handshake size, read deadline, partial-lane arrival, and concurrent-peer
+  interleaving have explicit limits and tests.
+
+Exit gate:
+
+- two ActorSystems exchange at least two unrelated typed business protocols and
+  cluster control traffic over the same association;
+- slow-peer, queue-overflow, reconnect, duplicate-system-message, and malformed
+  handshake tests pass;
+- focused process-level remoting tests pass without cluster.
+
+Do not change: internal manifest dispatch may use erased codec/delivery
+boundaries, but the primary user API must remain `ActorRef<M>` and remote wire
+metadata must remain stable and registry-driven. Record the final transport
+ownership and system-message delivery decisions before implementation.
+
+### Phase 3: Complete M6 Cluster Runtime
+
+Task: implement the cluster extension and daemon lifecycle around the existing
+gossip, membership, heartbeat, downing, and transport components.
+
+Expected behavior:
+
+- configured seed/contact addresses drive `InitJoin`, acknowledgement, `Join`,
+  and `Welcome` without becoming membership truth;
+- initialized nodes schedule `GossipStatus`/full-gossip exchange and heartbeat;
+- leader actions advance `Joining` to `Up` and `Leaving` through `Removed` only
+  under the documented convergence rules;
+- public cluster operations expose self state, join, leave, down, and event
+  subscription through one ActorSystem extension;
+- coordinated shutdown performs cluster leave before transport termination.
+
+Exit gate:
+
+- three independently running local nodes form through seed contact and
+  converge to `Up` without injected `CurrentClusterState` snapshots;
+- leave converges to `Removed`, unreachable/reachable events are observable,
+  and a restarted address with a new uid is treated as a new incarnation;
+- deterministic state-machine tests and process-level socket tests both pass.
+
+Do not change: membership truth remains gossip plus local failure-detector
+observations; discovery supplies contact addresses only.
+
+### Phase 4: Distributed Integration And Public Extensions
+
+Task: run distributed data, sharding, and cluster tools on the composed remoting
+and cluster lifecycle, then expose cohesive ActorSystem extensions.
+
+Expected behavior:
+
+- ddata, sharding, and cluster-tools peer ownership follows real cluster events
+  rather than manually published snapshots;
+- `ClusterSharding::get`, `init`, and `entity_ref_for` own coordinator/region
+  bootstrap behind the public API;
+- accepted sharding messages survive join, leave, rebalance, handoff, entity
+  restart, and selected remember-store recovery;
+- normal examples use the `kairo` facade and do not require users to assemble
+  low-level runtime actors or separate TCP listeners.
+
+Exit gate:
+
+- the final acceptance workflow in `docs/goal.md` passes with at least three
+  independently running nodes;
+- ddata, sharding, singleton, and pubsub fault scenarios run on the same
+  ActorSystem-owned transport and cluster runtime;
+- the old `crates/` implementation is unnecessary for normal development and
+  examples.
+
+Do not change: sharded entity IDs stay outside business messages; stable shard
+hashing and `EntityRef<M>` remain the user boundary.
+
+### Phase 5: M13 Release Hardening
+
+Only after Phases 1-4 meet their exit gates, finish API review, feature gates,
+release-mode benchmarks, batching and tuning, platform/MSRV CI coverage,
+process crash and network-fault tests, documentation convergence, and legacy
+removal planning. Remaining M13 issues must be release issues rather than
+foundational architecture gaps.
+
+## Commit And Progress Discipline
+
+`AGENTS.md` is authoritative for checkpoint and commit-message rules. For this
+execution plan, the unit of history is a verified behavior or architecture
+checkpoint, not an individual agent turn, test case, or validation command.
+
+- Plan the intended commit boundary before implementation. A normal focused
+  task should usually produce 1-5 final commits; a complete phase should usually
+  need roughly 5-15. These ranges are review heuristics, not quotas.
+- Keep implementation, its regression tests, and necessary status/user docs in
+  the same commit unless an ADR or behavior-neutral prerequisite refactor has
+  independent review and rollback value.
+- Squash same-session fixups, consecutive tests for the same invariant, and
+  mirrored cross-crate lifecycle changes before push or handoff.
+- Do not rewrite already published history without explicit authorization.
+- Preserve the existing validation history below as historical evidence, but do
+  not continue appending one command transcript per commit. Going forward,
+  maintain a concise latest validation summary and update milestone status only
+  when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
 
