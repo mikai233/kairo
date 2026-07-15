@@ -23,6 +23,12 @@ pub enum RemoteError {
     /// Inbound delivery failed after a frame was decoded.
     #[error("remote inbound delivery failed: {0}")]
     Inbound(String),
+    /// A protocol manifest was registered more than once before remoting bind.
+    #[error("remote protocol manifest `{0}` is already registered")]
+    DuplicateProtocolManifest(String),
+    /// An inbound envelope named no protocol registered by this runtime.
+    #[error("remote protocol manifest `{0}` is not registered")]
+    UnknownProtocolManifest(String),
     /// A transport frame or stream payload did not match Kairo's remote wire
     /// format.
     #[error("invalid remote frame: {0}")]

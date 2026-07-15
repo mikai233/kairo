@@ -232,7 +232,9 @@ pub use inbound::{
     InboundMessage, RemoteInbound, RemoteInboundDelivery, RemoteInboundDiagnostic,
     RemoteInboundDiagnosticFilter, RemoteInboundDiagnostics,
 };
-pub use inbound_router::{RemoteInboundFrameRouter, is_remote_death_watch_manifest};
+pub use inbound_router::{
+    ManifestRemoteInboundRouter, RemoteInboundFrameRouter, is_remote_death_watch_manifest,
+};
 pub use kairo_actor::ActorPath;
 pub use kairo_serialization::{RemoteEnvelope, SerializedMessage};
 pub use lanes::{LaneRemoteOutbound, RemoteLaneClassifier, RemoteLaneSink, lane_send_failure};
@@ -264,7 +266,7 @@ pub use stream::{
 };
 pub use stream_inbound::{RemoteFrameHandler, StreamFrameInbound};
 pub use stream_sink::{RemoteByteSink, RemoteStreamWriter, StreamLaneSink, stream_send_failure};
-pub use system_inbound::ActorSystemRemoteInbound;
+pub use system_inbound::{ActorSystemRemoteInbound, ActorSystemRemoteInboundRegistry};
 pub use tcp::{
     TcpAcceptedAssociation, TcpAssociationDialer, TcpAssociationFrameHandlerFactory,
     TcpAssociationHandshake, TcpAssociationIdentity, TcpAssociationListener,
@@ -273,5 +275,5 @@ pub use tcp::{
     TcpAssociationReaderSupervisionDecision, TcpAssociationReaderSupervisor,
     TcpAssociationStreamReader, TcpAssociationSupervisedReadReport, TcpRemoteByteSink,
 };
-pub use tcp_runtime::TcpRemoteActorSystem;
+pub use tcp_runtime::{TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder, TcpRemoteActorSystem};
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};

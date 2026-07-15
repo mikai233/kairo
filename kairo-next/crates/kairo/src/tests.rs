@@ -1781,6 +1781,8 @@ fn prelude_exposes_remote_entry_points() {
     let _ = std::mem::size_of::<Option<RemoteActorRefResolver<PreludeRemoteMsg>>>();
     let _ = std::mem::size_of::<Option<RemoteActorRefProvider>>();
     let _ = std::mem::size_of::<Option<ResolvedActorRef<PreludeRemoteMsg>>>();
+    let _ = std::mem::size_of::<Option<TcpRemoteActorRuntime>>();
+    let _ = std::mem::size_of::<Option<TcpRemoteActorRuntimeBuilder>>();
     let _ = std::mem::size_of::<Option<TcpRemoteActorSystem<PreludeRemoteMsg>>>();
     assert!(resolved.is_local());
     assert_eq!(resolved.path(), local.path());

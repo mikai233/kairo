@@ -1,13 +1,90 @@
+use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use bytes::Bytes;
-use kairo_serialization::RemoteMessage;
+use kairo_serialization::{RemoteEnvelope, RemoteMessage};
 
 use crate::{
     AddressTerminated, RemoteDeathWatchSystemInbound, RemoteError, RemoteFrameHandler,
     RemoteHeartbeat, RemoteHeartbeatAck, RemoteInbound, RemoteStreamId, RemoteTerminated, Result,
     UnwatchRemote, WatchRemote, decode_remote_envelope_frame,
 };
+
+trait RemoteEnvelopeHandler: Send + Sync + 'static {
+    fn receive(&self, envelope: RemoteEnvelope) -> Result<()>;
+}
+
+impl<F> RemoteEnvelopeHandler for F
+where
+    F: Fn(RemoteEnvelope) -> Result<()> + Send + Sync + 'static,
+{
+    fn receive(&self, envelope: RemoteEnvelope) -> Result<()> {
+        self(envelope)
+    }
+}
+
+/// Non-generic inbound dispatch table for one remote runtime.
+///
+/// Each registered manifest retains a typed [`RemoteInbound`] handler behind
+/// this internal wire-boundary erasure. User-facing actor refs remain typed.
+pub struct ManifestRemoteInboundRouter {
+    business: HashMap<String, Arc<dyn RemoteEnvelopeHandler>>,
+    death_watch: RemoteDeathWatchSystemInbound,
+}
+
+impl ManifestRemoteInboundRouter {
+    pub fn new(death_watch: RemoteDeathWatchSystemInbound) -> Self {
+        Self {
+            business: HashMap::new(),
+            death_watch,
+        }
+    }
+
+    pub fn register<M>(&mut self, inbound: RemoteInbound<M>) -> Result<()>
+    where
+        M: RemoteMessage,
+    {
+        if is_remote_death_watch_manifest(M::MANIFEST) || self.business.contains_key(M::MANIFEST) {
+            return Err(RemoteError::DuplicateProtocolManifest(
+                M::MANIFEST.to_string(),
+            ));
+        }
+
+        self.business.insert(
+            M::MANIFEST.to_string(),
+            Arc::new(move |envelope| inbound.receive(envelope)),
+        );
+        Ok(())
+    }
+
+    pub fn registered_manifests(&self) -> impl Iterator<Item = &str> {
+        self.business.keys().map(String::as_str)
+    }
+
+    pub fn receive(&self, stream_id: RemoteStreamId, envelope: RemoteEnvelope) -> Result<()> {
+        let manifest = envelope.message.manifest.as_str();
+        if is_remote_death_watch_manifest(manifest) {
+            if stream_id != RemoteStreamId::Control {
+                return Err(RemoteError::Inbound(format!(
+                    "remote death-watch manifest `{manifest}` arrived on {stream_id:?} lane"
+                )));
+            }
+            return self.death_watch.receive(envelope);
+        }
+
+        self.business
+            .get(manifest)
+            .ok_or_else(|| RemoteError::UnknownProtocolManifest(manifest.to_string()))?
+            .receive(envelope)
+    }
+}
+
+impl RemoteFrameHandler for ManifestRemoteInboundRouter {
+    fn handle_frame(&self, stream_id: RemoteStreamId, frame: Bytes) -> Result<()> {
+        self.receive(stream_id, decode_remote_envelope_frame(frame)?)
+    }
+}
 
 pub struct RemoteInboundFrameRouter<M> {
     business: RemoteInbound<M>,
@@ -77,7 +154,7 @@ mod tests {
     use bytes::Bytes;
     use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
     use kairo_serialization::{
-        ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, SerializationRegistry,
+        ActorRefWireData, Manifest, MessageCodec, Registry, RemoteEnvelope, SerializationRegistry,
     };
 
     use super::*;
@@ -319,6 +396,48 @@ mod tests {
 
         assert_eq!(delivery.messages().len(), 1);
         assert_eq!(delivery.messages()[0].message, Business { value: 9 });
+        assert!(effects.effects().is_empty());
+    }
+
+    #[test]
+    fn manifest_router_rejects_unregistered_business_manifest() {
+        let registry = registry();
+        let delivery = Arc::new(CollectingBusinessDelivery::default());
+        let effects = Arc::new(RecordingEffectSink::default());
+        let system = ActorSystem::builder("local").build().unwrap();
+        let watcher =
+            system
+                .spawn(
+                    "remote-watch",
+                    RemoteDeathWatchActor::props(
+                        effects.clone() as Arc<dyn RemoteDeathWatchEffectSink>
+                    ),
+                )
+                .unwrap();
+        let death_watch = RemoteDeathWatchSystemInbound::new(
+            registry.clone(),
+            crate::RemoteDeathWatchProtocolDelivery::new(watcher, 42),
+        );
+        let mut router = ManifestRemoteInboundRouter::new(death_watch);
+        router
+            .register(RemoteInbound::new(
+                registry.clone(),
+                delivery.clone() as Arc<dyn RemoteInboundDelivery<Business>>,
+            ))
+            .unwrap();
+        let mut envelope = business_envelope(&registry, 9);
+        envelope.message.manifest = Manifest::try_new("kairo.remote.test.Unknown").unwrap();
+
+        let error = router
+            .receive(RemoteStreamId::Ordinary, envelope)
+            .expect_err("unregistered manifest should fail before typed decode");
+
+        assert!(matches!(
+            error,
+            RemoteError::UnknownProtocolManifest(manifest)
+                if manifest == "kairo.remote.test.Unknown"
+        ));
+        assert!(delivery.messages().is_empty());
         assert!(effects.effects().is_empty());
     }
 

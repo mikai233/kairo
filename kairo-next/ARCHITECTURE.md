@@ -870,11 +870,13 @@ TCP association dialing:
   cloned into reverse `TcpRemoteByteSink` values and installed as an outbound
   route for the remote association address, giving the local runtime a
   bidirectional route without making the association cache a membership store,
-- `TcpRemoteActorSystem<M>` composes the concrete TCP listener, association
+- `TcpRemoteActorRuntime` composes the concrete TCP listener, association
   cache, route installer, dialer, remote actor-ref provider, actor-system
-  inbound router, and remote death-watch actor into one lifecycle owner for a
-  message protocol `M`,
-- `TcpRemoteActorSystem::shutdown_with_timeout` stops the runtime-owned
+  manifest registry, and remote death-watch actor into one non-generic
+  lifecycle owner. Its builder registers every typed business protocol before
+  bind and rejects duplicate manifests. `TcpRemoteActorSystem<M>` remains a
+  compatibility facade that registers one protocol with the same runtime core,
+- `TcpRemoteActorRuntime::shutdown_with_timeout` stops the runtime-owned
   remote death-watch actor before clearing outbound association routes and
   stopping the TCP listener, joins dialing-side lane readers after route
   shutdown, and preserves the shutdown ordering shape Pekko uses for remoting
@@ -904,10 +906,13 @@ Inbound pipeline:
 4. resolve target ref,
 5. enqueue to target or dead letters.
 
-`ActorSystemRemoteInbound<M>` composes the transport-neutral association lane
-readers with the inbound frame router. Control-lane death-watch manifests are
-delivered to the actor-backed remote watcher, while ordinary manifests are
-deserialized as `M` and resolved through the local `ActorSystem` registry.
+`ActorSystemRemoteInboundRegistry` composes the transport-neutral association
+lane readers with a frozen-by-bind manifest dispatch table. Control-lane
+death-watch manifests are delivered to the actor-backed remote watcher, while
+registered business manifests are deserialized by their typed `RemoteInbound<M>`
+handlers and resolved through the local `ActorSystem` registry. The older
+`ActorSystemRemoteInbound<M>` remains as a single-protocol compatibility
+surface.
 Recipients addressed to the local system's canonical remote host and port are
 normalized to local actor paths before registry lookup, matching Pekko's
 provider behavior for addresses owned by the local node. Recipients addressed

@@ -182,7 +182,8 @@ pub mod prelude {
         RemoteAssociationDiagnostic, RemoteAssociationDiagnosticFilter,
         RemoteAssociationDiagnostics, RemoteError, RemoteInboundDiagnostic,
         RemoteInboundDiagnosticFilter, RemoteInboundDiagnostics, RemoteOutbound, RemoteSettings,
-        ResolvedActorRef, TcpRemoteActorSystem,
+        ResolvedActorRef, TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder,
+        TcpRemoteActorSystem,
     };
     #[cfg(feature = "serialization")]
     pub use kairo_serialization::{

@@ -12,7 +12,7 @@ use kairo_serialization::{
 };
 use kairo_testkit::await_assert;
 
-use super::TcpRemoteActorSystem;
+use super::{TcpRemoteActorRuntime, TcpRemoteActorSystem};
 use crate::{
     AddressTerminated, AssociationState, RemoteAssociationAddress, RemoteAssociationCache,
     RemoteDeathWatchCommand, RemoteDeathWatchEffect, RemoteDeathWatchEffectObserver,
@@ -46,8 +46,50 @@ impl MessageCodec<Ping> for PingCodec {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Pong {
+    value: u16,
+}
+
+impl RemoteMessage for Pong {
+    const MANIFEST: &'static str = "kairo.remote.test.TcpRuntimePong";
+    const VERSION: u16 = 1;
+}
+
+struct PongCodec;
+
+impl MessageCodec<Pong> for PongCodec {
+    fn serializer_id(&self) -> u32 {
+        992
+    }
+
+    fn encode(&self, message: &Pong) -> kairo_serialization::Result<Bytes> {
+        Ok(Bytes::copy_from_slice(&message.value.to_be_bytes()))
+    }
+
+    fn decode(&self, payload: Bytes, _version: u16) -> kairo_serialization::Result<Pong> {
+        Ok(Pong {
+            value: u16::from_be_bytes([payload[0], payload[1]]),
+        })
+    }
+}
+
 struct Target {
     received: mpsc::Sender<u8>,
+}
+
+struct PongTarget {
+    received: mpsc::Sender<u16>,
+}
+
+impl Actor for PongTarget {
+    type Msg = Pong;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        self.received
+            .send(msg.value)
+            .map_err(|error| kairo_actor::ActorError::Message(error.to_string()))
+    }
 }
 
 impl Actor for Target {
@@ -180,6 +222,7 @@ impl RemoteOutbound for LateRouteOnClose {
 fn registry() -> Arc<Registry> {
     let mut registry = Registry::new();
     registry.register::<Ping, _>(PingCodec).unwrap();
+    registry.register::<Pong, _>(PongCodec).unwrap();
     register_remote_protocol_codecs(&mut registry).unwrap();
     Arc::new(registry)
 }
@@ -280,6 +323,96 @@ fn await_bidirectional_routes(
         },
     )
     .unwrap();
+}
+
+#[test]
+fn tcp_remote_runtime_rejects_duplicate_protocol_before_bind() {
+    let system = ActorSystem::builder("duplicate-protocol").build().unwrap();
+    let mut builder =
+        TcpRemoteActorRuntime::builder(system, registry(), RemoteSettings::new("127.0.0.1", 0), 11);
+
+    builder.register::<Ping>().unwrap();
+    let error = match builder.register::<Ping>() {
+        Ok(_) => panic!("duplicate manifest should fail before bind"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        crate::RemoteError::DuplicateProtocolManifest(manifest)
+            if manifest == Ping::MANIFEST
+    ));
+}
+
+#[test]
+fn tcp_remote_runtime_delivers_two_protocols_on_one_association() {
+    let receiver = ActorSystem::builder("receiver").build().unwrap();
+    let sender = ActorSystem::builder("sender").build().unwrap();
+    let registry = registry();
+    let (ping_tx, ping_rx) = mpsc::channel();
+    let (pong_tx, pong_rx) = mpsc::channel();
+    let ping_target = receiver
+        .spawn(
+            "ping-target",
+            Props::new(move || Target { received: ping_tx }),
+        )
+        .unwrap();
+    let pong_target = receiver
+        .spawn(
+            "pong-target",
+            Props::new(move || PongTarget { received: pong_tx }),
+        )
+        .unwrap();
+
+    let mut receiver_builder = TcpRemoteActorRuntime::builder(
+        receiver,
+        registry.clone(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    );
+    receiver_builder.register::<Ping>().unwrap();
+    receiver_builder.register::<Pong>().unwrap();
+    let receiver_remote = receiver_builder.bind().unwrap();
+
+    let mut sender_builder =
+        TcpRemoteActorRuntime::builder(sender, registry, RemoteSettings::new("127.0.0.1", 0), 22);
+    sender_builder.register::<Ping>().unwrap();
+    sender_builder.register::<Pong>().unwrap();
+    let sender_remote = sender_builder.bind().unwrap();
+
+    let receiver_address = RemoteAssociationAddress::new(
+        "kairo",
+        "receiver",
+        receiver_remote.settings().canonical_hostname.clone(),
+        Some(receiver_remote.settings().canonical_port),
+    )
+    .unwrap();
+    let registration = sender_remote.dial(receiver_address).unwrap();
+    let remote_ping = sender_remote
+        .resolve::<Ping>(remote_path_for(
+            ping_target.path().as_str(),
+            receiver_remote.settings(),
+        ))
+        .unwrap();
+    let remote_pong = sender_remote
+        .resolve::<Pong>(remote_path_for(
+            pong_target.path().as_str(),
+            receiver_remote.settings(),
+        ))
+        .unwrap();
+
+    remote_ping.tell(Ping { value: 7 }).unwrap();
+    remote_pong.tell(Pong { value: 700 }).unwrap();
+
+    assert_eq!(ping_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 7);
+    assert_eq!(pong_rx.recv_timeout(Duration::from_secs(1)).unwrap(), 700);
+    assert_eq!(sender_remote.association_cache().route_count(), 1);
+    await_route_count(receiver_remote.association_cache(), 1);
+
+    registration.close_owned_route("heterogeneous protocol test done");
+    sender_remote.shutdown().unwrap();
+    let report = receiver_remote.shutdown().unwrap();
+    assert_eq!(report.accepted_associations, 1);
 }
 
 #[test]

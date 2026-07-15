@@ -6,11 +6,116 @@ use kairo_actor::{ActorRef, ActorSystem};
 use kairo_serialization::{Registry, RemoteMessage};
 
 use crate::{
-    AssociationRemoteInbound, LocalActorInboundDelivery, RemoteDeathWatchCommand,
-    RemoteDeathWatchProtocolDelivery, RemoteDeathWatchSystemInbound, RemoteFrameHandler,
-    RemoteInbound, RemoteInboundDiagnostics, RemoteInboundFrameRouter, RemoteSettings,
-    RemoteStreamId, Result,
+    AssociationRemoteInbound, LocalActorInboundDelivery, ManifestRemoteInboundRouter,
+    RemoteDeathWatchCommand, RemoteDeathWatchProtocolDelivery, RemoteDeathWatchSystemInbound,
+    RemoteFrameHandler, RemoteInbound, RemoteInboundDiagnostics, RemoteInboundFrameRouter,
+    RemoteSettings, RemoteStreamId, Result,
 };
+
+/// ActorSystem-backed manifest registry used by the composed remoting runtime.
+pub struct ActorSystemRemoteInboundRegistry {
+    system: ActorSystem,
+    registry: Arc<Registry>,
+    settings: Option<RemoteSettings>,
+    diagnostics: Option<Arc<dyn RemoteInboundDiagnostics>>,
+    router: ManifestRemoteInboundRouter,
+}
+
+impl ActorSystemRemoteInboundRegistry {
+    pub fn new(
+        system: ActorSystem,
+        registry: Arc<Registry>,
+        death_watch: ActorRef<RemoteDeathWatchCommand>,
+        local_system_uid: u64,
+    ) -> Self {
+        Self::build(system, registry, death_watch, local_system_uid, None, None)
+    }
+
+    pub fn with_remote_settings(
+        system: ActorSystem,
+        registry: Arc<Registry>,
+        death_watch: ActorRef<RemoteDeathWatchCommand>,
+        local_system_uid: u64,
+        settings: RemoteSettings,
+    ) -> Self {
+        Self::build(
+            system,
+            registry,
+            death_watch,
+            local_system_uid,
+            Some(settings),
+            None,
+        )
+    }
+
+    pub fn with_remote_settings_and_diagnostics(
+        system: ActorSystem,
+        registry: Arc<Registry>,
+        death_watch: ActorRef<RemoteDeathWatchCommand>,
+        local_system_uid: u64,
+        settings: RemoteSettings,
+        diagnostics: Arc<dyn RemoteInboundDiagnostics>,
+    ) -> Self {
+        Self::build(
+            system,
+            registry,
+            death_watch,
+            local_system_uid,
+            Some(settings),
+            Some(diagnostics),
+        )
+    }
+
+    fn build(
+        system: ActorSystem,
+        registry: Arc<Registry>,
+        death_watch: ActorRef<RemoteDeathWatchCommand>,
+        local_system_uid: u64,
+        settings: Option<RemoteSettings>,
+        diagnostics: Option<Arc<dyn RemoteInboundDiagnostics>>,
+    ) -> Self {
+        let death_watch = RemoteDeathWatchSystemInbound::new(
+            registry.clone(),
+            RemoteDeathWatchProtocolDelivery::new(death_watch, local_system_uid),
+        );
+        Self {
+            system,
+            registry,
+            settings,
+            diagnostics,
+            router: ManifestRemoteInboundRouter::new(death_watch),
+        }
+    }
+
+    pub fn register<M>(&mut self) -> Result<&mut Self>
+    where
+        M: RemoteMessage,
+    {
+        let delivery = match &self.settings {
+            Some(settings) => LocalActorInboundDelivery::<M>::with_remote_settings(
+                self.system.clone(),
+                settings.clone(),
+            ),
+            None => LocalActorInboundDelivery::<M>::new(self.system.clone()),
+        };
+        let mut inbound = RemoteInbound::new(self.registry.clone(), Arc::new(delivery));
+        if let Some(diagnostics) = &self.diagnostics {
+            inbound = inbound.with_diagnostics(diagnostics.clone());
+        }
+        self.router.register(inbound)?;
+        Ok(self)
+    }
+
+    pub fn router(&self) -> &ManifestRemoteInboundRouter {
+        &self.router
+    }
+}
+
+impl RemoteFrameHandler for ActorSystemRemoteInboundRegistry {
+    fn handle_frame(&self, stream_id: RemoteStreamId, frame: Bytes) -> Result<()> {
+        self.router.handle_frame(stream_id, frame)
+    }
+}
 
 pub struct ActorSystemRemoteInbound<M> {
     router: RemoteInboundFrameRouter<M>,

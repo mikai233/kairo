@@ -1,26 +1,29 @@
+use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::net::TcpListener;
+use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kairo_actor::{ActorError, ActorPath, ActorRef, ActorSystem};
-use kairo_serialization::{ActorRefWireData, Registry, RemoteMessage};
+use kairo_serialization::{ActorRefWireData, Manifest, Registry, RemoteMessage};
 
 use crate::{
-    ActorSystemRemoteInbound, AssociationOutboundPipeline, RemoteActorRef, RemoteActorRefProvider,
-    RemoteActorRefResolver, RemoteAssociationAddress, RemoteAssociationCache,
-    RemoteAssociationRegistry, RemoteAssociationRouteInstaller, RemoteAssociationRouteRegistration,
-    RemoteDeathWatchCommand, RemoteDeathWatchEffect, RemoteDeathWatchEffectObserver,
-    RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound, RemoteSettings, ResolvedActorRef,
-    Result, TcpAssociationDialer, TcpAssociationListener, TcpAssociationListenerHandle,
-    TcpAssociationListenerReport, TcpAssociationReaderHandle, TcpAssociationStreamReader,
-    UnwatchRemote, WatchRemote,
+    ActorSystemRemoteInboundRegistry, AssociationOutboundPipeline, RemoteActorRef,
+    RemoteActorRefProvider, RemoteActorRefResolver, RemoteAssociationAddress,
+    RemoteAssociationCache, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
+    RemoteAssociationRouteRegistration, RemoteDeathWatchCommand, RemoteDeathWatchEffect,
+    RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink, RemoteError, RemoteOutbound,
+    RemoteSettings, ResolvedActorRef, Result, TcpAssociationDialer, TcpAssociationListener,
+    TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReaderHandle,
+    TcpAssociationStreamReader, UnwatchRemote, WatchRemote, is_remote_death_watch_manifest,
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 const TCP_REMOTE_SHUTDOWN_REASON: &str = "tcp remote actor system shutdown";
 
-pub struct TcpRemoteActorSystem<M> {
+/// One non-generic TCP remoting lifecycle for an ActorSystem.
+pub struct TcpRemoteActorRuntime {
     system: ActorSystem,
     registry: Arc<Registry>,
     settings: RemoteSettings,
@@ -33,6 +36,28 @@ pub struct TcpRemoteActorSystem<M> {
     outbound_pipelines: Arc<Mutex<Vec<AssociationOutboundPipeline>>>,
     death_watch: ActorRef<RemoteDeathWatchCommand>,
     listener: Arc<Mutex<Option<TcpAssociationListenerHandle>>>,
+}
+
+type InboundProtocolRegistration =
+    Box<dyn FnOnce(&mut ActorSystemRemoteInboundRegistry) -> Result<()> + Send>;
+
+/// Pre-bind protocol registration for [`TcpRemoteActorRuntime`].
+pub struct TcpRemoteActorRuntimeBuilder {
+    system: ActorSystem,
+    registry: Arc<Registry>,
+    settings: RemoteSettings,
+    local_system_uid: u64,
+    observer: Arc<dyn RemoteDeathWatchEffectObserver>,
+    manifests: HashSet<String>,
+    protocols: Vec<InboundProtocolRegistration>,
+}
+
+/// Compatibility facade for the former single-protocol runtime.
+///
+/// New composed runtimes should use [`TcpRemoteActorRuntime::builder`] and
+/// register every business protocol before bind.
+pub struct TcpRemoteActorSystem<M> {
+    runtime: TcpRemoteActorRuntime,
     _message: PhantomData<fn(M)>,
 }
 
@@ -81,6 +106,85 @@ where
         local_system_uid: u64,
         observer: Arc<dyn RemoteDeathWatchEffectObserver>,
     ) -> Result<Self> {
+        let mut builder =
+            TcpRemoteActorRuntime::builder(system, registry, settings, local_system_uid)
+                .with_observer(observer);
+        builder.register::<M>()?;
+        Ok(Self {
+            runtime: builder.bind()?,
+            _message: PhantomData,
+        })
+    }
+
+    pub fn shutdown(self) -> Result<TcpAssociationListenerReport> {
+        self.runtime.shutdown()
+    }
+
+    pub fn shutdown_with_timeout(self, timeout: Duration) -> Result<TcpAssociationListenerReport> {
+        self.runtime.shutdown_with_timeout(timeout)
+    }
+}
+
+impl<M> Deref for TcpRemoteActorSystem<M> {
+    type Target = TcpRemoteActorRuntime;
+
+    fn deref(&self) -> &Self::Target {
+        &self.runtime
+    }
+}
+
+impl TcpRemoteActorRuntime {
+    pub fn builder(
+        system: ActorSystem,
+        registry: Arc<Registry>,
+        settings: RemoteSettings,
+        local_system_uid: u64,
+    ) -> TcpRemoteActorRuntimeBuilder {
+        TcpRemoteActorRuntimeBuilder {
+            system,
+            registry,
+            settings,
+            local_system_uid,
+            observer: Arc::new(crate::IgnoreRemoteDeathWatchEffects),
+            manifests: HashSet::new(),
+            protocols: Vec::new(),
+        }
+    }
+}
+
+impl TcpRemoteActorRuntimeBuilder {
+    pub fn with_observer(mut self, observer: Arc<dyn RemoteDeathWatchEffectObserver>) -> Self {
+        self.observer = observer;
+        self
+    }
+
+    pub fn register<M>(&mut self) -> Result<&mut Self>
+    where
+        M: RemoteMessage,
+    {
+        Manifest::try_new(M::MANIFEST)?;
+        if is_remote_death_watch_manifest(M::MANIFEST)
+            || !self.manifests.insert(M::MANIFEST.to_string())
+        {
+            return Err(RemoteError::DuplicateProtocolManifest(
+                M::MANIFEST.to_string(),
+            ));
+        }
+        self.protocols
+            .push(Box::new(|inbound| inbound.register::<M>().map(|_| ())));
+        Ok(self)
+    }
+
+    pub fn bind(self) -> Result<TcpRemoteActorRuntime> {
+        let Self {
+            system,
+            registry,
+            settings,
+            local_system_uid,
+            observer,
+            protocols,
+            ..
+        } = self;
         let listener = TcpListener::bind((
             settings.canonical_hostname.as_str(),
             settings.canonical_port,
@@ -120,13 +224,17 @@ where
             )
             .map_err(|error| RemoteError::Inbound(error.to_string()))?;
 
-        let inbound = Arc::new(ActorSystemRemoteInbound::<M>::with_remote_settings(
+        let mut inbound = ActorSystemRemoteInboundRegistry::with_remote_settings(
             system.clone(),
             registry.clone(),
             death_watch.clone(),
             local_system_uid,
             effective_settings.clone(),
-        ));
+        );
+        for protocol in protocols {
+            protocol(&mut inbound)?;
+        }
+        let inbound = Arc::new(inbound);
         let installer = RemoteAssociationRouteInstaller::new(association_cache.clone());
         let outbound_reader = TcpAssociationStreamReader::new(inbound.clone());
         let listener = TcpAssociationListener::from_listener(listener, inbound)
@@ -147,7 +255,7 @@ where
             outbound,
         );
 
-        Ok(Self {
+        Ok(TcpRemoteActorRuntime {
             system,
             registry,
             settings: effective_settings,
@@ -160,10 +268,11 @@ where
             outbound_pipelines: Arc::new(Mutex::new(Vec::new())),
             death_watch,
             listener: Arc::new(Mutex::new(Some(listener))),
-            _message: PhantomData,
         })
     }
+}
 
+impl TcpRemoteActorRuntime {
     pub fn system(&self) -> &ActorSystem {
         &self.system
     }
