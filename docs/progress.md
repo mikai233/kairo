@@ -9,16 +9,16 @@ the rewrite has not yet reached an M13-only hardening phase. The production
 actor execution model and composed remoting boundary are now complete. The
 composed cluster daemon and its public ActorSystem extension now cover formation,
 reachability, graceful leave, explicit join, and same-address reincarnation at
-the process boundary. Distributed integration is now the active foundational
-work.
+the process boundary. Distributed integration is complete through its
+foundational acceptance boundary.
 
-Current active stage: **foundation convergence before M13**, with Phases 1-3
-complete and Phase 4 distributed integration now active. The three-node final
-acceptance workflow now passes through the public composed runtime. Remaining
-Phase 4 work is healed-partition depth, rather than the distributed-data,
-sharding, or cluster-tools architecture itself. M13
-begins only after those remaining gaps can be treated as tuning and release
-hardening rather than replacement.
+Current active stage: **final foundation audit before M13**, with Phases 1-4
+complete. The three-node final acceptance workflow passes through the public
+composed runtime, and a separate two-node acceptance test now partitions live
+ddata replicas, applies divergent local updates, heals the associations, and
+proves reachability plus CRDT convergence recover without membership removal.
+The next foundational gate is the final actor-tree semantic audit recorded
+under M2; M13 begins after that audit leaves only tuning and release hardening.
 
 Status terms in this document mean:
 
@@ -70,7 +70,7 @@ Status terms in this document mean:
   `ClusterExtension` with explicit one-shot join ownership. A process-level
   abrupt-restart test proves that a new UID at the same canonical address downs
   and tombstones the old incarnation, retries Join, and converges to `Up`.
-- M7 distributed data: substantial component coverage. Core CRDTs, replicator
+- M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed
   ActorSystem slice now installs a typed distributed-data extension, derives
@@ -89,8 +89,10 @@ Status terms in this document mean:
   survivors without changing the total. One shared ddata runtime now accepts
   multiple typed CRDT families, routes each through a stable manifest-derived
   remote path, and proves two families with the same key string converge
-  independently across two nodes. Healed network-partition acceptance remains
-  open.
+  independently across two nodes. A deterministic live partition test then
+  withdraws managed associations without removing either member, observes both
+  replicas become unreachable, applies independent counter increments, heals
+  the links, and proves both replicas merge to the same total.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
@@ -408,7 +410,7 @@ observations; discovery supplies contact addresses only.
 
 ### Phase 4: Distributed Integration And Public Extensions
 
-Status: **active**.
+Status: **complete**.
 
 Current checkpoint: distributed data now registers its ten stable manifests
 once on the ordinary lane of the composed remoting runtime. A pre-bind
@@ -520,7 +522,8 @@ next command. The Phase 4 three-node acceptance exit gate is therefore met,
 and distributed data now has a same-runtime crash/down survivor-quorum
 scenario. Singleton now also has a same-runtime abrupt-oldest recovery
 scenario, and pubsub has a same-runtime crashed-subscriber cleanup scenario.
-Healed-partition coverage remains the active gate.
+The healed-partition acceptance test closes the remaining Phase 4 gate. The
+next foundational checkpoint is the M2 actor-tree semantic audit.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane

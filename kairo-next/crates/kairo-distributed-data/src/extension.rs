@@ -743,9 +743,10 @@ mod tests {
 
     use bytes::Bytes;
     use kairo_cluster::{
-        ClusterDaemonBootstrapSettings, ClusterGossipProcessSettings, ClusterMembershipMsg,
-        DeadlineFailureDetectorSettings, Gossip, HeartbeatSenderSettings, MemberStatus,
-        ReachabilityStatus, register_cluster_daemon, register_cluster_protocol_codecs,
+        ClusterAssociationPeerTarget, ClusterDaemonBootstrapSettings, ClusterGossipProcessSettings,
+        ClusterMembershipMsg, DeadlineFailureDetectorSettings, Gossip, HeartbeatSenderSettings,
+        MemberStatus, ReachabilityStatus, register_cluster_daemon,
+        register_cluster_protocol_codecs,
     };
     use kairo_remote::{
         RemoteSettings, TcpRemoteActorRuntime, TcpRemoteReconnectSettings,
@@ -1383,6 +1384,122 @@ mod tests {
         let shared_key = ReplicatorKey::new("shared-key");
         seed.update_both(shared_key.clone());
         peer.await_both(shared_key);
+
+        peer.shutdown();
+        seed.shutdown();
+    }
+
+    #[test]
+    fn composed_replicas_merge_divergent_updates_after_partition_heals() {
+        let registry = registry();
+        let seed = ComposedDdataNode::start(
+            "ddata-partition-seed",
+            1,
+            161,
+            vec![],
+            registry.clone(),
+            Duration::from_millis(20),
+            Some(Duration::from_millis(20)),
+        );
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.cluster.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "partition seed has not formed".to_string())
+        })
+        .unwrap();
+        let peer = ComposedDdataNode::start(
+            "ddata-partition-peer",
+            2,
+            162,
+            vec![seed.cluster.self_node().address.clone()],
+            registry,
+            Duration::from_millis(20),
+            Some(Duration::from_millis(20)),
+        );
+        let seed_node = seed.cluster.self_node().clone();
+        let peer_node = peer.cluster.self_node().clone();
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let seed_routes = seed.connector();
+            let peer_routes = peer.connector();
+            (seed_routes.remote_replicas == vec![ReplicaId::from(&peer_node)]
+                && peer_routes.remote_replicas == vec![ReplicaId::from(&seed_node)])
+            .then_some(())
+            .ok_or_else(|| "partition pair has not established ddata routes".to_string())
+        })
+        .unwrap();
+
+        let peer_address = ClusterAssociationPeerTarget::new(peer_node.clone())
+            .unwrap()
+            .association()
+            .clone();
+        let seed_address = ClusterAssociationPeerTarget::new(seed_node.clone())
+            .unwrap()
+            .association()
+            .clone();
+        seed.runtime
+            .peer_manager()
+            .disconnect(&peer_address, "ddata partition test")
+            .unwrap();
+        peer.runtime
+            .peer_manager()
+            .disconnect(&seed_address, "ddata partition test")
+            .unwrap();
+
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let seed_gossip = seed.gossip();
+            let peer_gossip = peer.gossip();
+            let seed_routes = seed.connector();
+            let peer_routes = peer.connector();
+            let seed_status = seed_gossip.reachability().status(&seed_node, &peer_node);
+            let peer_status = peer_gossip.reachability().status(&peer_node, &seed_node);
+            (seed_status == ReachabilityStatus::Unreachable
+                && peer_status == ReachabilityStatus::Unreachable
+                && seed_routes
+                    .unreachable_replicas
+                    .contains(&ReplicaId::from(&peer_node))
+                && peer_routes
+                    .unreachable_replicas
+                    .contains(&ReplicaId::from(&seed_node)))
+            .then_some(())
+            .ok_or_else(|| {
+                format!(
+                    "partition not observed: statuses={seed_status:?}/{peer_status:?}, unreachable={:?}/{:?}",
+                    seed_routes.unreachable_replicas, peer_routes.unreachable_replicas
+                )
+            })
+        })
+        .unwrap();
+
+        let key = ReplicatorKey::new("partition-counter");
+        seed.update_counter(key.clone(), 3);
+        peer.update_counter(key.clone(), 5);
+        seed.await_counter(key.clone(), 3);
+        peer.await_counter(key.clone(), 5);
+
+        seed.runtime.peer_manager().connect(peer_address).unwrap();
+        await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+            let seed_gossip = seed.gossip();
+            let peer_gossip = peer.gossip();
+            let seed_routes = seed.connector();
+            let peer_routes = peer.connector();
+            (seed_gossip.reachability().status(&seed_node, &peer_node)
+                == ReachabilityStatus::Reachable
+                && peer_gossip.reachability().status(&peer_node, &seed_node)
+                    == ReachabilityStatus::Reachable
+                && seed_routes.unreachable_replicas.is_empty()
+                && peer_routes.unreachable_replicas.is_empty()
+                && seed_routes.remote_replicas == vec![ReplicaId::from(&peer_node)]
+                && peer_routes.remote_replicas == vec![ReplicaId::from(&seed_node)])
+            .then_some(())
+            .ok_or_else(|| "healed partition has not restored both ddata routes".to_string())
+        })
+        .unwrap();
+        seed.await_counter(key.clone(), 8);
+        peer.await_counter(key, 8);
 
         peer.shutdown();
         seed.shutdown();
