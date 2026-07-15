@@ -143,6 +143,28 @@ fn coordinator_runtime_defers_requests_during_rebalance() {
 }
 
 #[test]
+fn coordinator_runtime_duplicate_rebalance_preserves_deferred_requesters() {
+    let strategy = LeastShardAllocationStrategy::default();
+    let mut runtime = coordinator_runtime_with_regions(["region-a"]);
+    assert!(runtime.begin_rebalance("1"));
+    assert_eq!(
+        runtime
+            .request_shard_home("requester-a", "1", &strategy)
+            .unwrap(),
+        GetShardHomePlan::Deferred {
+            shard: "1".to_string(),
+            requester: "requester-a".to_string(),
+        }
+    );
+
+    assert!(!runtime.begin_rebalance("1"));
+    assert_eq!(
+        runtime.pending_rebalance_requesters(&"1".to_string()),
+        Some(&BTreeSet::from(["requester-a".to_string()]))
+    );
+}
+
+#[test]
 fn coordinator_runtime_ignores_requests_until_regions_are_registered() {
     let strategy = LeastShardAllocationStrategy::default();
     let mut runtime = coordinator_runtime_with_regions(["region-a"]);

@@ -205,9 +205,13 @@ impl CoordinatorRuntime {
     }
 
     pub fn begin_rebalance(&mut self, shard: impl Into<ShardId>) -> bool {
-        self.rebalance_in_progress
-            .insert(shard.into(), BTreeSet::new())
-            .is_none()
+        let shard = shard.into();
+        if self.rebalance_in_progress.contains_key(&shard) {
+            false
+        } else {
+            self.rebalance_in_progress.insert(shard, BTreeSet::new());
+            true
+        }
     }
 
     pub fn clear_rebalance(&mut self, shard: &ShardId) -> Vec<RegionId> {
