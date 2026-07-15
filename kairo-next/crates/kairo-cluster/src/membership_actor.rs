@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::HashSet;
 
 use kairo_actor::{Actor, ActorRef, ActorResult, Address, Context};
@@ -10,56 +12,96 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+/// Typed protocol for the actor that owns local cluster membership gossip.
 pub enum ClusterMembershipMsg {
+    /// Forms a new cluster by joining the local node to itself.
     JoinSelf,
+    /// Applies a local or remote membership join request.
     Join {
+        /// Joining node incarnation and advertised roles.
         join: Join,
+        /// Optional route for the resulting welcome.
         reply_to: Option<ActorRef<ClusterMembershipMsg>>,
     },
+    /// Initializes an unjoined node from a seed's current gossip state.
     Welcome(Box<Welcome>),
+    /// Applies one full-state gossip exchange.
     Gossip {
+        /// Addressed gossip state from the remote node.
         envelope: Box<GossipEnvelope>,
+        /// Optional route used when causal negotiation requires talkback.
         reply_to: Option<ActorRef<ClusterMembershipMsg>>,
     },
+    /// Records one observer-owned unreachable failure-detector observation.
     MarkUnreachable {
+        /// Node incarnation that made the observation.
         observer: UniqueAddress,
+        /// Node incarnation observed as unreachable.
         subject: UniqueAddress,
     },
+    /// Clears one observer-owned unreachable observation.
     MarkReachable {
+        /// Node incarnation that made the observation.
         observer: UniqueAddress,
+        /// Node incarnation observed as reachable again.
         subject: UniqueAddress,
     },
+    /// Moves an eligible member at a canonical address into `Leaving`.
     Leave {
+        /// Canonical member address to leave.
         address: Address,
     },
+    /// Marks one exact node incarnation down.
     Down {
+        /// Node incarnation to down.
         node: UniqueAddress,
     },
+    /// Resolves a canonical address to its current incarnation and downs it.
     DownAddress {
+        /// Canonical member address to down.
         address: Address,
     },
+    /// Records that an exiting node completed its local handoff work.
     ExitingConfirmed {
+        /// Node incarnation that confirmed exit.
         node: UniqueAddress,
     },
+    /// Resolves and applies an abstract downing-provider decision.
     ApplyDowningDecision(DowningDecision),
+    /// Registers the provider that observes each current gossip view.
     RegisterDowningProvider {
+        /// Downing provider actor.
         provider: ActorRef<DowningProviderMsg>,
     },
+    /// Registers the responder whose joinability follows local membership state.
     RegisterInitJoinResponder {
+        /// Initial seed-contact responder actor.
         responder: ActorRef<ClusterInitJoinResponderMsg>,
     },
+    /// Registers the periodic gossip process used for leave acceleration.
     RegisterGossipProcess {
+        /// Gossip process actor.
         process: ActorRef<ClusterGossipProcessMsg>,
     },
+    /// Runs convergence-gated promotion, exit, and removal actions when leader.
     LeaderActionsTick,
+    /// Sends the latest raw gossip state to one recipient.
     SendCurrentGossip {
+        /// Recipient of the current gossip value.
         reply_to: ActorRef<Gossip>,
     },
+    /// Sends the latest derived public cluster state to one recipient.
     SendCurrentState {
+        /// Recipient of the current cluster snapshot.
         reply_to: ActorRef<CurrentClusterState>,
     },
 }
 
+/// Actor that owns local gossip and serializes all membership state transitions.
+///
+/// Local mutations are stamped with the local vector-clock entry and reset the
+/// seen table to the local node. Remote gossip is accepted only when addressed
+/// to this exact incarnation and sent by a known, locally reachable member.
 pub struct ClusterMembership {
     self_node: UniqueAddress,
     roles: Vec<String>,
@@ -75,6 +117,7 @@ pub struct ClusterMembership {
 }
 
 impl ClusterMembership {
+    /// Creates uninitialized membership state for `self_node` and its roles.
     pub fn new(
         self_node: UniqueAddress,
         roles: Vec<String>,
@@ -95,6 +138,7 @@ impl ClusterMembership {
         }
     }
 
+    /// Returns the latest locally owned gossip view.
     pub fn gossip(&self) -> &Gossip {
         &self.gossip
     }

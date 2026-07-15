@@ -125,7 +125,10 @@ Status terms in this document mean:
   deterministic event publisher, and backend-neutral diagnostics filters now
   also deny missing public documentation. Downing decisions, deterministic
   node plans, keep-majority/keep-oldest policy, lease-majority tie-breaking,
-  and leader-gated stable-after orchestration now carry the same hard gate.
+  and leader-gated stable-after orchestration now carry the same hard gate. The
+  central typed membership actor protocol now hard-gates its gossip ownership,
+  join/welcome validation, observer-owned reachability updates, replacement
+  incarnation handling, lifecycle registrations, and leader-action boundary.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed

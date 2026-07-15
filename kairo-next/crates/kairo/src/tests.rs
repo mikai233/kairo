@@ -242,6 +242,7 @@ fn cluster_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::err
         "kairo-next/crates/kairo-cluster/src/leader.rs",
         "kairo-next/crates/kairo-cluster/src/leader_actions.rs",
         "kairo-next/crates/kairo-cluster/src/member.rs",
+        "kairo-next/crates/kairo-cluster/src/membership_actor.rs",
         "kairo-next/crates/kairo-cluster/src/protocol.rs",
         "kairo-next/crates/kairo-cluster/src/reachability.rs",
         "kairo-next/crates/kairo-cluster/src/remote.rs",
