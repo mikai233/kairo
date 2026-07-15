@@ -279,9 +279,12 @@ local self-join and incompatible configuration stay typed local deliveries.
 `ClusterSeedJoinWireInbound` validates daemon sender paths, uses that sender as
 the Ack/Nack origin, routes InitJoin to a typed responder boundary, and routes
 Ack/Nack to the seed process. Welcome now reaches membership and then completes
-the seed process. The initialized/uninitialized InitJoin responder, full daemon
-composition, periodic gossip, and coordinated leave remain the active Phase 3
-implementation work.
+the seed process. `ClusterInitJoinResponder` now owns the peer-side decision:
+uninitialized, `Down`, and `Exiting` nodes Nack; other initialized states Ack
+with compatible, incompatible, or explicitly unchecked configuration results,
+and replies travel through the stable seed wire adapter. Full daemon composition
+must now feed membership lifecycle transitions into that responder. Periodic
+gossip and coordinated leave remain the other active Phase 3 work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -5904,6 +5907,16 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after the InitJoin responder lifecycle:
+
+```bash
+cargo test -p kairo-cluster init_join_responder --all-targets --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
+cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after seed-join remoting integration:
 

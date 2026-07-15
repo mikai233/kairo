@@ -71,6 +71,7 @@ mod gossip;
 mod heartbeat;
 mod heartbeat_actor;
 mod heartbeat_remote;
+mod init_join_responder;
 mod leader;
 mod leader_actions;
 mod member;
@@ -140,6 +141,10 @@ pub use heartbeat_remote::{
     DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH, HeartbeatRemoteReceiverInbound,
     HeartbeatRemoteReceiverOutbound, HeartbeatRemoteResponseInbound,
 };
+pub use init_join_responder::{
+    ClusterInitJoinLifecycle, ClusterInitJoinResponder, ClusterInitJoinResponderMsg,
+    ClusterInitJoinResponderPort, ClusterInitJoinResponderState,
+};
 pub use leader::LeaderSelection;
 pub use leader_actions::{LeaderActionError, LeaderActionOutcome, LeaderActions};
 pub use member::{Member, MemberStatus, UniqueAddress};
@@ -164,8 +169,9 @@ pub use seed_join_actor::{
     ClusterSeedJoinProcessSettingsError, ClusterSeedJoinProcessSnapshot,
 };
 pub use seed_join_wire::{
-    ClusterInitJoinRequest, ClusterSeedJoinIncompatible, ClusterSeedJoinWireError,
-    ClusterSeedJoinWireInbound, ClusterSeedJoinWireOutbound, ClusterSeedJoinWireOutboundActor,
+    ClusterInitJoinRequest, ClusterInitJoinResponse, ClusterSeedJoinIncompatible,
+    ClusterSeedJoinWireError, ClusterSeedJoinWireInbound, ClusterSeedJoinWireOutbound,
+    ClusterSeedJoinWireOutboundActor,
 };
 pub use shared_remote_runtime::{CLUSTER_SYSTEM_MANIFESTS, register_cluster_system_inbound};
 pub use system_inbound::{

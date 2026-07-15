@@ -3291,6 +3291,11 @@ of a known incarnation. Gossip status and exit confirmation use
 incarnation safety. Unknown versions, invalid enum codes, and trailing bytes
 are rejected.
 
+The responder is constructed with either a local deterministic digest or no
+checker. Equal digests produce `Compatible`, unequal digests produce
+`Incompatible`, and an absent checker produces `Unchecked`; empty bytes remain
+ordinary digest data rather than an implicit compatibility mode.
+
 Seed-contact envelopes use `/system/cluster/core/daemon` as both recipient and
 sender path. The validated sender address is the contact origin used by the
 formation state machine; `InitJoinAck.address` remains the responder's

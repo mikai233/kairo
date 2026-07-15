@@ -1,7 +1,7 @@
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
-use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Address, Context};
+use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Address, Context, Recipient};
 use kairo_remote::RemoteOutbound;
 use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
 
@@ -19,6 +19,12 @@ pub struct ClusterInitJoinRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusterSeedJoinIncompatible {
     pub target: Address,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClusterInitJoinResponse {
+    Ack(InitJoinAck),
+    Nack(InitJoinNack),
 }
 
 #[derive(Debug)]
@@ -126,6 +132,17 @@ impl ClusterSeedJoinWireOutbound {
         }
     }
 
+    pub fn send_init_join_response(
+        &self,
+        target: &Address,
+        response: ClusterInitJoinResponse,
+    ) -> Result<(), ClusterSeedJoinWireError> {
+        match response {
+            ClusterInitJoinResponse::Ack(message) => self.send_remote(target, &message),
+            ClusterInitJoinResponse::Nack(message) => self.send_remote(target, &message),
+        }
+    }
+
     fn send_remote<M>(&self, target: &Address, message: &M) -> Result<(), ClusterSeedJoinWireError>
     where
         M: RemoteMessage,
@@ -169,19 +186,19 @@ impl Actor for ClusterSeedJoinWireOutboundActor {
 pub struct ClusterSeedJoinWireInbound {
     registry: Arc<Registry>,
     process: ActorRef<ClusterSeedJoinProcessMsg>,
-    init_join: ActorRef<ClusterInitJoinRequest>,
+    init_join: Arc<dyn Recipient<ClusterInitJoinRequest> + Send + Sync>,
 }
 
 impl ClusterSeedJoinWireInbound {
     pub fn new(
         registry: Arc<Registry>,
         process: ActorRef<ClusterSeedJoinProcessMsg>,
-        init_join: ActorRef<ClusterInitJoinRequest>,
+        init_join: impl Recipient<ClusterInitJoinRequest> + Send + Sync + 'static,
     ) -> Self {
         Self {
             registry,
             process,
-            init_join,
+            init_join: Arc::new(init_join),
         }
     }
 

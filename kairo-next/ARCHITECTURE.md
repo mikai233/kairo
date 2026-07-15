@@ -1356,6 +1356,16 @@ validated sender address is the state-machine origin, while an Ack's advertised
 address is only its canonical Join target. Welcome delivery goes to membership
 and then notifies the seed process so successful formation cancels its timers.
 
+`ClusterInitJoinResponderState` owns the other side of seed contact. It Nacks
+while uninitialized and while the local member is `Down` or `Exiting`, matching
+Pekko's join-safety rule; every other initialized member status may Ack. A
+configured local digest returns `Compatible` only on equality and
+`Incompatible` otherwise, while an explicitly absent checker returns
+`Unchecked`. `ClusterInitJoinResponder` executes the decision through the seed
+wire outbound, and its typed port lets `ClusterSeedJoinWireInbound` deliver
+requests without erasing the responder actor protocol. The future daemon owner
+must feed membership lifecycle changes into the responder.
+
 Membership transport:
 
 - `ClusterMembershipWireOutbound` serializes `Join`, `Welcome`, and
