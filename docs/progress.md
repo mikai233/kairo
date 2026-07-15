@@ -84,13 +84,15 @@ Status terms in this document mean:
   stores, remote routes, `ShardRegionBootstrap`, and focused multi-node tests
   exist. The cluster-integrated extension now runs each entity-type coordinator
   through the public cluster-singleton lifecycle and recovers fresh allocation
-  after oldest-node handover. Durable coordinator allocation recovery and the
-  final acceptance demo remain open.
+  after oldest-node handover. Role-scoped coordinator placement also keeps an
+  older ineligible node proxy-only. Durable coordinator allocation recovery and
+  the final acceptance demo remain open.
 - M10 cluster tools: substantial component coverage. Singleton and pubsub
   state, remote delivery, TCP peer runtime, examples, and composed public
   extensions exist. Real two-node tests cover pubsub convergence, named
-  singleton handover, local-protocol handover, and sharding coordinator use;
-  broader role-scoped and fault validation remains open.
+  singleton handover, local-protocol handover, role-scoped sharding coordinator
+  use, and oldest-node coordinator transfer; broader fault validation remains
+  open.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -413,8 +415,11 @@ forwards the local-only `ShardCoordinatorMsg<M>` protocol through
 entity type without making that enum a wire contract. The same two-node test
 now makes the oldest node leave, observes the successor coordinator register
 regions, allocates a previously unseen shard, and delivers its entity message.
-Durable coordinator allocation recovery, role-based proxy-only hosting,
-broader ddata type registration, and process/fault coverage remain open.
+Another real topology starts an older frontend-only seed before a younger
+backend node and proves the frontend coordinator endpoint remains proxy-only
+while its region registers with the backend-owned coordinator and completes a
+new allocation. Durable coordinator allocation recovery, broader ddata type
+registration, and process/fault coverage remain open.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6066,15 +6071,11 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after cluster-singleton-owned sharding coordinator
-handover:
+Latest Phase 4 validation after role-scoped singleton coordinator placement:
 
 ```bash
 cargo test -p kairo-cluster-sharding --all-targets --all-features
-cargo test -p kairo --all-targets --all-features
-cargo check --workspace --all-targets --all-features
-cargo check -p kairo --no-default-features --features cluster-sharding
-cargo clippy -p kairo-cluster-sharding -p kairo-cluster-tools -p kairo --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```

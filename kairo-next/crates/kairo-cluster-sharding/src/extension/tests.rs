@@ -79,8 +79,16 @@ impl ComposedShardingNode {
         registry: Arc<Registry>,
         type_key: EntityTypeKey<TestMessage>,
     ) -> Self {
-        Self::start_with_singleton(
-            system, node_uid, remote_uid, seed_nodes, registry, type_key, true,
+        Self::start_with_options(
+            system,
+            node_uid,
+            remote_uid,
+            seed_nodes,
+            Vec::new(),
+            registry,
+            type_key,
+            None,
+            true,
         )
     }
 
@@ -92,19 +100,51 @@ impl ComposedShardingNode {
         registry: Arc<Registry>,
         type_key: EntityTypeKey<TestMessage>,
     ) -> Self {
-        Self::start_with_singleton(
-            system, node_uid, remote_uid, seed_nodes, registry, type_key, false,
+        Self::start_with_options(
+            system,
+            node_uid,
+            remote_uid,
+            seed_nodes,
+            Vec::new(),
+            registry,
+            type_key,
+            None,
+            false,
         )
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn start_with_singleton(
+    fn start_role_scoped(
         system: &str,
         node_uid: u64,
         remote_uid: u64,
         seed_nodes: Vec<kairo_actor::Address>,
+        roles: Vec<String>,
         registry: Arc<Registry>,
         type_key: EntityTypeKey<TestMessage>,
+    ) -> Self {
+        Self::start_with_options(
+            system,
+            node_uid,
+            remote_uid,
+            seed_nodes,
+            roles,
+            registry,
+            type_key,
+            Some("backend".to_string()),
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn start_with_options(
+        system: &str,
+        node_uid: u64,
+        remote_uid: u64,
+        seed_nodes: Vec<kairo_actor::Address>,
+        roles: Vec<String>,
+        registry: Arc<Registry>,
+        type_key: EntityTypeKey<TestMessage>,
+        coordinator_role: Option<String>,
         use_singleton: bool,
     ) -> Self {
         let kit = ActorSystemTestKit::new(system).unwrap();
@@ -122,6 +162,7 @@ impl ComposedShardingNode {
             &mut builder,
             ClusterDaemonBootstrapSettings::new(node_uid)
                 .with_seed_nodes(seed_nodes)
+                .with_roles(roles)
                 .with_config_digest(Some(Bytes::from_static(b"sharding-extension")))
                 .with_gossip_process_settings(
                     ClusterGossipProcessSettings::new(Duration::from_millis(15)).unwrap(),
@@ -162,15 +203,15 @@ impl ComposedShardingNode {
         let sharding = sharding_registration.activate(&runtime).unwrap();
         let received = Arc::new(Mutex::new(Vec::new()));
         let entity_received = Arc::clone(&received);
-        sharding
-            .init(
-                Entity::of(type_key.clone(), move |entity_id| RecordingEntity {
-                    entity_id,
-                    received: Arc::clone(&entity_received),
-                })
-                .with_stop_message(TestMessage("stop".to_string())),
-            )
-            .unwrap();
+        let mut entity = Entity::of(type_key.clone(), move |entity_id| RecordingEntity {
+            entity_id,
+            received: Arc::clone(&entity_received),
+        })
+        .with_stop_message(TestMessage("stop".to_string()));
+        if let Some(role) = coordinator_role {
+            entity = entity.with_coordinator_role(role);
+        }
+        sharding.init(entity).unwrap();
         let (coordinator, region) = {
             let entities = sharding.entities.lock().unwrap();
             let initialized = entities
@@ -330,6 +371,94 @@ fn direct_registration_retains_single_node_coordinator_compatibility() {
     })
     .unwrap();
     node.shutdown();
+}
+
+#[test]
+fn role_scoped_coordinator_runs_only_on_eligible_node() {
+    let registry = registry();
+    let type_key = EntityTypeKey::new("role-account");
+    let frontend = ComposedShardingNode::start_role_scoped(
+        "sharding-role-frontend",
+        20,
+        120,
+        Vec::new(),
+        vec!["frontend".to_string()],
+        registry.clone(),
+        type_key.clone(),
+    );
+    await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+        (frontend
+            .gossip()
+            .member(frontend.cluster.self_node())
+            .map(|member| member.status)
+            == Some(MemberStatus::Up))
+        .then_some(())
+        .ok_or_else(|| "frontend seed has not formed".to_string())
+    })
+    .unwrap();
+    frontend
+        .coordinator
+        .tell(ShardCoordinatorMsg::GetState {
+            reply_to: frontend.coordinator_probe.actor_ref(),
+        })
+        .unwrap();
+    assert!(
+        frontend
+            .coordinator_probe
+            .expect_msg(Duration::from_millis(100))
+            .is_err(),
+        "role-ineligible frontend unexpectedly hosted the coordinator"
+    );
+
+    let backend = ComposedShardingNode::start_role_scoped(
+        "sharding-role-backend",
+        21,
+        121,
+        vec![frontend.cluster.self_node().address.clone()],
+        vec!["backend".to_string()],
+        registry,
+        type_key.clone(),
+    );
+    await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+        let state = backend.coordinator_state();
+        (state.allocations.len() == 2).then_some(()).ok_or_else(|| {
+            format!("backend coordinator has not registered both regions: {state:?}")
+        })
+    })
+    .unwrap();
+
+    let entity_id = "role-account-1";
+    let shard = crate::default_shard_id_for(entity_id);
+    frontend
+        .sharding
+        .entity_ref_for(type_key, entity_id)
+        .unwrap()
+        .tell(TestMessage("role-route".to_string()))
+        .unwrap();
+    await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+        let expected = (entity_id.to_string(), "role-route".to_string());
+        let frontend_received = frontend.received.lock().unwrap().clone();
+        let backend_received = backend.received.lock().unwrap().clone();
+        (frontend_received.contains(&expected) || backend_received.contains(&expected))
+            .then_some(())
+            .ok_or_else(|| {
+                format!(
+                    "role-scoped route has not delivered: frontend={frontend_received:?}, backend={backend_received:?}"
+                )
+            })
+    })
+    .unwrap();
+    let state = backend.coordinator_state();
+    assert!(
+        state
+            .allocations
+            .values()
+            .any(|shards| shards.contains(&shard)),
+        "backend coordinator did not allocate routed shard {shard}: {state:?}"
+    );
+
+    backend.shutdown();
+    frontend.shutdown();
 }
 
 #[test]
