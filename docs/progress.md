@@ -221,6 +221,9 @@ Status terms in this document mean:
   The region runtime now hard-gates its bidirectional home cache, globally
   bounded per-shard FIFO buffers, local startup, remote forwarding, region-stop
   cleanup, and Pekko-aligned begin-handoff and reorder-prevention contracts.
+  The shard runtime now hard-gates entity activation, shard-wide bounded FIFO
+  buffering, passivation, remember-store sequencing, unexpected termination and
+  restart, moved-entity cleanup, coordinated shutdown, and handoff completion.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
