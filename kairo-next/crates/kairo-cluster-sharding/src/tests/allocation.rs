@@ -31,6 +31,18 @@ fn shard_allocations_track_single_region_owner_per_shard() {
 }
 
 #[test]
+fn duplicate_region_registration_preserves_existing_shard_allocations() {
+    let region = "region-a".to_string();
+    let shard = "shard-1".to_string();
+    let mut allocations = ShardAllocations::from_regions([region.clone()]);
+    allocations.allocate_shard(&region, shard.clone()).unwrap();
+
+    assert!(!allocations.insert_region(region.clone()));
+    assert_eq!(allocations.region_for_shard(&shard), Some(&region));
+    assert_eq!(allocations.shards_for(&region), Some([shard].as_slice()));
+}
+
+#[test]
 fn least_shard_strategy_allocates_to_region_with_fewest_shards() {
     let strategy = LeastShardAllocationStrategy::default();
     let mut allocations = ShardAllocations::from_regions([

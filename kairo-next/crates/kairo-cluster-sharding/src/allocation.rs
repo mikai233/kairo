@@ -1,3 +1,4 @@
+use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{RegionId, ShardId, ShardingError};
@@ -21,7 +22,13 @@ impl ShardAllocations {
     }
 
     pub fn insert_region(&mut self, region: impl Into<RegionId>) -> bool {
-        self.regions.insert(region.into(), Vec::new()).is_none()
+        match self.regions.entry(region.into()) {
+            Entry::Vacant(entry) => {
+                entry.insert(Vec::new());
+                true
+            }
+            Entry::Occupied(_) => false,
+        }
     }
 
     pub fn contains_region(&self, region: &RegionId) -> bool {
