@@ -1033,9 +1033,12 @@ fn coordinator_actor_rebalance_timer_starts_and_cancels_with_shutdown_preparatio
         .system()
         .spawn(
             "coordinator",
-            ShardCoordinatorActor::props_with_rebalance_interval(
+            ShardCoordinatorActor::props_with_rebalance_and_handoff(
                 state,
                 FixedRebalanceStrategy::new(["s1"]),
+                (),
+                Duration::from_secs(1),
+                HandoffTransport::new(),
                 Duration::from_secs(1),
             ),
         )

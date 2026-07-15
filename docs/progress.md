@@ -452,7 +452,10 @@ singleton failover is also covered: the future owner first observes the shard
 id in its local replica, the oldest node leaves, and the successor coordinator
 restores the allocation without another entity request. Broader ddata type
 registration outside this sharding composition and process/fault coverage
-remain open.
+remain open. The public sharding settings now also apply a non-zero periodic
+rebalance interval to every direct or singleton coordinator incarnation, so
+new regions can trigger the existing handoff state machine instead of leaving
+earlier allocations permanently concentrated.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane

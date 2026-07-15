@@ -559,6 +559,12 @@ fn settings_reject_zero_capacities_and_intervals() {
     );
     assert!(
         ClusterShardingSettings::default()
+            .with_rebalance_interval(Duration::ZERO)
+            .validate()
+            .is_err()
+    );
+    assert!(
+        ClusterShardingSettings::default()
             .with_handoff_timeout(Duration::ZERO)
             .validate()
             .is_err()

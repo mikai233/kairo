@@ -58,6 +58,7 @@ pub struct ClusterShardingSettings {
     region_buffer_capacity: usize,
     shard_buffer_capacity: usize,
     registration_retry_interval: Duration,
+    rebalance_interval: Duration,
     handoff_timeout: Duration,
     shutdown_timeout: Duration,
 }
@@ -68,6 +69,7 @@ impl Default for ClusterShardingSettings {
             region_buffer_capacity: 1_000,
             shard_buffer_capacity: 1_000,
             registration_retry_interval: Duration::from_secs(1),
+            rebalance_interval: Duration::from_secs(10),
             handoff_timeout: Duration::from_secs(10),
             shutdown_timeout: Duration::from_secs(3),
         }
@@ -87,6 +89,11 @@ impl ClusterShardingSettings {
 
     pub fn with_registration_retry_interval(mut self, interval: Duration) -> Self {
         self.registration_retry_interval = interval;
+        self
+    }
+
+    pub fn with_rebalance_interval(mut self, interval: Duration) -> Self {
+        self.rebalance_interval = interval;
         self
     }
 
@@ -114,6 +121,11 @@ impl ClusterShardingSettings {
         if self.registration_retry_interval.is_zero() {
             return Err(ClusterShardingBootstrapError::InvalidSettings(
                 "registration retry interval must be greater than zero",
+            ));
+        }
+        if self.rebalance_interval.is_zero() {
+            return Err(ClusterShardingBootstrapError::InvalidSettings(
+                "rebalance interval must be greater than zero",
             ));
         }
         if self.handoff_timeout.is_zero() {
@@ -592,6 +604,7 @@ impl ClusterSharding {
                 let coordinator_stop = Arc::new(Mutex::new(stop_message.clone()));
                 let coordinator_remember_store = entity.coordinator_remember_store.clone();
                 let handoff_timeout = self.settings.handoff_timeout;
+                let rebalance_interval = self.settings.rebalance_interval;
                 let stash_capacity = self.settings.region_buffer_capacity;
                 let mut singleton = Singleton::new(
                     format!("sharding-coordinator-{type_name}"),
@@ -602,6 +615,7 @@ impl ClusterSharding {
                                 .expect("sharding coordinator stop message poisoned")
                                 .clone(),
                             handoff_timeout,
+                            rebalance_interval,
                             coordinator_remember_store.clone(),
                             stash_capacity,
                         )
@@ -624,6 +638,7 @@ impl ClusterSharding {
                 coordinator_props(
                     stop_message.clone(),
                     self.settings.handoff_timeout,
+                    self.settings.rebalance_interval,
                     entity.coordinator_remember_store.clone(),
                     self.settings.region_buffer_capacity,
                 ),
@@ -943,6 +958,7 @@ impl ClusterSharding {
 fn coordinator_props<M>(
     stop_message: M,
     handoff_timeout: Duration,
+    rebalance_interval: Duration,
     remember_store: Option<CoordinatorRememberStoreSettings>,
     stash_capacity: usize,
 ) -> Props<ShardCoordinatorActor<M>>
@@ -953,7 +969,7 @@ where
         Some(CoordinatorRememberStoreSettings {
             target: CoordinatorRememberStoreTargetSettings::Actor(store),
             timeout,
-        }) => ShardCoordinatorActor::props_with_remember_store_and_handoff(
+        }) => ShardCoordinatorActor::props_with_rebalance_remember_store_and_handoff(
             CoordinatorState::new(),
             LeastShardAllocationStrategy::default(),
             store,
@@ -961,12 +977,13 @@ where
             stop_message,
             handoff_timeout,
             crate::HandoffTransport::new(),
+            rebalance_interval,
             stash_capacity,
         ),
         Some(CoordinatorRememberStoreSettings {
             target: CoordinatorRememberStoreTargetSettings::DistributedData(store),
             timeout,
-        }) => ShardCoordinatorActor::props_with_ddata_remember_store_and_handoff(
+        }) => ShardCoordinatorActor::props_with_rebalance_ddata_remember_store_and_handoff(
             CoordinatorState::new(),
             LeastShardAllocationStrategy::default(),
             store,
@@ -974,14 +991,16 @@ where
             stop_message,
             handoff_timeout,
             crate::HandoffTransport::new(),
+            rebalance_interval,
             stash_capacity,
         ),
-        None => ShardCoordinatorActor::props_with_handoff(
+        None => ShardCoordinatorActor::props_with_rebalance_and_handoff(
             CoordinatorState::new(),
             LeastShardAllocationStrategy::default(),
             stop_message,
             handoff_timeout,
             crate::HandoffTransport::new(),
+            rebalance_interval,
         ),
     }
 }

@@ -3960,3 +3960,31 @@ Consequences:
 - Real two-node tests observe both entity and coordinator shard-id state on the
   future owner before region failure or oldest-node departure, then prove the
   corresponding shard/entity recovery without another business request.
+
+## ADR-0124: Composed Sharding Enables Periodic Rebalancing
+
+Status: Accepted
+
+Context:
+The core coordinator already schedules rebalance ticks, but the public
+cluster-sharding extension constructed every coordinator with that scheduler
+disabled. Consequently a cluster formed correctly and allocated new shards to
+the least-loaded region, but could not move existing shards after new regions
+joined. Pekko performs the rebalance check periodically and defaults the check
+interval to ten seconds.
+
+Decision:
+`ClusterShardingSettings` owns a required, non-zero rebalance interval with a
+ten-second default and a Rust builder setter. Every coordinator factory applies
+that interval together with handoff support, including in-memory and
+distributed-data remember-store variants. Because the interval is part of the
+singleton actor factory, each successor coordinator restarts the periodic
+schedule after handover.
+
+Consequences:
+- The public extension can rebalance an existing allocation after a node joins
+  without callers reaching into the local coordinator protocol.
+- Rebalance still uses the configured allocation strategy and the existing
+  `BeginHandOff`/`HandOff`/`ShardStopped` state machine.
+- Tests and demos may choose a short interval; production defaults remain
+  aligned with Pekko's ten-second cadence.

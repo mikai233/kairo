@@ -127,6 +127,11 @@ impl<M> ShardCoordinatorActor<M>
 where
     M: Clone + Send + 'static,
 {
+    fn with_periodic_rebalance(mut self, interval: Duration) -> Self {
+        self.rebalance_interval = Some(interval);
+        self
+    }
+
     pub fn with_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -247,6 +252,20 @@ where
         })
     }
 
+    pub(crate) fn props_with_rebalance_and_handoff(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        stop_message: M,
+        handoff_timeout: Duration,
+        transport: HandoffTransport<M>,
+        rebalance_interval: Duration,
+    ) -> Props<Self> {
+        Props::new(move || {
+            Self::with_handoff(state, strategy, stop_message, handoff_timeout, transport)
+                .with_periodic_rebalance(rebalance_interval)
+        })
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn props_with_remember_store_and_handoff(
         state: CoordinatorState,
@@ -273,6 +292,33 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub(crate) fn props_with_rebalance_remember_store_and_handoff(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        remember_store: ActorRef<RememberCoordinatorStoreMsg>,
+        store_timeout: Duration,
+        stop_message: M,
+        handoff_timeout: Duration,
+        transport: HandoffTransport<M>,
+        rebalance_interval: Duration,
+        stash_capacity: usize,
+    ) -> Props<Self> {
+        Props::new(move || {
+            Self::with_remember_store_and_handoff(
+                state,
+                strategy,
+                remember_store,
+                store_timeout,
+                stop_message,
+                handoff_timeout,
+                transport,
+            )
+            .with_periodic_rebalance(rebalance_interval)
+        })
+        .with_stash_capacity(stash_capacity)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn props_with_ddata_remember_store_and_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -293,6 +339,33 @@ where
                 handoff_timeout,
                 transport,
             )
+        })
+        .with_stash_capacity(stash_capacity)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn props_with_rebalance_ddata_remember_store_and_handoff(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        remember_store: ActorRef<RememberCoordinatorDDataStoreMsg>,
+        store_timeout: Duration,
+        stop_message: M,
+        handoff_timeout: Duration,
+        transport: HandoffTransport<M>,
+        rebalance_interval: Duration,
+        stash_capacity: usize,
+    ) -> Props<Self> {
+        Props::new(move || {
+            Self::with_ddata_remember_store_and_handoff(
+                state,
+                strategy,
+                remember_store,
+                store_timeout,
+                stop_message,
+                handoff_timeout,
+                transport,
+            )
+            .with_periodic_rebalance(rebalance_interval)
         })
         .with_stash_capacity(stash_capacity)
     }
