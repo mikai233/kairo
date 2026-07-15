@@ -227,6 +227,9 @@ Status terms in this document mean:
   Its actor boundary now carries the same gate across load-time stashing and
   FIFO replay, planner-versus-store-backed remember modes, store-failure stop
   behavior, update batching, and handoff deferral until persistence completes.
+  Entity-child death watch now carries the canonical UID-bearing child path and
+  rejects stale termination from a prior incarnation before touching the
+  replacement child or its runtime state.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator

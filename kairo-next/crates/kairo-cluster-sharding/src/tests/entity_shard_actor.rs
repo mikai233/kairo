@@ -82,6 +82,125 @@ fn entity_shard_actor_spawns_child_and_delivers_business_messages() {
 }
 
 #[test]
+fn entity_shard_actor_ignores_stale_termination_from_prior_incarnation() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("entity-shard-stale-termination").unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let (refs_tx, refs_rx) = mpsc::channel();
+    let factory = EntityActorFactory::new(move |entity_id| ControlledEntity {
+        entity_id,
+        observed: observed_tx.clone(),
+        refs: refs_tx.clone(),
+    });
+    let shard = kit
+        .system()
+        .spawn("shard", EntityShardActor::props("shard-1", 10, factory))
+        .unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+    let state = kit.create_probe::<ShardSnapshot>("state").unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity { .. }
+    ));
+    let first_ref = refs_rx.recv_timeout(Duration::from_millis(500)).unwrap();
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "first".to_string())
+    );
+
+    first_ref.tell("stop".to_string()).unwrap();
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "stop".to_string())
+    );
+    assert!(first_ref.wait_for_stop(Duration::from_secs(1)));
+    kairo_testkit::await_assert(
+        Duration::from_secs(1),
+        Duration::from_millis(10),
+        || -> Result<(), String> {
+            shard
+                .tell(ShardMsg::GetState {
+                    reply_to: state.actor_ref(),
+                })
+                .map_err(|error| error.to_string())?;
+            let snapshot = state
+                .expect_msg(Duration::from_millis(500))
+                .map_err(|error| error.to_string())?;
+            (snapshot.entity_count == 0)
+                .then_some(())
+                .ok_or_else(|| format!("old incarnation is still active: {snapshot:?}"))
+        },
+    )
+    .unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "replacement".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::StartEntity { .. }
+    ));
+    let replacement_ref = refs_rx.recv_timeout(Duration::from_millis(500)).unwrap();
+    assert_ne!(first_ref.path(), replacement_ref.path());
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "replacement".to_string())
+    );
+
+    shard
+        .tell(ShardMsg::ObservedEntityTerminated {
+            entity_id: "entity-1".to_string(),
+            entity_path: first_ref.path().clone(),
+        })
+        .unwrap();
+    shard
+        .tell(ShardMsg::GetState {
+            reply_to: state.actor_ref(),
+        })
+        .unwrap();
+    let snapshot = state.expect_msg(Duration::from_millis(500)).unwrap();
+    assert_eq!(snapshot.active_entities, vec!["entity-1".to_string()]);
+    assert_eq!(snapshot.entity_count, 1);
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "still-live".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver { .. }
+    ));
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "still-live".to_string())
+    );
+    assert!(!replacement_ref.is_stopped());
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn entity_shard_actor_buffers_passivating_delivery_and_restarts_child_after_termination() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-passivation-restart").unwrap();

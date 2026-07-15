@@ -242,12 +242,21 @@ where
                 self.complete_handoff_if_ready();
                 let _ = reply_to.tell(plan);
             }
-            ShardMsg::ObservedEntityTerminated { entity_id } => {
-                self.entity_refs.remove(&entity_id);
-                let plan = self.runtime.entity_terminated(entity_id);
-                self.apply_termination_plan(ctx, &plan)?;
-                self.send_entity_terminated_store_effect(ctx, &plan)?;
-                self.complete_handoff_if_ready();
+            ShardMsg::ObservedEntityTerminated {
+                entity_id,
+                entity_path,
+            } => {
+                let current_incarnation = self
+                    .entity_refs
+                    .get(&entity_id)
+                    .is_some_and(|entity| entity.path() == &entity_path);
+                if current_incarnation {
+                    self.entity_refs.remove(&entity_id);
+                    let plan = self.runtime.entity_terminated(entity_id);
+                    self.apply_termination_plan(ctx, &plan)?;
+                    self.send_entity_terminated_store_effect(ctx, &plan)?;
+                    self.complete_handoff_if_ready();
+                }
             }
             ShardMsg::RestartRememberedEntity {
                 entity_id,
@@ -582,6 +591,7 @@ where
             &entity,
             ShardMsg::ObservedEntityTerminated {
                 entity_id: entity_id.to_string(),
+                entity_path: entity.path().clone(),
             },
         )?;
         self.entity_refs

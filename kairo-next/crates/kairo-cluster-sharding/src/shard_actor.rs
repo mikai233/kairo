@@ -4,7 +4,7 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
+use kairo_actor::{Actor, ActorPath, ActorRef, ActorResult, Context, Props};
 
 use crate::shard_loading::ShardRememberLoadState;
 use crate::shard_store::{
@@ -232,6 +232,8 @@ pub enum ShardMsg<M> {
     ObservedEntityTerminated {
         /// Terminated entity identifier.
         entity_id: EntityId,
+        /// Canonical path and UID of the child incarnation that terminated.
+        entity_path: ActorPath,
     },
     /// Triggers restart of an unexpectedly terminated remembered entity.
     RestartRememberedEntity {
@@ -414,7 +416,10 @@ where
                 self.send_entity_terminated_store_effect(ctx, &plan)?;
                 let _ = reply_to.tell(plan);
             }
-            ShardMsg::ObservedEntityTerminated { entity_id } => {
+            ShardMsg::ObservedEntityTerminated {
+                entity_id,
+                entity_path: _,
+            } => {
                 let plan = self.runtime.entity_terminated(entity_id);
                 self.send_entity_terminated_store_effect(ctx, &plan)?;
             }
