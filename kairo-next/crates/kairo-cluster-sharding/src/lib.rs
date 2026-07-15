@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! Cluster sharding API surface and protocols.
 //!
 //! Sharding routes by entity id while keeping business messages typed and

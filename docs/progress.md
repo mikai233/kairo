@@ -269,6 +269,11 @@ Status terms in this document mean:
   targets, optional local death-watch references, target replacement, and
   lossless missing-target/send-failure outcomes that return the envelope for
   buffering or retry.
+  The region actor now hard-gates its proxy-only, plain-shard, entity-backed,
+  local/external remember-store, fixed-registration, discovery, remote-routing,
+  handoff, and restart-policy construction variants. With that final surface
+  documented, `kairo-cluster-sharding` now denies missing public documentation
+  crate-wide.
   The low-level coordinator bootstrap helper now hard-gates its matched state
   and local handoff-target construction, duplicate-region rejection, borrowed
   inspection, and consuming decomposition contracts.

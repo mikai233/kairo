@@ -1,9 +1,14 @@
+#![deny(missing_docs)]
+
+//! Construction variants and capability builders for [`ShardRegionActor`].
+
 use super::*;
 
 impl<M> ShardRegionActor<M>
 where
     M: Send + 'static,
 {
+    /// Creates a proxy-only region with no local shard spawner or coordinator.
     pub fn new(self_region: impl Into<RegionId>, buffer_capacity: usize) -> Self {
         Self {
             runtime: ShardRegionRuntime::new(self_region, buffer_capacity),
@@ -23,6 +28,7 @@ where
         }
     }
 
+    /// Creates a region that can host plain local shard actors.
     pub fn new_with_local_shards(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -46,6 +52,7 @@ where
         }
     }
 
+    /// Creates a plain local-shard region registered with a fixed coordinator.
     pub fn new_with_local_shards_and_registration(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -77,6 +84,7 @@ where
         }
     }
 
+    /// Creates a region whose local shards spawn typed entity actors.
     pub fn new_with_local_entity_shards(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -108,6 +116,10 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// Creates an entity-backed region using distributed remember stores.
+    ///
+    /// Each local shard loads and updates its five stable ORSet partitions
+    /// through `replicator` before delivering entity messages.
     pub fn new_with_ddata_remember_entity_shards(
         self_region: impl Into<RegionId>,
         type_name: impl Into<String>,
@@ -148,6 +160,7 @@ where
         }
     }
 
+    /// Creates an entity-backed region registered with a fixed coordinator.
     pub fn new_with_local_entity_shards_and_registration(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -183,6 +196,10 @@ where
         }
     }
 
+    /// Creates a region with process-local remember stores seeded by shard.
+    ///
+    /// This construction is deterministic for tests and single-process use;
+    /// the remembered state is not durable across actor-system termination.
     pub fn new_with_local_remember_store_shards(
         self_region: impl Into<RegionId>,
         type_name: impl Into<String>,
@@ -214,6 +231,7 @@ where
         }
     }
 
+    /// Creates a fixed-registered region with seeded process-local stores.
     pub fn new_with_local_remember_store_shards_and_registration(
         self_region: impl Into<RegionId>,
         type_name: impl Into<String>,
@@ -249,6 +267,7 @@ where
         }
     }
 
+    /// Creates a region using caller-supplied remember-store actors by shard.
     pub fn new_with_remember_store_shards(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -278,6 +297,7 @@ where
         }
     }
 
+    /// Creates a fixed-registered region using supplied remember-store actors.
     pub fn new_with_remember_store_shards_and_registration(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -308,6 +328,10 @@ where
         }
     }
 
+    /// Enables membership-driven local or remote coordinator discovery.
+    ///
+    /// Discovery replaces fixed local registration and clears any previously
+    /// selected remote coordinator target.
     pub fn with_coordinator_discovery(
         mut self,
         discovery: RegionCoordinatorDiscoveryConfig<M>,
@@ -318,6 +342,7 @@ where
         self
     }
 
+    /// Installs the stable-wire transport used for remote coordinator commands.
     pub fn with_remote_coordinator_transport(
         mut self,
         transport: RegionRemoteCoordinatorTransport,
@@ -326,11 +351,15 @@ where
         self
     }
 
+    /// Installs the local/remote target table used to forward shard routes.
     pub fn with_region_route_transport(mut self, route_transport: RegionRouteTransport<M>) -> Self {
         self.route_transport = Some(route_transport);
         self
     }
 
+    /// Sets the restart backoff for failed remember-store-backed local shards.
+    ///
+    /// This is a no-op when the region has no local shard spawner.
     pub fn with_remember_shard_failure_backoff(mut self, backoff: Duration) -> Self {
         if let Some(spawner) = &mut self.local_shard_spawner {
             spawner.set_failure_backoff(backoff);
@@ -338,6 +367,7 @@ where
         self
     }
 
+    /// Enables remote handoff with a fresh stop message for each operation.
     pub fn with_remote_handoff_stop_message_factory(
         mut self,
         stop_message: impl Fn() -> M + Send + Sync + 'static,
@@ -347,6 +377,7 @@ where
         self
     }
 
+    /// Enables remote handoff by cloning one configured entity stop message.
     pub fn with_remote_handoff_stop_message(mut self, stop_message: M, timeout: Duration) -> Self
     where
         M: Clone + Send + Sync + 'static,
@@ -355,6 +386,7 @@ where
         self
     }
 
+    /// Creates repeatable proxy-only region properties.
     pub fn props(self_region: impl Into<RegionId>, buffer_capacity: usize) -> Props<Self>
     where
         M: Send + 'static,
@@ -363,6 +395,7 @@ where
         Props::new(move || Self::new(self_region, buffer_capacity))
     }
 
+    /// Creates repeatable plain local-shard region properties.
     pub fn props_with_local_shards(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -377,6 +410,7 @@ where
         })
     }
 
+    /// Creates repeatable fixed-registered plain-shard region properties.
     pub fn props_with_local_shards_and_registration(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -399,6 +433,7 @@ where
         })
     }
 
+    /// Creates repeatable discovery-driven plain-shard region properties.
     pub fn props_with_local_shards_and_coordinator_discovery(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -415,6 +450,7 @@ where
         })
     }
 
+    /// Creates repeatable entity-backed local-shard region properties.
     pub fn props_with_local_entity_shards(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -435,6 +471,7 @@ where
         })
     }
 
+    /// Creates repeatable fixed-registered entity-shard region properties.
     pub fn props_with_local_entity_shards_and_registration(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -459,6 +496,7 @@ where
         })
     }
 
+    /// Creates repeatable region properties with seeded local remember stores.
     pub fn props_with_local_remember_store_shards(
         self_region: impl Into<RegionId>,
         type_name: impl Into<String>,
@@ -484,6 +522,7 @@ where
         })
     }
 
+    /// Creates fixed-registered properties with seeded local remember stores.
     pub fn props_with_local_remember_store_shards_and_registration(
         self_region: impl Into<RegionId>,
         type_name: impl Into<String>,
@@ -511,6 +550,7 @@ where
         })
     }
 
+    /// Creates repeatable properties using supplied remember-store actors.
     pub fn props_with_remember_store_shards(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -533,6 +573,7 @@ where
         })
     }
 
+    /// Creates fixed-registered properties using supplied remember stores.
     pub fn props_with_remember_store_shards_and_registration(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,
@@ -557,6 +598,7 @@ where
         })
     }
 
+    /// Returns the region's pure routing and shard-ownership state machine.
     pub fn runtime(&self) -> &ShardRegionRuntime<M> {
         &self.runtime
     }

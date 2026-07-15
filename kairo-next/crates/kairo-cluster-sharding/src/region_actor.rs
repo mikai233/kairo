@@ -1,3 +1,13 @@
+#![deny(missing_docs)]
+
+//! Actor-backed shard-region lifecycle, routing, and coordinator integration.
+//!
+//! The region owns the pure [`ShardRegionRuntime`], optional local shard
+//! creation, coordinator registration or discovery, remote routing, death
+//! watch, handoff, graceful shutdown, and remember-store restart policy. Its
+//! constructors make each optional capability explicit instead of hiding a
+//! Scala-style extension or builder graph.
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
@@ -33,6 +43,7 @@ mod coordinator_flow;
 mod local_routing;
 mod remote_lifecycle;
 
+/// Typed shard region coordinating routing and local shard ownership.
 pub struct ShardRegionActor<M>
 where
     M: Send + 'static,
