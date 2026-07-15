@@ -195,6 +195,9 @@ Status terms in this document mean:
   Data envelopes now hard-gate the full-state, delta, pruning metadata,
   performed-marker expiry, and late removed-replica cleanup contracts used by
   replicator state convergence.
+  Typed read, write, update-outcome, and subscription responses now hard-gate
+  successful absence versus consistency failure, local-update timeout, delta,
+  and coalesced change-notification semantics.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
