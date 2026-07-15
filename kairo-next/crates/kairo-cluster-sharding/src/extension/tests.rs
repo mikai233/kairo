@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
@@ -45,6 +46,34 @@ struct RecordingEntity {
     received: Arc<Mutex<Vec<(String, String)>>>,
 }
 
+struct SharedCoordinatorRememberStore {
+    shards: Arc<Mutex<BTreeSet<String>>>,
+}
+
+impl Actor for SharedCoordinatorRememberStore {
+    type Msg = crate::RememberCoordinatorStoreMsg;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            crate::RememberCoordinatorStoreMsg::AddShard { shard, reply_to } => {
+                self.shards.lock().unwrap().insert(shard.clone());
+                let _ = reply_to.tell(crate::RememberCoordinatorUpdateDone { shard });
+            }
+            crate::RememberCoordinatorStoreMsg::GetShards { reply_to } => {
+                let _ = reply_to.tell(crate::RememberedShards {
+                    shards: self.shards.lock().unwrap().clone(),
+                });
+            }
+            crate::RememberCoordinatorStoreMsg::GetState { reply_to } => {
+                let _ = reply_to.tell(crate::RememberCoordinatorStoreSnapshot {
+                    shards: self.shards.lock().unwrap().clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Actor for RecordingEntity {
     type Msg = TestMessage;
 
@@ -88,6 +117,7 @@ impl ComposedShardingNode {
             registry,
             type_key,
             None,
+            None,
             true,
         )
     }
@@ -108,6 +138,7 @@ impl ComposedShardingNode {
             Vec::new(),
             registry,
             type_key,
+            None,
             None,
             false,
         )
@@ -131,6 +162,30 @@ impl ComposedShardingNode {
             registry,
             type_key,
             Some("backend".to_string()),
+            None,
+            true,
+        )
+    }
+
+    fn start_with_shared_coordinator_store(
+        system: &str,
+        node_uid: u64,
+        remote_uid: u64,
+        seed_nodes: Vec<kairo_actor::Address>,
+        registry: Arc<Registry>,
+        type_key: EntityTypeKey<TestMessage>,
+        store: Arc<Mutex<BTreeSet<String>>>,
+    ) -> Self {
+        Self::start_with_options(
+            system,
+            node_uid,
+            remote_uid,
+            seed_nodes,
+            Vec::new(),
+            registry,
+            type_key,
+            None,
+            Some(store),
             true,
         )
     }
@@ -145,6 +200,7 @@ impl ComposedShardingNode {
         registry: Arc<Registry>,
         type_key: EntityTypeKey<TestMessage>,
         coordinator_role: Option<String>,
+        coordinator_store: Option<Arc<Mutex<BTreeSet<String>>>>,
         use_singleton: bool,
     ) -> Self {
         let kit = ActorSystemTestKit::new(system).unwrap();
@@ -210,6 +266,18 @@ impl ComposedShardingNode {
         .with_stop_message(TestMessage("stop".to_string()));
         if let Some(role) = coordinator_role {
             entity = entity.with_coordinator_role(role);
+        }
+        if let Some(shards) = coordinator_store {
+            let store = kit
+                .system()
+                .spawn_system(
+                    "shared-coordinator-remember-store",
+                    Props::new(move || SharedCoordinatorRememberStore {
+                        shards: Arc::clone(&shards),
+                    }),
+                )
+                .unwrap();
+            entity = entity.with_coordinator_remember_store(store, Duration::from_secs(1));
         }
         sharding.init(entity).unwrap();
         let (coordinator, region) = {
@@ -459,6 +527,82 @@ fn role_scoped_coordinator_runs_only_on_eligible_node() {
 
     backend.shutdown();
     frontend.shutdown();
+}
+
+#[test]
+fn singleton_successor_recovers_remembered_shard_allocation() {
+    let registry = registry();
+    let type_key = EntityTypeKey::new("remembered-account");
+    let store = Arc::new(Mutex::new(BTreeSet::new()));
+    let seed = ComposedShardingNode::start_with_shared_coordinator_store(
+        "sharding-remembered-seed",
+        30,
+        130,
+        Vec::new(),
+        registry.clone(),
+        type_key.clone(),
+        Arc::clone(&store),
+    );
+    await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+        (seed
+            .gossip()
+            .member(seed.cluster.self_node())
+            .map(|member| member.status)
+            == Some(MemberStatus::Up))
+        .then_some(())
+        .ok_or_else(|| "remember-store seed has not formed".to_string())
+    })
+    .unwrap();
+    let peer = ComposedShardingNode::start_with_shared_coordinator_store(
+        "sharding-remembered-peer",
+        31,
+        131,
+        vec![seed.cluster.self_node().address.clone()],
+        registry,
+        type_key.clone(),
+        Arc::clone(&store),
+    );
+    await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+        let state = seed.coordinator_state();
+        (state.allocations.len() == 2)
+            .then_some(())
+            .ok_or_else(|| format!("remembering coordinator is not ready: {state:?}"))
+    })
+    .unwrap();
+
+    let entity_id = "remembered-account-1";
+    let shard = crate::default_shard_id_for(entity_id);
+    peer.sharding
+        .entity_ref_for(type_key, entity_id)
+        .unwrap()
+        .tell(TestMessage("before-handover".to_string()))
+        .unwrap();
+    await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+        store
+            .lock()
+            .unwrap()
+            .contains(&shard)
+            .then_some(())
+            .ok_or_else(|| format!("coordinator store has not remembered shard {shard}"))
+    })
+    .unwrap();
+
+    seed.cluster.cluster().leave_self().unwrap();
+    await_assert(Duration::from_secs(4), Duration::from_millis(25), || {
+        let state = peer.coordinator_state();
+        state
+            .allocations
+            .values()
+            .any(|shards| shards.contains(&shard))
+            .then_some(())
+            .ok_or_else(|| {
+                format!("successor has not recovered remembered shard {shard}: {state:?}")
+            })
+    })
+    .unwrap();
+
+    peer.shutdown();
+    seed.shutdown();
 }
 
 #[test]

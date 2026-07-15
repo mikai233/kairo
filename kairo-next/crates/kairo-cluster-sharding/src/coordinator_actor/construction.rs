@@ -218,6 +218,31 @@ where
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn props_with_remember_store_and_handoff(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        remember_store: ActorRef<RememberCoordinatorStoreMsg>,
+        store_timeout: Duration,
+        stop_message: M,
+        handoff_timeout: Duration,
+        transport: HandoffTransport<M>,
+        stash_capacity: usize,
+    ) -> Props<Self> {
+        Props::new(move || {
+            Self::with_remember_store_and_handoff(
+                state,
+                strategy,
+                remember_store,
+                store_timeout,
+                stop_message,
+                handoff_timeout,
+                transport,
+            )
+        })
+        .with_stash_capacity(stash_capacity)
+    }
+
     pub fn runtime(&self) -> &CoordinatorRuntime {
         &self.runtime
     }

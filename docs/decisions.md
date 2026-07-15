@@ -3823,3 +3823,38 @@ Consequences:
   and lifecycle concern.
 - Enabling the facade's `cluster-sharding` feature also enables cluster tools,
   matching the runtime dependency used by distributed coordinator placement.
+
+## ADR-0120: Coordinator Recovery Stores Shard Existence Before Reassignment
+
+Status: Accepted
+
+Context:
+A new singleton coordinator must not infer prior allocations from region actor
+paths or transport reachability. Pekko's remember-entities coordinator store
+persists the set of known shard ids, loads it during coordinator startup, and
+reassigns those shards only after current regions register. Kairo already had
+that actor/runtime state machine, but the public sharding extension always
+constructed a storeless coordinator.
+
+Decision:
+`Entity::with_coordinator_remember_store` accepts a typed local
+`ActorRef<RememberCoordinatorStoreMsg>` and timeout. Both direct and
+cluster-singleton coordinator factories use the same supplied store. A
+store-backed coordinator enables remember mode, loads before normal message
+processing with a bounded stash, merges loaded shard ids into the unallocated
+set, persists a new shard before allocating it, and reallocates remembered
+shards after live region registration.
+
+The store owns shard existence only. It does not persist or restore region actor
+refs, actor UIDs, transport routes, or cluster membership. Tests may use a
+shared in-memory implementation; distributed deployments must provide a store
+whose state is available to every eligible singleton owner.
+
+Consequences:
+- Selected coordinator failover recovers known shards without replaying a
+  business request or reviving a stale region owner.
+- Store load/update failure remains explicit through the coordinator ask
+  timeout and actor failure path rather than silently dropping persistence.
+- Adapting the existing distributed-data remember store to this public typed
+  protocol remains the next composition step; remembered entities also require
+  region/shard store wiring in addition to coordinator shard recovery.

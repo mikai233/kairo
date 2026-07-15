@@ -1891,6 +1891,12 @@ Implementation shape:
   the one live coordinator actor. The ordinary `register_cluster_sharding`
   path retains direct local coordinator construction for compatibility and
   focused single-node use when the singleton extension is absent.
+- `Entity::with_coordinator_remember_store` supplies a typed local
+  `ActorRef<RememberCoordinatorStoreMsg>` plus an operation timeout to every
+  singleton incarnation. The coordinator loads remembered shard ids before
+  serving requests, merges them as unallocated, and assigns them only after
+  current regions register. The store may be memory-backed for tests or backed
+  by distributed data; it preserves shard existence, not stale region owners.
 - Region coordinator-discovery wiring maps those likely coordinator nodes to
   typed local coordinator refs for the current vertical slice, refreshes the
   region's registration target when the selected coordinator changes, and

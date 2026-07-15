@@ -85,8 +85,11 @@ Status terms in this document mean:
   exist. The cluster-integrated extension now runs each entity-type coordinator
   through the public cluster-singleton lifecycle and recovers fresh allocation
   after oldest-node handover. Role-scoped coordinator placement also keeps an
-  older ineligible node proxy-only. Durable coordinator allocation recovery and
-  the final acceptance demo remain open.
+  older ineligible node proxy-only. A supplied coordinator remember store now
+  restores persisted shard ids as unallocated on the successor and reassigns
+  them after live regions register. Composed distributed-data store wiring,
+  remembered-entity recovery through that public extension, and the final
+  acceptance demo remain open.
 - M10 cluster tools: substantial component coverage. Singleton and pubsub
   state, remote delivery, TCP peer runtime, examples, and composed public
   extensions exist. Real two-node tests cover pubsub convergence, named
@@ -418,8 +421,13 @@ regions, allocates a previously unseen shard, and delivers its entity message.
 Another real topology starts an older frontend-only seed before a younger
 backend node and proves the frontend coordinator endpoint remains proxy-only
 while its region registers with the backend-owned coordinator and completes a
-new allocation. Durable coordinator allocation recovery, broader ddata type
-registration, and process/fault coverage remain open.
+new allocation. `Entity::with_coordinator_remember_store` now feeds the existing
+typed store protocol into every singleton incarnation with a bounded initial
+load stash. A two-node failover test uses independent local store actors over
+one shared test state, persists a shard before allocation, then proves the
+successor reloads and reassigns that shard without another entity request.
+Composed distributed-data store adaptation, remembered-entity recovery,
+broader ddata type registration, and process/fault coverage remain open.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6071,10 +6079,11 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after role-scoped singleton coordinator placement:
+Latest Phase 4 validation after store-backed singleton coordinator recovery:
 
 ```bash
 cargo test -p kairo-cluster-sharding --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
 cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check

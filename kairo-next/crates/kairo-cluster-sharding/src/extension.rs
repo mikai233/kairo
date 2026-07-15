@@ -26,12 +26,13 @@ use crate::{
     BeginHandOff, BeginHandOffAck, CoordinatorDiscoverySettings, CoordinatorState,
     DEFAULT_SHARD_COUNT, EntityActorFactory, EntityRef, EntityTypeKey, GetShardHome,
     GracefulShutdownReq, HandOff, HostShard, LeastShardAllocationStrategy, RegionLocalRoutePlan,
-    RegionRemoteCoordinatorTransport, RegionStopped, Register, RegisterAck, RoutedShardEnvelope,
-    ShardCoordinatorActor, ShardCoordinatorMsg, ShardCoordinatorRemoteHomeInbound,
-    ShardCoordinatorRemoteRegistrationInbound, ShardCoordinatorRemoteTarget, ShardDeliverPlan,
-    ShardHome, ShardRegionActor, ShardRegionMsg, ShardRegionRemoteControlInbound,
-    ShardRegionRemoteInbound, ShardRegionRemoteOutbound, ShardRegionSystemInbound, ShardStarted,
-    ShardStopped, ShardingEnvelope, ShardingEnvelopeRouter, remote_region_id,
+    RegionRemoteCoordinatorTransport, RegionStopped, Register, RegisterAck,
+    RememberCoordinatorStoreMsg, RoutedShardEnvelope, ShardCoordinatorActor, ShardCoordinatorMsg,
+    ShardCoordinatorRemoteHomeInbound, ShardCoordinatorRemoteRegistrationInbound,
+    ShardCoordinatorRemoteTarget, ShardDeliverPlan, ShardHome, ShardRegionActor, ShardRegionMsg,
+    ShardRegionRemoteControlInbound, ShardRegionRemoteInbound, ShardRegionRemoteOutbound,
+    ShardRegionSystemInbound, ShardStarted, ShardStopped, ShardingEnvelope, ShardingEnvelopeRouter,
+    remote_region_id,
 };
 
 pub const SHARDING_ORDINARY_MANIFESTS: [&str; 1] = [RoutedShardEnvelope::MANIFEST];
@@ -136,7 +137,14 @@ where
     factory: EntityActorFactory<M>,
     shard_count: u64,
     coordinator_role: Option<String>,
+    coordinator_remember_store: Option<CoordinatorRememberStoreSettings>,
     stop_message: Option<M>,
+}
+
+#[derive(Clone)]
+struct CoordinatorRememberStoreSettings {
+    store: ActorRef<RememberCoordinatorStoreMsg>,
+    timeout: Duration,
 }
 
 impl<M> Entity<M>
@@ -153,6 +161,7 @@ where
             factory: EntityActorFactory::new(factory),
             shard_count: DEFAULT_SHARD_COUNT,
             coordinator_role: None,
+            coordinator_remember_store: None,
             stop_message: None,
         }
     }
@@ -172,6 +181,15 @@ where
 
     pub fn with_coordinator_role(mut self, role: impl Into<String>) -> Self {
         self.coordinator_role = Some(role.into());
+        self
+    }
+
+    pub fn with_coordinator_remember_store(
+        mut self,
+        store: ActorRef<RememberCoordinatorStoreMsg>,
+        timeout: Duration,
+    ) -> Self {
+        self.coordinator_remember_store = Some(CoordinatorRememberStoreSettings { store, timeout });
         self
     }
 
@@ -477,6 +495,16 @@ impl ClusterSharding {
                     type_name: type_name.clone(),
                     reason: "a stop message is required for handoff",
                 })?;
+        if entity
+            .coordinator_remember_store
+            .as_ref()
+            .is_some_and(|settings| settings.timeout.is_zero())
+        {
+            return Err(ClusterShardingBootstrapError::InvalidEntity {
+                type_name,
+                reason: "coordinator remember-store timeout must be greater than zero",
+            });
+        }
         let mut entities = self.entities.lock().expect("sharded entities poisoned");
         if let Some(existing) = entities.get(&type_name) {
             return existing
@@ -503,19 +531,20 @@ impl ClusterSharding {
         let coordinator = match ClusterSingleton::get(&self.resources.system) {
             Ok(singletons) => {
                 let coordinator_stop = Arc::new(Mutex::new(stop_message.clone()));
+                let coordinator_remember_store = entity.coordinator_remember_store.clone();
                 let handoff_timeout = self.settings.handoff_timeout;
+                let stash_capacity = self.settings.region_buffer_capacity;
                 let mut singleton = Singleton::new(
                     format!("sharding-coordinator-{type_name}"),
                     move || {
-                        ShardCoordinatorActor::<M>::props_with_handoff(
-                            CoordinatorState::new(),
-                            LeastShardAllocationStrategy::default(),
+                        coordinator_props(
                             coordinator_stop
                                 .lock()
                                 .expect("sharding coordinator stop message poisoned")
                                 .clone(),
                             handoff_timeout,
-                            crate::HandoffTransport::new(),
+                            coordinator_remember_store.clone(),
+                            stash_capacity,
                         )
                     },
                     ShardCoordinatorMsg::Terminate,
@@ -533,12 +562,11 @@ impl ClusterSharding {
             }
             Err(ActorError::ExtensionNotRegistered(_)) => self.resources.system.spawn_system(
                 names.coordinator_name.clone(),
-                ShardCoordinatorActor::<M>::props_with_handoff(
-                    CoordinatorState::new(),
-                    LeastShardAllocationStrategy::default(),
+                coordinator_props(
                     stop_message.clone(),
                     self.settings.handoff_timeout,
-                    crate::HandoffTransport::new(),
+                    entity.coordinator_remember_store.clone(),
+                    self.settings.region_buffer_capacity,
                 ),
             )?,
             Err(error) => return Err(error.into()),
@@ -835,6 +863,36 @@ impl ClusterSharding {
             timeout,
         )?;
         Ok(())
+    }
+}
+
+fn coordinator_props<M>(
+    stop_message: M,
+    handoff_timeout: Duration,
+    remember_store: Option<CoordinatorRememberStoreSettings>,
+    stash_capacity: usize,
+) -> Props<ShardCoordinatorActor<M>>
+where
+    M: Clone + Send + 'static,
+{
+    match remember_store {
+        Some(settings) => ShardCoordinatorActor::props_with_remember_store_and_handoff(
+            CoordinatorState::new(),
+            LeastShardAllocationStrategy::default(),
+            settings.store,
+            settings.timeout,
+            stop_message,
+            handoff_timeout,
+            crate::HandoffTransport::new(),
+            stash_capacity,
+        ),
+        None => ShardCoordinatorActor::props_with_handoff(
+            CoordinatorState::new(),
+            LeastShardAllocationStrategy::default(),
+            stop_message,
+            handoff_timeout,
+            crate::HandoffTransport::new(),
+        ),
     }
 }
 
