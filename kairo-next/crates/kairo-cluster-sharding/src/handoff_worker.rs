@@ -1,3 +1,6 @@
+#![deny(missing_docs)]
+//! Per-shard actor implementing the coordinator's two-phase handoff protocol.
+
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -8,9 +11,15 @@ use crate::{
     RegionLocalHandOffPlan, ShardHandOffPlan, ShardId, ShardRebalancePlan, ShardStopped,
 };
 
+/// Terminal result returned by a handoff worker to its coordinator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandoffWorkerDone {
+    /// Shard whose handoff attempt ended.
     pub shard: ShardId,
+    /// Whether the old owner stopped the shard or terminated during the stop phase.
+    ///
+    /// `false` denotes timeout, immediate delivery failure, or an inconsistent
+    /// internal completion response.
     pub ok: bool,
 }
 
@@ -454,51 +463,88 @@ mod tests {
     }
 }
 
+/// Observable state of one handoff worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandoffWorkerSnapshot {
+    /// Shard being handed off.
     pub shard: ShardId,
+    /// Current protocol phase.
     pub phase: HandoffWorkerPhase,
+    /// Participant regions still expected to acknowledge begin-handoff.
+    ///
+    /// This set is empty outside [`HandoffWorkerPhase::AwaitingBeginAcks`].
     pub remaining: BTreeSet<RegionId>,
 }
 
+/// Phase of the two-stage handoff state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandoffWorkerPhase {
+    /// The worker has not received its start command.
     Idle,
+    /// Begin-handoff was sent and participant acknowledgements are outstanding.
     AwaitingBeginAcks,
+    /// Every participant invalidated its shard-home view and the old owner is stopping the shard.
     AwaitingShardStopped,
+    /// A terminal result was emitted and the actor is stopping.
     Done,
 }
 
+/// Internal actor protocol for one shard handoff worker.
 pub enum HandoffWorkerMsg<M> {
+    /// Starts the protocol unless it has already started.
     Start {
+        /// Coordinator-owned recipient for the single terminal result.
         reply_to: ActorRef<HandoffWorkerDone>,
     },
+    /// Records one participant's begin-handoff response.
     BeginHandOffAck {
+        /// Region associated with the response route.
         region: RegionId,
+        /// Region runtime decision, which must acknowledge this worker's shard.
         plan: BeginHandOffPlan,
     },
+    /// Reports how the local owner region handled its handoff command.
     LocalHandOffForwarded {
+        /// Region-level forwarding or immediate-completion decision.
         plan: RegionLocalHandOffPlan,
     },
+    /// Reports how the owner's local shard began stopping its entities.
     ShardHandOffObserved {
+        /// Shard-level immediate-stop or entity-stopper decision.
         plan: ShardHandOffPlan<M>,
     },
+    /// Reports completion of a local entity-stopper-based handoff.
     LocalHandOffCompleted {
+        /// Completion decision whose outer and nested shard IDs are validated.
         plan: RegionLocalHandOffCompletionPlan,
     },
+    /// Reports a remote owner's stable wire-level shard-stopped acknowledgement.
     RemoteShardStopped {
+        /// Remote region that sent the acknowledgement.
         region: RegionId,
+        /// Acknowledgement whose shard ID must match the worker's shard.
         stopped: ShardStopped,
     },
+    /// Reports termination of a participant or the old owner.
     RegionTerminated {
+        /// Region observed as terminated.
         region: RegionId,
     },
+    /// Fails whichever handoff phase is currently active.
     Timeout,
+    /// Requests a diagnostic state snapshot.
     GetState {
+        /// Recipient for the snapshot.
         reply_to: ActorRef<HandoffWorkerSnapshot>,
     },
 }
 
+/// Actor that coordinates one shard's begin-handoff and owner-stop phases.
+///
+/// The worker first waits for every participant to acknowledge cache
+/// invalidation. It then tells the old owner to stop the shard and succeeds on
+/// a matching shard-stopped response or owner termination. One timeout covers
+/// the complete attempt.
 pub struct HandoffWorkerActor<M>
 where
     M: Send + 'static,
@@ -516,6 +562,7 @@ impl<M> HandoffWorkerActor<M>
 where
     M: Send + 'static,
 {
+    /// Creates an idle worker for one rebalance plan.
     pub fn new(
         plan: ShardRebalancePlan,
         stop_message: M,
@@ -533,6 +580,7 @@ where
         }
     }
 
+    /// Creates props that build an idle worker with the supplied plan and routes.
     pub fn props(
         plan: ShardRebalancePlan,
         stop_message: M,

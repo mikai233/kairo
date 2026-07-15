@@ -211,6 +211,9 @@ Status terms in this document mean:
   Coordinator handoff ownership and its route transport now carry the same
   hard gate, including one-worker-per-shard tracking, best-effort host delivery,
   cloned route snapshots, participant fan-out, and immediate delivery reports.
+  The worker and remote handoff adapter now hard-gate the Pekko-aligned phase
+  transitions, termination and timeout outcomes, nested shard identity checks,
+  typed stop-message injection, and buffered-message drop accounting.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator
