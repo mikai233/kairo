@@ -142,6 +142,10 @@ Status terms in this document mean:
   reconnect policy, and membership-derived route owner now hard-gate effective
   bind identity, cache adoption, duplicate suppression, replacement redial,
   owned-route cleanup, and late-route-safe shutdown contracts.
+  The composed TCP peer runtime, connector actor, and bootstrap now hard-gate
+  cluster-versus-remoting UID identity, snapshot/event projection, explicit
+  reconnect clocks, one-at-a-time background route work, diagnostic snapshots,
+  ActorSystem ownership, and coordinated connector/runtime shutdown.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed

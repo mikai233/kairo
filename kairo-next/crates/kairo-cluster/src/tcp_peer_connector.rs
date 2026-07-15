@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -13,7 +15,9 @@ use crate::{
 const TCP_PEER_RETRY_TIMER_KEY: &str = "cluster-tcp-peer-retry";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Invalid TCP peer connector scheduling configuration.
 pub enum ClusterTcpPeerConnectorSettingsError {
+    /// A zero interval would create an immediate retry loop.
     ZeroRetryInterval,
 }
 
@@ -33,6 +37,7 @@ impl std::fmt::Display for ClusterTcpPeerConnectorSettingsError {
 impl std::error::Error for ClusterTcpPeerConnectorSettingsError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Actor timer policy for retrying failed membership-derived peer dials.
 pub struct ClusterTcpPeerConnectorSettings {
     retry_interval: Duration,
     initial_retry_delay: Duration,
@@ -40,6 +45,7 @@ pub struct ClusterTcpPeerConnectorSettings {
 }
 
 impl ClusterTcpPeerConnectorSettings {
+    /// Creates settings with automatic retry ticks and an initial delay equal to `retry_interval`.
     pub fn new(retry_interval: Duration) -> Result<Self, ClusterTcpPeerConnectorSettingsError> {
         if retry_interval.is_zero() {
             return Err(ClusterTcpPeerConnectorSettingsError::ZeroRetryInterval);
@@ -51,16 +57,22 @@ impl ClusterTcpPeerConnectorSettings {
         })
     }
 
+    /// Sets the delay before the first automatic retry tick.
     pub fn with_initial_retry_delay(mut self, delay: Duration) -> Self {
         self.initial_retry_delay = delay;
         self
     }
 
+    /// Enables or disables actor-owned periodic retry ticks.
+    ///
+    /// Disabling ticks allows tests or an embedding runtime to drive retries explicitly with
+    /// `RetryDuePeerRoutes` messages.
     pub fn with_automatic_retry_ticks(mut self, automatic: bool) -> Self {
         self.automatic_retry_ticks = automatic;
         self
     }
 
+    /// Returns the non-zero interval between automatic retry ticks.
     pub fn retry_interval(&self) -> Duration {
         self.retry_interval
     }
@@ -76,6 +88,11 @@ impl Default for ClusterTcpPeerConnectorSettings {
     }
 }
 
+/// Actor that serializes cluster events and reconnect ticks onto an owned TCP peer runtime.
+///
+/// Runtime operations may block on transport I/O, so they execute outside synchronous actor turns
+/// one at a time. The actor subscribes with a current-state snapshot, retains diagnostic state,
+/// and shuts down the entire owned runtime when stopped.
 pub struct ClusterTcpPeerConnector {
     cluster: Cluster,
     runtime: Arc<Mutex<Option<ClusterTcpPeerRuntime>>>,
@@ -90,10 +107,12 @@ pub struct ClusterTcpPeerConnector {
 }
 
 impl ClusterTcpPeerConnector {
+    /// Creates a connector with the default one-second automatic retry policy.
     pub fn new(cluster: Cluster, runtime: ClusterTcpPeerRuntime) -> Self {
         Self::with_settings(cluster, runtime, ClusterTcpPeerConnectorSettings::default())
     }
 
+    /// Creates a connector with explicit actor timer settings.
     pub fn with_settings(
         cluster: Cluster,
         runtime: ClusterTcpPeerRuntime,
@@ -127,20 +146,30 @@ impl ClusterTcpPeerConnector {
 }
 
 #[derive(Debug, Clone)]
+/// Commands accepted by the TCP peer connector actor.
 pub enum ClusterTcpPeerConnectorMsg {
+    /// Applies a current cluster snapshot or subsequent domain event.
     Cluster(ClusterSubscriptionEvent),
+    /// Retries all peer dials due at the caller-provided clock value.
     RetryDuePeerRoutes {
+        /// Monotonic logical time used by reconnect deadlines.
         now: Duration,
     },
+    /// Advances the actor-owned retry clock and retries due peer routes.
     RetryTimerTick,
+    /// Clears managed peer routes while leaving pending reconnect deadlines intact.
     ClearRoutes,
+    /// Completes the serialized runtime command currently in flight.
     RuntimeCommandComplete(ClusterTcpPeerConnectorRuntimeCommandResult),
+    /// Requests the connector's last observed runtime and route diagnostics.
     Snapshot {
+        /// Recipient for the diagnostic snapshot.
         reply_to: ActorRef<ClusterTcpPeerConnectorSnapshot>,
     },
 }
 
 #[derive(Debug, Clone)]
+/// Opaque completion value produced by connector-owned background runtime work.
 pub struct ClusterTcpPeerConnectorRuntimeCommandResult {
     outcome: Result<ClusterTcpPeerRouteReport, String>,
     state: Option<ClusterTcpPeerConnectorRuntimeState>,
@@ -173,12 +202,19 @@ enum ClusterTcpPeerConnectorRuntimeCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic snapshot of connector-owned TCP peer state.
 pub struct ClusterTcpPeerConnectorSnapshot {
+    /// Local cluster identity last mirrored from the owned runtime, when available.
     pub self_node: Option<UniqueAddress>,
+    /// Exact member incarnations with managed route entries.
     pub active_targets: Vec<crate::ClusterAssociationPeerTarget>,
+    /// Number of managed peer route entries.
     pub route_count: usize,
+    /// Failed peer dials waiting for a reconnect deadline.
     pub pending_reconnects: Vec<ClusterTcpPeerReconnectPending>,
+    /// Outcome of the most recently successful runtime command.
     pub last_report: Option<ClusterTcpPeerRouteReport>,
+    /// Most recent runtime-command failure, cleared by the next success.
     pub last_error: Option<String>,
 }
 

@@ -256,8 +256,11 @@ fn cluster_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::err
         "kairo-next/crates/kairo-cluster/src/shared_remote_runtime.rs",
         "kairo-next/crates/kairo-cluster/src/system_inbound/error.rs",
         "kairo-next/crates/kairo-cluster/src/system_inbound/router.rs",
+        "kairo-next/crates/kairo-cluster/src/tcp_peer_bootstrap.rs",
+        "kairo-next/crates/kairo-cluster/src/tcp_peer_connector.rs",
         "kairo-next/crates/kairo-cluster/src/tcp_peer_reconnect.rs",
         "kairo-next/crates/kairo-cluster/src/tcp_peer_routes.rs",
+        "kairo-next/crates/kairo-cluster/src/tcp_peer_runtime.rs",
         "kairo-next/crates/kairo-cluster/src/vector_clock.rs",
         "kairo-next/crates/kairo-cluster/src/wire.rs",
     ];
