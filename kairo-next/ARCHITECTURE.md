@@ -2171,6 +2171,10 @@ Design:
   for `RemoteMessage` protocols; buffering and oldest-member selection are the
   same for both,
 - on membership change, manager coordinates handover,
+- `Left`/`Exited` members leave oldest selection before `Removed`, allowing the
+  old and new owners to exchange takeover/handover controls while the shared
+  association is still retained; `Removed` and self-down remain terminal
+  safety observations,
 - singleton handover system messages use stable manifests and explicit codecs:
   `HandOverToMe`, `HandOverInProgress`, `HandOverDone`, and
   `TakeOverFromMe` carry the sender `UniqueAddress`,

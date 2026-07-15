@@ -148,7 +148,7 @@ impl SingletonOldestTracker {
             MemberEvent::Downed(member) if member.unique_address == self.self_node => {
                 return Some(SingletonOldestChange::SelfDowned);
             }
-            MemberEvent::Exited(member) if member.unique_address != self.self_node => {
+            MemberEvent::Left(member) | MemberEvent::Exited(member) => {
                 self.remove_member(&member.unique_address)
             }
             MemberEvent::Removed { member, .. } if member.unique_address == self.self_node => {
@@ -156,11 +156,7 @@ impl SingletonOldestTracker {
                 return Some(SingletonOldestChange::SelfRemoved);
             }
             MemberEvent::Removed { member, .. } => self.remove_member(&member.unique_address),
-            MemberEvent::Joined(_)
-            | MemberEvent::WeaklyUp(_)
-            | MemberEvent::Left(_)
-            | MemberEvent::Exited(_)
-            | MemberEvent::Downed(_) => {}
+            MemberEvent::Joined(_) | MemberEvent::WeaklyUp(_) | MemberEvent::Downed(_) => {}
         }
         let after = self.current_oldest().cloned();
 

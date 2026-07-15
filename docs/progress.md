@@ -431,6 +431,10 @@ to a transport sink while retaining child lifecycle effects locally, and
 messages directly into the typed local manager protocol. Shared-runtime
 registration, oldest-tracker composition, proxy discovery, and real handover
 remain the next singleton checkpoint.
+Singleton oldest tracking now advances on `Left`/`Exited` rather than waiting
+for `Removed`, so the manager state machine can perform its takeover handshake
+while the cluster association is deliberately still retained. Focused coverage
+pins both oldest departure and self-exit selection changes.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.

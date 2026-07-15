@@ -80,7 +80,7 @@ fn singleton_oldest_tracker_reports_oldest_change_for_member_up_and_removed() {
 }
 
 #[test]
-fn singleton_oldest_tracker_ignores_self_exited_and_non_matching_role() {
+fn singleton_oldest_tracker_advances_on_self_exit_and_ignores_non_matching_role() {
     let node_a = node("a", 1);
     let node_b = node("b", 2);
     let node_c = node("c", 3);
@@ -114,9 +114,9 @@ fn singleton_oldest_tracker_ignores_self_exited_and_non_matching_role() {
             2,
             ["backend"],
         ))),
-        None
+        Some(SingletonOldestChange::OldestChanged(None))
     );
-    assert_eq!(tracker.current_oldest(), Some(&node_b));
+    assert_eq!(tracker.current_oldest(), None);
 
     assert_eq!(
         tracker.apply_member_event(&MemberEvent::Up(member_with_roles(
@@ -125,7 +125,7 @@ fn singleton_oldest_tracker_ignores_self_exited_and_non_matching_role() {
             3,
             ["backend"],
         ))),
-        None
+        Some(SingletonOldestChange::OldestChanged(Some(node_c.clone())))
     );
     assert_eq!(
         tracker
@@ -133,8 +133,30 @@ fn singleton_oldest_tracker_ignores_self_exited_and_non_matching_role() {
             .iter()
             .map(|member| member.unique_address.clone())
             .collect::<Vec<_>>(),
-        vec![node_b, node_c]
+        vec![node_c]
     );
+}
+
+#[test]
+fn singleton_oldest_tracker_advances_when_oldest_starts_leaving() {
+    let node_a = node("leaving-a", 1);
+    let node_b = node("leaving-b", 2);
+    let (mut tracker, _) = SingletonOldestTracker::from_members(
+        node_b.clone(),
+        SingletonScope::all(),
+        [
+            member(node_a.clone(), MemberStatus::Up, 1),
+            member(node_b.clone(), MemberStatus::Up, 2),
+        ],
+    );
+
+    assert_eq!(
+        tracker.apply_member_event(&MemberEvent::Left(
+            member(node_a, MemberStatus::Leaving, 1,)
+        )),
+        Some(SingletonOldestChange::OldestChanged(Some(node_b.clone())))
+    );
+    assert_eq!(tracker.current_oldest(), Some(&node_b));
 }
 
 #[test]
