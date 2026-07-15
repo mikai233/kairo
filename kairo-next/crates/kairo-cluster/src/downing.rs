@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 mod lease_majority;
 mod split_brain;
 
@@ -9,29 +11,45 @@ pub use lease_majority::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Abstract partition decision produced by a cluster downing policy.
 pub enum DowningDecision {
+    /// Leave all membership state unchanged.
     NoAction,
+    /// Down the currently reachable side of the observed partition.
     DownReachable,
+    /// Down the currently unreachable side of the observed partition.
     DownUnreachable,
+    /// Down every member still eligible for downing.
     DownAll,
+    /// Down nodes identified as indirectly connected by asymmetric observations.
     DownIndirectlyConnected,
+    /// Apply the lease-denied reverse plan for an indirectly connected topology.
     ReverseDownIndirectlyConnected,
+    /// Down only the local node after a remote quarantine observation.
     DownSelfQuarantinedByRemote,
 }
 
+/// Pluggable synchronous policy for deriving downing actions from gossip.
+///
+/// Implementations may consult external tie-breakers, but gossip and
+/// reachability remain the source of membership and partition evidence.
 pub trait DowningHook {
+    /// Chooses an abstract decision for the current gossip view.
     fn decide(&self, gossip: &Gossip, self_node: &UniqueAddress) -> DowningDecision;
 
+    /// Returns an additional delay after stable-after elapses.
     fn decision_delay(&self, _gossip: &Gossip, _self_node: &UniqueAddress) -> Duration {
         Duration::ZERO
     }
 
+    /// Resolves the abstract decision into a deterministic node plan.
     fn plan(&self, gossip: &Gossip, self_node: &UniqueAddress) -> DowningPlan {
         DowningPlan::from_decision(self.decide(gossip, self_node), gossip, self_node)
     }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Downing policy that never changes membership.
 pub struct NoDowning;
 
 impl DowningHook for NoDowning {
@@ -41,11 +59,13 @@ impl DowningHook for NoDowning {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Test and integration hook that always returns one configured decision.
 pub struct StaticDowningHook {
     decision: DowningDecision,
 }
 
 impl StaticDowningHook {
+    /// Creates a hook that always returns `decision`.
     pub fn new(decision: DowningDecision) -> Self {
         Self { decision }
     }
@@ -58,35 +78,46 @@ impl DowningHook for StaticDowningHook {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Supported synchronous split-brain resolution strategies.
 pub enum SplitBrainStrategy {
+    /// Down every eligible member on both sides.
     DownAll,
+    /// Keep the larger role-filtered side, using the lowest address to break ties.
     KeepMajority {
+        /// Optional role used when counting each side.
         role: Option<String>,
     },
+    /// Keep the side containing the oldest role-filtered member.
     KeepOldest {
+        /// Optional role used to select the oldest member.
         role: Option<String>,
+        /// Whether an oldest member alone against at least two peers is downed.
         down_if_alone: bool,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Pekko-aligned split-brain policy derived from gossip reachability.
 pub struct SplitBrainResolverHook {
     strategy: SplitBrainStrategy,
 }
 
 impl SplitBrainResolverHook {
+    /// Creates a strategy that downs every eligible member.
     pub fn down_all() -> Self {
         Self {
             strategy: SplitBrainStrategy::DownAll,
         }
     }
 
+    /// Creates a role-aware keep-majority strategy.
     pub fn keep_majority(role: Option<String>) -> Self {
         Self {
             strategy: SplitBrainStrategy::KeepMajority { role },
         }
     }
 
+    /// Creates a role-aware keep-oldest strategy.
     pub fn keep_oldest(role: Option<String>, down_if_alone: bool) -> Self {
         Self {
             strategy: SplitBrainStrategy::KeepOldest {
@@ -96,12 +127,14 @@ impl SplitBrainResolverHook {
         }
     }
 
+    /// Returns the configured strategy.
     pub fn strategy(&self) -> &SplitBrainStrategy {
         &self.strategy
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Deterministic set of node incarnations resolved from a downing decision.
 pub struct DowningPlan {
     decision: DowningDecision,
     nodes_to_down: Vec<UniqueAddress>,
@@ -109,10 +142,12 @@ pub struct DowningPlan {
 }
 
 impl DowningPlan {
+    /// Builds a plan through `hook`, preserving hook-specific node selection.
     pub fn from_hook(hook: &impl DowningHook, gossip: &Gossip, self_node: &UniqueAddress) -> Self {
         hook.plan(gossip, self_node)
     }
 
+    /// Resolves an abstract decision against the supplied gossip view.
     pub fn from_decision(
         decision: DowningDecision,
         gossip: &Gossip,
@@ -172,18 +207,25 @@ impl DowningPlan {
         }
     }
 
+    /// Returns the abstract decision that produced this plan.
     pub fn decision(&self) -> DowningDecision {
         self.decision
     }
 
+    /// Returns the sorted, deduplicated node incarnations to down.
     pub fn nodes_to_down(&self) -> &[UniqueAddress] {
         &self.nodes_to_down
     }
 
+    /// Returns whether the local node is included in the plan.
     pub fn down_self(&self) -> bool {
         self.down_self
     }
 
+    /// Applies this plan to gossip as one local causal update.
+    ///
+    /// When any status changes, the result increments `self_node`'s vector-clock
+    /// entry and clears the seen table except for the local node.
     pub fn apply_to(&self, gossip: &Gossip, self_node: &UniqueAddress) -> Gossip {
         let mut changed = gossip.clone();
         let mut did_change = false;

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::error::Error;
 use std::fmt;
 use std::time::Duration;
@@ -6,6 +8,7 @@ use super::{DowningDecision, DowningHook, decision_members, split_brain};
 use crate::{Gossip, UniqueAddress};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Configuration for lease-majority split-brain decisions.
 pub struct LeaseMajoritySettings {
     lease_name: String,
     role: Option<String>,
@@ -14,6 +17,7 @@ pub struct LeaseMajoritySettings {
 }
 
 impl LeaseMajoritySettings {
+    /// Creates settings for one non-empty logical lease name.
     pub fn new(
         lease_name: impl Into<String>,
         role: Option<String>,
@@ -33,18 +37,22 @@ impl LeaseMajoritySettings {
         })
     }
 
+    /// Returns the logical lease name passed to the lease implementation.
     pub fn lease_name(&self) -> &str {
         &self.lease_name
     }
 
+    /// Returns the optional role used for majority/minority counting.
     pub fn role(&self) -> Option<&str> {
         self.role.as_deref()
     }
 
+    /// Returns the extra acquisition delay applied when the local side is the minority.
     pub fn acquire_lease_delay_for_minority(&self) -> Duration {
         self.acquire_lease_delay_for_minority
     }
 
+    /// Returns the configured lease-release grace period for concrete integrations.
     pub fn release_after(&self) -> Duration {
         self.release_after
     }
@@ -55,7 +63,9 @@ impl LeaseMajoritySettings {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Invalid lease-majority configuration.
 pub enum LeaseMajoritySettingsError {
+    /// The configured logical lease name was empty or whitespace-only.
     EmptyLeaseName,
 }
 
@@ -69,25 +79,36 @@ impl fmt::Display for LeaseMajoritySettingsError {
 
 impl Error for LeaseMajoritySettingsError {}
 
+/// Synchronous lease acquisition boundary used only as a downing tie-breaker.
+///
+/// Implementations cannot add, remove, or authorize cluster members.
 pub trait LeaseMajorityLease {
+    /// Attempts to acquire `lease_name` for the current downing decision.
     fn acquire(&self, lease_name: &str) -> bool;
 }
 
 #[derive(Debug, Clone)]
+/// Downing hook that grants the requested side only when a lease is acquired.
+///
+/// A denied lease reverses the ordinary or indirectly connected decision so
+/// both sides cannot independently choose themselves as survivors.
 pub struct LeaseMajorityHook<L> {
     settings: LeaseMajoritySettings,
     lease: L,
 }
 
 impl<L> LeaseMajorityHook<L> {
+    /// Creates a hook from explicit settings and a caller-provided lease.
     pub fn new(settings: LeaseMajoritySettings, lease: L) -> Self {
         Self { settings, lease }
     }
 
+    /// Returns the configured lease-majority policy.
     pub fn settings(&self) -> &LeaseMajoritySettings {
         &self.settings
     }
 
+    /// Returns the caller-provided lease implementation.
     pub fn lease(&self) -> &L {
         &self.lease
     }

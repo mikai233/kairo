@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -11,6 +13,11 @@ use crate::{
 const STABLE_AFTER_TIMER: &str = "downing-stable-after";
 const DECISION_DELAY_TIMER: &str = "downing-decision-delay";
 
+/// Actor that gates a [`DowningHook`] behind stable-after and leader ownership.
+///
+/// The timer restarts when the relevant unreachable set changes or this node
+/// becomes the responsible leader. Decisions are rechecked for responsibility
+/// before being forwarded to membership.
 pub struct DowningProviderActor<H>
 where
     H: DowningHook + Send + 'static,
@@ -29,6 +36,7 @@ impl<H> DowningProviderActor<H>
 where
     H: DowningHook + Send + 'static,
 {
+    /// Creates a provider for `self_node` and one explicit downing hook.
     pub fn new(
         self_node: UniqueAddress,
         hook: H,
@@ -47,6 +55,7 @@ where
         }
     }
 
+    /// Creates actor props for a provider with the supplied stable-after delay.
     pub fn props(
         self_node: UniqueAddress,
         hook: H,
@@ -146,20 +155,31 @@ where
 }
 
 #[derive(Debug, Clone)]
+/// Commands accepted by [`DowningProviderActor`].
 pub enum DowningProviderMsg {
+    /// Replaces the latest gossip view and reconciles stable-after timing.
     ObserveGossip(Gossip),
+    /// Indicates that the current unreachable set remained stable long enough.
     StableAfterElapsed,
+    /// Indicates that a hook-specific decision delay elapsed.
     DecisionDelayElapsed,
+    /// Requests an immutable provider snapshot.
     Snapshot {
+        /// Recipient of the current snapshot.
         reply_to: ActorRef<DowningProviderSnapshot>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Observable state of the downing-provider actor.
 pub struct DowningProviderSnapshot {
+    /// Whether the local node is currently the responsible leader.
     pub responsible: bool,
+    /// Whether the stable-after timer is active.
     pub stable_timer_active: bool,
+    /// Whether a hook-specific decision-delay timer is active.
     pub decision_delay_active: bool,
+    /// Sorted relevant unreachable node incarnations.
     pub relevant_unreachable: Vec<UniqueAddress>,
 }
 

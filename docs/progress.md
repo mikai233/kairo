@@ -123,7 +123,9 @@ Status terms in this document mean:
   failure-detector reachability publication. The public cluster facade,
   ActorSystem extension, current-state model, subscription initial-state modes,
   deterministic event publisher, and backend-neutral diagnostics filters now
-  also deny missing public documentation.
+  also deny missing public documentation. Downing decisions, deterministic
+  node plans, keep-majority/keep-oldest policy, lease-majority tie-breaking,
+  and leader-gated stable-after orchestration now carry the same hard gate.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed
