@@ -233,7 +233,17 @@ where
                 codec,
                 reply_to,
             } => {
-                let report = if let Some(self_replica) = &self.self_replica {
+                let source_removed = self.removed_node_pruning.contains(&propagation.from)
+                    || propagation.deltas.iter().any(|delta| {
+                        self.state
+                            .envelope(&ReplicatorKey::new(delta.key.clone()))
+                            .is_some_and(|envelope| {
+                                envelope.pruning().get(&propagation.from).is_some()
+                            })
+                    });
+                let report = if source_removed {
+                    DeltaPropagationReceiveReport::ignored(propagation.from, propagation.reply)
+                } else if let Some(self_replica) = &self.self_replica {
                     self.delta_receive.apply_propagation_with_seen(
                         &mut self.state,
                         &propagation,

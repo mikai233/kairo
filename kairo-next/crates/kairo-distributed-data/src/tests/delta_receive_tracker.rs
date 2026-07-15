@@ -242,3 +242,46 @@ fn delta_receive_marks_initialized_pruning_seen_by_receiver() {
     };
     assert!(initialized.seen().contains(&local));
 }
+
+#[test]
+fn delta_receive_tracker_clears_removed_sources_and_deleted_keys() {
+    let first_key = ReplicatorKey::new("first");
+    let second_key = ReplicatorKey::new("second");
+    let removed = replica("removed");
+    let live = replica("live");
+    let mut state = ReplicatorState::<GCounter>::new();
+    let mut tracker = DeltaReceiveTracker::new();
+
+    tracker.apply_delta(
+        &mut state,
+        removed.clone(),
+        first_key.clone(),
+        1,
+        1,
+        delta_counter("removed", 1),
+    );
+    tracker.apply_delta(
+        &mut state,
+        removed.clone(),
+        second_key.clone(),
+        1,
+        1,
+        delta_counter("removed", 1),
+    );
+    tracker.apply_delta(
+        &mut state,
+        live.clone(),
+        first_key.clone(),
+        1,
+        1,
+        delta_counter("live", 1),
+    );
+
+    tracker.clear_from(&removed);
+    assert_eq!(tracker.current_version(&removed, &first_key), 0);
+    assert_eq!(tracker.current_version(&removed, &second_key), 0);
+    assert_eq!(tracker.current_version(&live, &first_key), 1);
+
+    tracker.forget_key(&first_key);
+    assert_eq!(tracker.current_version(&live, &first_key), 0);
+}

@@ -18,6 +18,7 @@ where
         let mut recorded_removed = BTreeSet::new();
         for replica in update.removed_replicas {
             self.delta_log.cleanup_removed_node(&replica);
+            self.delta_receive.clear_from(&replica);
             if self
                 .removed_node_pruning
                 .record_removed(replica.clone(), all_reachable_time_nanos)

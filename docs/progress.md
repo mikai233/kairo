@@ -210,7 +210,10 @@ Status terms in this document mean:
   Delta propagation v2 now carries each key's current pruning metadata, while
   retaining v1 decode compatibility. Receive applies pruning before delta data,
   cleans late removed-replica contributions under performed markers, and marks
-  initialized markers seen before acknowledging.
+  initialized markers seen before acknowledging. Delta receive now hard-gates
+  causal application, duplicate ACK and gap/decode NACK aggregation, source
+  and key cleanup, and Pekko-style whole-batch rejection without a reply when
+  the source is globally removed or present in an affected key's pruning table.
   Removed-node pruning now hard-gates deterministic owner and performed-marker
   merges, seen-by-all readiness, all-reachable dissemination clocks, inclusive
   expiry, tick effects, and first-observation retention under duplicate removal

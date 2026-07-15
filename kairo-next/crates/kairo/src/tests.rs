@@ -286,6 +286,7 @@ fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn
         "kairo-next/crates/kairo-distributed-data/src/data.rs",
         "kairo-next/crates/kairo-distributed-data/src/delta.rs",
         "kairo-next/crates/kairo-distributed-data/src/delta_loop.rs",
+        "kairo-next/crates/kairo-distributed-data/src/delta_receive.rs",
         "kairo-next/crates/kairo-distributed-data/src/delta_wire.rs",
         "kairo-next/crates/kairo-distributed-data/src/envelope.rs",
         "kairo-next/crates/kairo-distributed-data/src/errors.rs",

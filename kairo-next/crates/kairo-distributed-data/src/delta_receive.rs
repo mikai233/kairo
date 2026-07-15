@@ -1,3 +1,6 @@
+#![deny(missing_docs)]
+//! Causal delta propagation receive tracking and reply decisions.
+
 use std::collections::BTreeMap;
 
 use crate::{
@@ -7,63 +10,101 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Result of applying one delta range from a remote replica.
 pub enum DeltaReceiveStatus {
+    /// The range followed the tracked causal version and was applied.
     Applied {
+        /// Replica that sent the range.
         from: ReplicaId,
+        /// Key affected by the range.
         key: ReplicatorKey,
+        /// Previously tracked version for this replica and key.
         previous_version: u64,
+        /// New tracked version after applying the range.
         to_version: u64,
+        /// Whether applying the range changed data or pruning metadata.
         changed: bool,
     },
+    /// The complete range was already reflected in the tracked version.
     AlreadyHandled {
+        /// Replica that sent the range.
         from: ReplicaId,
+        /// Key addressed by the range.
         key: ReplicatorKey,
+        /// Version already tracked for this replica and key.
         current_version: u64,
+        /// Last version carried by the duplicate range.
         to_version: u64,
     },
+    /// One or more earlier causal ranges are missing.
     Missing {
+        /// Replica that sent the range.
         from: ReplicaId,
+        /// Key addressed by the range.
         key: ReplicatorKey,
+        /// Version currently tracked for this replica and key.
         current_version: u64,
+        /// Next version required for causal application.
         expected_from_version: u64,
+        /// First version carried by the received range.
         from_version: u64,
+        /// Last version carried by the received range.
         to_version: u64,
     },
+    /// The range begins at zero or ends before it begins.
     InvalidRange {
+        /// Replica that sent the range.
         from: ReplicaId,
+        /// Key addressed by the range.
         key: ReplicatorKey,
+        /// First version carried by the invalid range.
         from_version: u64,
+        /// Last version carried by the invalid range.
         to_version: u64,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Aggregate result for all delta ranges in one propagation message.
 pub struct DeltaPropagationReceiveReport {
     from: ReplicaId,
     reply_requested: bool,
+    ignored_removed_source: bool,
     statuses: Vec<DeltaReceiveStatus>,
     failures: Vec<DeltaReceiveFailure>,
 }
 
 impl DeltaPropagationReceiveReport {
+    /// Returns the replica that sent the propagation.
     pub fn from(&self) -> &ReplicaId {
         &self.from
     }
 
+    /// Returns whether the sender requested an acknowledgement.
     pub fn reply_requested(&self) -> bool {
         self.reply_requested
     }
 
+    /// Returns whether the whole propagation was ignored because its source
+    /// is removed globally or in an affected key's pruning metadata.
+    pub fn ignored_removed_source(&self) -> bool {
+        self.ignored_removed_source
+    }
+
+    /// Returns the per-range receive statuses.
     pub fn statuses(&self) -> &[DeltaReceiveStatus] {
         &self.statuses
     }
 
+    /// Returns failures that prevented individual ranges from being decoded.
     pub fn failures(&self) -> &[DeltaReceiveFailure] {
         &self.failures
     }
 
+    /// Returns whether every range was applied or had already been handled.
     pub fn is_success(&self) -> bool {
-        self.failures.is_empty()
+        !self.ignored_removed_source
+            && self.failures.is_empty()
             && self.statuses.iter().all(|status| {
                 matches!(
                     status,
@@ -72,8 +113,10 @@ impl DeltaPropagationReceiveReport {
             })
     }
 
+    /// Returns the requested ACK or NACK, or no reply when replies were not
+    /// requested or the removed source was deliberately ignored.
     pub fn reply(&self) -> Option<DeltaReceiveReply> {
-        if !self.reply_requested {
+        if !self.reply_requested || self.ignored_removed_source {
             return None;
         }
 
@@ -83,29 +126,52 @@ impl DeltaPropagationReceiveReport {
             Some(DeltaReceiveReply::Nack(ReplicatorDeltaNack))
         }
     }
+
+    pub(crate) fn ignored(from: ReplicaId, reply_requested: bool) -> Self {
+        Self {
+            from,
+            reply_requested,
+            ignored_removed_source: true,
+            statuses: Vec::new(),
+            failures: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure to receive one encoded delta range.
 pub enum DeltaReceiveFailure {
-    DecodeFailed { key: String, reason: String },
+    /// The range payload or its pruning metadata could not be decoded.
+    DecodeFailed {
+        /// Stable key carried by the wire range.
+        key: String,
+        /// Human-readable codec failure.
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Protocol reply derived from a delta propagation receive report.
 pub enum DeltaReceiveReply {
+    /// All ranges were applied or had already been handled.
     Ack(ReplicatorDeltaAck),
+    /// At least one range was missing, invalid, or undecodable.
     Nack(ReplicatorDeltaNack),
 }
 
 #[derive(Debug, Clone, Default)]
+/// Tracks the last causally applied version per source replica and key.
 pub struct DeltaReceiveTracker {
     versions: BTreeMap<(ReplicaId, ReplicatorKey), u64>,
 }
 
 impl DeltaReceiveTracker {
+    /// Creates an empty receive tracker.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the last causally applied version for `from` and `key`.
     pub fn current_version(&self, from: &ReplicaId, key: &ReplicatorKey) -> u64 {
         self.versions
             .get(&(from.clone(), key.clone()))
@@ -113,15 +179,22 @@ impl DeltaReceiveTracker {
             .unwrap_or_default()
     }
 
+    /// Clears every tracked key for a source replica that left the cluster.
     pub fn clear_from(&mut self, from: &ReplicaId) {
         self.versions.retain(|(node, _), _| node != from);
     }
 
+    /// Clears receive versions for a deleted key across every source replica.
     pub fn forget_key(&mut self, key: &ReplicatorKey) {
         self.versions
             .retain(|(_, existing_key), _| existing_key != key);
     }
 
+    /// Decodes and causally applies every range in a propagation.
+    ///
+    /// Pruning metadata carried beside each range is merged before its delta
+    /// is applied. Callers responsible for cluster membership must reject
+    /// propagations from removed sources before invoking this method.
     pub fn apply_propagation<D, Codec>(
         &mut self,
         state: &mut ReplicatorState<D>,
@@ -188,6 +261,7 @@ impl DeltaReceiveTracker {
         DeltaPropagationReceiveReport {
             from: propagation.from.clone(),
             reply_requested: propagation.reply,
+            ignored_removed_source: false,
             statuses,
             failures,
         }
@@ -253,6 +327,7 @@ impl DeltaReceiveTracker {
         }
     }
 
+    /// Applies one already-decoded causal range without wire pruning metadata.
     pub fn apply_delta<D>(
         &mut self,
         state: &mut ReplicatorState<D>,
