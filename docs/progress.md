@@ -188,6 +188,10 @@ Status terms in this document mean:
   observed-remove versus concurrent-add outcomes, ordered operation groups,
   full-value puts versus nested value-delta updates, deterministic inspection,
   and removed-replica pruning across both keys and values.
+  Read/write consistency now hard-gates local, explicit-count, majority,
+  majority-plus, minimum-cap, all-replica, and timeout contracts. Single-node
+  majority-plus operations now correctly collapse to local completion, and
+  symmetric constructors expose majority-plus with a minimum cap.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

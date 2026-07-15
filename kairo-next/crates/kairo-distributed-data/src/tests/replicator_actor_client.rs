@@ -93,6 +93,53 @@ fn replicator_actor_handles_local_get_and_update() {
 }
 
 #[test]
+fn replicator_actor_treats_single_node_majority_plus_as_local() {
+    let system = ActorSystem::builder("ddata-replicator-single-majority-plus")
+        .build()
+        .unwrap();
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let (update_ref, update_rx) = forward_ref(&system, "update-replies");
+    let (get_ref, get_rx) = forward_ref(&system, "get-replies");
+    let key = ReplicatorKey::new("counter");
+    let timeout = Duration::from_millis(50);
+
+    replicator
+        .tell(ReplicatorActorMsg::Update {
+            key: key.clone(),
+            initial: GCounter::new(),
+            consistency: WriteConsistency::majority_plus_with_min_cap(timeout, 3, 5),
+            modify: Box::new(|counter| {
+                counter
+                    .increment(replica("local"), 7)
+                    .map_err(|error| error.to_string())
+            }),
+            reply_to: update_ref,
+        })
+        .unwrap();
+    assert!(matches!(
+        update_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        UpdateResponse::Success(_)
+    ));
+
+    replicator
+        .tell(ReplicatorActorMsg::Get {
+            key,
+            consistency: ReadConsistency::majority_plus_with_min_cap(timeout, 3, 5),
+            reply_to: get_ref,
+        })
+        .unwrap();
+    let GetResponse::Success { data, .. } = get_rx.recv_timeout(Duration::from_secs(1)).unwrap()
+    else {
+        panic!("single-node majority-plus read should use local state");
+    };
+    assert_eq!(data.value().unwrap(), 7);
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn replicator_actor_aggregation_uses_canonical_sender_ref() {
     let system = ActorSystem::builder("ddata-replicator-canonical-aggregate")
         .build()

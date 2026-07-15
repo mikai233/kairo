@@ -15,6 +15,20 @@ fn read_and_write_consistency_reject_single_remote_replica_counts() {
 }
 
 #[test]
+fn majority_plus_collapses_to_local_when_only_self_replica_exists() {
+    let timeout = Duration::from_secs(1);
+    let read = ReadConsistency::majority_plus_with_min_cap(timeout, 3, 5);
+    let write = WriteConsistency::majority_plus_with_min_cap(timeout, 3, 5);
+
+    assert!(read.is_local(0));
+    assert!(write.is_local(0));
+    assert!(!read.is_local(1));
+    assert!(!write.is_local(1));
+    assert_eq!(read.timeout(), Some(timeout));
+    assert_eq!(write.timeout(), Some(timeout));
+}
+
+#[test]
 fn aggregators_calculate_majority_quorums_and_select_reachable_first() {
     assert_eq!(calculate_majority(0, 5, 0), 3);
     assert_eq!(calculate_majority(4, 5, 0), 4);
