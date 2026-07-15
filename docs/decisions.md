@@ -3389,3 +3389,47 @@ Consequences:
   tuning but preserves reachability and different-view preference semantics.
 - SHA-1 is a narrow direct dependency for wire-compatible seen equality, not a
   security primitive.
+
+## ADR-0110: Cluster Peer Intent Uses A Non-Owning Remoting Handle
+
+Status: Accepted
+
+Context:
+Seed contact gives a joining node an association to a configured contact, but
+three-node gossip requires direct routes between members learned only after
+formation. The existing cluster-only peer bootstrap owns a separate listener
+and therefore cannot be placed inside the composed ActorSystem daemon. Moving
+the whole remoting runtime into a cluster actor would make cluster responsible
+for business protocols, remote death watch, reliable delivery, and transport
+shutdown.
+
+Decision:
+The shared `TcpRemoteActorRuntime` exposes a cloneable `TcpRemotePeerManager`.
+The handle shares the runtime's association cache and managed reconnect owner;
+it can connect or disconnect an address and inspect connection intent, but it
+cannot bind or shut down the listener. `TcpRemoteActorRuntime` remains the sole
+transport lifecycle owner.
+
+`ClusterRemotePeerConnector` subscribes to the cluster event publisher with an
+initial snapshot, feeds snapshots/events through the existing
+`ClusterAssociationPeerState`, and serially applies derived dial/remove effects
+to the peer manager. Connect calls run through actor tasks because socket
+connection may block; completion returns through the connector mailbox.
+Initial failures remain managed by the remoting reconnect worker. Removing a
+member removes reconnect intent and closes its current route. Stopping the
+connector unsubscribes and removes all cluster-derived peer intent.
+
+The daemon starts the connector from post-bind activation, because the peer
+manager does not exist during protocol registration. Seed/contact addresses
+still supply only initial transport intent. Gossip membership and local
+reachability observations remain the source of every later peer decision.
+
+Consequences:
+- Three independently bound nodes can form a direct association mesh and
+  converge without injected membership snapshots.
+- Cluster does not create a second listener or become the remoting shutdown
+  owner.
+- Blocking connection work stays outside synchronous actor receive turns while
+  command ordering remains actor-owned.
+- The older cluster-only TCP bootstrap remains a compatibility boundary until
+  callers migrate to the composed daemon.

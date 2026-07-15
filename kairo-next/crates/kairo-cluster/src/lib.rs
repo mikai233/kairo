@@ -81,6 +81,7 @@ mod membership_actor;
 mod protocol;
 mod reachability;
 mod remote;
+mod remote_peer_connector;
 mod remote_tcp;
 mod seed_join;
 mod seed_join_actor;
@@ -168,6 +169,9 @@ pub use reachability::{Reachability, ReachabilityRecord, ReachabilityStatus};
 pub use remote::{
     ClusterMembershipRemoteEnvelopeError, ClusterMembershipRemoteEnvelopeOutbound,
     DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH,
+};
+pub use remote_peer_connector::{
+    ClusterRemotePeerConnector, ClusterRemotePeerConnectorMsg, ClusterRemotePeerConnectorSnapshot,
 };
 pub use remote_tcp::{
     ClusterTcpAssociationRuntime, cluster_association_identity_for, cluster_lane_classifier,

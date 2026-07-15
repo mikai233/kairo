@@ -1407,8 +1407,8 @@ Membership transport:
   `ClusterSystemInbound`; composed ActorSystems should use the shared remoting
   registration while higher cluster runtime ownership is migrated.
 - Cluster TCP runtime traffic uses a cluster lane classifier so seed contact,
-  `Join`, `Welcome`, `GossipEnvelope`, `Heartbeat`, and `HeartbeatRsp` all travel on
-  the control/system lane.
+  `Join`, `Welcome`, `GossipEnvelope`, `GossipStatus`, `Heartbeat`, and
+  `HeartbeatRsp` all travel on the control/system lane.
 - `ClusterAssociationPeerState` is the pure cluster-derived association
   planner. It consumes `CurrentClusterState` snapshots and cluster events,
   excludes self, removes peers marked unreachable by the local node, preserves
@@ -1437,6 +1437,14 @@ Membership transport:
   connector under an explicit actor name, and registers coordinated shutdown to
   stop the connector before cluster shutdown so socket routes are cleared
   through the actor stop path.
+- `TcpRemotePeerManager` is the cloneable control handle for the composed
+  ActorSystem remoting runtime. It can add or remove managed reconnect intent,
+  but it cannot bind, fork, or shut down the shared listener.
+- `ClusterRemotePeerConnector` subscribes to the daemon's authoritative
+  cluster snapshots/events, reuses `ClusterAssociationPeerState`, and applies
+  its dial/remove effects to `TcpRemotePeerManager`. Potentially blocking dials
+  execute as serialized actor tasks. The composed daemon starts this connector
+  only after remote bind, when the peer manager exists.
 - The outbound may use `RemoteAssociationCache` for association routing, but
   the cache is not a membership source of truth. Cluster membership remains
   gossip plus local failure-detector observations.

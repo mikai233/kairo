@@ -69,6 +69,46 @@ pub struct TcpRemoteActorRuntime {
     listener: Arc<Mutex<Option<TcpAssociationListenerHandle>>>,
 }
 
+/// Cloneable control-plane handle for cluster- or discovery-owned peer intent.
+///
+/// The handle does not own the listener or runtime shutdown. It only adds and
+/// removes peers from the runtime's managed reconnect set while sharing the
+/// same association cache and transport lifecycle.
+#[derive(Clone)]
+pub struct TcpRemotePeerManager {
+    association_cache: RemoteAssociationCache,
+    reconnect: Arc<TcpRemoteReconnectManager>,
+}
+
+impl TcpRemotePeerManager {
+    pub fn connect(&self, address: RemoteAssociationAddress) -> Result<()> {
+        if self.association_cache.contains_route(&address) {
+            return Ok(());
+        }
+        self.reconnect.dial(address).map(|_| ())
+    }
+
+    pub fn disconnect(&self, address: &RemoteAssociationAddress, reason: &str) -> Result<bool> {
+        let removed_intent = self.reconnect.disconnect(address);
+        let Some(closed) = self
+            .association_cache
+            .remove_route_and_close(address, reason)
+        else {
+            return Ok(removed_intent);
+        };
+        closed?;
+        Ok(true)
+    }
+
+    pub fn is_connected(&self, address: &RemoteAssociationAddress) -> bool {
+        self.association_cache.contains_route(address)
+    }
+
+    pub fn managed_peer_count(&self) -> usize {
+        self.reconnect.managed_peer_count()
+    }
+}
+
 type InboundProtocolRegistration = Box<
     dyn FnOnce(&TcpRemoteActorRuntimeContext, &mut ActorSystemRemoteInboundRegistry) -> Result<()>
         + Send,
@@ -602,16 +642,15 @@ impl TcpRemoteActorRuntime {
         self.reconnect.managed_peer_count()
     }
 
+    pub fn peer_manager(&self) -> TcpRemotePeerManager {
+        TcpRemotePeerManager {
+            association_cache: self.association_cache.clone(),
+            reconnect: Arc::clone(&self.reconnect),
+        }
+    }
+
     pub fn disconnect(&self, address: &RemoteAssociationAddress, reason: &str) -> Result<bool> {
-        let removed_intent = self.reconnect.disconnect(address);
-        let Some(closed) = self
-            .association_cache
-            .remove_route_and_close(address, reason)
-        else {
-            return Ok(removed_intent);
-        };
-        closed?;
-        Ok(true)
+        self.peer_manager().disconnect(address, reason)
     }
 
     pub fn resolve<N>(&self, path: impl Into<String>) -> Result<RemoteActorRef<N>>

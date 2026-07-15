@@ -1948,6 +1948,10 @@ fn facade_cluster_module_exposes_tcp_bootstrap_surface() {
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerConnector>>();
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerConnectorMsg>>();
     let _ = std::mem::size_of::<Option<crate::cluster::ClusterTcpPeerConnectorSnapshot>>();
+    let _ = std::mem::size_of::<Option<crate::cluster::ClusterRemotePeerConnector>>();
+    let _ = std::mem::size_of::<Option<crate::cluster::ClusterRemotePeerConnectorMsg>>();
+    let _ = std::mem::size_of::<Option<crate::cluster::ClusterRemotePeerConnectorSnapshot>>();
+    let _ = std::mem::size_of::<Option<crate::remote::TcpRemotePeerManager>>();
 }
 
 #[cfg(feature = "distributed-data")]

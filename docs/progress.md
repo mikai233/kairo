@@ -296,9 +296,14 @@ formation without injected membership snapshots. The composed daemon now also
 owns periodic gossip scheduling, stable seen-table digests, reachable peer
 selection, `GossipStatus` negotiation, full-gossip fallback, and periodic
 leader ticks. A two-runtime TCP test proves the joined views automatically
-converge with both members `Up` and both members in each seen table. Three-node
-peer-route composition, heartbeat scheduling, and coordinated leave remain the
-active Phase 3 work.
+converge with both members `Up` and both members in each seen table. Shared
+remoting now exposes a cloneable peer manager that cannot own listener
+lifecycle, and the daemon starts a typed membership subscriber that turns
+reachable member changes into managed connect/disconnect intent outside actor
+receive turns. A three-runtime TCP test proves automatic seed formation,
+full-mesh route installation, convergence of every view, and promotion of all
+three members to `Up` without injected snapshots. Heartbeat scheduling and
+coordinated leave remain the active Phase 3 work.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -5922,13 +5927,13 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 3 validation after periodic gossip convergence:
+Latest Phase 3 validation after composed three-node peer management:
 
 ```bash
 cargo test -p kairo-cluster --all-targets --all-features
 cargo test -p kairo --all-targets --all-features
 cargo check --workspace --all-targets --all-features
-cargo clippy -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo clippy -p kairo-remote -p kairo-cluster --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```

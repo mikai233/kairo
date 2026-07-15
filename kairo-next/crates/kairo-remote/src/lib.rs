@@ -297,6 +297,6 @@ pub use tcp::{
 };
 pub use tcp_runtime::{
     TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder, TcpRemoteActorRuntimeContext,
-    TcpRemoteActorSystem, TcpRemoteReconnectSettings,
+    TcpRemoteActorSystem, TcpRemotePeerManager, TcpRemoteReconnectSettings,
 };
 pub use transport::{FramedRemoteInbound, FramedRemoteOutbound, RemoteFrameSink};

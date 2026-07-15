@@ -17,10 +17,10 @@ use crate::{
     ClusterInitJoinResponderMsg, ClusterInitJoinResponderPort, ClusterInitJoinResponderState,
     ClusterMembership, ClusterMembershipMsg, ClusterMembershipRemoteEnvelopeOutbound,
     ClusterMembershipWireInbound, ClusterMembershipWireOutbound,
-    ClusterMembershipWireOutboundActor, ClusterSeedJoinProcess, ClusterSeedJoinProcessMsg,
-    ClusterSeedJoinProcessSettings, ClusterSeedJoinState, ClusterSeedJoinWireInbound,
-    ClusterSeedJoinWireOutbound, ClusterSeedJoinWireOutboundActor, ClusterSystemInbound,
-    UniqueAddress,
+    ClusterMembershipWireOutboundActor, ClusterRemotePeerConnector, ClusterSeedJoinProcess,
+    ClusterSeedJoinProcessMsg, ClusterSeedJoinProcessSettings, ClusterSeedJoinState,
+    ClusterSeedJoinWireInbound, ClusterSeedJoinWireOutbound, ClusterSeedJoinWireOutboundActor,
+    ClusterSystemInbound, UniqueAddress,
 };
 
 const READY_TIMEOUT: Duration = Duration::from_secs(2);
@@ -101,6 +101,7 @@ pub struct ClusterDaemonHandle {
     root: ActorRef<()>,
     self_node: UniqueAddress,
     cluster: Cluster,
+    daemon: ActorRef<ClusterDaemonMsg>,
     membership: ActorRef<ClusterMembershipMsg>,
     gossip_process: ActorRef<ClusterGossipProcessMsg>,
     seed_process: ActorRef<ClusterSeedJoinProcessMsg>,
@@ -149,6 +150,14 @@ impl ClusterDaemonRegistration {
         let handle = self
             .handle()
             .ok_or(ClusterDaemonBootstrapError::NotMaterialized)?;
+        handle
+            .daemon
+            .tell(ClusterDaemonMsg::StartPeerManagement {
+                cluster: handle.cluster.clone(),
+                self_node: handle.self_node.clone(),
+                peer_manager: runtime.peer_manager(),
+            })
+            .map_err(|error| ActorError::Message(error.reason().to_string()))?;
         for seed in &self.settings.seed_nodes {
             if seed == &handle.self_node.address {
                 continue;
@@ -215,6 +224,7 @@ pub fn register_cluster_daemon(
         let DaemonReady {
             inbound,
             publisher,
+            daemon,
             membership,
             gossip_process,
             seed_process,
@@ -224,6 +234,7 @@ pub fn register_cluster_daemon(
             root,
             self_node,
             cluster: Cluster::new(publisher),
+            daemon,
             membership,
             gossip_process,
             seed_process,
@@ -253,6 +264,7 @@ struct DaemonConfig {
 struct DaemonReady {
     inbound: ClusterSystemInbound,
     publisher: ActorRef<crate::ClusterEventPublisherMsg>,
+    daemon: ActorRef<ClusterDaemonMsg>,
     membership: ActorRef<ClusterMembershipMsg>,
     gossip_process: ActorRef<ClusterGossipProcessMsg>,
     seed_process: ActorRef<ClusterSeedJoinProcessMsg>,
@@ -266,6 +278,14 @@ struct ClusterCore {
 }
 struct ClusterDaemon {
     config: Option<DaemonConfig>,
+    peer_connector: Option<ActorRef<crate::ClusterRemotePeerConnectorMsg>>,
+}
+enum ClusterDaemonMsg {
+    StartPeerManagement {
+        cluster: Cluster,
+        self_node: UniqueAddress,
+        peer_manager: kairo_remote::TcpRemotePeerManager,
+    },
 }
 
 impl Actor for ClusterRoot {
@@ -291,7 +311,10 @@ impl Actor for ClusterCore {
             .ok_or_else(|| ActorError::Message("missing cluster daemon config".to_string()))?;
         ctx.spawn(
             "daemon",
-            Props::new(move || ClusterDaemon { config: Some(c) }),
+            Props::new(move || ClusterDaemon {
+                config: Some(c),
+                peer_connector: None,
+            }),
         )?;
         Ok(())
     }
@@ -300,8 +323,8 @@ impl Actor for ClusterCore {
     }
 }
 impl Actor for ClusterDaemon {
-    type Msg = ();
-    fn started(&mut self, ctx: &mut Context<()>) -> ActorResult {
+    type Msg = ClusterDaemonMsg;
+    fn started(&mut self, ctx: &mut Context<Self::Msg>) -> ActorResult {
         let c = self
             .config
             .take()
@@ -315,12 +338,34 @@ impl Actor for ClusterDaemon {
             Ok(())
         }
     }
-    fn receive(&mut self, _: &mut Context<()>, _: ()) -> ActorResult {
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        match msg {
+            ClusterDaemonMsg::StartPeerManagement {
+                cluster,
+                self_node,
+                peer_manager,
+            } if self.peer_connector.is_none() => {
+                self.peer_connector = Some(ctx.spawn(
+                    "peer-connector",
+                    Props::new(move || {
+                        ClusterRemotePeerConnector::new(
+                            cluster.clone(),
+                            self_node.clone(),
+                            peer_manager.clone(),
+                        )
+                    }),
+                )?);
+            }
+            ClusterDaemonMsg::StartPeerManagement { .. } => {}
+        }
         Ok(())
     }
 }
 
-fn build_daemon_graph(ctx: &Context<()>, c: &DaemonConfig) -> Result<DaemonReady, ActorError> {
+fn build_daemon_graph(
+    ctx: &Context<ClusterDaemonMsg>,
+    c: &DaemonConfig,
+) -> Result<DaemonReady, ActorError> {
     let self_node = c.self_node.clone();
     let publisher = ctx.spawn(
         "publisher",
@@ -452,6 +497,7 @@ fn build_daemon_graph(ctx: &Context<()>, c: &DaemonConfig) -> Result<DaemonReady
             .with_gossip(gossip_inbound)
             .with_seed_join(seed_inbound),
         publisher,
+        daemon: ctx.myself().clone(),
         membership,
         gossip_process,
         seed_process,
@@ -465,7 +511,7 @@ mod tests {
 
     use kairo_remote::{RemoteSettings, TcpRemoteActorRuntime, register_remote_protocol_codecs};
     use kairo_serialization::Registry;
-    use kairo_testkit::{ActorSystemTestKit, await_assert};
+    use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
 
     use super::*;
     use crate::{
@@ -491,6 +537,60 @@ mod tests {
             })
             .unwrap();
         probe.expect_msg(Duration::from_secs(1)).unwrap()
+    }
+
+    struct ComposedNode {
+        kit: ActorSystemTestKit,
+        runtime: TcpRemoteActorRuntime,
+        handle: ClusterDaemonHandle,
+        state: TestProbe<Gossip>,
+    }
+
+    impl ComposedNode {
+        fn start(
+            system: &str,
+            node_uid: u64,
+            remote_uid: u64,
+            seed_nodes: Vec<kairo_actor::Address>,
+            registry: Arc<Registry>,
+        ) -> Self {
+            let kit = ActorSystemTestKit::new(system).unwrap();
+            let mut builder = TcpRemoteActorRuntime::builder(
+                kit.system().clone(),
+                registry,
+                RemoteSettings::new("127.0.0.1", 0),
+                remote_uid,
+            );
+            let registration = register_cluster_daemon(
+                &mut builder,
+                ClusterDaemonBootstrapSettings::new(node_uid)
+                    .with_seed_nodes(seed_nodes)
+                    .with_config_digest(Some(Bytes::from_static(b"cluster")))
+                    .with_gossip_process_settings(
+                        ClusterGossipProcessSettings::new(Duration::from_millis(15)).unwrap(),
+                    ),
+            )
+            .unwrap();
+            let runtime = builder.bind().unwrap();
+            let handle = registration.activate(&runtime).unwrap();
+            let state = kit.create_probe::<Gossip>("state").unwrap();
+            Self {
+                kit,
+                runtime,
+                handle,
+                state,
+            }
+        }
+
+        fn gossip(&self) -> Gossip {
+            current_gossip(&self.state, &self.handle)
+        }
+
+        fn shutdown(self) {
+            self.kit.system().stop(self.handle.root());
+            self.runtime.shutdown().unwrap();
+            self.kit.shutdown(Duration::from_secs(1)).unwrap();
+        }
     }
 
     #[test]
@@ -599,5 +699,66 @@ mod tests {
         seed_runtime.shutdown().unwrap();
         joining_kit.shutdown(Duration::from_secs(1)).unwrap();
         seed_kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn three_composed_runtimes_form_full_mesh_and_converge_to_up() {
+        let registry = registry();
+        let seed = ComposedNode::start("daemon-mesh-seed", 11, 1011, vec![], registry.clone());
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.handle.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "first seed has not formed".to_string())
+        })
+        .unwrap();
+        let seed_address = seed.handle.self_node().address.clone();
+        let second = ComposedNode::start(
+            "daemon-mesh-second",
+            22,
+            2022,
+            vec![seed_address.clone()],
+            registry.clone(),
+        );
+        let third =
+            ComposedNode::start("daemon-mesh-third", 33, 3033, vec![seed_address], registry);
+        let members = [
+            seed.handle.self_node().clone(),
+            second.handle.self_node().clone(),
+            third.handle.self_node().clone(),
+        ];
+
+        await_assert(Duration::from_secs(5), Duration::from_millis(10), || {
+            let views = [seed.gossip(), second.gossip(), third.gossip()];
+            let converged = views.iter().all(|gossip| {
+                members.iter().all(|node| {
+                    gossip.member(node).map(|member| member.status) == Some(MemberStatus::Up)
+                        && gossip.seen_by().contains(node)
+                })
+            });
+            let full_mesh = [
+                seed.runtime.association_cache().route_count(),
+                second.runtime.association_cache().route_count(),
+                third.runtime.association_cache().route_count(),
+            ]
+            .into_iter()
+            .all(|routes| routes >= 2);
+            (converged && full_mesh).then_some(()).ok_or_else(|| {
+                format!(
+                    "three-node cluster has not converged: converged={converged}, routes=[{}, {}, {}]",
+                    seed.runtime.association_cache().route_count(),
+                    second.runtime.association_cache().route_count(),
+                    third.runtime.association_cache().route_count(),
+                )
+            })
+        })
+        .unwrap();
+
+        third.shutdown();
+        second.shutdown();
+        seed.shutdown();
     }
 }
