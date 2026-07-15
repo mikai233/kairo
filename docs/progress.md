@@ -108,7 +108,10 @@ Status terms in this document mean:
   and tombstones the old incarnation, retries Join, and converges to `Up`. The
   gossip target/status negotiation and convergence-gated leader-action APIs now
   document their best-effort delivery, causal comparison, promotion, exit, and
-  removal contracts and deny missing public documentation.
+  removal contracts and deny missing public documentation. The stable
+  membership protocol records, manifests, versions, serializer identifiers,
+  binary codecs, and registry entry points are now documented under the same
+  hard missing-documentation gate.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed

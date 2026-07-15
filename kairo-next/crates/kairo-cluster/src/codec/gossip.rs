@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_serialization::{MessageCodec, WireReader, WireWriter};
 
@@ -7,10 +9,13 @@ use super::wire::{
     ensure_version, read_gossip, read_unique_address, write_gossip, write_unique_address,
 };
 
+/// Stable serializer identifier for [`Welcome`] payloads.
 pub const WELCOME_SERIALIZER_ID: u32 = 2_003;
+/// Stable serializer identifier for [`GossipEnvelope`] payloads.
 pub const GOSSIP_ENVELOPE_SERIALIZER_ID: u32 = 2_004;
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for cluster [`Welcome`] replies and their initial gossip state.
 pub struct WelcomeCodec;
 
 impl MessageCodec<Welcome> for WelcomeCodec {
@@ -38,6 +43,7 @@ impl MessageCodec<Welcome> for WelcomeCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for full-state cluster [`GossipEnvelope`] exchanges.
 pub struct GossipEnvelopeCodec;
 
 impl MessageCodec<GossipEnvelope> for GossipEnvelopeCodec {

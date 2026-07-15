@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_serialization::{MessageCodec, SerializationError, WireReader, WireWriter};
 
@@ -7,11 +9,15 @@ use super::wire::{
     ensure_version, read_unique_address, read_vec, write_count, write_unique_address,
 };
 
+/// Stable serializer identifier for [`Heartbeat`] payloads.
 pub const HEARTBEAT_SERIALIZER_ID: u32 = 2_000;
+/// Stable serializer identifier for [`HeartbeatRsp`] payloads.
 pub const HEARTBEAT_RSP_SERIALIZER_ID: u32 = 2_001;
+/// Stable serializer identifier for [`Join`] payloads.
 pub const JOIN_SERIALIZER_ID: u32 = 2_002;
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for cluster [`Heartbeat`] probes.
 pub struct HeartbeatCodec;
 
 impl MessageCodec<Heartbeat> for HeartbeatCodec {
@@ -41,6 +47,7 @@ impl MessageCodec<Heartbeat> for HeartbeatCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for cluster [`HeartbeatRsp`] replies.
 pub struct HeartbeatRspCodec;
 
 impl MessageCodec<HeartbeatRsp> for HeartbeatRspCodec {
@@ -70,6 +77,7 @@ impl MessageCodec<HeartbeatRsp> for HeartbeatRspCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for cluster membership [`Join`] requests.
 pub struct JoinCodec;
 
 impl MessageCodec<Join> for JoinCodec {

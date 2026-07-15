@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 mod control;
 mod daemon;
 mod gossip;
@@ -24,6 +26,12 @@ use crate::{
     InitJoinAck, InitJoinNack, Join, Leave, Welcome,
 };
 
+/// Registers codecs for heartbeat, join, seed contact, status negotiation, and
+/// membership lifecycle control messages.
+///
+/// This intentionally excludes full [`Welcome`] and [`GossipEnvelope`]
+/// payloads. Use [`register_cluster_protocol_codecs`] when a registry owns the
+/// complete cluster wire protocol.
 pub fn register_cluster_control_codecs(registry: &mut Registry) -> kairo_serialization::Result<()> {
     registry.register::<Heartbeat, _>(HeartbeatCodec)?;
     registry.register::<HeartbeatRsp, _>(HeartbeatRspCodec)?;
@@ -38,6 +46,10 @@ pub fn register_cluster_control_codecs(registry: &mut Registry) -> kairo_seriali
     Ok(())
 }
 
+/// Registers every cluster membership wire codec in `registry`.
+///
+/// Registration fails when a stable manifest or serializer identifier
+/// conflicts with an existing registry entry.
 pub fn register_cluster_protocol_codecs(
     registry: &mut Registry,
 ) -> kairo_serialization::Result<()> {

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_serialization::{MessageCodec, SerializationError, WireReader, WireWriter};
 
@@ -11,15 +13,23 @@ use super::wire::{
     write_unique_address, write_vector_clock,
 };
 
+/// Stable serializer identifier for [`InitJoin`] payloads.
 pub const INIT_JOIN_SERIALIZER_ID: u32 = 2_005;
+/// Stable serializer identifier for [`InitJoinAck`] payloads.
 pub const INIT_JOIN_ACK_SERIALIZER_ID: u32 = 2_006;
+/// Stable serializer identifier for [`InitJoinNack`] payloads.
 pub const INIT_JOIN_NACK_SERIALIZER_ID: u32 = 2_007;
+/// Stable serializer identifier for [`GossipStatus`] payloads.
 pub const GOSSIP_STATUS_SERIALIZER_ID: u32 = 2_008;
+/// Stable serializer identifier for [`Leave`] payloads.
 pub const LEAVE_SERIALIZER_ID: u32 = 2_009;
+/// Stable serializer identifier for [`Down`] payloads.
 pub const DOWN_SERIALIZER_ID: u32 = 2_010;
+/// Stable serializer identifier for [`ExitingConfirmed`] payloads.
 pub const EXITING_CONFIRMED_SERIALIZER_ID: u32 = 2_011;
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for seed-contact [`InitJoin`] requests.
 pub struct InitJoinCodec;
 
 impl MessageCodec<InitJoin> for InitJoinCodec {
@@ -45,6 +55,7 @@ impl MessageCodec<InitJoin> for InitJoinCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for positive seed-contact [`InitJoinAck`] replies.
 pub struct InitJoinAckCodec;
 
 impl MessageCodec<InitJoinAck> for InitJoinAckCodec {
@@ -72,6 +83,7 @@ impl MessageCodec<InitJoinAck> for InitJoinAckCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for negative seed-contact [`InitJoinNack`] replies.
 pub struct InitJoinNackCodec;
 
 impl MessageCodec<InitJoinNack> for InitJoinNackCodec {
@@ -95,6 +107,7 @@ impl MessageCodec<InitJoinNack> for InitJoinNackCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for compact causal [`GossipStatus`] summaries.
 pub struct GossipStatusCodec;
 
 impl MessageCodec<GossipStatus> for GossipStatusCodec {
@@ -124,6 +137,7 @@ impl MessageCodec<GossipStatus> for GossipStatusCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for graceful cluster [`Leave`] requests.
 pub struct LeaveCodec;
 
 impl MessageCodec<Leave> for LeaveCodec {
@@ -147,6 +161,7 @@ impl MessageCodec<Leave> for LeaveCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for cluster [`Down`] requests.
 pub struct DownCodec;
 
 impl MessageCodec<Down> for DownCodec {
@@ -170,6 +185,7 @@ impl MessageCodec<Down> for DownCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Binary codec for [`ExitingConfirmed`] lifecycle acknowledgements.
 pub struct ExitingConfirmedCodec;
 
 impl MessageCodec<ExitingConfirmed> for ExitingConfirmedCodec {
