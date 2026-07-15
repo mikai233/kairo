@@ -652,6 +652,21 @@ checkpoint, not an individual agent turn, test case, or validation command.
 
 ## Known Validation Status
 
+- Latest M13 validation refresh after bidirectional v1/v2 process-remoting
+  compatibility coverage and hardening testkit partial-timeout scheduling
+  deadlines under full workspace load:
+
+  ```bash
+  cargo test -p kairo-remote --test process_remoting --all-features -- --nocapture
+  cargo test -p kairo-serialization --all-targets --all-features
+  cargo test --doc -p kairo-serialization --all-features
+  cargo test -p kairo-testkit --all-targets --all-features # 20 stress runs
+  cargo fmt --all -- --check
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  cargo test --workspace --all-targets --all-features
+  git diff --check
+  ```
+
 - Latest M13 release-readiness refresh after making all ten public crates
   independently archivable as one versioned workspace release set:
 

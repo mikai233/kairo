@@ -181,7 +181,7 @@ fn test_probe_receive_messages_reports_partial_timeout() {
         .expect("probe tell should enqueue");
 
     let error = probe
-        .receive_messages(2, Duration::from_millis(5))
+        .receive_messages(2, Duration::from_millis(50))
         .expect_err("probe should report partial timeout");
 
     assert!(matches!(

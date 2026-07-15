@@ -81,7 +81,7 @@ fn test_probe_fish_for_message_reports_collected_timeout_count() {
         .expect("probe tell should enqueue");
 
     let error = probe
-        .fish_for_message(Duration::from_millis(5), |_| FishingOutcome::Continue)
+        .fish_for_message(Duration::from_millis(50), |_| FishingOutcome::Continue)
         .expect_err("fishing should time out");
 
     assert!(matches!(
@@ -110,7 +110,7 @@ fn test_probe_fish_for_message_reports_ignored_timeout_count() {
     }
 
     let error = probe
-        .fish_for_message(Duration::from_millis(5), |message| match message {
+        .fish_for_message(Duration::from_millis(50), |message| match message {
             1 => FishingOutcome::ContinueAndIgnore,
             _ => FishingOutcome::Continue,
         })
