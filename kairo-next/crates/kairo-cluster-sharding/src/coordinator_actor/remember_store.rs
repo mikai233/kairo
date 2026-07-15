@@ -46,7 +46,7 @@ where
     pub(super) fn apply_remember_store_load(
         &mut self,
         ctx: &mut Context<ShardCoordinatorMsg<M>>,
-        result: Result<RememberedShards, AskError>,
+        result: Result<RememberedShards, CoordinatorRememberStoreError>,
     ) -> ActorResult {
         let remembered = match result {
             Ok(remembered) => remembered,

@@ -206,6 +206,35 @@ where
         }
     }
 
+    pub fn with_ddata_remember_store_and_handoff(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        remember_store: ActorRef<RememberCoordinatorDDataStoreMsg>,
+        store_timeout: Duration,
+        stop_message: M,
+        handoff_timeout: Duration,
+        transport: HandoffTransport<M>,
+    ) -> Self {
+        Self {
+            runtime: CoordinatorRuntime::new(state.with_remember_entities(true)),
+            strategy: Box::new(strategy),
+            rebalance_interval: None,
+            remember_store: Some(CoordinatorRememberStore::from_distributed_data(
+                remember_store,
+                store_timeout,
+            )),
+            local_remember_store_provider: None,
+            waiting_for_remember_store_load: true,
+            handoff: Some(CoordinatorHandoff::new(
+                stop_message,
+                handoff_timeout,
+                transport,
+            )),
+            remote_regions: CoordinatorRemoteRegions::new(),
+            region_watch_by_path: HashMap::new(),
+        }
+    }
+
     pub fn props_with_handoff(
         state: CoordinatorState,
         strategy: impl ShardAllocationStrategy + Send + 'static,
@@ -231,6 +260,31 @@ where
     ) -> Props<Self> {
         Props::new(move || {
             Self::with_remember_store_and_handoff(
+                state,
+                strategy,
+                remember_store,
+                store_timeout,
+                stop_message,
+                handoff_timeout,
+                transport,
+            )
+        })
+        .with_stash_capacity(stash_capacity)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn props_with_ddata_remember_store_and_handoff(
+        state: CoordinatorState,
+        strategy: impl ShardAllocationStrategy + Send + 'static,
+        remember_store: ActorRef<RememberCoordinatorDDataStoreMsg>,
+        store_timeout: Duration,
+        stop_message: M,
+        handoff_timeout: Duration,
+        transport: HandoffTransport<M>,
+        stash_capacity: usize,
+    ) -> Props<Self> {
+        Props::new(move || {
+            Self::with_ddata_remember_store_and_handoff(
                 state,
                 strategy,
                 remember_store,

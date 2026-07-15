@@ -149,6 +149,7 @@ pub use coordinator_runtime::{
     CoordinatorRuntime, GetShardHomeIgnoreReason, GetShardHomePlan, RebalanceCompletionPlan,
     RebalancePlan, RebalanceSkipReason, RegionShutdownPlan, ShardRebalancePlan,
 };
+pub use coordinator_store::CoordinatorRememberStoreError;
 pub use coordinator_system_inbound::{
     ShardCoordinatorSystemInbound, ShardCoordinatorSystemInboundError,
     is_shard_coordinator_system_manifest,

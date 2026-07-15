@@ -1,20 +1,20 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
 
-use kairo_actor::{
-    Actor, ActorError, ActorPath, ActorRef, ActorResult, AskError, Context, Props, Signal,
-};
+use kairo_actor::{Actor, ActorError, ActorPath, ActorRef, ActorResult, Context, Props, Signal};
 use kairo_serialization::ActorRefWireData;
 
 use crate::coordinator_handoff::CoordinatorHandoff;
-use crate::coordinator_store::{CoordinatorRememberStore, LocalCoordinatorRememberStoreProvider};
+use crate::coordinator_store::{
+    CoordinatorRememberStore, CoordinatorRememberStoreError, LocalCoordinatorRememberStoreProvider,
+};
 use crate::{
     BeginHandOffAck, CoordinatorEvent, CoordinatorRemoteRegions, CoordinatorRemoteReplyTarget,
     CoordinatorRuntime, CoordinatorState, GetShardHomePlan, HandoffRegionTarget, HandoffTransport,
     HandoffWorkerDone, LeastShardAllocationStrategy, RebalanceCompletionPlan, RebalancePlan,
-    RegionId, RegionShutdownPlan, RememberCoordinatorStoreMsg, RememberCoordinatorStoreState,
-    RememberCoordinatorUpdateDone, RememberedShards, ShardAllocationStrategy, ShardId,
-    ShardStarted, ShardStopped, ShardingError, remote_region_id,
+    RegionId, RegionShutdownPlan, RememberCoordinatorDDataStoreMsg, RememberCoordinatorStoreMsg,
+    RememberCoordinatorStoreState, RememberCoordinatorUpdateDone, RememberedShards,
+    ShardAllocationStrategy, ShardId, ShardStarted, ShardStopped, ShardingError, remote_region_id,
 };
 
 pub const REBALANCE_TIMER_KEY: &str = "sharding-coordinator-rebalance";
@@ -130,10 +130,10 @@ where
         reply_to: Option<ActorRef<Result<RebalancePlan, ShardingError>>>,
     },
     RememberStoreLoadResult {
-        result: Result<RememberedShards, AskError>,
+        result: Result<RememberedShards, CoordinatorRememberStoreError>,
     },
     RememberStoreUpdateResult {
-        result: Result<RememberCoordinatorUpdateDone, AskError>,
+        result: Result<RememberCoordinatorUpdateDone, CoordinatorRememberStoreError>,
     },
     StartRebalanceTimer {
         initial_delay: Duration,

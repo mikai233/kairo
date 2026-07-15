@@ -1897,6 +1897,11 @@ Implementation shape:
   serving requests, merges them as unallocated, and assigns them only after
   current regions register. The store may be memory-backed for tests or backed
   by distributed data; it preserves shard existence, not stale region owners.
+- `Entity::with_coordinator_ddata_remember_store` accepts the existing
+  `RememberCoordinatorDDataStoreMsg` actor directly. The internal coordinator
+  store target flattens ddata read/update results and actor ask failures into
+  `CoordinatorRememberStoreError`, preserving failure instead of treating a
+  failed read as an empty store.
 - Region coordinator-discovery wiring maps those likely coordinator nodes to
   typed local coordinator refs for the current vertical slice, refreshes the
   region's registration target when the selected coordinator changes, and

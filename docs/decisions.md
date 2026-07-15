@@ -3855,6 +3855,38 @@ Consequences:
   business request or reviving a stale region owner.
 - Store load/update failure remains explicit through the coordinator ask
   timeout and actor failure path rather than silently dropping persistence.
-- Adapting the existing distributed-data remember store to this public typed
-  protocol remains the next composition step; remembered entities also require
-  region/shard store wiring in addition to coordinator shard recovery.
+- The existing distributed-data remember store can be selected through the
+  public entity definition; remembered entities also require region/shard store
+  wiring in addition to coordinator shard recovery.
+
+## ADR-0121: Coordinator Stores Preserve DData And Ask Failures Explicitly
+
+Status: Accepted
+
+Context:
+The memory/custom coordinator store replies with typed values, while the
+existing GSet-backed store replies with `Result<_, ShardingError>`. Treating a
+ddata failure as an empty shard set would lose recovery state, while converting
+every failure to an ask timeout would hide the actual store error.
+
+Decision:
+The internal coordinator store target supports both
+`ActorRef<RememberCoordinatorStoreMsg>` and
+`ActorRef<RememberCoordinatorDDataStoreMsg>`. Ask callbacks flatten the nested
+transport result into `CoordinatorRememberStoreError::Ask` or
+`CoordinatorRememberStoreError::Store`. `ShardCoordinatorMsg` carries that
+explicit result back to the actor. Any load or update failure stops the current
+coordinator incarnation so singleton supervision/restart can retry recovery;
+no failure becomes empty state.
+
+`Entity::with_coordinator_ddata_remember_store` exposes the ddata target without
+erasing either actor protocol or adding serialization to local coordinator
+messages.
+
+Consequences:
+- Memory and ddata stores share one coordinator lifecycle without a global
+  dynamic message API.
+- Ddata read/update errors remain distinguishable from local ask timeouts.
+- A real distributed deployment still must run compatible ddata store actors
+  on eligible owners and validate their replication before failover; this ADR
+  defines the typed adapter, not a new membership or persistence authority.

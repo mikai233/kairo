@@ -1551,6 +1551,118 @@ fn coordinator_actor_loads_shared_remembered_shard_and_hosts_shared_store_region
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn coordinator_actor_loads_and_updates_ddata_remember_store() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("coordinator-ddata-remember-store").unwrap();
+    let replicator = kit
+        .system()
+        .spawn(
+            "replicator",
+            Props::new(ReplicatorActor::<GSet<String>>::new),
+        )
+        .unwrap();
+    let store = kit
+        .system()
+        .spawn(
+            "store",
+            RememberCoordinatorDDataStoreActor::props("orders", replicator),
+        )
+        .unwrap();
+    let store_updates = kit
+        .create_probe::<Result<crate::RememberCoordinatorUpdateDone, ShardingError>>(
+            "store-updates",
+        )
+        .unwrap();
+    store
+        .tell(RememberCoordinatorDDataStoreMsg::AddShard {
+            shard: "remembered".to_string(),
+            reply_to: store_updates.actor_ref(),
+        })
+        .unwrap();
+    store_updates
+        .expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+
+    let coordinator = kit
+        .system()
+        .spawn(
+            "coordinator",
+            ShardCoordinatorActor::props_with_ddata_remember_store_and_handoff(
+                CoordinatorState::new(),
+                LeastShardAllocationStrategy::default(),
+                store.clone(),
+                Duration::from_millis(500),
+                "stop".to_string(),
+                Duration::from_millis(500),
+                HandoffTransport::new(),
+                8,
+            ),
+        )
+        .unwrap();
+    let state = kit
+        .create_probe::<CoordinatorStateSnapshot>("coordinator-state")
+        .unwrap();
+    let region = kit
+        .create_probe::<ShardRegionMsg<String>>("region")
+        .unwrap();
+    let registration = kit
+        .create_probe::<Result<CoordinatorStateSnapshot, ShardingError>>("registration")
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::RegisterLocalRegion {
+            target: HandoffRegionTarget::new("region-a", region.actor_ref()),
+            reply_to: registration.actor_ref(),
+        })
+        .unwrap();
+    wait_for_coordinator_snapshot(
+        &coordinator,
+        &state,
+        "ddata remembered shard should be allocated after store load",
+        |snapshot| {
+            snapshot
+                .allocations
+                .get("region-a")
+                .is_some_and(|shards| shards.contains(&"remembered".to_string()))
+        },
+    );
+
+    let home = kit
+        .create_probe::<Result<GetShardHomePlan, ShardingError>>("new-home")
+        .unwrap();
+    coordinator
+        .tell(ShardCoordinatorMsg::RequestShardHome {
+            requester: "region-a".to_string(),
+            shard: "new".to_string(),
+            reply_to: home.actor_ref(),
+        })
+        .unwrap();
+    home.expect_msg(Duration::from_millis(500))
+        .unwrap()
+        .unwrap();
+    let stored = kit
+        .create_probe::<Result<crate::RememberedShards, ShardingError>>("stored-shards")
+        .unwrap();
+    kairo_testkit::await_assert(Duration::from_secs(2), Duration::from_millis(10), || {
+        store
+            .tell(RememberCoordinatorDDataStoreMsg::GetShards {
+                reply_to: stored.actor_ref(),
+            })
+            .map_err(|error| error.to_string())?;
+        let shards = stored
+            .expect_msg(Duration::from_millis(500))
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+        shards
+            .shards
+            .contains("new")
+            .then_some(())
+            .ok_or_else(|| format!("ddata store has not persisted new shard: {shards:?}"))
+    })
+    .unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
 struct RequesterAllocationStrategy {
     rebalance_shards: BTreeSet<String>,
 }

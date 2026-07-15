@@ -87,8 +87,10 @@ Status terms in this document mean:
   after oldest-node handover. Role-scoped coordinator placement also keeps an
   older ineligible node proxy-only. A supplied coordinator remember store now
   restores persisted shard ids as unallocated on the successor and reassigns
-  them after live regions register. Composed distributed-data store wiring,
-  remembered-entity recovery through that public extension, and the final
+  them after live regions register. The coordinator store target now also
+  consumes the existing GSet-backed distributed-data store protocol with
+  explicit read/update errors. Real multi-node ddata-store composition,
+  remembered-entity recovery through the public extension, and the final
   acceptance demo remain open.
 - M10 cluster tools: substantial component coverage. Singleton and pubsub
   state, remote delivery, TCP peer runtime, examples, and composed public
@@ -426,8 +428,12 @@ typed store protocol into every singleton incarnation with a bounded initial
 load stash. A two-node failover test uses independent local store actors over
 one shared test state, persists a shard before allocation, then proves the
 successor reloads and reassigns that shard without another entity request.
-Composed distributed-data store adaptation, remembered-entity recovery,
-broader ddata type registration, and process/fault coverage remain open.
+`Entity::with_coordinator_ddata_remember_store` now selects the existing
+GSet-backed store directly; focused coverage loads a preexisting ddata shard,
+allocates it after region registration, and persists a new shard through the
+same adapter. Real multi-node ddata-store composition, remembered-entity
+recovery, broader ddata type registration, and process/fault coverage remain
+open.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6079,7 +6085,7 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after store-backed singleton coordinator recovery:
+Latest Phase 4 validation after distributed-data coordinator-store adaptation:
 
 ```bash
 cargo test -p kairo-cluster-sharding --all-targets --all-features

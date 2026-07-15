@@ -27,12 +27,12 @@ use crate::{
     DEFAULT_SHARD_COUNT, EntityActorFactory, EntityRef, EntityTypeKey, GetShardHome,
     GracefulShutdownReq, HandOff, HostShard, LeastShardAllocationStrategy, RegionLocalRoutePlan,
     RegionRemoteCoordinatorTransport, RegionStopped, Register, RegisterAck,
-    RememberCoordinatorStoreMsg, RoutedShardEnvelope, ShardCoordinatorActor, ShardCoordinatorMsg,
-    ShardCoordinatorRemoteHomeInbound, ShardCoordinatorRemoteRegistrationInbound,
-    ShardCoordinatorRemoteTarget, ShardDeliverPlan, ShardHome, ShardRegionActor, ShardRegionMsg,
-    ShardRegionRemoteControlInbound, ShardRegionRemoteInbound, ShardRegionRemoteOutbound,
-    ShardRegionSystemInbound, ShardStarted, ShardStopped, ShardingEnvelope, ShardingEnvelopeRouter,
-    remote_region_id,
+    RememberCoordinatorDDataStoreMsg, RememberCoordinatorStoreMsg, RoutedShardEnvelope,
+    ShardCoordinatorActor, ShardCoordinatorMsg, ShardCoordinatorRemoteHomeInbound,
+    ShardCoordinatorRemoteRegistrationInbound, ShardCoordinatorRemoteTarget, ShardDeliverPlan,
+    ShardHome, ShardRegionActor, ShardRegionMsg, ShardRegionRemoteControlInbound,
+    ShardRegionRemoteInbound, ShardRegionRemoteOutbound, ShardRegionSystemInbound, ShardStarted,
+    ShardStopped, ShardingEnvelope, ShardingEnvelopeRouter, remote_region_id,
 };
 
 pub const SHARDING_ORDINARY_MANIFESTS: [&str; 1] = [RoutedShardEnvelope::MANIFEST];
@@ -143,8 +143,14 @@ where
 
 #[derive(Clone)]
 struct CoordinatorRememberStoreSettings {
-    store: ActorRef<RememberCoordinatorStoreMsg>,
+    target: CoordinatorRememberStoreTargetSettings,
     timeout: Duration,
+}
+
+#[derive(Clone)]
+enum CoordinatorRememberStoreTargetSettings {
+    Actor(ActorRef<RememberCoordinatorStoreMsg>),
+    DistributedData(ActorRef<RememberCoordinatorDDataStoreMsg>),
 }
 
 impl<M> Entity<M>
@@ -189,7 +195,22 @@ where
         store: ActorRef<RememberCoordinatorStoreMsg>,
         timeout: Duration,
     ) -> Self {
-        self.coordinator_remember_store = Some(CoordinatorRememberStoreSettings { store, timeout });
+        self.coordinator_remember_store = Some(CoordinatorRememberStoreSettings {
+            target: CoordinatorRememberStoreTargetSettings::Actor(store),
+            timeout,
+        });
+        self
+    }
+
+    pub fn with_coordinator_ddata_remember_store(
+        mut self,
+        store: ActorRef<RememberCoordinatorDDataStoreMsg>,
+        timeout: Duration,
+    ) -> Self {
+        self.coordinator_remember_store = Some(CoordinatorRememberStoreSettings {
+            target: CoordinatorRememberStoreTargetSettings::DistributedData(store),
+            timeout,
+        });
         self
     }
 
@@ -876,11 +897,27 @@ where
     M: Clone + Send + 'static,
 {
     match remember_store {
-        Some(settings) => ShardCoordinatorActor::props_with_remember_store_and_handoff(
+        Some(CoordinatorRememberStoreSettings {
+            target: CoordinatorRememberStoreTargetSettings::Actor(store),
+            timeout,
+        }) => ShardCoordinatorActor::props_with_remember_store_and_handoff(
             CoordinatorState::new(),
             LeastShardAllocationStrategy::default(),
-            settings.store,
-            settings.timeout,
+            store,
+            timeout,
+            stop_message,
+            handoff_timeout,
+            crate::HandoffTransport::new(),
+            stash_capacity,
+        ),
+        Some(CoordinatorRememberStoreSettings {
+            target: CoordinatorRememberStoreTargetSettings::DistributedData(store),
+            timeout,
+        }) => ShardCoordinatorActor::props_with_ddata_remember_store_and_handoff(
+            CoordinatorState::new(),
+            LeastShardAllocationStrategy::default(),
+            store,
+            timeout,
             stop_message,
             handoff_timeout,
             crate::HandoffTransport::new(),
