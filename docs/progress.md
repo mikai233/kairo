@@ -188,6 +188,9 @@ Status terms in this document mean:
   Coordinator discovery now hard-gates its role filtering, age ordering,
   departing-oldest successor fan-out, configured-target selection, and
   local-versus-remote registration plan contracts.
+  Its membership subscriber adapter now hard-gates initial-snapshot and event
+  forwarding, subscribe/unsubscribe lifecycle ownership, best-effort region
+  delivery, and diagnostic attempt/error state.
   Local and remote region registration sessions and the composed remote
   coordinator transport likewise hard-gate retry ownership, stale-ack
   rejection, shard-home conversion, and shutdown-notification contracts.

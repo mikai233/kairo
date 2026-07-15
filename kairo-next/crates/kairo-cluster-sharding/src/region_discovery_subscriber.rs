@@ -1,8 +1,23 @@
+#![deny(missing_docs)]
+
+//! Cluster-membership subscription adapter for coordinator discovery.
+//!
+//! Pekko's shard region subscribes and unsubscribes directly in its actor
+//! lifecycle. Kairo keeps that ownership in a focused actor that translates
+//! the initial membership snapshot and later events into typed
+//! [`ShardRegionMsg`] values, leaving the region runtime independent of the
+//! cluster extension API.
+
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context, Props};
 use kairo_cluster::{Cluster, ClusterSubscriptionEvent, ClusterSubscriptionInitialState};
 
 use crate::ShardRegionMsg;
 
+/// Actor that owns one cluster subscription and forwards it to a shard region.
+///
+/// The actor subscribes with an initial snapshot when it starts and performs a
+/// best-effort unsubscribe when it stops. A failed forward is recorded for
+/// diagnostics rather than stopping the subscriber.
 pub struct ShardRegionDiscoverySubscriber<M>
 where
     M: Send + 'static,
@@ -19,6 +34,10 @@ impl<M> ShardRegionDiscoverySubscriber<M>
 where
     M: Send + 'static,
 {
+    /// Creates an unstarted subscriber for `region`.
+    ///
+    /// The cluster subscription is installed by the actor's `started`
+    /// lifecycle callback after this value is spawned.
     pub fn new(cluster: Cluster, region: ActorRef<ShardRegionMsg<M>>) -> Self {
         Self {
             cluster,
@@ -30,6 +49,7 @@ where
         }
     }
 
+    /// Creates repeatable actor properties for a region discovery subscriber.
     pub fn props(cluster: Cluster, region: ActorRef<ShardRegionMsg<M>>) -> Props<Self> {
         Props::new(move || Self::new(cluster.clone(), region.clone()))
     }
@@ -65,19 +85,29 @@ where
 }
 
 #[derive(Debug, Clone)]
+/// Local protocol accepted by [`ShardRegionDiscoverySubscriber`].
 pub enum ShardRegionDiscoverySubscriberMsg {
+    /// Initial state or a later membership event from the cluster subscription.
     Cluster(ClusterSubscriptionEvent),
+    /// Requests a diagnostic snapshot of subscription and forwarding state.
     Snapshot {
+        /// Actor that receives the current diagnostic snapshot.
         reply_to: ActorRef<ShardRegionDiscoverySubscriberSnapshot>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic state for a region discovery subscriber.
 pub struct ShardRegionDiscoverySubscriberSnapshot {
+    /// Local actor path of the target shard region.
     pub region: String,
+    /// Whether startup successfully installed the cluster subscription.
     pub subscribed: bool,
+    /// Number of initial membership snapshots the actor attempted to forward.
     pub forwarded_snapshots: usize,
+    /// Number of incremental membership events the actor attempted to forward.
     pub forwarded_events: usize,
+    /// Most recent region-send failure, cleared by the next successful forward.
     pub last_error: Option<String>,
 }
 
