@@ -100,6 +100,7 @@ cargo run -p kairo-examples --example cluster_tools_local
 cargo run -p kairo-examples --example cluster_tools_singleton
 cargo run -p kairo-examples --example cluster_tools_distributed
 cargo run -p kairo-examples --example cluster_sharding_local
+cargo run -p kairo-examples --example cluster_sharding_tcp
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
 cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
@@ -156,6 +157,12 @@ entity-backed shard actor. Business messages reach a typed entity child without
 embedding the entity id in the business message. It also exercises entity
 passivation/restart through the same `EntityRef<String>` and a two-region
 graceful local shard movement that rehosts a remembered entity.
+
+The `cluster_sharding_tcp` example runs three real cluster-daemon nodes on the
+shared ActorSystem-owned TCP runtime. It demonstrates seed join and gossip
+convergence, ORSet-backed remember entities, periodic rebalance and handoff,
+oldest-node coordinated leave, and entity recovery before another business
+message arrives.
 
 The TCP peer bootstrap examples demonstrate the current cluster,
 distributed-data, and cluster-tools route setup around the shared remote

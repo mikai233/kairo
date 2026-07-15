@@ -17,6 +17,9 @@
 //! - `cluster_sharding_local`: local coordinator, shard region, stable shard
 //!   hash, `EntityRef`, entity-backed shard delivery, passivation/restart,
 //!   and graceful local shard movement.
+//! - `cluster_sharding_tcp`: three real cluster-daemon nodes, replicated
+//!   remember-entity state, periodic rebalance/handoff, oldest-node leave, and
+//!   entity recovery before the next business command.
 //! - `remote_ping_pong`: two TCP remoting actor systems exchanging a typed
 //!   ping and pong through registered stable message codecs.
 //! - `ddata_counter`: local distributed-data `GCounter` updates through a
@@ -78,3 +81,4 @@ pub mod patterns;
 pub mod remote_ping_pong;
 pub mod reply;
 pub mod sharding_local;
+pub mod sharding_tcp;

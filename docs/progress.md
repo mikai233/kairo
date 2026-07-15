@@ -13,11 +13,12 @@ the process boundary. Distributed integration is now the active foundational
 work.
 
 Current active stage: **foundation convergence before M13**, with Phases 1-3
-complete and Phase 4 distributed integration now active. M13 validation
-commands continue to run as regression gates, but passing those gates does not
-by itself mean that the M13 acceptance condition has been met. M13 begins only
-after the remaining architecture work can be treated as tuning and release
-hardening rather than replacement.
+complete and Phase 4 distributed integration now active. The three-node final
+acceptance workflow now passes through the public composed runtime. Remaining
+Phase 4 work is broader same-runtime fault coverage for distributed data,
+singleton, and pubsub rather than the sharding architecture itself. M13 begins
+only after those remaining gaps can be treated as tuning and release hardening
+rather than replacement.
 
 Status terms in this document mean:
 
@@ -96,8 +97,10 @@ Status terms in this document mean:
   region, and proves the new owner starts that entity before its next message.
   A companion test observes the coordinator shard-id key on the future
   singleton owner, makes the oldest node leave, and proves the successor
-  restores that shard without another entity request. The final acceptance
-  demo remains open.
+  restores that shard without another entity request. The runnable three-node
+  acceptance demo now composes the real cluster daemon, singleton coordinator,
+  node-local ORSet replicas, periodic rebalance/handoff, coordinated oldest-node
+  leave, and remembered-entity restart before the next business message.
 - M10 cluster tools: substantial component coverage. Singleton and pubsub
   state, remote delivery, TCP peer runtime, examples, and composed public
   extensions exist. Real two-node tests cover pubsub convergence, named
@@ -107,15 +110,15 @@ Status terms in this document mean:
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
-  publication controls, and coordinated-shutdown surfaces exist. The remaining
-  foundation work is to make the distributed extensions share one ActorSystem
-  lifecycle rather than exposing independently assembled runtimes.
+  publication controls, and coordinated-shutdown surfaces exist. Distributed
+  extensions now share the ActorSystem-owned transport and shutdown lifecycle;
+  broader process and fault scenarios remain before release hardening.
 - M12 examples, migration, and documentation: substantial implementation.
   Examples, migration guidance, README feature maps, workspace doctests,
-  rustdoc warning gates, and compile-tested public API snippets exist. Current
-  distributed examples still rely on low-level assembly or manually supplied
-  membership state and therefore do not yet constitute the final acceptance
-  workflow.
+  rustdoc warning gates, and compile-tested public API snippets exist. The
+  `cluster_sharding_tcp` example now provides the final three-node acceptance
+  workflow through the `kairo` facade and real composed membership; other
+  distributed examples retain narrower diagnostic/bootstrap roles.
 - M13 hardening and release readiness: not active as the sole remaining phase.
   Its validation, documentation, dependency audit, and benchmark scaffolding
   already provide useful continuous gates, but final M13 sign-off follows the
@@ -455,7 +458,14 @@ registration outside this sharding composition and process/fault coverage
 remain open. The public sharding settings now also apply a non-zero periodic
 rebalance interval to every direct or singleton coordinator incarnation, so
 new regions can trigger the existing handoff state machine instead of leaving
-earlier allocations permanently concentrated.
+earlier allocations permanently concentrated. The runnable
+`cluster_sharding_tcp` workflow now passes with three independently bound
+ActorSystems: it forms through seed contact and gossip, replicates coordinator
+and entity remember state through node-local ORSet replicas, observes periodic
+rebalance of an existing shard, gracefully removes the oldest node, and
+observes an unmoved remembered entity restart on a survivor before sending its
+next command. The Phase 4 three-node acceptance exit gate is therefore met;
+broader ddata, singleton, and pubsub fault scenarios remain the active gate.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6107,12 +6117,12 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after transport-backed coordinator and entity recovery:
+Latest Phase 4 validation after the three-node sharding acceptance workflow:
 
 ```bash
-cargo test -p kairo-cluster-sharding --all-targets --all-features
-cargo test -p kairo --all-targets --all-features
-cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo run -p kairo-examples --example cluster_sharding_tcp
 cargo fmt --all -- --check
 git diff --check
 ```

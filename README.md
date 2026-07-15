@@ -83,6 +83,7 @@ cargo run -p kairo-examples --example cluster_tools_local
 cargo run -p kairo-examples --example cluster_tools_singleton
 cargo run -p kairo-examples --example cluster_tools_distributed
 cargo run -p kairo-examples --example cluster_sharding_local
+cargo run -p kairo-examples --example cluster_sharding_tcp
 cargo run -p kairo-examples --example cluster_tcp_peer_bootstrap
 cargo run -p kairo-examples --example ddata_tcp_peer_bootstrap
 cargo run -p kairo-examples --example cluster_tools_tcp_peer_bootstrap
@@ -141,6 +142,13 @@ EntityRef<String> -> ShardingEnvelope<String> -> ShardRegionActor
 It also exercises entity passivation and restart through the same
 `EntityRef<String>`, then runs a two-region graceful local shard movement that
 rehosts a remembered entity on the surviving region.
+
+The `cluster_sharding_tcp` example runs the distributed acceptance workflow on
+three ActorSystems sharing the composed TCP, cluster, distributed-data,
+singleton, and sharding lifecycle. It forms through seed contact, replicates
+remembered entities, periodically rebalances an existing shard, gracefully
+removes the oldest node, and proves its remembered entity starts on a survivor
+before the next business message is sent.
 
 ## Configuration
 

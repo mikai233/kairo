@@ -340,6 +340,15 @@ and graceful local shard movement:
 cargo run -p kairo-examples --example cluster_sharding_local
 ```
 
+For the composed distributed lifecycle, `cluster_sharding_tcp` starts three
+cluster-daemon nodes, uses the singleton coordinator and ORSet-backed remember
+entities, rebalances an existing shard, removes the oldest node through
+coordinated shutdown, and verifies entity recovery before the next command:
+
+```bash
+cargo run -p kairo-examples --example cluster_sharding_tcp
+```
+
 ## Cluster Membership
 
 Cluster truth is gossip membership plus local failure-detector observations.
