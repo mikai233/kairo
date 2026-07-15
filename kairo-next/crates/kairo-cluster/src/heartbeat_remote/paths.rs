@@ -1,10 +1,14 @@
+#![deny(missing_docs)]
+
 use kairo_serialization::ActorRefWireData;
 
 use crate::UniqueAddress;
 
 use super::ClusterHeartbeatRemoteError;
 
+/// Default remote actor path for cluster heartbeat requests.
 pub const DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH: &str = "/system/cluster/heartbeatReceiver";
+/// Default remote actor path for cluster heartbeat responses.
 pub const DEFAULT_CLUSTER_HEARTBEAT_SENDER_PATH: &str = "/system/cluster/heartbeatSender";
 
 pub(super) fn recipient_for_node(

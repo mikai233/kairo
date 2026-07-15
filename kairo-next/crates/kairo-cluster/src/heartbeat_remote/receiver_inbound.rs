@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_remote::RemoteOutbound;
@@ -9,6 +11,7 @@ use super::ClusterHeartbeatRemoteError;
 use super::paths::{DEFAULT_CLUSTER_HEARTBEAT_RECEIVER_PATH, validate_recipient};
 
 #[derive(Clone)]
+/// Validates remote heartbeat requests and replies to their advertised sender.
 pub struct HeartbeatRemoteReceiverInbound {
     self_node: UniqueAddress,
     registry: Arc<Registry>,
@@ -18,6 +21,7 @@ pub struct HeartbeatRemoteReceiverInbound {
 }
 
 impl HeartbeatRemoteReceiverInbound {
+    /// Creates a receiver endpoint backed by an owned remoting outbound.
     pub fn new(
         self_node: UniqueAddress,
         registry: Arc<Registry>,
@@ -26,6 +30,7 @@ impl HeartbeatRemoteReceiverInbound {
         Self::from_arc(self_node, registry, Arc::new(outbound))
     }
 
+    /// Creates a receiver endpoint backed by a shared remoting outbound.
     pub fn from_arc(
         self_node: UniqueAddress,
         registry: Arc<Registry>,
@@ -40,16 +45,20 @@ impl HeartbeatRemoteReceiverInbound {
         }
     }
 
+    /// Sets the optional actor identity advertised as the response sender.
     pub fn with_sender(mut self, sender: Option<ActorRefWireData>) -> Self {
         self.sender = sender;
         self
     }
 
+    /// Overrides the absolute local heartbeat receiver path.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Validates and decodes a probe, then echoes its sequence and creation time
+    /// to the envelope's sender route.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<(), ClusterHeartbeatRemoteError> {
         validate_recipient(&self.self_node, &self.recipient_path, &envelope.recipient)?;
         if envelope.message.manifest.as_str() != Heartbeat::MANIFEST {

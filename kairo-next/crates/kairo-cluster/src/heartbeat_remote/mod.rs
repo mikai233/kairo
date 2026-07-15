@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 mod error;
 mod outbound;
 mod paths;

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -12,7 +14,9 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
+/// Commands accepted by [`ClusterHeartbeatConnector`].
 pub enum ClusterHeartbeatConnectorMsg {
+    /// Applies a cluster subscription snapshot or subsequent event.
     Cluster(ClusterSubscriptionEvent),
 }
 
@@ -31,6 +35,8 @@ pub struct ClusterHeartbeatConnector {
 }
 
 impl ClusterHeartbeatConnector {
+    /// Creates a connector that derives per-member remote receiver routes from
+    /// `cluster` membership.
     pub fn new(
         cluster: Cluster,
         self_node: UniqueAddress,

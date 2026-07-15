@@ -117,7 +117,10 @@ Status terms in this document mean:
   ownership, and transient delivery-failure contracts. Seed contact now carries
   the same hard gate across its pure retry/self-formation state machine, actor
   timer policy, validated daemon wire boundary, and lifecycle-aware
-  acknowledgement responder.
+  acknowledgement responder. Heartbeat execution is likewise hard-gated from
+  actor scheduling and cluster-derived receiver routes through remote
+  request/response validation, best-effort probe delivery, and local
+  failure-detector reachability publication.
 - M7 distributed data: complete through its acceptance boundary. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. The first composed

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -14,16 +16,20 @@ use crate::{
 
 const HEARTBEAT_TIMER_KEY: &str = "cluster-heartbeat";
 
+/// Monotonic time source used by heartbeat actors and deterministic tests.
 pub trait HeartbeatClock: Send + Sync + 'static {
+    /// Returns elapsed monotonic time from this clock's origin.
     fn now(&self) -> Duration;
 }
 
 #[derive(Debug)]
+/// Heartbeat clock backed by [`Instant`].
 pub struct SystemHeartbeatClock {
     started_at: Instant,
 }
 
 impl SystemHeartbeatClock {
+    /// Creates a clock whose origin is the current instant.
     pub fn new() -> Self {
         Self {
             started_at: Instant::now(),
@@ -44,15 +50,24 @@ impl HeartbeatClock for SystemHeartbeatClock {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Receiver selection, failure detection, and scheduling policy for a heartbeat
+/// sender.
 pub struct HeartbeatSenderSettings {
+    /// Number of reachable successors selected from the deterministic ring.
     pub monitored_by_nr_of_members: usize,
+    /// Timing policy for each receiver's deadline failure detector.
     pub failure_detector: DeadlineFailureDetectorSettings,
+    /// Minimum delay before the first periodic heartbeat tick.
     pub periodic_tasks_initial_delay: Duration,
+    /// Delay before a missing first response starts failure-detector monitoring.
     pub heartbeat_expected_response_after: Duration,
+    /// Whether the sender owns its periodic heartbeat timer.
     pub automatic_ticks: bool,
 }
 
 impl HeartbeatSenderSettings {
+    /// Creates settings using the failure detector's heartbeat interval for the
+    /// expected-first-response delay.
     pub fn new(
         monitored_by_nr_of_members: usize,
         failure_detector: DeadlineFailureDetectorSettings,
@@ -66,16 +81,19 @@ impl HeartbeatSenderSettings {
         }
     }
 
+    /// Sets the minimum delay before periodic work begins.
     pub fn with_periodic_tasks_initial_delay(mut self, delay: Duration) -> Self {
         self.periodic_tasks_initial_delay = delay;
         self
     }
 
+    /// Sets the grace period before an absent first response starts monitoring.
     pub fn with_heartbeat_expected_response_after(mut self, delay: Duration) -> Self {
         self.heartbeat_expected_response_after = delay;
         self
     }
 
+    /// Enables actor-owned ticks or disables them for externally driven tests.
     pub fn with_automatic_ticks(mut self, automatic_ticks: bool) -> Self {
         self.automatic_ticks = automatic_ticks;
         self
@@ -102,47 +120,73 @@ impl Default for HeartbeatSenderSettings {
 }
 
 #[derive(Debug, Clone)]
+/// Commands accepted by [`HeartbeatReceiver`].
 pub enum HeartbeatReceiverMsg {
+    /// Requests an immediate response to one heartbeat probe.
     Heartbeat {
+        /// Probe received from the sending node.
         heartbeat: Heartbeat,
+        /// Local typed route that receives the response.
         reply_to: ActorRef<HeartbeatSenderMsg>,
     },
 }
 
 #[derive(Debug, Clone)]
+/// Commands accepted by [`HeartbeatSender`].
 pub enum HeartbeatSenderMsg {
+    /// Initializes ring state from the current cluster snapshot.
     Init(CurrentClusterState),
+    /// Registers membership as the recipient of reachability observations.
     RegisterMembership(ActorRef<ClusterMembershipMsg>),
+    /// Installs the route used to probe one node incarnation.
     RegisterReceiver {
+        /// Remote node incarnation represented by the route.
         node: UniqueAddress,
+        /// Local or remote-adapter receiver route.
         receiver: ActorRef<HeartbeatReceiverMsg>,
     },
+    /// Removes the probe route for one node incarnation.
     UnregisterReceiver {
+        /// Node incarnation whose route should be removed.
         node: UniqueAddress,
     },
+    /// Applies a membership or reachability change after initialization.
     ClusterEvent(ClusterEvent),
+    /// Reconciles failure state and sends the next probe round.
     HeartbeatTick,
+    /// Applies a response received from an active receiver.
     HeartbeatResponse(HeartbeatRsp),
+    /// Starts monitoring a receiver that has not yet replied.
     ExpectedFirstHeartbeat(UniqueAddress),
+    /// Requests an immutable sender snapshot.
     SendSnapshot {
+        /// Recipient of the current snapshot.
         reply_to: ActorRef<HeartbeatSenderSnapshot>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Observable state of a heartbeat sender.
 pub struct HeartbeatSenderSnapshot {
+    /// Whether an initial cluster snapshot has been applied.
     pub initialized: bool,
+    /// Sequence number assigned to the most recent probe round.
     pub sequence_nr: u64,
+    /// Receivers currently selected or retained for recovery.
     pub active_receivers: HashSet<UniqueAddress>,
+    /// Active receivers with an initialized failure detector.
     pub monitored_receivers: HashSet<UniqueAddress>,
+    /// Monitored receivers whose failure-detector deadline has elapsed.
     pub unavailable_receivers: HashSet<UniqueAddress>,
 }
 
+/// Local typed heartbeat endpoint that echoes probe metadata in a response.
 pub struct HeartbeatReceiver {
     self_node: UniqueAddress,
 }
 
 impl HeartbeatReceiver {
+    /// Creates a receiver that identifies responses with `self_node`.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self { self_node }
     }
@@ -168,6 +212,11 @@ impl Actor for HeartbeatReceiver {
     }
 }
 
+/// Actor that probes ring-selected receivers and publishes local reachability
+/// observations.
+///
+/// Delivery to individual receiver routes is best effort. Missed replies become
+/// failure-detector input; they do not fail or stop the sender actor.
 pub struct HeartbeatSender {
     self_node: UniqueAddress,
     settings: HeartbeatSenderSettings,
@@ -181,6 +230,7 @@ pub struct HeartbeatSender {
 }
 
 impl HeartbeatSender {
+    /// Creates a sender backed by the system monotonic clock.
     pub fn new(
         self_node: UniqueAddress,
         settings: HeartbeatSenderSettings,
@@ -188,6 +238,7 @@ impl HeartbeatSender {
         Self::with_clock(self_node, settings, Arc::new(SystemHeartbeatClock::new()))
     }
 
+    /// Creates a sender backed by an injected monotonic clock.
     pub fn with_clock(
         self_node: UniqueAddress,
         settings: HeartbeatSenderSettings,

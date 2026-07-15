@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_actor::ActorRef;
@@ -8,6 +10,7 @@ use crate::{HeartbeatRsp, HeartbeatSenderMsg};
 use super::ClusterHeartbeatRemoteError;
 
 #[derive(Clone)]
+/// Validates remote heartbeat responses and forwards them to the local sender.
 pub struct HeartbeatRemoteResponseInbound {
     recipient: ActorRefWireData,
     registry: Arc<Registry>,
@@ -15,6 +18,7 @@ pub struct HeartbeatRemoteResponseInbound {
 }
 
 impl HeartbeatRemoteResponseInbound {
+    /// Creates a response endpoint for one exact serialized actor recipient.
     pub fn new(
         recipient: ActorRefWireData,
         registry: Arc<Registry>,
@@ -27,6 +31,8 @@ impl HeartbeatRemoteResponseInbound {
         }
     }
 
+    /// Validates and decodes a response before delivering it to the sender
+    /// actor.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<(), ClusterHeartbeatRemoteError> {
         if envelope.recipient != self.recipient {
             return Err(ClusterHeartbeatRemoteError::WrongRecipient {
