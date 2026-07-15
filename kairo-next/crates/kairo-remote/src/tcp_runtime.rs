@@ -333,11 +333,15 @@ impl TcpRemoteActorRuntimeBuilder {
         }
         let inbound = Arc::new(inbound);
         let installer = RemoteAssociationRouteInstaller::new(association_cache.clone())
+            .with_association_registry(association_registry.clone())
             .with_classifier(lane_classifier)
             .with_outbound_queue_settings(outbound_queue_settings);
         let outbound_reader = TcpAssociationStreamReader::new(inbound.clone());
         let listener = TcpAssociationListener::from_listener(listener, inbound)
-            .with_local_address(local_association_address(&system, &effective_settings)?)
+            .with_local_identity(
+                local_association_address(&system, &effective_settings)?,
+                local_system_uid,
+            )
             .with_association_registry(association_registry.clone())
             .with_route_installer(installer.clone())
             .spawn_accept_loop()?;

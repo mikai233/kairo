@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::sync::{
     Arc,
@@ -8,7 +9,8 @@ use std::time::{Duration, Instant};
 
 use crate::tcp::{
     TcpAssociationHandshake, TcpAssociationIdentity, TcpAssociationReaderSupervisor,
-    TcpRemoteByteSink, read_tcp_association_handshake, validate_tcp_association_handshakes,
+    TcpRemoteByteSink, encode_tcp_association_handshake, read_tcp_association_handshake,
+    validate_tcp_association_handshakes,
 };
 use crate::{
     RemoteAssociationAddress, RemoteAssociationRegistry, RemoteAssociationRouteInstaller,
@@ -32,6 +34,7 @@ pub struct TcpAssociationListener {
     expected_streams: usize,
     accept_poll_interval: Duration,
     local_address: Option<RemoteAssociationAddress>,
+    local_identity: Option<TcpAssociationIdentity>,
     association_registry: Option<RemoteAssociationRegistry>,
     route_installer: Option<RemoteAssociationRouteInstaller>,
 }
@@ -70,6 +73,7 @@ impl TcpAssociationListener {
             expected_streams: DEFAULT_EXPECTED_LANE_STREAMS,
             accept_poll_interval: DEFAULT_ACCEPT_POLL_INTERVAL,
             local_address: None,
+            local_identity: None,
             association_registry: None,
             route_installer: None,
         }
@@ -81,6 +85,16 @@ impl TcpAssociationListener {
     }
 
     pub fn with_local_address(mut self, local_address: RemoteAssociationAddress) -> Self {
+        self.local_address = Some(local_address);
+        self
+    }
+
+    pub fn with_local_identity(
+        mut self,
+        local_address: RemoteAssociationAddress,
+        uid: u64,
+    ) -> Self {
+        self.local_identity = Some(TcpAssociationIdentity::new(local_address.clone(), uid));
         self.local_address = Some(local_address);
         self
     }
@@ -142,6 +156,7 @@ impl TcpAssociationListener {
             });
         }
         let remote_identity = self.validate_handshakes(&handshakes)?;
+        self.write_handshake_responses(&remote_identity, &mut streams)?;
         self.register_remote_identity(&remote_identity)?;
         let route_registration = self.install_reverse_route(&remote_identity, &streams)?;
         Ok(TcpAcceptedAssociation {
@@ -257,6 +272,7 @@ impl TcpAssociationListener {
             }
         }
         let remote_identity = self.validate_handshakes(&handshakes)?;
+        self.write_handshake_responses(&remote_identity, &mut streams)?;
         self.register_remote_identity(&remote_identity)?;
         let route_registration = self.install_reverse_route(&remote_identity, &streams)?;
         Ok(Some(TcpAcceptedAssociation {
@@ -301,6 +317,32 @@ impl TcpAssociationListener {
         };
         if let Some(registry) = &self.association_registry {
             registry.complete_handshake(identity.address().clone(), identity.uid())?;
+        }
+        Ok(())
+    }
+
+    fn write_handshake_responses(
+        &self,
+        remote_identity: &Option<TcpAssociationIdentity>,
+        streams: &mut [TcpAcceptedStream],
+    ) -> Result<()> {
+        let (Some(local_identity), Some(remote_identity)) = (&self.local_identity, remote_identity)
+        else {
+            return Ok(());
+        };
+        for stream in streams {
+            let stream_id = stream
+                .stream_id
+                .ok_or_else(|| missing_lane_error(RemoteStreamId::Control))?;
+            let response = TcpAssociationHandshake::new(
+                stream_id,
+                local_identity.clone(),
+                remote_identity.address().clone(),
+            );
+            stream
+                .stream
+                .write_all(&encode_tcp_association_handshake(&response)?)
+                .map_err(|error| tcp_inbound_failure(&stream.peer.to_string(), error))?;
         }
         Ok(())
     }

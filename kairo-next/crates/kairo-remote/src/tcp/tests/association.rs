@@ -125,7 +125,7 @@ fn tcp_listener_validates_handshaken_lanes_before_reading_frames() {
     )
     .unwrap();
     let port = listener.local_addr().unwrap().port();
-    let listener = listener.with_local_address(association_address("receiver", port));
+    let listener = listener.with_local_identity(association_address("receiver", port), 11);
     let (accepted_tx, accepted_rx) = mpsc::channel();
     let handle = thread::spawn(move || {
         let accepted = listener.accept_association().unwrap();
@@ -169,7 +169,7 @@ fn tcp_listener_accept_loop_reports_handshaken_remote_identity() {
         .unwrap()
         .with_accept_poll_interval(Duration::from_millis(1));
     let port = listener.local_addr().unwrap().port();
-    let listener = listener.with_local_address(association_address("receiver", port));
+    let listener = listener.with_local_identity(association_address("receiver", port), 11);
     let listener_handle = listener.spawn_accept_loop().unwrap();
 
     let cache = RemoteAssociationCache::new();
@@ -217,19 +217,36 @@ fn tcp_listener_accept_loop_records_handshaken_identity_in_registry() {
         .with_accept_poll_interval(Duration::from_millis(1));
     let port = listener.local_addr().unwrap().port();
     let listener = listener
-        .with_local_address(association_address("receiver", port))
+        .with_local_identity(association_address("receiver", port), 11)
         .with_association_registry(registry.clone())
         .with_route_installer(receiver_installer);
     let listener_handle = listener.spawn_accept_loop().unwrap();
 
     let cache = RemoteAssociationCache::new();
-    let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone());
+    let sender_registry = RemoteAssociationRegistry::new();
+    let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone())
+        .with_association_registry(sender_registry.clone());
     let dialer = TcpAssociationDialer::new(installer)
         .with_local_identity(remote_address.clone(), 42)
         .with_connect_timeout(Duration::from_secs(1));
     let (registration, sender_reader_handle) = dialer
         .dial_with_reader(association_address("receiver", port), sender_reader)
         .unwrap();
+
+    let receiver_association = sender_registry.association_by_uid(11).unwrap();
+    assert!(Arc::ptr_eq(
+        registration.pipeline().association(),
+        &receiver_association
+    ));
+    assert_eq!(
+        receiver_association
+            .lock()
+            .expect("remote association lock poisoned")
+            .state(),
+        &AssociationState::Active {
+            remote_uid: Some(11)
+        }
+    );
 
     cache.send(envelope_to("receiver", port, 57)).unwrap();
     let (stream_id, frame) = frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();

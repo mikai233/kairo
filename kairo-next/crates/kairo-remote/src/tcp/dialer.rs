@@ -54,15 +54,17 @@ impl TcpAssociationDialer {
         &self,
         address: RemoteAssociationAddress,
     ) -> crate::Result<RemoteAssociationRouteRegistration> {
-        let control = self.connect_lane(&address, RemoteStreamId::Control)?;
-        let ordinary = self.connect_lane(&address, RemoteStreamId::Ordinary)?;
-        let large = self.connect_lane(&address, RemoteStreamId::Large)?;
+        let mut control = self.connect_lane_stream(&address, RemoteStreamId::Control)?;
+        let mut ordinary = self.connect_lane_stream(&address, RemoteStreamId::Ordinary)?;
+        let mut large = self.connect_lane_stream(&address, RemoteStreamId::Large)?;
+        self.complete_remote_handshake(&address, [&mut control, &mut ordinary, &mut large])?;
+        let peer = address.to_string();
 
         self.installer.insert_stream_pipeline(
             address,
-            Arc::new(control),
-            Arc::new(ordinary),
-            Arc::new(large),
+            Arc::new(TcpRemoteByteSink::from_stream(peer.clone(), control)),
+            Arc::new(TcpRemoteByteSink::from_stream(peer.clone(), ordinary)),
+            Arc::new(TcpRemoteByteSink::from_stream(peer, large)),
         )
     }
 
@@ -74,9 +76,10 @@ impl TcpAssociationDialer {
         RemoteAssociationRouteRegistration,
         TcpAssociationReaderHandle,
     )> {
-        let control = self.connect_lane_stream(&address, RemoteStreamId::Control)?;
-        let ordinary = self.connect_lane_stream(&address, RemoteStreamId::Ordinary)?;
-        let large = self.connect_lane_stream(&address, RemoteStreamId::Large)?;
+        let mut control = self.connect_lane_stream(&address, RemoteStreamId::Control)?;
+        let mut ordinary = self.connect_lane_stream(&address, RemoteStreamId::Ordinary)?;
+        let mut large = self.connect_lane_stream(&address, RemoteStreamId::Large)?;
+        self.complete_remote_handshake(&address, [&mut control, &mut ordinary, &mut large])?;
 
         let control_sink = clone_sink(&address, &control)?;
         let ordinary_sink = clone_sink(&address, &ordinary)?;
@@ -99,20 +102,49 @@ impl TcpAssociationDialer {
         Ok((registration, handle))
     }
 
-    fn connect_lane(
+    fn complete_remote_handshake(
         &self,
         address: &RemoteAssociationAddress,
-        stream_id: RemoteStreamId,
-    ) -> crate::Result<TcpRemoteByteSink> {
-        match &self.local_identity {
-            Some(local_identity) => TcpRemoteByteSink::connect_handshaken(
-                address,
-                local_identity,
-                stream_id,
-                self.connect_timeout,
-            ),
-            None => TcpRemoteByteSink::connect(address, self.connect_timeout),
+        streams: [&mut std::net::TcpStream; 3],
+    ) -> crate::Result<()> {
+        let Some(local_identity) = &self.local_identity else {
+            return Ok(());
+        };
+        let mut handshakes = Vec::with_capacity(streams.len());
+        for stream in streams {
+            stream
+                .set_read_timeout(self.connect_timeout)
+                .map_err(|error| {
+                    crate::RemoteError::Inbound(format!(
+                        "tcp handshake response timeout setup failed: {error}"
+                    ))
+                })?;
+            handshakes.push(super::read_tcp_association_handshake(stream)?);
+            stream.set_read_timeout(None).map_err(|error| {
+                crate::RemoteError::Inbound(format!(
+                    "tcp handshake response timeout clear failed: {error}"
+                ))
+            })?;
         }
+        let remote_identity = super::validate_tcp_association_handshakes(
+            local_identity.address(),
+            handshakes.len(),
+            &handshakes,
+        )?
+        .ok_or_else(|| {
+            crate::RemoteError::InvalidFrame(
+                "tcp association handshake response omitted remote identity".to_string(),
+            )
+        })?;
+        if remote_identity.address() != address {
+            return Err(crate::RemoteError::InvalidFrame(format!(
+                "tcp association handshake response came from {}, expected {}",
+                remote_identity.address(),
+                address
+            )));
+        }
+        self.installer
+            .complete_handshake(address.clone(), remote_identity.uid())
     }
 
     fn connect_lane_stream(

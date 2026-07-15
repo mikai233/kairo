@@ -3156,3 +3156,49 @@ Consequences:
   treating every control-lane frame as reliable.
 - Buffer and give-up limits make terminal failure observable and bounded rather
   than allowing an association to retain lifecycle messages forever.
+
+## ADR-0105: TCP Lane Handshakes Establish Both Peer Incarnations
+
+Status: Accepted
+
+Context:
+Reliable system delivery is scoped to the complete remote address and system
+UID. The original TCP lane handshake carried the dialer's identity to the
+accepting runtime, which was enough to validate inbound lanes and install a
+reverse route. The dialing runtime did not learn the accepting runtime's UID,
+however, so its outbound route could not sequence, reject stale replies, or
+quarantine the exact peer incarnation. The route pipeline also owned a second
+`RemoteAssociation` value instead of the handle indexed by the runtime's
+association registry.
+
+Decision:
+When both endpoints configure complete local identities, each accepted lane
+returns the same stable `TcpAssociationHandshake` record after all incoming
+lanes have been validated. The response reverses the direction: it carries the
+accepting runtime's address and UID, the dialer's target address, and the lane
+identifier. The dialer opens and writes all lanes before reading responses so
+the receiver can validate the association as a group without deadlock. It
+validates the response target, identity consistency, and lane uniqueness before
+installing the route.
+
+`RemoteAssociationRouteInstaller` can be configured with the runtime's
+`RemoteAssociationRegistry`. In that mode both accepted and dialed pipelines
+use the registry-owned association handle. Completing either side of the
+handshake activates that same handle with the observed remote UID, so queue
+failure, reliable-delivery failure, diagnostics, and normal send guards observe
+one incarnation state.
+
+Raw transport tests may still configure only a local address and use the
+one-way request form when peer-incarnation state is intentionally outside the
+test. Actor-system runtimes configure complete identities and require the
+response.
+
+Consequences:
+- Both sides of an actor-system TCP association know the peer UID before framed
+  messages are delivered.
+- Reliable sender state and acknowledgements can be keyed by the actual remote
+  incarnation without treating discovery or socket state as cluster truth.
+- Quarantining the registry handle immediately guards the installed route; no
+  parallel association state can remain active.
+- The stable handshake encoding is reused in both directions; no Rust type or
+  layout detail is added to the wire contract.

@@ -2,8 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     AssociationOutboundPipeline, RemoteAssociation, RemoteAssociationAddress,
-    RemoteAssociationCache, RemoteAssociationDiagnostics, RemoteByteSink, RemoteLaneClassifier,
-    RemoteOutbound, RemoteOutboundQueueSettings, Result,
+    RemoteAssociationCache, RemoteAssociationDiagnostics, RemoteAssociationRegistry,
+    RemoteByteSink, RemoteLaneClassifier, RemoteOutbound, RemoteOutboundQueueSettings, Result,
 };
 
 #[derive(Clone)]
@@ -11,6 +11,7 @@ pub struct RemoteAssociationRouteInstaller {
     cache: RemoteAssociationCache,
     classifier: RemoteLaneClassifier,
     diagnostics: Option<Arc<dyn RemoteAssociationDiagnostics>>,
+    association_registry: Option<RemoteAssociationRegistry>,
     queue_settings: Option<RemoteOutboundQueueSettings>,
 }
 
@@ -20,6 +21,7 @@ impl RemoteAssociationRouteInstaller {
             cache,
             classifier: RemoteLaneClassifier::default(),
             diagnostics: None,
+            association_registry: None,
             queue_settings: None,
         }
     }
@@ -31,6 +33,11 @@ impl RemoteAssociationRouteInstaller {
 
     pub fn with_diagnostics(mut self, diagnostics: Arc<dyn RemoteAssociationDiagnostics>) -> Self {
         self.diagnostics = Some(diagnostics);
+        self
+    }
+
+    pub fn with_association_registry(mut self, registry: RemoteAssociationRegistry) -> Self {
+        self.association_registry = Some(registry);
         self
     }
 
@@ -50,11 +57,16 @@ impl RemoteAssociationRouteInstaller {
         ordinary: Arc<dyn RemoteByteSink>,
         large: Arc<dyn RemoteByteSink>,
     ) -> Result<RemoteAssociationRouteRegistration> {
-        let mut association = RemoteAssociation::new(address.to_string());
-        if let Some(diagnostics) = &self.diagnostics {
-            association = association.with_diagnostics(diagnostics.clone());
-        }
-        let association = Arc::new(Mutex::new(association));
+        let association = match &self.association_registry {
+            Some(registry) => registry.association(address.clone()),
+            None => {
+                let mut association = RemoteAssociation::new(address.to_string());
+                if let Some(diagnostics) = &self.diagnostics {
+                    association = association.with_diagnostics(diagnostics.clone());
+                }
+                Arc::new(Mutex::new(association))
+            }
+        };
         let pipeline = match self.queue_settings {
             Some(settings) => AssociationOutboundPipeline::shared_queued(
                 association,
@@ -84,6 +96,17 @@ impl RemoteAssociationRouteInstaller {
             outbound,
             replaced,
         })
+    }
+
+    pub(crate) fn complete_handshake(
+        &self,
+        address: RemoteAssociationAddress,
+        remote_uid: u64,
+    ) -> Result<()> {
+        if let Some(registry) = &self.association_registry {
+            registry.complete_handshake(address, remote_uid)?;
+        }
+        Ok(())
     }
 
     pub fn remove_route(

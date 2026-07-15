@@ -859,6 +859,10 @@ TCP association dialing:
   `RemoteAssociationAddress` values, the sender system UID, and the lane id.
   Listeners reject lanes addressed to another local address, lanes from mixed
   remote association incarnations, or duplicate lane ids,
+- after validating all lanes, actor-system listeners return the same stable
+  handshake record in the reverse direction. Dialers validate all responses
+  before installing a route, so both endpoints know the peer UID and lane
+  identity before framed delivery begins,
 - `TcpAcceptedAssociation` and `TcpAssociationListenerReport` retain the
   accepted remote identity when handshakes are enabled, preserving the address
   and UID that a later association registry and quarantine layer will need,
@@ -870,6 +874,9 @@ TCP association dialing:
   cloned into reverse `TcpRemoteByteSink` values and installed as an outbound
   route for the remote association address, giving the local runtime a
   bidirectional route without making the association cache a membership store,
+- a route installer configured with the runtime association registry uses that
+  registry's handle for both accepted and dialed pipelines, keeping send guards,
+  UID indexing, diagnostics, and quarantine on one incarnation state,
 - `TcpRemoteActorRuntime` composes the concrete TCP listener, association
   cache, route installer, dialer, remote actor-ref provider, actor-system
   manifest registry, and remote death-watch actor into one non-generic
