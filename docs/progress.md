@@ -15,10 +15,10 @@ work.
 Current active stage: **foundation convergence before M13**, with Phases 1-3
 complete and Phase 4 distributed integration now active. The three-node final
 acceptance workflow now passes through the public composed runtime. Remaining
-Phase 4 work is broader same-runtime fault coverage for distributed data,
-singleton, and pubsub rather than the sharding architecture itself. M13 begins
-only after those remaining gaps can be treated as tuning and release hardening
-rather than replacement.
+Phase 4 work is comparable same-runtime fault coverage for singleton and
+pubsub, plus broader distributed-data pruning and partition depth, rather than
+the sharding architecture itself. M13 begins only after those remaining gaps
+can be treated as tuning and release hardening rather than replacement.
 
 Status terms in this document mean:
 
@@ -77,8 +77,13 @@ Status terms in this document mean:
   routes and source identities from real cluster membership, and converges a
   two-node `GCounter` through periodic full-state gossip and delta propagation
   over the shared remoting runtime. Remote majority read/write aggregation now
-  also round-trips through canonical temporary actor refs on that runtime.
-  Broader typed data registration and process/fault acceptance remain open.
+  also round-trips through canonical temporary actor refs on that runtime. A
+  three-node crash test preserves a stopped replica's converged counter
+  contribution, observes failure detection and explicit downing remove and
+  tombstone that replica, verifies both live connectors drop its route, and
+  completes new majority write/read operations across the two survivors.
+  Broader typed data registration, removed-node pruning, and network-partition
+  acceptance remain open.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
@@ -408,6 +413,12 @@ seconds, pinning the delta-only path. Remote consistency aggregation is
 composed as well: with both background propagation paths delayed, a third
 two-node test completes a majority write only after the peer applies and
 acknowledges it, then reads a locally missing key through majority read/merge.
+A three-node fault test now crashes one replica without cluster leave, waits
+for heartbeat failure detection, explicitly downs it through the public
+cluster facade, and observes gossip removal/tombstoning plus connector route
+cleanup. Its two survivors preserve the crashed node's converged GCounter
+contribution and complete new majority write and read operations after the
+replica set shrinks.
 Cluster sharding now shares that same lifecycle. `register_cluster_sharding`
 installs one recipient-path router before bind: routed business envelopes use
 the ordinary lane, while the twelve coordinator/region control manifests use
@@ -464,8 +475,10 @@ ActorSystems: it forms through seed contact and gossip, replicates coordinator
 and entity remember state through node-local ORSet replicas, observes periodic
 rebalance of an existing shard, gracefully removes the oldest node, and
 observes an unmoved remembered entity restart on a survivor before sending its
-next command. The Phase 4 three-node acceptance exit gate is therefore met;
-broader ddata, singleton, and pubsub fault scenarios remain the active gate.
+next command. The Phase 4 three-node acceptance exit gate is therefore met,
+and distributed data now has a same-runtime crash/down survivor-quorum
+scenario. Comparable singleton and pubsub fault scenarios, plus broader ddata
+pruning/partition coverage, remain the active gate.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6117,12 +6130,11 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after the three-node sharding acceptance workflow:
+Latest Phase 4 validation after distributed-data survivor quorum recovery:
 
 ```bash
-cargo test --workspace --all-targets --all-features
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo run -p kairo-examples --example cluster_sharding_tcp
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```

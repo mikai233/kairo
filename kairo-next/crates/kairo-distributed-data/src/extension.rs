@@ -472,13 +472,14 @@ where
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
 
     use bytes::Bytes;
     use kairo_cluster::{
         ClusterDaemonBootstrapSettings, ClusterGossipProcessSettings, ClusterMembershipMsg,
         DeadlineFailureDetectorSettings, Gossip, HeartbeatSenderSettings, MemberStatus,
-        register_cluster_daemon, register_cluster_protocol_codecs,
+        ReachabilityStatus, register_cluster_daemon, register_cluster_protocol_codecs,
     };
     use kairo_remote::{
         RemoteSettings, TcpRemoteActorRuntime, TcpRemoteReconnectSettings,
@@ -492,6 +493,8 @@ mod tests {
         GCounter, GCounterCodec, GetResponse, ReadConsistency, ReplicatorClusterConnectorSnapshot,
         ReplicatorKey, UpdateResponse, WriteConsistency, register_ddata_protocol_codecs,
     };
+
+    static PROBE_ID: AtomicU64 = AtomicU64::new(0);
 
     struct ComposedDdataNode {
         kit: ActorSystemTestKit,
@@ -538,12 +541,12 @@ mod tests {
                         HeartbeatSenderSettings::new(
                             5,
                             DeadlineFailureDetectorSettings::new(
-                                Duration::from_millis(15),
                                 Duration::from_millis(100),
+                                Duration::from_secs(2),
                             )
                             .unwrap(),
                         )
-                        .with_heartbeat_expected_response_after(Duration::from_millis(10)),
+                        .with_heartbeat_expected_response_after(Duration::from_millis(500)),
                     ),
             )
             .unwrap();
@@ -629,9 +632,10 @@ mod tests {
         }
 
         fn await_counter(&self, key: ReplicatorKey, expected: u128) {
+            let id = PROBE_ID.fetch_add(1, Ordering::Relaxed);
             let reads = self
                 .kit
-                .create_probe::<GetResponse<GCounter>>("reads")
+                .create_probe::<GetResponse<GCounter>>(format!("reads-{id}"))
                 .unwrap();
             await_assert(Duration::from_secs(3), Duration::from_millis(20), || {
                 self.ddata
@@ -657,6 +661,11 @@ mod tests {
 
         fn shutdown(self) {
             self.kit.system().stop(self.cluster.root());
+            self.runtime.shutdown().unwrap();
+            self.kit.shutdown(Duration::from_secs(1)).unwrap();
+        }
+
+        fn crash(self) {
             self.runtime.shutdown().unwrap();
             self.kit.shutdown(Duration::from_secs(1)).unwrap();
         }
@@ -920,6 +929,165 @@ mod tests {
         let GetResponse::Success { key, data } = reads.expect_msg(Duration::from_secs(3)).unwrap()
         else {
             panic!("remote majority read did not succeed");
+        };
+        assert_eq!(key, read_key);
+        assert_eq!(data.value().unwrap(), 13);
+
+        peer.shutdown();
+        seed.shutdown();
+    }
+
+    #[test]
+    fn composed_extension_survivors_reform_quorum_after_replica_crash() {
+        let registry = registry();
+        let seed = ComposedDdataNode::start(
+            "ddata-fault-seed",
+            1,
+            401,
+            vec![],
+            registry.clone(),
+            Duration::from_millis(20),
+            Some(Duration::from_millis(20)),
+        );
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.cluster.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "ddata fault seed has not formed".to_string())
+        })
+        .unwrap();
+        let peer = ComposedDdataNode::start(
+            "ddata-fault-peer",
+            2,
+            402,
+            vec![seed.cluster.self_node().address.clone()],
+            registry.clone(),
+            Duration::from_millis(20),
+            Some(Duration::from_millis(20)),
+        );
+        let crashed = ComposedDdataNode::start(
+            "ddata-fault-crashed",
+            3,
+            403,
+            vec![seed.cluster.self_node().address.clone()],
+            registry,
+            Duration::from_millis(20),
+            Some(Duration::from_millis(20)),
+        );
+        let crashed_node = crashed.cluster.self_node().clone();
+        let crashed_replica = ReplicaId::from(&crashed_node);
+        let seed_replica = ReplicaId::from(seed.cluster.self_node());
+        let peer_replica = ReplicaId::from(peer.cluster.self_node());
+
+        await_assert(Duration::from_secs(5), Duration::from_millis(10), || {
+            let seed_routes = seed.connector();
+            let peer_routes = peer.connector();
+            let crashed_routes = crashed.connector();
+            (seed_routes.remote_replicas.len() == 2
+                && peer_routes.remote_replicas.len() == 2
+                && crashed_routes.remote_replicas.len() == 2)
+                .then_some(())
+                .ok_or_else(|| {
+                    format!(
+                        "ddata fault topology has not formed: seed={seed_routes:?}, peer={peer_routes:?}, crashed={crashed_routes:?}"
+                    )
+                })
+        })
+        .unwrap();
+
+        let key = ReplicatorKey::new("crash-survivor-counter");
+        crashed.update_counter(key.clone(), 5);
+        seed.await_counter(key.clone(), 5);
+        peer.await_counter(key.clone(), 5);
+
+        crashed.crash();
+        await_assert(Duration::from_secs(6), Duration::from_millis(25), || {
+            let gossip = seed.gossip();
+            (gossip
+                .reachability()
+                .status(seed.cluster.self_node(), &crashed_node)
+                == ReachabilityStatus::Unreachable)
+                .then_some(())
+                .ok_or_else(|| "crashed ddata replica is not yet unreachable".to_string())
+        })
+        .unwrap();
+
+        seed.cluster
+            .cluster()
+            .down(crashed_node.address.clone())
+            .unwrap();
+        await_assert(Duration::from_secs(5), Duration::from_millis(20), || {
+            let seed_gossip = seed.gossip();
+            let peer_gossip = peer.gossip();
+            (seed_gossip.member(&crashed_node).is_none()
+                && peer_gossip.member(&crashed_node).is_none()
+                && seed_gossip.tombstones().contains_key(&crashed_node)
+                && peer_gossip.tombstones().contains_key(&crashed_node))
+            .then_some(())
+            .ok_or_else(|| "crashed ddata replica has not been removed".to_string())
+        })
+        .unwrap();
+        await_assert(Duration::from_secs(3), Duration::from_millis(20), || {
+            let seed_routes = seed.connector();
+            let peer_routes = peer.connector();
+            (seed_routes.remote_replicas == vec![peer_replica.clone()]
+                && peer_routes.remote_replicas == vec![seed_replica.clone()]
+                && !seed_routes.remote_replicas.contains(&crashed_replica)
+                && !peer_routes.remote_replicas.contains(&crashed_replica))
+                .then_some(())
+                .ok_or_else(|| {
+                    format!(
+                        "ddata routes still include crashed replica: seed={seed_routes:?}, peer={peer_routes:?}"
+                    )
+                })
+        })
+        .unwrap();
+
+        let writes = seed
+            .kit
+            .create_probe::<UpdateResponse<GCounter>>("post-crash-majority-writes")
+            .unwrap();
+        let local_replica = seed.ddata.self_replica();
+        seed.ddata
+            .replicator()
+            .tell(ReplicatorActorMsg::Update {
+                key: key.clone(),
+                initial: GCounter::new(),
+                consistency: WriteConsistency::majority(Duration::from_secs(2)),
+                modify: Box::new(move |counter| {
+                    counter
+                        .increment(local_replica, 3)
+                        .map_err(|error| error.to_string())
+                }),
+                reply_to: writes.actor_ref(),
+            })
+            .unwrap();
+        assert!(matches!(
+            writes.expect_msg(Duration::from_secs(3)).unwrap(),
+            UpdateResponse::Success(_)
+        ));
+        peer.await_counter(key, 8);
+
+        let read_key = ReplicatorKey::new("post-crash-majority-read");
+        seed.update_counter(read_key.clone(), 13);
+        let reads = peer
+            .kit
+            .create_probe::<GetResponse<GCounter>>("post-crash-majority-reads")
+            .unwrap();
+        peer.ddata
+            .replicator()
+            .tell(ReplicatorActorMsg::Get {
+                key: read_key.clone(),
+                consistency: ReadConsistency::majority(Duration::from_secs(2)),
+                reply_to: reads.actor_ref(),
+            })
+            .unwrap();
+        let GetResponse::Success { key, data } = reads.expect_msg(Duration::from_secs(3)).unwrap()
+        else {
+            panic!("post-crash majority read did not succeed");
         };
         assert_eq!(key, read_key);
         assert_eq!(data.value().unwrap(), 13);
