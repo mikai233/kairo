@@ -340,6 +340,118 @@ mod tests {
         );
         kit.shutdown(Duration::from_secs(1)).unwrap();
     }
+
+    #[test]
+    fn handoff_worker_ignores_local_completion_before_stop_phase() {
+        let kit = ActorSystemTestKit::new("handoff-worker-premature-local-completion").unwrap();
+        let mut transport = HandoffTransport::new();
+        transport.insert_target(HandoffRegionTarget::new("owner-region", AcceptingRegion));
+        let worker = kit
+            .system()
+            .spawn(
+                "worker",
+                HandoffWorkerActor::props(
+                    ShardRebalancePlan {
+                        shard: "12".to_string(),
+                        from_region: "owner-region".to_string(),
+                        participants: Default::default(),
+                        begin_handoff: crate::BeginHandOff {
+                            shard_id: "12".to_string(),
+                        },
+                    },
+                    "stop".to_string(),
+                    Duration::from_secs(1),
+                    transport,
+                ),
+            )
+            .unwrap();
+        let done = kit.create_probe::<HandoffWorkerDone>("done").unwrap();
+
+        worker
+            .tell(HandoffWorkerMsg::LocalHandOffCompleted {
+                plan: RegionLocalHandOffCompletionPlan::Completed {
+                    shard: "12".to_string(),
+                    stopped: ShardStopped {
+                        shard_id: "12".to_string(),
+                    },
+                },
+            })
+            .unwrap();
+        worker
+            .tell(HandoffWorkerMsg::Start {
+                reply_to: done.actor_ref(),
+            })
+            .unwrap();
+        worker
+            .tell(HandoffWorkerMsg::RemoteShardStopped {
+                region: "owner-region".to_string(),
+                stopped: ShardStopped {
+                    shard_id: "12".to_string(),
+                },
+            })
+            .unwrap();
+
+        assert_eq!(
+            done.expect_msg(Duration::from_millis(500)).unwrap(),
+            HandoffWorkerDone {
+                shard: "12".to_string(),
+                ok: true,
+            }
+        );
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn handoff_worker_rejects_inconsistent_local_completion_identity() {
+        let kit = ActorSystemTestKit::new("handoff-worker-mismatched-local-completion").unwrap();
+        let mut transport = HandoffTransport::new();
+        transport.insert_target(HandoffRegionTarget::new("owner-region", AcceptingRegion));
+        let worker = kit
+            .system()
+            .spawn(
+                "worker",
+                HandoffWorkerActor::props(
+                    ShardRebalancePlan {
+                        shard: "12".to_string(),
+                        from_region: "owner-region".to_string(),
+                        participants: Default::default(),
+                        begin_handoff: crate::BeginHandOff {
+                            shard_id: "12".to_string(),
+                        },
+                    },
+                    "stop".to_string(),
+                    Duration::from_secs(1),
+                    transport,
+                ),
+            )
+            .unwrap();
+        let done = kit.create_probe::<HandoffWorkerDone>("done").unwrap();
+
+        worker
+            .tell(HandoffWorkerMsg::Start {
+                reply_to: done.actor_ref(),
+            })
+            .unwrap();
+        worker
+            .tell(HandoffWorkerMsg::LocalHandOffCompleted {
+                plan: RegionLocalHandOffCompletionPlan::Completed {
+                    shard: "12".to_string(),
+                    stopped: ShardStopped {
+                        shard_id: "other".to_string(),
+                    },
+                },
+            })
+            .unwrap();
+
+        assert_eq!(
+            done.expect_msg(Duration::from_millis(500)).unwrap(),
+            HandoffWorkerDone {
+                shard: "12".to_string(),
+                ok: false,
+            }
+        );
+        kit.shutdown(Duration::from_secs(1)).unwrap();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -631,9 +743,13 @@ where
         ctx: &mut Context<HandoffWorkerMsg<M>>,
         plan: RegionLocalHandOffCompletionPlan,
     ) -> Result<(), ActorError> {
+        if self.phase != HandoffWorkerPhase::AwaitingShardStopped {
+            return Ok(());
+        }
+
         match plan {
-            RegionLocalHandOffCompletionPlan::Completed { shard, .. }
-                if shard == self.plan.shard =>
+            RegionLocalHandOffCompletionPlan::Completed { shard, stopped }
+                if shard == self.plan.shard && stopped.shard_id == self.plan.shard =>
             {
                 self.finish(ctx, true)
             }
