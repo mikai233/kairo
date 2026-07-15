@@ -8,11 +8,12 @@ cluster tools. The component depth and validation history are substantial, but
 the rewrite has not yet reached an M13-only hardening phase. The production
 actor execution model and composed remoting boundary are now complete. The
 composed cluster daemon and its public ActorSystem extension now cover formation,
-reachability, graceful leave, and explicit join; process-level reincarnation and
-shutdown validation still require foundational integration work.
+reachability, graceful leave, explicit join, and same-address reincarnation at
+the process boundary. Distributed integration is now the active foundational
+work.
 
-Current active stage: **foundation convergence before M13**, with Phases 1 and
-2 complete and Phase 3 cluster daemon integration now active. M13 validation
+Current active stage: **foundation convergence before M13**, with Phases 1-3
+complete and Phase 4 distributed integration now active. M13 validation
 commands continue to run as regression gates, but passing those gates does not
 by itself mean that the M13 acceptance condition has been met. M13 begins only
 after the remaining architecture work can be treated as tuning and release
@@ -59,14 +60,15 @@ Status terms in this document mean:
 - M5 gossip data model: near complete. Vector clocks, gossip, reachability,
   convergence, leader selection, and event diffing have strong pure-state test
   coverage without a central membership authority.
-- M6 cluster runtime and membership protocol: in progress. Membership actors,
+- M6 cluster runtime and membership protocol: complete. Membership actors,
   join/welcome handling, heartbeat, downing hooks, remote envelopes, and TCP
   peer bootstrap components exist. The composed daemon now proves seed contact,
   `InitJoin` acknowledgement, periodic gossip, automatic convergence to `Up`,
   heartbeat reachability/recovery, and graceful leave to `Removed` without
   injected membership snapshots. The daemon now installs one ActorSystem-owned
-  `ClusterExtension` with explicit one-shot join ownership. The remaining
-  acceptance gap is broader process-level incarnation/shutdown validation.
+  `ClusterExtension` with explicit one-shot join ownership. A process-level
+  abrupt-restart test proves that a new UID at the same canonical address downs
+  and tombstones the old incarnation, retries Join, and converges to `Up`.
 - M7 distributed data: substantial component coverage. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
   connectors, TCP peer runtime, and examples exist. Product acceptance remains
@@ -257,7 +259,7 @@ ownership and system-message delivery decisions before implementation.
 
 ### Phase 3: Complete M6 Cluster Runtime
 
-Status: **active**.
+Status: **complete**.
 
 Current checkpoint: the previously missing daemon wire contract is now fixed
 before lifecycle ownership is added. `InitJoin`, `InitJoinAck`, `InitJoinNack`,
@@ -326,9 +328,13 @@ one-shot formation. A manual remote join establishes managed association intent
 outside the actor turn, sends the stable `Join` protocol, and retries until the
 local incarnation appears in membership; later join requests are ignored. A
 two-runtime test proves extension lookup, explicit join into an existing node,
-automatic convergence to `Up`, and duplicate-join suppression. Broader
-process-level incarnation and shutdown validation remains the active Phase 3
-work.
+automatic convergence to `Up`, and duplicate-join suppression. A composed
+abrupt-restart test then rebinds the same ActorSystem name, host, and port with
+new cluster/remoting UIDs. The first Join downs the old incarnation without a
+Welcome; periodic Join retry succeeds only after leader removal, and both live
+views retain the old tombstone while the replacement converges to `Up`. This
+closes the Phase 3 exit gate together with the existing three-node formation,
+reachability recovery, and graceful-shutdown tests.
 
 Task: implement the cluster extension and daemon lifecycle around the existing
 gossip, membership, heartbeat, downing, and transport components.
@@ -356,6 +362,8 @@ Do not change: membership truth remains gossip plus local failure-detector
 observations; discovery supplies contact addresses only.
 
 ### Phase 4: Distributed Integration And Public Extensions
+
+Status: **active**.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.
@@ -5954,6 +5962,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 3 validation after process-level reincarnation:
+
+```bash
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo check --workspace --all-targets --all-features
+cargo clippy -p kairo -p kairo-cluster --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after the ActorSystem cluster extension:
 

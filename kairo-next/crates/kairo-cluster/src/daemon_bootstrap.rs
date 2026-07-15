@@ -867,6 +867,12 @@ mod tests {
         heartbeat_state: TestProbe<HeartbeatSenderSnapshot>,
     }
 
+    struct ComposedNodeOptions {
+        acceptable_pause: Duration,
+        auto_join: bool,
+        canonical_port: u16,
+    }
+
     impl ComposedNode {
         fn start(
             system: &str,
@@ -913,11 +919,33 @@ mod tests {
             acceptable_pause: Duration,
             auto_join: bool,
         ) -> Self {
+            Self::start_with_runtime_options(
+                system,
+                node_uid,
+                remote_uid,
+                seed_nodes,
+                registry,
+                ComposedNodeOptions {
+                    acceptable_pause,
+                    auto_join,
+                    canonical_port: 0,
+                },
+            )
+        }
+
+        fn start_with_runtime_options(
+            system: &str,
+            node_uid: u64,
+            remote_uid: u64,
+            seed_nodes: Vec<kairo_actor::Address>,
+            registry: Arc<Registry>,
+            options: ComposedNodeOptions,
+        ) -> Self {
             let kit = ActorSystemTestKit::new(system).unwrap();
             let mut builder = TcpRemoteActorRuntime::builder(
                 kit.system().clone(),
                 registry,
-                RemoteSettings::new("127.0.0.1", 0),
+                RemoteSettings::new("127.0.0.1", options.canonical_port),
                 remote_uid,
             )
             .with_reconnect_settings(
@@ -940,14 +968,14 @@ mod tests {
                             5,
                             DeadlineFailureDetectorSettings::new(
                                 Duration::from_millis(15),
-                                acceptable_pause,
+                                options.acceptable_pause,
                             )
                             .unwrap(),
                         )
                         .with_heartbeat_expected_response_after(Duration::from_millis(10)),
                     )
                     .with_shutdown_timeout(Duration::from_secs(3))
-                    .with_auto_join(auto_join),
+                    .with_auto_join(options.auto_join),
             )
             .unwrap();
             let runtime = builder.bind().unwrap();
@@ -1409,6 +1437,86 @@ mod tests {
         assert_eq!(joining.gossip().members().len(), 2);
 
         joining.shutdown();
+        seed.shutdown();
+    }
+
+    #[test]
+    fn replacement_incarnation_rejoins_same_canonical_address_after_abrupt_restart() {
+        let registry = registry();
+        let seed = ComposedNode::start("daemon-restart-seed", 81, 8081, vec![], registry.clone());
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.handle.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "restart seed has not formed".to_string())
+        })
+        .unwrap();
+        let old = ComposedNode::start(
+            "daemon-restart-peer",
+            82,
+            8082,
+            vec![seed.handle.self_node().address.clone()],
+            registry.clone(),
+        );
+        let old_node = old.handle.self_node().clone();
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let views = [seed.gossip(), old.gossip()];
+            views
+                .iter()
+                .all(|gossip| {
+                    [seed.handle.self_node(), &old_node]
+                        .into_iter()
+                        .all(|node| {
+                            gossip.member(node).map(|member| member.status)
+                                == Some(MemberStatus::Up)
+                        })
+                })
+                .then_some(())
+                .ok_or_else(|| "original incarnation has not converged to Up".to_string())
+        })
+        .unwrap();
+
+        let port = old_node.address.port().unwrap();
+        old.shutdown();
+        let replacement = ComposedNode::start_with_runtime_options(
+            "daemon-restart-peer",
+            83,
+            8083,
+            vec![seed.handle.self_node().address.clone()],
+            registry,
+            ComposedNodeOptions {
+                acceptable_pause: Duration::from_millis(45),
+                auto_join: true,
+                canonical_port: port,
+            },
+        );
+        let replacement_node = replacement.handle.self_node().clone();
+        assert_eq!(replacement_node.address, old_node.address);
+        assert_ne!(replacement_node.uid, old_node.uid);
+
+        await_assert(Duration::from_secs(6), Duration::from_millis(10), || {
+            let seed_gossip = seed.gossip();
+            let replacement_gossip = replacement.gossip();
+            let old_removed = !seed_gossip.has_member(&old_node)
+                && seed_gossip.tombstones().contains_key(&old_node)
+                && replacement_gossip.tombstones().contains_key(&old_node);
+            let replacement_up = [seed.handle.self_node(), &replacement_node]
+                .into_iter()
+                .all(|node| {
+                    seed_gossip.member(node).map(|member| member.status) == Some(MemberStatus::Up)
+                        && replacement_gossip.member(node).map(|member| member.status)
+                            == Some(MemberStatus::Up)
+                });
+            (old_removed && replacement_up)
+                .then_some(())
+                .ok_or_else(|| "replacement incarnation has not converged to Up".to_string())
+        })
+        .unwrap();
+
+        replacement.shutdown();
         seed.shutdown();
     }
 }
