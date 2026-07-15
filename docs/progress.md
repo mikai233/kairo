@@ -196,9 +196,13 @@ remote ref delivers after explicit redial. Malformed-handshake isolation now
 has real accept-loop coverage: bad magic, unsupported versions, oversized
 declarations, truncated bodies, and wrong-target identities are rejected
 without installing peer state or preventing a later valid peer from delivering.
-Automatic reconnect scheduling and process-level remoting coverage remain next.
-The older subsystem-specific TCP runtimes remain migration baselines until
-their higher runtime owners adopt the shared core.
+The focused process-level remoting gate now runs the public composed runtime in
+two OS processes with independent ActorSystems and codec registries, exchanges
+only the receiver's canonical TCP address and actor path, delivers a typed
+message through `RemoteActorRef<M>`, and completes bounded shutdown on both
+sides. Automatic reconnect scheduling remains next. The older subsystem-
+specific TCP runtimes remain migration baselines until their higher runtime
+owners adopt the shared core.
 
 The reliable-delivery wire/state-machine layer and its composed runtime are now
 implemented: registered stable envelope/ack/nack codecs preserve a nested

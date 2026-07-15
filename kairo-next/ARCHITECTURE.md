@@ -908,6 +908,11 @@ TCP association dialing:
   association cache remains available as the transport route table.
   `TcpRemoteActorSystem<M>` remains a compatibility facade that
   registers one protocol with the same runtime core,
+- `tests/process_remoting.rs` runs the public composed runtime on both sides of
+  an OS-process boundary. The receiver child publishes only its bound canonical
+  address and typed actor path; the independent sender builds its own codec
+  registry and ActorSystem, dials over TCP, delivers through `RemoteActorRef<M>`,
+  and both processes complete bounded shutdown without shared runtime state,
 - `TcpRemoteActorRuntime::shutdown_with_timeout` stops the runtime-owned
   reliable-delivery scheduler and remote death-watch actors before clearing
   outbound association routes and
