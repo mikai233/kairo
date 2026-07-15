@@ -1,16 +1,18 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
-use kairo_actor::{Actor, ActorRef, ActorResult, AskError, Context, Props};
+use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
 
 use crate::shard_loading::ShardRememberLoadState;
-use crate::shard_store::{LocalShardRememberStoreProvider, ShardRememberStore};
+use crate::shard_store::{
+    LocalShardRememberStoreProvider, ShardRememberStore, ShardRememberStoreError,
+};
 use crate::{
     EntityId, EntityTerminatedPlan, MovedRememberedEntitiesPlan, PassivatePlan,
     RememberShardStoreMsg, RememberShardStoreState, RememberShardUpdate, RememberShardUpdateDone,
     RememberUpdateDonePlan, RememberedEntities, RememberedEntitiesPlan,
     RestartRememberedEntityPlan, ShardDeliverPlan, ShardHandOffPlan, ShardId, ShardRuntime,
-    ShardingEnvelope, ShardingError,
+    ShardingEnvelope,
 };
 
 pub struct ShardActor<M> {
@@ -200,7 +202,7 @@ pub enum ShardMsg<M> {
         reply_to: ActorRef<RememberedEntitiesPlan>,
     },
     RememberStoreLoadResult {
-        result: Result<RememberedEntities, AskError>,
+        result: Result<RememberedEntities, ShardRememberStoreError>,
     },
     RememberUpdateDone {
         update: RememberShardUpdate,
@@ -208,7 +210,7 @@ pub enum ShardMsg<M> {
     },
     RememberStoreUpdateResult {
         update: RememberShardUpdate,
-        result: Result<Result<RememberShardUpdateDone, ShardingError>, AskError>,
+        result: Result<RememberShardUpdateDone, ShardRememberStoreError>,
     },
     SetPreparingForShutdown {
         preparing: bool,
@@ -371,8 +373,8 @@ where
             }
             ShardMsg::RememberStoreUpdateResult { update: _, result } => {
                 let done = match result {
-                    Ok(Ok(done)) => done,
-                    Ok(Err(_)) | Err(_) => {
+                    Ok(done) => done,
+                    Err(_) => {
                         return self.stop_for_remember_store_failure(ctx);
                     }
                 };

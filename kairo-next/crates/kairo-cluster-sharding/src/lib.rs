@@ -163,8 +163,9 @@ pub use envelope::ShardingEnvelope;
 pub use errors::ShardingError;
 pub use extension::{
     ClusterSharding, ClusterShardingBootstrapError, ClusterShardingRegistration,
-    ClusterShardingSettings, Entity, SHARDING_CONTROL_MANIFESTS, SHARDING_ORDINARY_MANIFESTS,
-    register_cluster_sharding, register_cluster_sharding_with_singleton,
+    ClusterShardingSettings, DDataRememberEntitiesSettings, Entity, SHARDING_CONTROL_MANIFESTS,
+    SHARDING_ORDINARY_MANIFESTS, register_cluster_sharding,
+    register_cluster_sharding_with_singleton,
 };
 pub use extractor::{EntityMessageExtractor, EntityMessageExtractorRouter, ExtractedEntityMessage};
 pub use handoff_transport::{
@@ -245,6 +246,7 @@ pub use shard_runtime::{
     RestartRememberedEntityIgnoreReason, RestartRememberedEntityPlan, ShardDeliverPlan,
     ShardDropReason, ShardEntityState, ShardHandOffPlan, ShardRuntime,
 };
+pub use shard_store::ShardRememberStoreError;
 
 /// Stable logical identity for one sharded entity.
 ///

@@ -16,6 +16,7 @@ use kairo_cluster_tools::{
     ClusterSingleton, ClusterSingletonBootstrapError, ClusterSingletonRef,
     ClusterSingletonRegistration, ClusterSingletonSettings, Singleton, register_cluster_singleton,
 };
+use kairo_distributed_data::{ORSet, ReplicaId, ReplicatorActorMsg};
 use kairo_remote::{
     RemoteEnvelopeHandler, RemoteError, RemoteOutboundRecipient, TcpRemoteActorRuntime,
     TcpRemoteActorRuntimeBuilder, TcpRemoteActorRuntimeContext,
@@ -138,6 +139,7 @@ where
     shard_count: u64,
     coordinator_role: Option<String>,
     coordinator_remember_store: Option<CoordinatorRememberStoreSettings>,
+    ddata_remember_entities: Option<DDataRememberEntitiesSettings>,
     stop_message: Option<M>,
 }
 
@@ -151,6 +153,30 @@ struct CoordinatorRememberStoreSettings {
 enum CoordinatorRememberStoreTargetSettings {
     Actor(ActorRef<RememberCoordinatorStoreMsg>),
     DistributedData(ActorRef<RememberCoordinatorDDataStoreMsg>),
+}
+
+#[derive(Clone)]
+pub struct DDataRememberEntitiesSettings {
+    coordinator_store: ActorRef<RememberCoordinatorDDataStoreMsg>,
+    shard_replica_id: ReplicaId,
+    shard_replicator: ActorRef<ReplicatorActorMsg<ORSet<String>>>,
+    timeout: Duration,
+}
+
+impl DDataRememberEntitiesSettings {
+    pub fn new(
+        coordinator_store: ActorRef<RememberCoordinatorDDataStoreMsg>,
+        shard_replica_id: impl Into<ReplicaId>,
+        shard_replicator: ActorRef<ReplicatorActorMsg<ORSet<String>>>,
+        timeout: Duration,
+    ) -> Self {
+        Self {
+            coordinator_store,
+            shard_replica_id: shard_replica_id.into(),
+            shard_replicator,
+            timeout,
+        }
+    }
 }
 
 impl<M> Entity<M>
@@ -168,6 +194,7 @@ where
             shard_count: DEFAULT_SHARD_COUNT,
             coordinator_role: None,
             coordinator_remember_store: None,
+            ddata_remember_entities: None,
             stop_message: None,
         }
     }
@@ -211,6 +238,17 @@ where
             target: CoordinatorRememberStoreTargetSettings::DistributedData(store),
             timeout,
         });
+        self
+    }
+
+    pub fn with_ddata_remember_entities(mut self, settings: DDataRememberEntitiesSettings) -> Self {
+        self.coordinator_remember_store = Some(CoordinatorRememberStoreSettings {
+            target: CoordinatorRememberStoreTargetSettings::DistributedData(
+                settings.coordinator_store.clone(),
+            ),
+            timeout: settings.timeout,
+        });
+        self.ddata_remember_entities = Some(settings);
         self
     }
 
@@ -609,26 +647,41 @@ impl ClusterSharding {
                 let transport = remote_coordinator_transport.clone();
                 let region_capacity = self.settings.region_buffer_capacity;
                 let shard_capacity = self.settings.shard_buffer_capacity;
+                let entity_type_name = type_name.clone();
+                let ddata_remember_entities = entity.ddata_remember_entities.clone();
                 move || {
                     let handoff_stop = Arc::new(Mutex::new(stop_message.clone()));
-                    ShardRegionActor::new_with_local_entity_shards(
-                        self_region.clone(),
-                        region_capacity,
-                        shard_capacity,
-                        factory.clone(),
-                    )
-                    .with_coordinator_discovery(discovery.clone())
-                    .with_remote_coordinator_transport(transport.clone())
-                    .with_region_route_transport(crate::RegionRouteTransport::new())
-                    .with_remote_handoff_stop_message_factory(
-                        move || {
-                            handoff_stop
-                                .lock()
-                                .expect("sharding handoff stop message poisoned")
-                                .clone()
-                        },
-                        handoff_timeout,
-                    )
+                    let region = match &ddata_remember_entities {
+                        Some(settings) => ShardRegionActor::new_with_ddata_remember_entity_shards(
+                            self_region.clone(),
+                            entity_type_name.clone(),
+                            region_capacity,
+                            shard_capacity,
+                            factory.clone(),
+                            settings.shard_replica_id.clone(),
+                            settings.shard_replicator.clone(),
+                            settings.timeout,
+                        ),
+                        None => ShardRegionActor::new_with_local_entity_shards(
+                            self_region.clone(),
+                            region_capacity,
+                            shard_capacity,
+                            factory.clone(),
+                        ),
+                    };
+                    region
+                        .with_coordinator_discovery(discovery.clone())
+                        .with_remote_coordinator_transport(transport.clone())
+                        .with_region_route_transport(crate::RegionRouteTransport::new())
+                        .with_remote_handoff_stop_message_factory(
+                            move || {
+                                handoff_stop
+                                    .lock()
+                                    .expect("sharding handoff stop message poisoned")
+                                    .clone()
+                            },
+                            handoff_timeout,
+                        )
                 }
             }),
         ) {

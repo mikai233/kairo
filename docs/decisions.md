@@ -3890,3 +3890,39 @@ Consequences:
 - A real distributed deployment still must run compatible ddata store actors
   on eligible owners and validate their replication before failover; this ADR
   defines the typed adapter, not a new membership or persistence authority.
+
+## ADR-0122: One Entity Setting Composes Coordinator And Shard DData Stores
+
+Status: Accepted
+
+Context:
+Remembering shard existence at the coordinator is insufficient to recover
+business entities. Pekko's ddata remember provider creates both a coordinator
+store and one shard-specific store per live shard. Kairo already implemented
+the GSet and partitioned ORSet actors, but the public `Entity` definition only
+wired the coordinator half and its entity-backed shard actor did not wait for
+or update a persistent store.
+
+Decision:
+`DDataRememberEntitiesSettings` groups the typed coordinator ddata store, the
+local shard replica id, the typed `ORSet<String>` replicator, and the operation
+timeout. `Entity::with_ddata_remember_entities` selects the coordinator store
+and configures each entity-backed shard to spawn its own
+`RememberShardDDataStoreActor` child.
+
+The shard loads every ORSet partition before replaying stashed messages. A new
+entity start is written before its business actor is created and receives its
+first message. Loaded entity ids start their business actors without a new
+request. `ShardRememberStoreError` preserves ask and store failures, and either
+failure stops the shard so region backoff/restart can retry. During handoff,
+remembered entity termination removes the local child without recording a stop
+or scheduling a local restart, preserving state for the next shard owner.
+
+Consequences:
+- One Rust settings value makes coordinator and entity recovery an intentional
+  public capability rather than two unrelated test hooks.
+- Store actors remain typed local protocols; only distributed-data CRDT state
+  crosses nodes through the ddata layer.
+- In-process multi-node coverage can share a real replicator actor to isolate
+  sharding failover semantics, but release acceptance still requires
+  node-local replicators connected through the transport-backed ddata runtime.

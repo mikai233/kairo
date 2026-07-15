@@ -107,6 +107,47 @@ where
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_ddata_remember_entity_shards(
+        self_region: impl Into<RegionId>,
+        type_name: impl Into<String>,
+        region_buffer_capacity: usize,
+        shard_buffer_capacity: usize,
+        entity_factory: EntityActorFactory<M>,
+        replica_id: impl Into<kairo_distributed_data::ReplicaId>,
+        replicator: ActorRef<
+            kairo_distributed_data::ReplicatorActorMsg<kairo_distributed_data::ORSet<String>>,
+        >,
+        timeout: Duration,
+    ) -> Self
+    where
+        M: Clone,
+    {
+        Self {
+            runtime: ShardRegionRuntime::new(self_region, region_buffer_capacity),
+            local_shard_spawner: Some(LocalShardSpawner::entity_backed_with_ddata_remember_stores(
+                type_name,
+                shard_buffer_capacity,
+                entity_factory,
+                replica_id,
+                replicator,
+                timeout,
+            )),
+            local_shards: BTreeMap::new(),
+            registration: None,
+            remote_coordinator: RegionRemoteCoordinator::new(),
+            remote_coordinator_transport: None,
+            remote_handoff: None,
+            coordinator_discovery: None,
+            home_requests: RegionHomeRequests::new(),
+            route_transport: None,
+            region_watch_by_path: HashMap::new(),
+            pending_local_restarts: BTreeMap::new(),
+            suppressed_local_restarts: BTreeMap::new(),
+            local_restart_generations: BTreeMap::new(),
+        }
+    }
+
     pub fn new_with_local_entity_shards_and_registration(
         self_region: impl Into<RegionId>,
         region_buffer_capacity: usize,

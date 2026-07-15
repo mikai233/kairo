@@ -283,9 +283,11 @@ fn shard_actor_with_remember_store_stops_after_load_failure() {
 
     shard
         .tell(ShardMsg::RememberStoreLoadResult {
-            result: Err(kairo_actor::AskError::Timeout {
-                timeout: Duration::from_millis(500),
-            }),
+            result: Err(crate::ShardRememberStoreError::Ask(
+                kairo_actor::AskError::Timeout {
+                    timeout: Duration::from_millis(500),
+                },
+            )),
         })
         .unwrap();
 

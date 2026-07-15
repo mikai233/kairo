@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kairo_actor::{ActorError, ActorRef, Context};
+use kairo_distributed_data::{ORSet, ReplicaId, ReplicatorActorMsg};
 
 use crate::{
     EntityActorFactory, EntityId, EntityShardActor, RememberShardStoreMsg, RememberShardStoreState,
@@ -58,6 +59,39 @@ where
                         shard.clone(),
                         shard_buffer_capacity,
                         entity_factory.clone(),
+                    ),
+                )
+            }),
+        }
+    }
+
+    pub(crate) fn entity_backed_with_ddata_remember_stores(
+        type_name: impl Into<String>,
+        shard_buffer_capacity: usize,
+        entity_factory: EntityActorFactory<M>,
+        replica_id: impl Into<ReplicaId>,
+        replicator: ActorRef<ReplicatorActorMsg<ORSet<String>>>,
+        timeout: Duration,
+    ) -> Self
+    where
+        M: Clone,
+    {
+        let type_name = type_name.into();
+        let replica_id = replica_id.into();
+        Self {
+            shard_buffer_capacity,
+            failure_backoff: Some(DEFAULT_REMEMBER_SHARD_FAILURE_BACKOFF),
+            spawn: Arc::new(move |ctx, shard, shard_buffer_capacity| {
+                ctx.spawn(
+                    shard_actor_name(shard),
+                    EntityShardActor::props_with_ddata_remember_store(
+                        type_name.clone(),
+                        shard.clone(),
+                        shard_buffer_capacity,
+                        entity_factory.clone(),
+                        replica_id.clone(),
+                        replicator.clone(),
+                        timeout,
                     ),
                 )
             }),

@@ -284,6 +284,92 @@ fn entity_shard_actor_recovery_starts_remembered_entities() {
 }
 
 #[test]
+fn entity_shard_actor_recovers_entities_from_ddata_store_before_delivery() {
+    let kit = kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-ddata-recovery").unwrap();
+    let replicator = kit
+        .system()
+        .spawn(
+            "replicator",
+            Props::new(ReplicatorActor::<ORSet<String>>::new),
+        )
+        .unwrap();
+    let (observed_tx, observed_rx) = mpsc::channel();
+    let (refs_tx, refs_rx) = mpsc::channel();
+    let factory = EntityActorFactory::new(move |entity_id| ControlledEntity {
+        entity_id,
+        observed: observed_tx.clone(),
+        refs: refs_tx.clone(),
+    });
+    let props = || {
+        EntityShardActor::props_with_ddata_remember_store(
+            "orders",
+            "shard-1",
+            10,
+            factory.clone(),
+            ReplicaId::new("node-a"),
+            replicator.clone(),
+            Duration::from_millis(500),
+        )
+    };
+    let shard = kit.system().spawn("shard", props()).unwrap();
+    let deliveries = kit
+        .create_probe::<ShardDeliverPlan<String>>("deliveries")
+        .unwrap();
+
+    shard
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "first".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::RememberUpdate {
+            update: RememberShardUpdate::new(["entity-1".to_string()], std::iter::empty())
+        }
+    );
+    let first_ref = refs_rx
+        .recv_timeout(Duration::from_millis(500))
+        .expect("persisted entity should start after the ddata update");
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "first".to_string())
+    );
+
+    kit.system().stop(&shard);
+    assert!(shard.wait_for_stop(Duration::from_secs(1)));
+    assert!(first_ref.wait_for_stop(Duration::from_secs(1)));
+
+    let recovered = kit.system().spawn("shard", props()).unwrap();
+    let recovered_ref = refs_rx
+        .recv_timeout(Duration::from_millis(500))
+        .expect("remembered entity should start during ddata recovery");
+    assert_ne!(first_ref.path(), recovered_ref.path());
+    recovered
+        .tell(ShardMsg::Deliver {
+            message: ShardingEnvelope::new("entity-1", "after-recovery".to_string()),
+            reply_to: deliveries.actor_ref(),
+        })
+        .unwrap();
+    assert_eq!(
+        deliveries.expect_msg(Duration::from_millis(500)).unwrap(),
+        ShardDeliverPlan::Deliver {
+            delivery: EntityDelivery::new("entity-1", "after-recovery".to_string())
+        }
+    );
+    assert_eq!(
+        observed_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        ("entity-1".to_string(), "after-recovery".to_string())
+    );
+
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn entity_shard_actor_stops_child_for_moved_remembered_entity() {
     let kit =
         kairo_testkit::ActorSystemTestKit::new("entity-shard-actor-moved-remembered").unwrap();

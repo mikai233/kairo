@@ -89,9 +89,11 @@ Status terms in this document mean:
   restores persisted shard ids as unallocated on the successor and reassigns
   them after live regions register. The coordinator store target now also
   consumes the existing GSet-backed distributed-data store protocol with
-  explicit read/update errors. Real multi-node ddata-store composition,
-  remembered-entity recovery through the public extension, and the final
-  acceptance demo remain open.
+  explicit read/update errors. The public entity definition now composes that
+  coordinator store with shard-local ORSet store children, and an in-process
+  two-node failover test proves a new region owner starts a remembered entity
+  before its next message. Real transport-backed multi-node ddata replication
+  and the final acceptance demo remain open.
 - M10 cluster tools: substantial component coverage. Singleton and pubsub
   state, remote delivery, TCP peer runtime, examples, and composed public
   extensions exist. Real two-node tests cover pubsub convergence, named
@@ -431,9 +433,16 @@ successor reloads and reassigns that shard without another entity request.
 `Entity::with_coordinator_ddata_remember_store` now selects the existing
 GSet-backed store directly; focused coverage loads a preexisting ddata shard,
 allocates it after region registration, and persists a new shard through the
-same adapter. Real multi-node ddata-store composition, remembered-entity
-recovery, broader ddata type registration, and process/fault coverage remain
-open.
+same adapter. `Entity::with_ddata_remember_entities` now closes the public
+remembered-entity composition gap: it supplies the coordinator GSet store plus
+the shard ORSet replicator, each entity-backed shard owns its store child and
+waits for recovery before delivery, and store updates complete before the
+business actor starts. A two-node in-process test crashes the current region,
+reports `RegionStopped`, and proves the successor starts the persisted entity
+without a new business request before delivering the next message. The test
+uses one shared replicator actor to isolate sharding lifecycle behavior; real
+transport-backed ddata replication between node-local replicators, broader
+ddata type registration, and process/fault coverage remain open.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6085,7 +6094,7 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after distributed-data coordinator-store adaptation:
+Latest Phase 4 validation after public distributed-data remember-entities composition:
 
 ```bash
 cargo test -p kairo-cluster-sharding --all-targets --all-features

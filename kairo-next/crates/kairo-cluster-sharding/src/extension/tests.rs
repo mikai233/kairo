@@ -8,6 +8,7 @@ use kairo_cluster::{
     register_cluster_daemon, register_cluster_protocol_codecs,
 };
 use kairo_cluster_tools::{ClusterSingletonSettings, register_cluster_tools_protocol_codecs};
+use kairo_distributed_data::{GSet, ORSet, ReplicaId, ReplicatorActor};
 use kairo_remote::{RemoteSettings, TcpRemoteReconnectSettings, register_remote_protocol_codecs};
 use kairo_serialization::{MessageCodec, SerializationError, SerializationRegistry};
 use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
@@ -44,6 +45,7 @@ impl MessageCodec<TestMessage> for TestMessageCodec {
 struct RecordingEntity {
     entity_id: String,
     received: Arc<Mutex<Vec<(String, String)>>>,
+    started: Arc<Mutex<Vec<String>>>,
 }
 
 struct SharedCoordinatorRememberStore {
@@ -77,11 +79,20 @@ impl Actor for SharedCoordinatorRememberStore {
 impl Actor for RecordingEntity {
     type Msg = TestMessage;
 
-    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+    fn started(&mut self, _ctx: &mut Context<Self::Msg>) -> ActorResult {
+        self.started.lock().unwrap().push(self.entity_id.clone());
+        Ok(())
+    }
+
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+        let should_stop = msg.0 == "stop";
         self.received
             .lock()
             .expect("recording entity log poisoned")
             .push((self.entity_id.clone(), msg.0));
+        if should_stop {
+            ctx.stop(ctx.myself())?;
+        }
         Ok(())
     }
 }
@@ -97,6 +108,7 @@ struct ComposedShardingNode {
     region_probe: TestProbe<crate::ShardRegionSnapshot>,
     gossip_probe: TestProbe<Gossip>,
     received: Arc<Mutex<Vec<(String, String)>>>,
+    started: Arc<Mutex<Vec<String>>>,
 }
 
 impl ComposedShardingNode {
@@ -116,6 +128,7 @@ impl ComposedShardingNode {
             Vec::new(),
             registry,
             type_key,
+            None,
             None,
             None,
             true,
@@ -138,6 +151,7 @@ impl ComposedShardingNode {
             Vec::new(),
             registry,
             type_key,
+            None,
             None,
             None,
             false,
@@ -163,6 +177,7 @@ impl ComposedShardingNode {
             type_key,
             Some("backend".to_string()),
             None,
+            None,
             true,
         )
     }
@@ -186,6 +201,32 @@ impl ComposedShardingNode {
             type_key,
             None,
             Some(store),
+            None,
+            true,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn start_with_ddata_remember_entities(
+        system: &str,
+        node_uid: u64,
+        remote_uid: u64,
+        seed_nodes: Vec<kairo_actor::Address>,
+        registry: Arc<Registry>,
+        type_key: EntityTypeKey<TestMessage>,
+        settings: DDataRememberEntitiesSettings,
+    ) -> Self {
+        Self::start_with_options(
+            system,
+            node_uid,
+            remote_uid,
+            seed_nodes,
+            Vec::new(),
+            registry,
+            type_key,
+            None,
+            None,
+            Some(settings),
             true,
         )
     }
@@ -201,6 +242,7 @@ impl ComposedShardingNode {
         type_key: EntityTypeKey<TestMessage>,
         coordinator_role: Option<String>,
         coordinator_store: Option<Arc<Mutex<BTreeSet<String>>>>,
+        ddata_remember_entities: Option<DDataRememberEntitiesSettings>,
         use_singleton: bool,
     ) -> Self {
         let kit = ActorSystemTestKit::new(system).unwrap();
@@ -258,10 +300,13 @@ impl ComposedShardingNode {
         let cluster = cluster_registration.activate(&runtime).unwrap();
         let sharding = sharding_registration.activate(&runtime).unwrap();
         let received = Arc::new(Mutex::new(Vec::new()));
+        let started = Arc::new(Mutex::new(Vec::new()));
         let entity_received = Arc::clone(&received);
+        let entity_started = Arc::clone(&started);
         let mut entity = Entity::of(type_key.clone(), move |entity_id| RecordingEntity {
             entity_id,
             received: Arc::clone(&entity_received),
+            started: Arc::clone(&entity_started),
         })
         .with_stop_message(TestMessage("stop".to_string()));
         if let Some(role) = coordinator_role {
@@ -278,6 +323,9 @@ impl ComposedShardingNode {
                 )
                 .unwrap();
             entity = entity.with_coordinator_remember_store(store, Duration::from_secs(1));
+        }
+        if let Some(settings) = ddata_remember_entities {
+            entity = entity.with_ddata_remember_entities(settings);
         }
         sharding.init(entity).unwrap();
         let (coordinator, region) = {
@@ -303,6 +351,7 @@ impl ComposedShardingNode {
             coordinator,
             region,
             received,
+            started,
         }
     }
 
@@ -336,6 +385,7 @@ impl ComposedShardingNode {
                 Entity::new(type_key, move |entity_id| RecordingEntity {
                     entity_id,
                     received: Arc::clone(&received),
+                    started: Arc::new(Mutex::new(Vec::new())),
                 })
                 .with_stop_message(TestMessage("stop".to_string())),
             )
@@ -575,7 +625,7 @@ fn singleton_successor_recovers_remembered_shard_allocation() {
     peer.sharding
         .entity_ref_for(type_key, entity_id)
         .unwrap()
-        .tell(TestMessage("before-handover".to_string()))
+        .tell(TestMessage("before-failover".to_string()))
         .unwrap();
     await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
         store
@@ -603,6 +653,184 @@ fn singleton_successor_recovers_remembered_shard_allocation() {
 
     peer.shutdown();
     seed.shutdown();
+}
+
+#[test]
+fn public_ddata_remember_entities_recovers_entity_after_region_failover() {
+    let stores = ActorSystemTestKit::new("sharding-ddata-remember-stores").unwrap();
+    let coordinator_replicator = stores
+        .system()
+        .spawn_system(
+            "coordinator-replicator",
+            Props::new(ReplicatorActor::<GSet<String>>::new),
+        )
+        .unwrap();
+    let coordinator_store = stores
+        .system()
+        .spawn_system(
+            "coordinator-store",
+            crate::RememberCoordinatorDDataStoreActor::props(
+                "ddata-account",
+                coordinator_replicator,
+            ),
+        )
+        .unwrap();
+    let shard_replicator = stores
+        .system()
+        .spawn_system(
+            "shard-replicator",
+            Props::new(ReplicatorActor::<ORSet<String>>::new),
+        )
+        .unwrap();
+    let registry = registry();
+    let type_key = EntityTypeKey::new("ddata-account");
+    let seed = ComposedShardingNode::start_with_ddata_remember_entities(
+        "sharding-ddata-seed",
+        40,
+        140,
+        Vec::new(),
+        registry.clone(),
+        type_key.clone(),
+        DDataRememberEntitiesSettings::new(
+            coordinator_store.clone(),
+            ReplicaId::new("seed"),
+            shard_replicator.clone(),
+            Duration::from_secs(1),
+        ),
+    );
+    await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+        (seed
+            .gossip()
+            .member(seed.cluster.self_node())
+            .map(|member| member.status)
+            == Some(MemberStatus::Up))
+        .then_some(())
+        .ok_or_else(|| "ddata remember seed has not formed".to_string())
+    })
+    .unwrap();
+    let peer = ComposedShardingNode::start_with_ddata_remember_entities(
+        "sharding-ddata-peer",
+        41,
+        141,
+        vec![seed.cluster.self_node().address.clone()],
+        registry,
+        type_key.clone(),
+        DDataRememberEntitiesSettings::new(
+            coordinator_store,
+            ReplicaId::new("peer"),
+            shard_replicator,
+            Duration::from_secs(1),
+        ),
+    );
+    await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+        let state = seed.coordinator_state();
+        (state.allocations.len() == 2)
+            .then_some(())
+            .ok_or_else(|| format!("ddata remember coordinator is not ready: {state:?}"))
+    })
+    .unwrap();
+
+    let entity_id = "ddata-account-1";
+    let shard = crate::default_shard_id_for(entity_id);
+    peer.sharding
+        .entity_ref_for(type_key.clone(), entity_id)
+        .unwrap()
+        .tell(TestMessage("before-failover".to_string()))
+        .unwrap();
+    let initial_owner_is_seed =
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            if seed
+                .received
+                .lock()
+                .unwrap()
+                .contains(&(entity_id.to_string(), "before-failover".to_string()))
+            {
+                Ok(true)
+            } else if peer
+                .received
+                .lock()
+                .unwrap()
+                .contains(&(entity_id.to_string(), "before-failover".to_string()))
+            {
+                Ok(false)
+            } else {
+                Err("initial remembered entity delivery has not completed".to_string())
+            }
+        })
+        .unwrap();
+
+    let (owner, successor) = if initial_owner_is_seed {
+        (&seed, &peer)
+    } else {
+        (&peer, &seed)
+    };
+    let owner_region = seed
+        .coordinator_state()
+        .allocations
+        .into_iter()
+        .find_map(|(region, shards)| shards.contains(&shard).then_some(region))
+        .expect("routed shard should have an owner before failover");
+    owner.kit.system().stop(&owner.region);
+    assert!(owner.region.wait_for_stop(Duration::from_secs(1)));
+    seed.coordinator
+        .tell(ShardCoordinatorMsg::RegionStopped {
+            region: owner_region,
+        })
+        .unwrap();
+    let recovery = await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+        let recovered = successor
+            .started
+            .lock()
+            .unwrap()
+            .contains(&entity_id.to_string());
+        if recovered {
+            Ok(())
+        } else {
+            Err(format!(
+                "successor has not recovered entity {entity_id}; coordinator={:?}; \
+                     successor region={:?}; seed started={:?}; peer started={:?}",
+                seed.coordinator_state(),
+                successor.region_state(),
+                seed.started.lock().unwrap(),
+                peer.started.lock().unwrap(),
+            ))
+        }
+    });
+    if let Err(error) = recovery {
+        peer.shutdown();
+        seed.shutdown();
+        stores.shutdown(Duration::from_secs(1)).unwrap();
+        panic!("{error}");
+    }
+    let state = seed.coordinator_state();
+    assert!(
+        state
+            .allocations
+            .values()
+            .any(|shards| shards.contains(&shard)),
+        "remembered shard should remain allocated after failover: {state:?}"
+    );
+
+    successor
+        .sharding
+        .entity_ref_for(type_key, entity_id)
+        .unwrap()
+        .tell(TestMessage("after-failover".to_string()))
+        .unwrap();
+    await_assert(Duration::from_secs(2), Duration::from_millis(10), || {
+        successor
+            .received
+            .lock()
+            .unwrap()
+            .contains(&(entity_id.to_string(), "after-failover".to_string()))
+            .then_some(())
+            .ok_or_else(|| "recovered entity has not received post-failover message".to_string())
+    })
+    .unwrap();
+
+    peer.shutdown();
+    seed.shutdown();
+    stores.shutdown(Duration::from_secs(1)).unwrap();
 }
 
 #[test]
