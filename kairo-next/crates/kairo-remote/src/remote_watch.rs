@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_serialization::ActorRefWireData;
@@ -7,33 +9,54 @@ use crate::{
     WatchRemote,
 };
 
+/// Side effect requested by the pure remote death-watch state machine.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteDeathWatchEffect {
+    /// Send a new watch request to the remote watcher.
     SendWatchRemote(WatchRemote),
+    /// Send an unwatch request to the remote watcher.
     SendUnwatchRemote(UnwatchRemote),
+    /// Start periodic heartbeat scheduling for an address.
     StartHeartbeat {
+        /// Canonical remote actor-system address.
         address: String,
     },
+    /// Stop heartbeat scheduling for an address.
     StopHeartbeat {
+        /// Canonical remote actor-system address.
         address: String,
     },
+    /// Clear failure-detector history before watching an address again.
     ResetFailureDetector {
+        /// Canonical remote actor-system address.
         address: String,
     },
+    /// Send a heartbeat to a remote watcher.
     SendHeartbeat {
+        /// Canonical remote actor-system address.
         address: String,
+        /// Heartbeat protocol message.
         message: RemoteHeartbeat,
     },
+    /// Reply to a remote heartbeat.
     SendHeartbeatAck {
+        /// Canonical remote actor-system address.
         address: String,
+        /// Heartbeat acknowledgement carrying the local incarnation.
         message: RemoteHeartbeatAck,
     },
+    /// Re-send a watch after first learning or changing the remote UID.
     RewatchRemote(WatchRemote),
+    /// Notify a remote watcher that its locally hosted watchee terminated.
     SendRemoteTerminated {
+        /// Remote actor that requested the watch.
         watcher: ActorRefWireData,
+        /// Termination protocol message.
         message: RemoteTerminated,
     },
+    /// Notify local death watch that one remote watchee terminated.
     RemoteTerminated(RemoteTerminated),
+    /// Publish and quarantine an unreachable remote actor-system incarnation.
     AddressTerminated(AddressTerminated),
 }
 
@@ -49,6 +72,11 @@ struct InboundWatchEntry {
     watchers: BTreeMap<String, ActorRefWireData>,
 }
 
+/// Pure remote death-watch bookkeeping for outbound watches, inbound watches,
+/// heartbeat ownership, observed incarnations, and unreachable addresses.
+///
+/// State transitions return explicit [`RemoteDeathWatchEffect`] values; they do
+/// not perform transport, actor, scheduler, or failure-detector work directly.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RemoteDeathWatchState {
     watchees: BTreeMap<String, WatcheeEntry>,
@@ -59,10 +87,12 @@ pub struct RemoteDeathWatchState {
 }
 
 impl RemoteDeathWatchState {
+    /// Creates empty remote death-watch state.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the number of outbound watchee/watcher pairs.
     pub fn watching_count(&self) -> usize {
         self.watchees
             .values()
@@ -70,10 +100,12 @@ impl RemoteDeathWatchState {
             .sum()
     }
 
+    /// Returns the number of remote addresses with outbound watches.
     pub fn watched_address_count(&self) -> usize {
         self.watchees_by_address.len()
     }
 
+    /// Returns a deterministic snapshot of all outbound watch pairs.
     pub fn watching_refs(&self) -> Vec<WatchRemote> {
         self.watchees
             .values()
@@ -86,10 +118,12 @@ impl RemoteDeathWatchState {
             .collect()
     }
 
+    /// Returns a sorted snapshot of addresses currently heartbeat-monitored.
     pub fn watching_addresses(&self) -> Vec<String> {
         self.watchees_by_address.keys().cloned().collect()
     }
 
+    /// Returns the number of inbound remote-watcher/local-watchee pairs.
     pub fn inbound_watching_count(&self) -> usize {
         self.inbound_watches
             .values()
@@ -97,22 +131,32 @@ impl RemoteDeathWatchState {
             .sum()
     }
 
+    /// Returns the number of addresses marked unreachable.
     pub fn unreachable_address_count(&self) -> usize {
         self.unreachable.len()
     }
 
+    /// Returns whether at least one outbound watchee exists at `address`.
     pub fn is_watching_address(&self, address: &str) -> bool {
         self.watchees_by_address.contains_key(address)
     }
 
+    /// Returns whether `address` has been marked unreachable.
     pub fn is_unreachable(&self, address: &str) -> bool {
         self.unreachable.contains(address)
     }
 
+    /// Returns the most recently acknowledged actor-system UID for `address`.
     pub fn address_uid(&self, address: &str) -> Option<u64> {
         self.address_uids.get(address).copied()
     }
 
+    /// Adds an outbound watch pair and returns the required protocol and
+    /// heartbeat effects.
+    ///
+    /// Duplicate pairs are idempotent. The first watch at an address starts
+    /// heartbeats; a new watch after unreachable detection resets failure
+    /// detector history before monitoring resumes.
     pub fn watch(
         &mut self,
         watchee: ActorRefWireData,
@@ -168,6 +212,10 @@ impl RemoteDeathWatchState {
         effects
     }
 
+    /// Removes one outbound watch pair.
+    ///
+    /// Removing the final watchee at an address also stops heartbeats and clears
+    /// the observed UID and unreachable marker.
     pub fn unwatch(
         &mut self,
         watchee: &ActorRefWireData,
@@ -206,6 +254,9 @@ impl RemoteDeathWatchState {
         effects
     }
 
+    /// Records a remote watcher observing a locally hosted watchee.
+    ///
+    /// This bookkeeping transition has no outbound effect.
     pub fn inbound_watch(
         &mut self,
         watchee: ActorRefWireData,
@@ -223,6 +274,7 @@ impl RemoteDeathWatchState {
         Vec::new()
     }
 
+    /// Removes a remote watcher from a locally hosted watchee.
     pub fn inbound_unwatch(
         &mut self,
         watchee: &ActorRefWireData,
@@ -240,6 +292,8 @@ impl RemoteDeathWatchState {
         Vec::new()
     }
 
+    /// Removes all inbound watches for a terminated local watchee and returns
+    /// one remote termination notification per watcher.
     pub fn local_watchee_terminated(
         &mut self,
         watchee: &ActorRefWireData,
@@ -263,6 +317,10 @@ impl RemoteDeathWatchState {
             .collect()
     }
 
+    /// Records termination of a remote watchee and requests local notification.
+    ///
+    /// Heartbeats stop only when this was the final watched actor at the remote
+    /// address.
     pub fn remote_watchee_terminated(
         &mut self,
         message: RemoteTerminated,
@@ -288,6 +346,8 @@ impl RemoteDeathWatchState {
         effects
     }
 
+    /// Returns heartbeat sends due for every watched address that is not marked
+    /// unreachable.
     pub fn heartbeat_due(&self, local_uid: u64) -> Vec<RemoteDeathWatchEffect> {
         self.watchees_by_address
             .keys()
@@ -301,6 +361,10 @@ impl RemoteDeathWatchState {
             .collect()
     }
 
+    /// Records a heartbeat acknowledgement from `address`.
+    ///
+    /// The first observed UID and every UID change re-emit all watch pairs for
+    /// the address so actor incarnations are revalidated remotely.
     pub fn heartbeat_ack(
         &mut self,
         address: impl Into<String>,
@@ -322,10 +386,16 @@ impl RemoteDeathWatchState {
             .collect()
     }
 
+    /// Marks an address unreachable using its last observed UID, if any.
     pub fn mark_unreachable(&mut self, address: impl Into<String>) -> Vec<RemoteDeathWatchEffect> {
         self.mark_unreachable_with_uid(address, None)
     }
 
+    /// Marks an address unreachable with an optional explicit remote UID.
+    ///
+    /// All outbound watchees at the address are removed, address termination is
+    /// emitted once, and heartbeat ownership stops. Repeated calls are
+    /// idempotent.
     pub fn mark_unreachable_with_uid(
         &mut self,
         address: impl Into<String>,

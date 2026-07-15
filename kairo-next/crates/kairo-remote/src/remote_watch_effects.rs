@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_serialization::{
@@ -11,10 +13,14 @@ use crate::{
 
 const REMOTE_WATCHER_PATH: &str = "/system/remote-watch";
 
+/// Observer invoked before each remote death-watch effect is applied.
 pub trait RemoteDeathWatchEffectObserver: Send + Sync + 'static {
+    /// Observes one effect and may reject further application by returning an
+    /// error.
     fn observe(&self, effect: &RemoteDeathWatchEffect) -> Result<()>;
 }
 
+/// No-op remote death-watch effect observer.
 #[derive(Debug, Default)]
 pub struct IgnoreRemoteDeathWatchEffects;
 
@@ -24,6 +30,11 @@ impl RemoteDeathWatchEffectObserver for IgnoreRemoteDeathWatchEffects {
     }
 }
 
+/// Applies transport-facing remote death-watch effects by serializing stable
+/// system protocol messages through a [`RemoteOutbound`].
+///
+/// Scheduler, failure-detector, and local notification effects are exposed to
+/// the observer but intentionally require composition by the owning runtime.
 pub struct RemoteDeathWatchOutboundSink {
     registry: Arc<Registry>,
     outbound: Arc<dyn RemoteOutbound>,
@@ -32,6 +43,8 @@ pub struct RemoteDeathWatchOutboundSink {
 }
 
 impl RemoteDeathWatchOutboundSink {
+    /// Creates an outbound sink with a no-op effect observer and no explicit
+    /// sender metadata.
     pub fn new(registry: Arc<Registry>, outbound: Arc<dyn RemoteOutbound>) -> Self {
         Self::with_observer(
             registry,
@@ -40,6 +53,8 @@ impl RemoteDeathWatchOutboundSink {
         )
     }
 
+    /// Creates an outbound sink with an effect observer and no explicit sender
+    /// metadata.
     pub fn with_observer(
         registry: Arc<Registry>,
         outbound: Arc<dyn RemoteOutbound>,
@@ -53,6 +68,8 @@ impl RemoteDeathWatchOutboundSink {
         }
     }
 
+    /// Creates an outbound sink that includes the local remote-watcher actor as
+    /// sender metadata on protocol envelopes.
     pub fn with_local_watcher(
         registry: Arc<Registry>,
         outbound: Arc<dyn RemoteOutbound>,
@@ -67,18 +84,22 @@ impl RemoteDeathWatchOutboundSink {
         }
     }
 
+    /// Returns the registry used to serialize remote-watch protocol messages.
     pub fn registry(&self) -> &Arc<Registry> {
         &self.registry
     }
 
+    /// Returns the remote outbound used for protocol envelopes.
     pub fn outbound(&self) -> &Arc<dyn RemoteOutbound> {
         &self.outbound
     }
 
+    /// Returns the observer invoked for every effect.
     pub fn observer(&self) -> &Arc<dyn RemoteDeathWatchEffectObserver> {
         &self.observer
     }
 
+    /// Returns the local remote-watcher sender metadata, if configured.
     pub fn local_watcher(&self) -> Option<&ActorRefWireData> {
         self.local_watcher.as_ref()
     }
@@ -153,10 +174,13 @@ impl RemoteDeathWatchEffectSink for RemoteDeathWatchOutboundSink {
     }
 }
 
+/// Resolves the stable remote-watcher system actor path for an actor's owning
+/// address.
 pub fn watcher_recipient_for_actor(actor: &ActorRefWireData) -> Result<ActorRefWireData> {
     watcher_recipient_for_address(&wire_address(actor))
 }
 
+/// Resolves the stable remote-watcher system actor path under `address`.
 pub fn watcher_recipient_for_address(address: &str) -> Result<ActorRefWireData> {
     ActorRefWireData::new(format!("{address}{REMOTE_WATCHER_PATH}")).map_err(|error| {
         RemoteError::InvalidRemoteRef(

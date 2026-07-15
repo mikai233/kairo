@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_serialization::{Registry, RemoteEnvelope, RemoteMessage};
@@ -9,24 +11,33 @@ use crate::{
 };
 
 #[derive(Clone)]
+/// Manifest router and typed decoder for the built-in remote death-watch
+/// protocol.
 pub struct RemoteDeathWatchSystemInbound {
     registry: Arc<Registry>,
     delivery: RemoteDeathWatchProtocolDelivery,
 }
 
 impl RemoteDeathWatchSystemInbound {
+    /// Creates a system inbound from a codec registry and actor delivery
+    /// adapter.
     pub fn new(registry: Arc<Registry>, delivery: RemoteDeathWatchProtocolDelivery) -> Self {
         Self { registry, delivery }
     }
 
+    /// Returns the codec registry used for protocol decoding.
     pub fn registry(&self) -> &Arc<Registry> {
         &self.registry
     }
 
+    /// Returns the local remote-watcher delivery adapter.
     pub fn delivery(&self) -> &RemoteDeathWatchProtocolDelivery {
         &self.delivery
     }
 
+    /// Decodes and delivers one supported remote death-watch envelope.
+    ///
+    /// Unknown manifests are rejected before deserialization.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<()> {
         match envelope.message.manifest.as_str() {
             WatchRemote::MANIFEST => self.receive_typed::<WatchRemote>(envelope),

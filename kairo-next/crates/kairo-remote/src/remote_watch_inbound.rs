@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use kairo_actor::ActorRef;
 use kairo_serialization::{ActorRefWireData, RemoteMessage};
 
@@ -8,20 +10,25 @@ use crate::{
 };
 
 #[derive(Clone)]
+/// Adapts decoded remote death-watch protocol messages to commands for the
+/// local remote-watcher actor.
 pub struct RemoteDeathWatchProtocolDelivery {
     watcher: ActorRef<RemoteDeathWatchCommand>,
     local_uid: u64,
 }
 
 impl RemoteDeathWatchProtocolDelivery {
+    /// Creates a delivery adapter for `watcher` and the local actor-system UID.
     pub fn new(watcher: ActorRef<RemoteDeathWatchCommand>, local_uid: u64) -> Self {
         Self { watcher, local_uid }
     }
 
+    /// Returns the local remote-watcher actor reference.
     pub fn watcher(&self) -> &ActorRef<RemoteDeathWatchCommand> {
         &self.watcher
     }
 
+    /// Returns the local actor-system incarnation used in heartbeat replies.
     pub fn local_uid(&self) -> u64 {
         self.local_uid
     }
