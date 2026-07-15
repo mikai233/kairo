@@ -479,6 +479,21 @@ fn coordinated_shutdown_actor_termination_task_stops_system_actor() {
     assert!(counter.wait_for_stop(Duration::from_secs(1)));
 }
 
+#[test]
+fn coordinated_shutdown_actor_termination_task_accepts_already_stopped_actor() {
+    let system = ActorSystem::builder("test").build().unwrap();
+    let counter = system
+        .spawn("counter", Props::new(|| Counter { value: 0 }))
+        .unwrap();
+    system.stop(&counter);
+    assert!(counter.wait_for_stop(Duration::from_secs(1)));
+
+    add_counter_stop_task(&system, "stop-counter", counter);
+
+    system.coordinated_shutdown().run("test").unwrap();
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
 fn add_counter_stop_task(system: &ActorSystem, task_name: &str, counter: ActorRef<CounterMsg>) {
     system
         .coordinated_shutdown()

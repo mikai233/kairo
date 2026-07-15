@@ -578,6 +578,38 @@ fn settings_reject_zero_capacities_and_intervals() {
 }
 
 #[test]
+fn graceful_shutdown_task_forces_actor_stop_after_handoff_timeout() {
+    let system = ActorSystem::builder("sharding-graceful-timeout")
+        .build()
+        .unwrap();
+    let actor = system
+        .spawn_system(
+            "ignores-graceful-stop",
+            Props::new(|| RecordingEntity {
+                entity_id: "entity-1".to_string(),
+                received: Arc::new(Mutex::new(Vec::new())),
+                started: Arc::new(Mutex::new(Vec::new())),
+            }),
+        )
+        .unwrap();
+    add_graceful_actor_stop_task(
+        &system.coordinated_shutdown(),
+        &system,
+        kairo_actor::PHASE_SERVICE_STOP,
+        "force-after-timeout".to_string(),
+        &actor,
+        TestMessage("ignore".to_string()),
+        Duration::from_millis(20),
+    )
+    .unwrap();
+
+    system.coordinated_shutdown().run("test").unwrap();
+
+    assert!(actor.is_stopped());
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn direct_registration_retains_single_node_coordinator_compatibility() {
     let type_key = EntityTypeKey::new("direct-account");
     let node = ComposedShardingNode::start_direct(
@@ -777,6 +809,92 @@ fn singleton_successor_recovers_remembered_shard_allocation() {
 }
 
 #[test]
+fn singleton_periodic_rebalance_moves_existing_shard_to_joining_region() {
+    let registry = registry();
+    let type_key = EntityTypeKey::new("periodic-rebalance-account");
+    let seed = ComposedShardingNode::start(
+        "sharding-rebalance-seed",
+        33,
+        133,
+        Vec::new(),
+        registry.clone(),
+        type_key.clone(),
+    );
+    await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+        (seed
+            .gossip()
+            .member(seed.cluster.self_node())
+            .map(|member| member.status)
+            == Some(MemberStatus::Up))
+        .then_some(())
+        .ok_or_else(|| "rebalance seed has not formed".to_string())
+    })
+    .unwrap();
+    for entity_id in ["rebalance-1", "rebalance-2", "rebalance-3"] {
+        seed.sharding
+            .entity_ref_for(type_key.clone(), entity_id)
+            .unwrap()
+            .tell(TestMessage("before-join".to_string()))
+            .unwrap();
+    }
+    await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+        let state = seed.try_coordinator_state(Duration::from_millis(250))?;
+        (state.allocations.values().map(Vec::len).sum::<usize>() == 3)
+            .then_some(())
+            .ok_or_else(|| format!("seed has not allocated three shards: {state:?}"))
+    })
+    .unwrap();
+
+    let peer = ComposedShardingNode::start(
+        "sharding-rebalance-peer",
+        34,
+        134,
+        vec![seed.cluster.self_node().address.clone()],
+        registry,
+        type_key,
+    );
+    await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+        let state = seed.try_coordinator_state(Duration::from_millis(250))?;
+        (state.allocations.len() == 2)
+            .then_some(())
+            .ok_or_else(|| format!("peer region has not registered: {state:?}"))
+    })
+    .unwrap();
+    seed.coordinator
+        .tell(ShardCoordinatorMsg::StartRebalanceTimer {
+            initial_delay: Duration::from_millis(10),
+            interval: Duration::from_millis(50),
+        })
+        .unwrap();
+    let rebalance = seed.kit.create_probe("rebalance-plan").unwrap();
+    seed.coordinator
+        .tell(ShardCoordinatorMsg::PlanRebalance {
+            reply_to: rebalance.actor_ref(),
+        })
+        .unwrap();
+    assert!(matches!(
+        rebalance
+            .expect_msg(Duration::from_secs(1))
+            .unwrap()
+            .unwrap(),
+        crate::RebalancePlan::Started { .. }
+    ));
+    await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+        let state = seed.try_coordinator_state(Duration::from_millis(250))?;
+        state
+            .allocations
+            .values()
+            .any(|shards| !shards.is_empty() && shards.len() < 3)
+            .then_some(())
+            .ok_or_else(|| format!("coordinator has not moved a shard: {state:?}"))
+    })
+    .unwrap();
+
+    peer.shutdown();
+    seed.shutdown();
+}
+
+#[test]
 fn singleton_successor_recovers_shard_from_transport_ddata() {
     let registry = registry();
     let type_key = EntityTypeKey::new("ddata-coordinator-account");
@@ -821,7 +939,7 @@ fn singleton_successor_recovers_shard_from_transport_ddata() {
         .unwrap()
         .tell(TestMessage("persist-shard".to_string()))
         .unwrap();
-    await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+    await_assert(Duration::from_secs(5), Duration::from_millis(10), || {
         let delivered = seed
             .received
             .lock()

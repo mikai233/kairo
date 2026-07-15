@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kairo_actor::{
-    Actor, ActorError, ActorRef, ActorSystem, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props, SendError,
+    Actor, ActorError, ActorRef, ActorSystem, PHASE_CLUSTER_SHUTDOWN, Props, SendError,
 };
 use kairo_cluster::{Cluster, ClusterDaemonRegistration, ClusterExtension, UniqueAddress};
 use kairo_remote::{
@@ -519,34 +519,29 @@ impl ClusterSingleton {
             }
         };
 
-        let shutdown = self.runtime.system.coordinated_shutdown();
         let timeout = self.settings.shutdown_timeout;
-        shutdown.add_actor_termination_task(
-            PHASE_BEFORE_CLUSTER_SHUTDOWN,
+        add_forced_actor_stop_task(
+            &self.runtime.system,
             format!("{connector_name}-stop"),
-            connector,
-            None,
+            &connector,
             timeout,
         )?;
-        shutdown.add_actor_termination_task(
-            PHASE_BEFORE_CLUSTER_SHUTDOWN,
+        add_forced_actor_stop_task(
+            &self.runtime.system,
             format!("{delivery_name}-stop"),
-            delivery,
-            None,
+            &delivery,
             timeout,
         )?;
-        shutdown.add_actor_termination_task(
-            PHASE_BEFORE_CLUSTER_SHUTDOWN,
+        add_forced_actor_stop_task(
+            &self.runtime.system,
             format!("{proxy_name}-stop"),
-            proxy.clone(),
-            None,
+            &proxy,
             timeout,
         )?;
-        shutdown.add_actor_termination_task(
-            PHASE_BEFORE_CLUSTER_SHUTDOWN,
+        add_forced_actor_stop_task(
+            &self.runtime.system,
             format!("{manager_name}-stop"),
-            manager,
-            None,
+            &manager,
             timeout,
         )?;
 
@@ -560,6 +555,31 @@ impl ClusterSingleton {
         );
         Ok(singleton_ref)
     }
+}
+
+fn add_forced_actor_stop_task<M>(
+    system: &ActorSystem,
+    task_name: String,
+    actor: &ActorRef<M>,
+    timeout: Duration,
+) -> Result<(), ActorError>
+where
+    M: Send + 'static,
+{
+    let actor = actor.clone();
+    let stop_system = system.clone();
+    system
+        .coordinated_shutdown()
+        .add_task(PHASE_CLUSTER_SHUTDOWN, task_name, move || {
+            stop_system.stop(&actor);
+            if actor.wait_for_stop(timeout) {
+                Ok(())
+            } else {
+                Err(ActorError::ShutdownTaskFailed(
+                    "actor termination task timed out".to_string(),
+                ))
+            }
+        })
 }
 
 pub struct ClusterSingletonRegistration {

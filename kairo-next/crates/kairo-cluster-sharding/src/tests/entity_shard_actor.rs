@@ -577,6 +577,11 @@ fn entity_shard_actor_handoff_sends_stop_to_entity_children() {
             stop_message: "stop".to_string(),
         }
     );
+    shard
+        .tell(ShardMsg::HandOffStopperTerminated {
+            reply_to: stopper.actor_ref(),
+        })
+        .unwrap();
 
     let mut stopped = vec![
         observed_rx
@@ -595,26 +600,7 @@ fn entity_shard_actor_handoff_sends_stop_to_entity_children() {
         ]
     );
 
-    kairo_testkit::await_assert(
-        Duration::from_millis(10_200),
-        Duration::from_millis(10),
-        || -> Result<(), String> {
-            shard
-                .tell(ShardMsg::HandOffStopperTerminated {
-                    reply_to: stopper.actor_ref(),
-                })
-                .map_err(|error| error.to_string())?;
-            let completed = stopper
-                .expect_msg(Duration::from_millis(500))
-                .map_err(|error| error.to_string())?;
-            if completed {
-                Ok(())
-            } else {
-                Err("handoff should complete after entity children stop".to_string())
-            }
-        },
-    )
-    .unwrap();
+    assert!(stopper.expect_msg(Duration::from_millis(500)).unwrap());
     kit.shutdown(Duration::from_secs(1)).unwrap();
 }
 

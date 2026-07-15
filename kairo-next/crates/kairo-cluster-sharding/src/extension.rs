@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use kairo_actor::{
-    Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, PHASE_BEFORE_CLUSTER_SHUTDOWN,
-    Props, Recipient,
+    Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context,
+    PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION, PHASE_CLUSTER_SHUTDOWN, Props, Recipient,
 };
 use kairo_cluster::{
     Cluster, ClusterDaemonRegistration, ClusterEvent, ClusterExtension, ClusterSubscriptionEvent,
@@ -923,36 +923,102 @@ impl ClusterSharding {
     {
         let shutdown = self.resources.system.coordinated_shutdown();
         let timeout = self.settings.shutdown_timeout;
-        shutdown.add_actor_termination_task(
-            PHASE_BEFORE_CLUSTER_SHUTDOWN,
-            format!("{}-connector-stop", names.base),
-            connector.clone(),
-            None,
-            timeout,
-        )?;
-        shutdown.add_actor_termination_task(
-            PHASE_BEFORE_CLUSTER_SHUTDOWN,
-            format!("{}-router-stop", names.base),
-            router.clone(),
-            None,
-            timeout,
-        )?;
-        shutdown.add_actor_termination_task(
-            PHASE_BEFORE_CLUSTER_SHUTDOWN,
+        add_graceful_actor_stop_task(
+            &shutdown,
+            &self.resources.system,
+            PHASE_CLUSTER_SHARDING_SHUTDOWN_REGION,
             format!("{}-region-stop", names.base),
-            region.clone(),
-            None,
+            region,
+            ShardRegionMsg::GracefulShutdown { reply_to: None },
             timeout,
         )?;
-        shutdown.add_actor_termination_task(
-            PHASE_BEFORE_CLUSTER_SHUTDOWN,
+        add_forced_actor_stop_task(
+            &shutdown,
+            &self.resources.system,
+            PHASE_CLUSTER_SHUTDOWN,
+            format!("{}-connector-stop", names.base),
+            connector,
+            timeout,
+        )?;
+        add_forced_actor_stop_task(
+            &shutdown,
+            &self.resources.system,
+            PHASE_CLUSTER_SHUTDOWN,
+            format!("{}-router-stop", names.base),
+            router,
+            timeout,
+        )?;
+        add_forced_actor_stop_task(
+            &shutdown,
+            &self.resources.system,
+            PHASE_CLUSTER_SHUTDOWN,
             format!("{}-coordinator-stop", names.base),
-            coordinator.clone(),
-            None,
+            coordinator,
             timeout,
         )?;
         Ok(())
     }
+}
+
+fn add_graceful_actor_stop_task<M>(
+    shutdown: &kairo_actor::CoordinatedShutdown,
+    system: &ActorSystem,
+    phase: &str,
+    task_name: String,
+    actor: &ActorRef<M>,
+    stop_message: M,
+    timeout: Duration,
+) -> Result<(), ActorError>
+where
+    M: Send + 'static,
+{
+    let system = system.clone();
+    let actor = actor.clone();
+    shutdown.add_task(phase, task_name, move || {
+        if !actor.is_stopped()
+            && let Err(error) = actor.tell(stop_message)
+            && !actor.is_stopped()
+        {
+            return Err(ActorError::ShutdownTaskFailed(error.reason().to_string()));
+        }
+        if actor.wait_for_stop(timeout) {
+            return Ok(());
+        }
+
+        system.stop(&actor);
+        if actor.wait_for_stop(timeout) {
+            Ok(())
+        } else {
+            Err(ActorError::ShutdownTaskFailed(
+                "actor termination task timed out after forced stop".to_string(),
+            ))
+        }
+    })
+}
+
+fn add_forced_actor_stop_task<M>(
+    shutdown: &kairo_actor::CoordinatedShutdown,
+    system: &ActorSystem,
+    phase: &str,
+    task_name: String,
+    actor: &ActorRef<M>,
+    timeout: Duration,
+) -> Result<(), ActorError>
+where
+    M: Send + 'static,
+{
+    let system = system.clone();
+    let actor = actor.clone();
+    shutdown.add_task(phase, task_name, move || {
+        system.stop(&actor);
+        if actor.wait_for_stop(timeout) {
+            Ok(())
+        } else {
+            Err(ActorError::ShutdownTaskFailed(
+                "actor termination task timed out".to_string(),
+            ))
+        }
+    })
 }
 
 fn coordinator_props<M>(

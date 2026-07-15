@@ -2,7 +2,7 @@ use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use kairo_actor::{ActorError, ActorRef, ActorSystem, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
+use kairo_actor::{ActorError, ActorRef, ActorSystem, PHASE_CLUSTER_SHUTDOWN, Props};
 use kairo_cluster::{ClusterDaemonRegistration, ClusterExtension, UniqueAddress};
 use kairo_remote::{RemoteError, TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder};
 use kairo_serialization::{ActorRefWireData, RemoteMessage};
@@ -251,26 +251,18 @@ where
             .expect("distributed-data activation poisoned");
         if !*activated {
             let timeout = self.settings.shutdown_timeout;
-            runtime
-                .system()
-                .coordinated_shutdown()
-                .add_actor_termination_task(
-                    PHASE_BEFORE_CLUSTER_SHUTDOWN,
-                    "ddata-cluster-connector-stop",
-                    handle.connector.clone(),
-                    None,
-                    timeout,
-                )?;
-            runtime
-                .system()
-                .coordinated_shutdown()
-                .add_actor_termination_task(
-                    PHASE_BEFORE_CLUSTER_SHUTDOWN,
-                    "ddata-replicator-stop",
-                    handle.replicator.clone(),
-                    None,
-                    timeout,
-                )?;
+            add_forced_actor_stop_task(
+                runtime.system(),
+                "ddata-cluster-connector-stop",
+                &handle.connector,
+                timeout,
+            )?;
+            add_forced_actor_stop_task(
+                runtime.system(),
+                "ddata-replicator-stop",
+                &handle.replicator,
+                timeout,
+            )?;
             let extension_handle = handle.clone();
             runtime
                 .system()
@@ -279,6 +271,31 @@ where
         }
         Ok(handle)
     }
+}
+
+fn add_forced_actor_stop_task<M>(
+    system: &ActorSystem,
+    task_name: &'static str,
+    actor: &ActorRef<M>,
+    timeout: Duration,
+) -> Result<(), ActorError>
+where
+    M: Send + 'static,
+{
+    let actor = actor.clone();
+    let stop_system = system.clone();
+    system
+        .coordinated_shutdown()
+        .add_task(PHASE_CLUSTER_SHUTDOWN, task_name, move || {
+            stop_system.stop(&actor);
+            if actor.wait_for_stop(timeout) {
+                Ok(())
+            } else {
+                Err(ActorError::ShutdownTaskFailed(
+                    "actor termination task timed out".to_string(),
+                ))
+            }
+        })
 }
 
 #[derive(Debug)]

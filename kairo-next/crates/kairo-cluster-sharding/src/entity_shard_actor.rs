@@ -24,6 +24,7 @@ where
     remember_store: Option<ShardRememberStore>,
     local_ddata_remember_store_provider: Option<LocalDDataShardRememberStoreProvider>,
     pending_handoffs: VecDeque<PendingShardHandOff<M>>,
+    handoff_completion_waiters: Vec<ActorRef<bool>>,
 }
 
 struct PendingShardHandOff<M> {
@@ -48,6 +49,7 @@ where
             remember_store: None,
             local_ddata_remember_store_provider: None,
             pending_handoffs: VecDeque::new(),
+            handoff_completion_waiters: Vec::new(),
         }
     }
 
@@ -64,6 +66,7 @@ where
             remember_store: None,
             local_ddata_remember_store_provider: None,
             pending_handoffs: VecDeque::new(),
+            handoff_completion_waiters: Vec::new(),
         }
     }
 
@@ -88,6 +91,7 @@ where
                 type_name, shard_id, replica_id, replicator, timeout,
             )),
             pending_handoffs: VecDeque::new(),
+            handoff_completion_waiters: Vec::new(),
         }
     }
 
@@ -235,6 +239,7 @@ where
                 let plan = self.runtime.entity_terminated(entity_id);
                 self.apply_termination_plan(ctx, &plan)?;
                 self.send_entity_terminated_store_effect(ctx, &plan)?;
+                self.complete_handoff_if_ready();
                 let _ = reply_to.tell(plan);
             }
             ShardMsg::ObservedEntityTerminated { entity_id } => {
@@ -242,6 +247,7 @@ where
                 let plan = self.runtime.entity_terminated(entity_id);
                 self.apply_termination_plan(ctx, &plan)?;
                 self.send_entity_terminated_store_effect(ctx, &plan)?;
+                self.complete_handoff_if_ready();
             }
             ShardMsg::RestartRememberedEntity {
                 entity_id,
@@ -266,11 +272,15 @@ where
                 self.apply_handoff(stop_message, reply_to)?;
             }
             ShardMsg::HandOffStopperTerminated { reply_to } => {
-                let completed = self.runtime.handoff_in_progress() && self.entity_refs.is_empty();
-                if completed {
+                if !self.runtime.handoff_in_progress() {
+                    let _ = reply_to.tell(false);
+                } else if self.entity_refs.is_empty() {
                     self.runtime.handoff_stopper_terminated();
+                    let _ = reply_to.tell(true);
+                    self.complete_handoff_waiters();
+                } else {
+                    self.handoff_completion_waiters.push(reply_to);
                 }
-                let _ = reply_to.tell(completed);
             }
             ShardMsg::SetPreparingForShutdown { preparing } => {
                 self.runtime.set_preparing_for_shutdown(preparing);
@@ -577,5 +587,22 @@ where
         self.entity_refs
             .insert(entity_id.to_string(), entity.clone());
         Ok(entity)
+    }
+
+    fn complete_handoff_if_ready(&mut self) {
+        if !self.runtime.handoff_in_progress()
+            || !self.entity_refs.is_empty()
+            || self.handoff_completion_waiters.is_empty()
+        {
+            return;
+        }
+        self.runtime.handoff_stopper_terminated();
+        self.complete_handoff_waiters();
+    }
+
+    fn complete_handoff_waiters(&mut self) {
+        for reply_to in self.handoff_completion_waiters.drain(..) {
+            let _ = reply_to.tell(true);
+        }
     }
 }

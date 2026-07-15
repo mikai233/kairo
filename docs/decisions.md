@@ -3988,3 +3988,65 @@ Consequences:
   `BeginHandOff`/`HandOff`/`ShardStopped` state machine.
 - Tests and demos may choose a short interval; production defaults remain
   aligned with Pekko's ten-second cadence.
+
+## ADR-0125: Shard Handoff Completes After Entity Termination
+
+Status: Accepted
+
+Context:
+The handoff stopper sends the configured stop message to every entity and then
+reports that dispatch completed. Entity termination notifications are separate
+system messages and may reach the shard either before or after the stopper
+result. Treating stopper completion as entity termination made handoff depend
+on mailbox ordering: the coordinator could observe a failed handoff even though
+all children were already stopping normally.
+
+Decision:
+An entity-backed shard records handoff-completion waiters until its entity child
+set is empty. A stopper result received first is retained, and the final entity
+termination completes every waiter. If the children terminate before the
+completion query arrives, the completed handoff state remains available for
+that later query. The shard consumes the handoff state only when it can answer
+an actual waiter.
+
+Consequences:
+- Handoff completion now means all entity actors have terminated, independent
+  of ordinary/system-message arrival order.
+- Periodic rebalance and graceful region shutdown share the same completion
+  invariant.
+- A real two-node periodic-rebalance test covers the race through the public
+  cluster-sharding composition rather than only through injected shard plans.
+
+## ADR-0126: Distributed Shutdown Preserves Sharding Dependencies
+
+Status: Accepted
+
+Context:
+Coordinated-shutdown tasks within one phase run concurrently. Stopping the
+sharding router, coordinator connector, singleton machinery, or distributed
+data alongside the region's graceful handoff can remove services that the
+handoff still needs. Several previous tasks also waited for actor termination
+without first asking the ActorSystem to stop those actors. Pekko gives shard
+regions a bounded graceful window and force-stops them when that window
+expires, including the final-region case where no reassignment target exists.
+
+Decision:
+The cluster-sharding shutdown-region phase sends `GracefulShutdown` only to the
+region and waits for it to terminate. If the configured window expires, the
+ActorSystem force-stops the region and waits for that stop to complete. Router,
+coordinator, and sharding connector actors remain alive until the later
+cluster-shutdown phase. Distributed-data and cluster-singleton runtime actors
+also remain alive through sharding handoff and cluster leave, then are
+explicitly stopped in cluster-shutdown.
+
+Actor termination tasks are idempotent: an actor that is already stopped, or
+that stops concurrently with delivery of its stop message, satisfies the task
+instead of turning a successful shutdown into a send failure.
+
+Consequences:
+- Region handoff can use coordinator, singleton, remoting, and remembered-state
+  services throughout its bounded graceful window.
+- The last live region has a deterministic terminal cleanup path without
+  weakening graceful reassignment when another region is available.
+- Shutdown tasks no longer rely on unrelated actor termination to make
+  wait-only registrations complete.
