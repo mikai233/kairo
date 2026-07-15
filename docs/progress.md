@@ -196,6 +196,9 @@ Status terms in this document mean:
   metadata, retry ownership, wire decoding, and immediate delivery failures.
   Coordinator region termination now also releases the stopped remote
   region's retained wire ref instead of leaving stale side-table state.
+  Coordinator reply and shutdown bridges plus the remote-region wire-ref map
+  now hard-gate sender/recipient identity, immediate delivery failure, ordered
+  shutdown intent, stable region-id conversion, and stopped-region cleanup.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator

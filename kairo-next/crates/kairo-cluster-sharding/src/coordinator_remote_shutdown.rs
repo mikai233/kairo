@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -6,10 +8,18 @@ use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, Serializat
 
 use crate::{GracefulShutdownReq, RegionStopped, ShardCoordinatorRemoteTarget};
 
+/// Failure while encoding or delivering a remote region shutdown notification.
 #[derive(Debug)]
 pub enum ShardCoordinatorRemoteShutdownError {
+    /// Stable shutdown message serialization failed.
     Serialization(SerializationError),
-    Send { target: String, reason: String },
+    /// The outbound transport rejected the shutdown envelope.
+    Send {
+        /// Stable coordinator recipient path.
+        target: String,
+        /// Transport rejection reason.
+        reason: String,
+    },
 }
 
 impl Display for ShardCoordinatorRemoteShutdownError {
@@ -39,6 +49,11 @@ impl From<SerializationError> for ShardCoordinatorRemoteShutdownError {
     }
 }
 
+/// Outbound bridge for coordinator-managed remote region shutdown.
+///
+/// Both shutdown messages carry the region wire ref as payload identity and
+/// envelope sender. [`Self::graceful_shutdown`] requests shard handoff;
+/// [`Self::region_stopped`] reports final region termination.
 #[derive(Clone)]
 pub struct ShardCoordinatorRemoteShutdownOutbound {
     target: ShardCoordinatorRemoteTarget,
@@ -48,6 +63,7 @@ pub struct ShardCoordinatorRemoteShutdownOutbound {
 }
 
 impl ShardCoordinatorRemoteShutdownOutbound {
+    /// Creates a bridge from a concrete outbound envelope recipient.
     pub fn new(
         target: ShardCoordinatorRemoteTarget,
         region: ActorRefWireData,
@@ -57,6 +73,7 @@ impl ShardCoordinatorRemoteShutdownOutbound {
         Self::from_arc(target, region, registry, Arc::new(outbound))
     }
 
+    /// Creates a bridge from a shared type-erased outbound recipient.
     pub fn from_arc(
         target: ShardCoordinatorRemoteTarget,
         region: ActorRefWireData,
@@ -71,12 +88,14 @@ impl ShardCoordinatorRemoteShutdownOutbound {
         }
     }
 
+    /// Requests coordinator-managed handoff for this region's shards.
     pub fn graceful_shutdown(&self) -> Result<(), ShardCoordinatorRemoteShutdownError> {
         self.send(self.registry.serialize(&GracefulShutdownReq {
             region: self.region.clone(),
         })?)
     }
 
+    /// Notifies the coordinator that this entire region has stopped.
     pub fn region_stopped(&self) -> Result<(), ShardCoordinatorRemoteShutdownError> {
         self.send(self.registry.serialize(&RegionStopped {
             region: self.region.clone(),

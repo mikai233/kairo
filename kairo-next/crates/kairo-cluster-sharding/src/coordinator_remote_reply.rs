@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -8,10 +10,18 @@ use kairo_serialization::{
 
 use crate::{RegisterAck, ShardHome, ShardId};
 
+/// Failure while encoding or delivering a coordinator reply to a remote region.
 #[derive(Debug)]
 pub enum CoordinatorRemoteReplyError {
+    /// Stable reply serialization failed.
     Serialization(SerializationError),
-    Send { target: String, reason: String },
+    /// The outbound transport rejected the reply envelope.
+    Send {
+        /// Stable region recipient path.
+        target: String,
+        /// Transport rejection reason.
+        reason: String,
+    },
 }
 
 impl Display for CoordinatorRemoteReplyError {
@@ -41,6 +51,12 @@ impl From<SerializationError> for CoordinatorRemoteReplyError {
     }
 }
 
+/// Reply bridge bound to one stable coordinator sender identity.
+///
+/// Registration acknowledgements and shard-home replies use the supplied
+/// region wire ref as recipient and the coordinator wire ref as envelope
+/// sender. The caller decides whether an immediate send failure is fatal or a
+/// best-effort delivery gap.
 #[derive(Clone)]
 pub struct CoordinatorRemoteReplyTarget {
     coordinator: ActorRefWireData,
@@ -49,6 +65,7 @@ pub struct CoordinatorRemoteReplyTarget {
 }
 
 impl CoordinatorRemoteReplyTarget {
+    /// Creates a reply target from a concrete outbound envelope recipient.
     pub fn new(
         coordinator: ActorRefWireData,
         registry: Arc<Registry>,
@@ -57,6 +74,7 @@ impl CoordinatorRemoteReplyTarget {
         Self::from_arc(coordinator, registry, Arc::new(outbound))
     }
 
+    /// Creates a reply target from a shared type-erased outbound recipient.
     pub fn from_arc(
         coordinator: ActorRefWireData,
         registry: Arc<Registry>,
@@ -69,10 +87,12 @@ impl CoordinatorRemoteReplyTarget {
         }
     }
 
+    /// Returns the stable coordinator sender identity.
     pub fn coordinator(&self) -> &ActorRefWireData {
         &self.coordinator
     }
 
+    /// Sends a stable registration acknowledgement to `region`.
     pub fn send_register_ack(
         &self,
         region: ActorRefWireData,
@@ -85,6 +105,7 @@ impl CoordinatorRemoteReplyTarget {
         )
     }
 
+    /// Sends the resolved owner of `shard` to the requesting `region`.
     pub fn send_shard_home(
         &self,
         shard: ShardId,
