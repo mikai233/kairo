@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_actor::{Recipient, SendError};
@@ -8,6 +10,11 @@ use crate::{RegionId, RegionRouteTarget, RoutedShardEnvelope, ShardRegionMsg, Sh
 
 use super::{DEFAULT_SHARD_REGION_REMOTE_PATH, ShardRegionRemoteError, recipient_for_node};
 
+/// Serializes typed entity routes for a shard region on another cluster node.
+///
+/// Only [`ShardRegionMsg::RouteToLocalShard`] has a wire representation at
+/// this boundary. Local route and delivery reply refs are preserved only for
+/// immediate [`SendError`] recovery; they are never serialized.
 #[derive(Clone)]
 pub struct ShardRegionRemoteOutbound<M> {
     target: UniqueAddress,
@@ -19,6 +26,7 @@ pub struct ShardRegionRemoteOutbound<M> {
 }
 
 impl<M> ShardRegionRemoteOutbound<M> {
+    /// Creates an outbound bridge from a concrete envelope recipient.
     pub fn new(
         target: UniqueAddress,
         registry: Arc<Registry>,
@@ -27,6 +35,7 @@ impl<M> ShardRegionRemoteOutbound<M> {
         Self::from_arc(target, registry, Arc::new(outbound))
     }
 
+    /// Creates an outbound bridge from a shared type-erased envelope recipient.
     pub fn from_arc(
         target: UniqueAddress,
         registry: Arc<Registry>,
@@ -42,20 +51,24 @@ impl<M> ShardRegionRemoteOutbound<M> {
         }
     }
 
+    /// Overrides the absolute region actor path on the target node.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Sets optional envelope sender metadata for routed entity traffic.
     pub fn with_sender(mut self, sender: Option<ActorRefWireData>) -> Self {
         self.sender = sender;
         self
     }
 
+    /// Resolves the stable region wire recipient for the target node.
     pub fn recipient_for_target(&self) -> Result<ActorRefWireData, ShardRegionRemoteError> {
         recipient_for_node(&self.target, &self.recipient_path)
     }
 
+    /// Adapts this bridge into a region-routing target with logical `region` id.
     pub fn into_region_route_target(self, region: impl Into<RegionId>) -> RegionRouteTarget<M>
     where
         M: RemoteMessage + Send + 'static,

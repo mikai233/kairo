@@ -202,6 +202,9 @@ Status terms in this document mean:
   Coordinator and region system inbound dispatch now hard-gate endpoint
   recipient checks, manifest routing, required sender identity, optional
   decoder composition, typed mailbox delivery, and unsupported traffic.
+  Remote entity routing now hard-gates stable target resolution, outer-envelope
+  versus prevalidated-message trust, nested business codec decoding, typed
+  region re-entry, local reply-ref confinement, and immediate send failures.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator

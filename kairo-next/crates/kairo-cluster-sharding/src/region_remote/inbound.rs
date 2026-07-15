@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -11,6 +13,12 @@ use crate::{
 
 use super::{DEFAULT_SHARD_REGION_REMOTE_PATH, ShardRegionRemoteError, validate_recipient};
 
+/// Decodes serialized remote entity traffic into a typed local shard region.
+///
+/// The outer [`Self::receive`] entry point verifies the stable region
+/// recipient. The nested business message is then decoded with its registered
+/// `M` codec and re-enters the local region as a [`ShardingEnvelope`]; entity
+/// and shard ids remain outside the business protocol.
 #[derive(Clone)]
 pub struct ShardRegionRemoteInbound<M>
 where
@@ -29,6 +37,7 @@ impl<M> ShardRegionRemoteInbound<M>
 where
     M: Send + 'static,
 {
+    /// Creates an inbound bridge at [`DEFAULT_SHARD_REGION_REMOTE_PATH`].
     pub fn new(
         self_node: UniqueAddress,
         registry: Arc<Registry>,
@@ -47,11 +56,13 @@ where
         }
     }
 
+    /// Overrides the absolute region recipient path.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Validates the envelope recipient, then decodes and delivers its message.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<(), ShardRegionRemoteError>
     where
         M: RemoteMessage,
@@ -60,6 +71,10 @@ where
         self.receive_message(envelope.message)
     }
 
+    /// Decodes and delivers an already-unwrapped serialized route message.
+    ///
+    /// This entry point does not validate an envelope recipient. Use it only
+    /// after an outer system router has established the target endpoint.
     pub fn receive_message(&self, message: SerializedMessage) -> Result<(), ShardRegionRemoteError>
     where
         M: RemoteMessage,

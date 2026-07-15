@@ -1,17 +1,41 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 
 use kairo_serialization::SerializationError;
 
+/// Failure at a remote shard-region routing or control boundary.
 #[derive(Debug)]
 pub enum ShardRegionRemoteError {
+    /// Stable message or actor-ref serialization failed.
     Serialization(SerializationError),
+    /// A configured region actor path was not absolute.
     InvalidRecipientPath(String),
-    MissingRemoteHost { node: String },
+    /// A target cluster node did not contain a remote host.
+    MissingRemoteHost {
+        /// Deterministic identity of the node that cannot be addressed remotely.
+        node: String,
+    },
+    /// A control command that requires a reply omitted sender metadata.
     MissingSender(String),
-    WrongRecipient { expected: String, actual: String },
+    /// An inbound envelope targeted a different region endpoint.
+    WrongRecipient {
+        /// Configured region recipient path.
+        expected: String,
+        /// Recipient path carried by the envelope.
+        actual: String,
+    },
+    /// A local typed region message has no stable remote representation here.
     UnsupportedLocalMessage(&'static str),
+    /// An inbound manifest is not supported by the selected region bridge.
     UnsupportedManifest(String),
-    Send { target: String, reason: String },
+    /// Delivery to a local mailbox or outbound transport failed.
+    Send {
+        /// Local actor path or remote target identity.
+        target: String,
+        /// Delivery rejection reason.
+        reason: String,
+    },
 }
 
 impl Display for ShardRegionRemoteError {

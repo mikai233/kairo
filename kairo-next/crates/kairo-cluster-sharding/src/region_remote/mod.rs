@@ -14,6 +14,7 @@ pub use self::error::ShardRegionRemoteError;
 pub use self::inbound::ShardRegionRemoteInbound;
 pub use self::outbound::ShardRegionRemoteOutbound;
 
+/// Default stable remote actor path of a shard region endpoint.
 pub const DEFAULT_SHARD_REGION_REMOTE_PATH: &str = "/system/sharding/region";
 
 fn recipient_for_node(
