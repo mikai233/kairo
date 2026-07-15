@@ -74,9 +74,9 @@ Status terms in this document mean:
   connectors, TCP peer runtime, and examples exist. The first composed
   ActorSystem slice now installs a typed distributed-data extension, derives
   routes and source identities from real cluster membership, and converges a
-  two-node `GCounter` through periodic gossip over the shared remoting runtime.
-  Delta propagation, remote consistency aggregation, broader typed data
-  registration, and process/fault acceptance remain open.
+  two-node `GCounter` through periodic full-state gossip and delta propagation
+  over the shared remoting runtime. Remote consistency aggregation, broader
+  typed data registration, and process/fault acceptance remain open.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
@@ -378,9 +378,13 @@ cluster snapshots/events while sharing the remoting association cache; it does
 not bind a second listener or infer membership from transport. A real
 two-ActorSystem test forms through seed contact, observes cluster-derived
 replica routes, updates a local `GCounter`, and reads the converged value from
-the peer through periodic full-state gossip. This is the first Phase 4 slice;
-delta propagation and remote consistency aggregation still need composition,
-followed by sharding and cluster-tools extensions on the same lifecycle.
+the peer through periodic full-state gossip. The same composed replicator now
+registers cluster-derived delta targets and schedules delta propagation at an
+explicit interval or a Pekko-aligned interval derived from gossip. A second
+two-node test delays full-state gossip to 30 seconds and converges within three
+seconds, pinning the delta-only path. Remote consistency aggregation remains
+the next ddata composition gap, followed by sharding and cluster-tools
+extensions on the same lifecycle.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.
@@ -5980,7 +5984,7 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after composed distributed data:
+Latest Phase 4 validation after composed delta propagation:
 
 ```bash
 cargo test -p kairo-distributed-data --all-targets --all-features

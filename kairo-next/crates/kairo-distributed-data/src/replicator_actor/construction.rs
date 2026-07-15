@@ -56,6 +56,16 @@ where
         actor
     }
 
+    pub(crate) fn enable_delta_propagation(
+        mut self,
+        delta_loop: DeltaPropagationLoop<D::Delta>,
+        interval: Duration,
+    ) -> Self {
+        self.delta_loop = Some(delta_loop);
+        self.delta_tick_interval = Some(interval);
+        self
+    }
+
     pub fn with_gossip(
         transport: ReplicatorGossipTransport,
         codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,

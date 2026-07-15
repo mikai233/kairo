@@ -3605,7 +3605,10 @@ cannot create membership facts.
 Post-bind activation requires the ActorSystem's `ClusterExtension`, installs
 one `DistributedDataExtension<D>`, and schedules both connector and replicator
 termination before cluster shutdown. The first composed slice enables periodic
-full-state/status gossip. One registration owns the stable `/system/ddata`
+full-state/status gossip and delta propagation. The default delta interval is
+derived as one fifth of the gossip interval with Pekko's 200-millisecond floor;
+an explicit positive interval supports deterministic testing and specialized
+deployments. One registration owns the stable `/system/ddata`
 manifest namespace for one configured `D` family per ActorSystem; broadening
 this into a heterogeneous data registry is future API work rather than type
 erasure in the current actor boundary.
@@ -3617,6 +3620,6 @@ Consequences:
   identity without making distributed data or transport a membership authority.
 - Applications retrieve the typed replicator and connector through the
   ActorSystem extension after activation.
-- Delta propagation, remote read/write aggregation, and a broader multi-type
-  registration facade remain later Phase 4 slices; the legacy standalone TCP
+- Remote read/write aggregation and a broader multi-type registration facade
+  remain later Phase 4 slices; the legacy standalone TCP
   bootstrap remains a compatibility and focused-test boundary meanwhile.

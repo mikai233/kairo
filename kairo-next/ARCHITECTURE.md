@@ -1714,8 +1714,12 @@ metadata nor the association cache can add a replica to this map.
 
 Post-bind activation installs one typed `DistributedDataExtension<D>` and
 registers the replicator and connector to stop before cluster shutdown. The
-current composed vertical slice schedules periodic full-state/status gossip
-and proves two-node CRDT convergence over the shared cluster/remoting runtime.
+composed replicator schedules both periodic full-state/status gossip and delta
+propagation over cluster-derived target registries. Unless explicitly
+overridden, the delta interval is one fifth of the gossip interval with a
+200-millisecond floor, following Pekko's propagation cadence. A two-node test
+delays full-state gossip beyond its deadline and proves convergence through the
+delta path alone on the shared cluster/remoting runtime.
 Because the replicator actor protocol is generic in `D`, one registration owns
 the `/system/ddata` manifest namespace for one configured replicated-data
 family per ActorSystem. A later heterogeneous registry may broaden that API;

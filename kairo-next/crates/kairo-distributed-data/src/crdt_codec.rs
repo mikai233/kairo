@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use bytes::Bytes;
 use kairo_serialization::{SerializationError, WireReader, WireWriter};
@@ -89,6 +90,27 @@ pub trait CrdtDataCodec<D> {
         }
         let version = data.version();
         self.decode_payload(data.into_payload(), version)
+    }
+}
+
+impl<D, Codec> CrdtDataCodec<D> for Arc<Codec>
+where
+    Codec: CrdtDataCodec<D> + ?Sized,
+{
+    fn manifest(&self) -> &'static str {
+        self.as_ref().manifest()
+    }
+
+    fn version(&self) -> u16 {
+        self.as_ref().version()
+    }
+
+    fn encode_payload(&self, data: &D) -> kairo_serialization::Result<Bytes> {
+        self.as_ref().encode_payload(data)
+    }
+
+    fn decode_payload(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<D> {
+        self.as_ref().decode_payload(payload, version)
     }
 }
 

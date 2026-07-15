@@ -8,8 +8,9 @@ use kairo_remote::{RemoteError, TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuil
 use kairo_serialization::{ActorRefWireData, RemoteMessage};
 
 use crate::{
-    DEFAULT_REPLICATOR_REMOTE_PATH, DeltaReplicatedData, RemovedNodePruning, ReplicaId,
-    ReplicatorActor, ReplicatorActorMsg, ReplicatorClusterConnector, ReplicatorClusterConnectorMsg,
+    DEFAULT_REPLICATOR_REMOTE_PATH, DeltaPropagationLoop, DeltaPropagationTargetRegistry,
+    DeltaPropagationTransport, DeltaReplicatedData, RemovedNodePruning, ReplicaId, ReplicatorActor,
+    ReplicatorActorMsg, ReplicatorClusterConnector, ReplicatorClusterConnectorMsg,
     ReplicatorDeltaAck, ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGossip,
     ReplicatorGossipStatus, ReplicatorGossipTargetRegistry, ReplicatorGossipTransport,
     ReplicatorRead, ReplicatorReadResult, ReplicatorRemoteAssociationCacheOutbound,
@@ -17,6 +18,9 @@ use crate::{
     ReplicatorRemoteSourceMap, ReplicatorRemoteSystemInbound, ReplicatorWireCodecs,
     ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
 };
+
+const DELTA_GOSSIP_INTERVAL_DIVISOR: u32 = 5;
+const MIN_DERIVED_DELTA_PROPAGATION_INTERVAL: Duration = Duration::from_millis(200);
 
 pub const DDATA_SYSTEM_MANIFESTS: [&str; 10] = [
     ReplicatorDeltaPropagation::MANIFEST,
@@ -38,6 +42,7 @@ where
 {
     codecs: ReplicatorWireCodecs<D>,
     gossip_interval: Duration,
+    delta_propagation_interval: Option<Duration>,
     shutdown_timeout: Duration,
 }
 
@@ -50,6 +55,7 @@ where
         Self {
             codecs: self.codecs.clone(),
             gossip_interval: self.gossip_interval,
+            delta_propagation_interval: self.delta_propagation_interval,
             shutdown_timeout: self.shutdown_timeout,
         }
     }
@@ -64,12 +70,18 @@ where
         Self {
             codecs,
             gossip_interval: Duration::from_secs(2),
+            delta_propagation_interval: None,
             shutdown_timeout: Duration::from_secs(3),
         }
     }
 
     pub fn with_gossip_interval(mut self, value: Duration) -> Self {
         self.gossip_interval = value;
+        self
+    }
+
+    pub fn with_delta_propagation_interval(mut self, value: Duration) -> Self {
+        self.delta_propagation_interval = Some(value);
         self
     }
 
@@ -84,12 +96,27 @@ where
                 reason: "gossip interval must be greater than zero",
             });
         }
+        if self
+            .delta_propagation_interval
+            .is_some_and(|value| value.is_zero())
+        {
+            return Err(DistributedDataBootstrapError::InvalidSettings {
+                reason: "delta propagation interval must be greater than zero",
+            });
+        }
         if self.shutdown_timeout.is_zero() {
             return Err(DistributedDataBootstrapError::InvalidSettings {
                 reason: "shutdown timeout must be greater than zero",
             });
         }
         Ok(())
+    }
+
+    fn effective_delta_propagation_interval(&self) -> Duration {
+        self.delta_propagation_interval.unwrap_or_else(|| {
+            (self.gossip_interval / DELTA_GOSSIP_INTERVAL_DIVISOR)
+                .max(MIN_DERIVED_DELTA_PROPAGATION_INTERVAL)
+        })
     }
 }
 
@@ -323,6 +350,14 @@ where
             ReplicatorGossipTransport::with_target_registry(gossip_targets.clone());
         let actor_gossip_transport = gossip_transport.clone();
         let actor_data_codec = factory_settings.codecs.data_codec();
+        let delta_targets = DeltaPropagationTargetRegistry::new();
+        let delta_transport = DeltaPropagationTransport::with_target_registry(
+            ReplicaId::from(&self_node),
+            factory_settings.codecs.delta_codec(),
+            delta_targets.clone(),
+        );
+        let actor_delta_loop = DeltaPropagationLoop::new(delta_transport);
+        let delta_propagation_interval = factory_settings.effective_delta_propagation_interval();
         let gossip_interval = factory_settings.gossip_interval;
         let local_system_uid = context.local_system_uid();
         let replicator = context
@@ -335,6 +370,7 @@ where
                         actor_data_codec.clone(),
                         gossip_interval,
                     )
+                    .enable_delta_propagation(actor_delta_loop.clone(), delta_propagation_interval)
                     .with_self_system_uid(local_system_uid)
                 }),
             )
@@ -356,7 +392,7 @@ where
                 )
                 .with_remote_route_targets(
                     remote_targets.clone(),
-                    None,
+                    Some(delta_targets.clone()),
                     None,
                     Some(gossip_targets.clone()),
                 )
@@ -443,6 +479,8 @@ mod tests {
             remote_uid: u64,
             seed_nodes: Vec<kairo_actor::Address>,
             registry: Arc<Registry>,
+            gossip_interval: Duration,
+            delta_propagation_interval: Option<Duration>,
         ) -> Self {
             let kit = ActorSystemTestKit::new(system).unwrap();
             let mut builder = TcpRemoteActorRuntime::builder(
@@ -479,14 +517,18 @@ mod tests {
                     ),
             )
             .unwrap();
+            let mut ddata_settings = DistributedDataSettings::new(ReplicatorWireCodecs::new(
+                Arc::new(GCounterCodec),
+                Arc::new(GCounterCodec),
+            ))
+            .with_gossip_interval(gossip_interval);
+            if let Some(interval) = delta_propagation_interval {
+                ddata_settings = ddata_settings.with_delta_propagation_interval(interval);
+            }
             let ddata_registration = register_distributed_data(
                 &mut builder,
                 cluster_registration.clone(),
-                DistributedDataSettings::new(ReplicatorWireCodecs::new(
-                    Arc::new(GCounterCodec),
-                    Arc::new(GCounterCodec),
-                ))
-                .with_gossip_interval(Duration::from_millis(20)),
+                ddata_settings,
             )
             .unwrap();
             let runtime = builder.bind().unwrap();
@@ -530,6 +572,59 @@ mod tests {
                 .unwrap()
         }
 
+        fn update_counter(&self, key: ReplicatorKey, amount: u128) {
+            let updates = self
+                .kit
+                .create_probe::<UpdateResponse<GCounter>>("updates")
+                .unwrap();
+            let self_replica = self.ddata.self_replica();
+            self.ddata
+                .replicator()
+                .tell(ReplicatorActorMsg::Update {
+                    key,
+                    initial: GCounter::new(),
+                    consistency: WriteConsistency::local(),
+                    modify: Box::new(move |counter| {
+                        counter
+                            .increment(self_replica, amount)
+                            .map_err(|error| error.to_string())
+                    }),
+                    reply_to: updates.actor_ref(),
+                })
+                .unwrap();
+            assert!(matches!(
+                updates.expect_msg(Duration::from_secs(1)).unwrap(),
+                UpdateResponse::Success(_)
+            ));
+        }
+
+        fn await_counter(&self, key: ReplicatorKey, expected: u128) {
+            let reads = self
+                .kit
+                .create_probe::<GetResponse<GCounter>>("reads")
+                .unwrap();
+            await_assert(Duration::from_secs(3), Duration::from_millis(20), || {
+                self.ddata
+                    .replicator()
+                    .tell(ReplicatorActorMsg::Get {
+                        key: key.clone(),
+                        consistency: ReadConsistency::local(),
+                        reply_to: reads.actor_ref(),
+                    })
+                    .map_err(|error| error.reason().to_string())?;
+                match reads
+                    .expect_msg(Duration::from_millis(100))
+                    .map_err(|error| error.to_string())?
+                {
+                    GetResponse::Success { data, .. } if data.value().unwrap() == expected => {
+                        Ok(())
+                    }
+                    response => Err(format!("counter has not converged: {response:?}")),
+                }
+            })
+            .unwrap();
+        }
+
         fn shutdown(self) {
             self.kit.system().stop(self.cluster.root());
             self.runtime.shutdown().unwrap();
@@ -562,13 +657,53 @@ mod tests {
             settings().with_shutdown_timeout(Duration::ZERO).validate(),
             Err(DistributedDataBootstrapError::InvalidSettings { .. })
         ));
+        assert!(matches!(
+            settings()
+                .with_delta_propagation_interval(Duration::ZERO)
+                .validate(),
+            Err(DistributedDataBootstrapError::InvalidSettings { .. })
+        ));
+    }
+
+    #[test]
+    fn settings_derive_pekko_delta_interval_unless_overridden() {
+        let settings = || {
+            DistributedDataSettings::new(ReplicatorWireCodecs::new(
+                Arc::new(GCounterCodec),
+                Arc::new(GCounterCodec),
+            ))
+        };
+
+        assert_eq!(
+            settings().effective_delta_propagation_interval(),
+            Duration::from_millis(400)
+        );
+        assert_eq!(
+            settings()
+                .with_gossip_interval(Duration::from_millis(500))
+                .effective_delta_propagation_interval(),
+            Duration::from_millis(200)
+        );
+        assert_eq!(
+            settings()
+                .with_delta_propagation_interval(Duration::from_millis(25))
+                .effective_delta_propagation_interval(),
+            Duration::from_millis(25)
+        );
     }
 
     #[test]
     fn composed_extension_gossips_counter_from_real_cluster_membership() {
         let registry = registry();
-        let seed =
-            ComposedDdataNode::start("ddata-extension-seed", 1, 101, vec![], registry.clone());
+        let seed = ComposedDdataNode::start(
+            "ddata-extension-seed",
+            1,
+            101,
+            vec![],
+            registry.clone(),
+            Duration::from_millis(20),
+            None,
+        );
         await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
             (seed
                 .gossip()
@@ -585,6 +720,8 @@ mod tests {
             102,
             vec![seed.cluster.self_node().address.clone()],
             registry,
+            Duration::from_millis(20),
+            None,
         );
         await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
             let seed_routes = seed.connector();
@@ -597,52 +734,65 @@ mod tests {
         .unwrap();
 
         let key = ReplicatorKey::new("visits");
-        let updates = seed
-            .kit
-            .create_probe::<UpdateResponse<GCounter>>("updates")
-            .unwrap();
-        let self_replica = seed.ddata.self_replica();
-        seed.ddata
-            .replicator()
-            .tell(ReplicatorActorMsg::Update {
-                key: key.clone(),
-                initial: GCounter::new(),
-                consistency: WriteConsistency::local(),
-                modify: Box::new(move |counter| {
-                    counter
-                        .increment(self_replica, 3)
-                        .map_err(|error| error.to_string())
-                }),
-                reply_to: updates.actor_ref(),
-            })
-            .unwrap();
-        assert!(matches!(
-            updates.expect_msg(Duration::from_secs(1)).unwrap(),
-            UpdateResponse::Success(_)
-        ));
+        seed.update_counter(key.clone(), 3);
+        peer.await_counter(key, 3);
 
-        let reads = peer
-            .kit
-            .create_probe::<GetResponse<GCounter>>("reads")
-            .unwrap();
-        await_assert(Duration::from_secs(3), Duration::from_millis(20), || {
-            peer.ddata
-                .replicator()
-                .tell(ReplicatorActorMsg::Get {
-                    key: key.clone(),
-                    consistency: ReadConsistency::local(),
-                    reply_to: reads.actor_ref(),
-                })
-                .map_err(|error| error.reason().to_string())?;
-            match reads
-                .expect_msg(Duration::from_millis(100))
-                .map_err(|error| error.to_string())?
-            {
-                GetResponse::Success { data, .. } if data.value().unwrap() == 3 => Ok(()),
-                response => Err(format!("counter has not converged: {response:?}")),
-            }
+        peer.shutdown();
+        seed.shutdown();
+    }
+
+    #[test]
+    fn composed_extension_propagates_delta_before_full_state_gossip() {
+        let registry = registry();
+        let seed = ComposedDdataNode::start(
+            "ddata-delta-seed",
+            1,
+            201,
+            vec![],
+            registry.clone(),
+            Duration::from_secs(30),
+            Some(Duration::from_millis(20)),
+        );
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.cluster.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "ddata delta seed has not formed".to_string())
         })
         .unwrap();
+        let peer = ComposedDdataNode::start(
+            "ddata-delta-peer",
+            2,
+            202,
+            vec![seed.cluster.self_node().address.clone()],
+            registry,
+            Duration::from_secs(30),
+            Some(Duration::from_millis(20)),
+        );
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let seed_routes = seed.connector();
+            let peer_routes = peer.connector();
+            let seed_delta_targets = seed_routes
+                .last_target_registration
+                .as_ref()
+                .map(|report| report.delta_registered());
+            let peer_delta_targets = peer_routes
+                .last_target_registration
+                .as_ref()
+                .map(|report| report.delta_registered());
+            (seed_delta_targets == Some(&[ReplicaId::from(peer.cluster.self_node())][..])
+                && peer_delta_targets == Some(&[ReplicaId::from(seed.cluster.self_node())][..]))
+            .then_some(())
+            .ok_or_else(|| "ddata delta targets have not followed membership".to_string())
+        })
+        .unwrap();
+
+        let key = ReplicatorKey::new("delta-visits");
+        seed.update_counter(key.clone(), 7);
+        peer.await_counter(key, 7);
 
         peer.shutdown();
         seed.shutdown();
