@@ -299,6 +299,9 @@ fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::er
         "kairo-next/crates/kairo-cluster-sharding/src/hashing.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/protocol.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/region_coordinator_discovery.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/region_registration.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/region_remote_coordinator.rs",
+        "kairo-next/crates/kairo-cluster-sharding/src/region_remote_coordinator_transport.rs",
         "kairo-next/crates/kairo-cluster-sharding/src/shard_store.rs",
     ];
 

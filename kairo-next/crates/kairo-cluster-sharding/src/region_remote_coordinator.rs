@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::time::Duration;
 
 use kairo_serialization::ActorRefWireData;
@@ -7,26 +9,42 @@ use crate::{
     ShardCoordinatorRemoteRegistrationAck, ShardCoordinatorRemoteTarget, ShardId,
 };
 
+/// Effect of applying a decoded remote registration acknowledgement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegionRemoteRegistrationPlan {
+    /// The acknowledgement matches the currently selected coordinator.
     Registered {
+        /// Stable wire ref of the coordinator that acknowledged registration.
         coordinator: ActorRefWireData,
     },
+    /// The acknowledgement arrived after remote targeting was cleared.
     IgnoredNoTarget {
+        /// Coordinator advertised by the ignored acknowledgement.
         coordinator: ActorRefWireData,
     },
+    /// The acknowledgement belongs to a coordinator that is no longer selected.
     IgnoredStaleAck {
+        /// Stable wire ref of the currently selected coordinator.
         expected: ActorRefWireData,
+        /// Coordinator advertised by the stale acknowledgement.
         actual: ActorRefWireData,
     },
 }
 
+/// Local routing effect decoded from a remote shard-home reply.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegionRemoteShardHomePlan {
+    /// Shard whose home was resolved.
     pub shard: ShardId,
+    /// Region id derived from the returned stable actor-ref path.
     pub region: RegionId,
 }
 
+/// Region-side registration session for one selected remote coordinator.
+///
+/// Changing or clearing the target invalidates any previous acknowledgement.
+/// A session becomes registered only when the decoded acknowledgement
+/// advertises the exact selected coordinator recipient.
 #[derive(Clone, Default)]
 pub struct RegionRemoteCoordinator {
     target: Option<ShardCoordinatorRemoteTarget>,
@@ -35,10 +53,12 @@ pub struct RegionRemoteCoordinator {
 }
 
 impl RegionRemoteCoordinator {
+    /// Creates a session with no selected remote target.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Replaces the selected target and invalidates prior registration state.
     pub fn set_target(
         &mut self,
         target: Option<ShardCoordinatorRemoteTarget>,
@@ -49,18 +69,22 @@ impl RegionRemoteCoordinator {
         self.registered = false;
     }
 
+    /// Returns the selected remote coordinator target, if any.
     pub fn target(&self) -> Option<&ShardCoordinatorRemoteTarget> {
         self.target.as_ref()
     }
 
+    /// Returns whether the selected target acknowledged registration.
     pub fn is_registered(&self) -> bool {
         self.target.is_some() && self.registered
     }
 
+    /// Returns the retry cadence paired with the selected target.
     pub fn retry_interval(&self) -> Option<Duration> {
         self.retry_interval
     }
 
+    /// Returns registration status, or `None` when no target is configured.
     pub fn status(&self) -> Option<RegionRegistrationStatus> {
         self.target.as_ref().map(|_| {
             if self.registered {
@@ -71,6 +95,7 @@ impl RegionRemoteCoordinator {
         })
     }
 
+    /// Applies an acknowledgement without allowing stale coordinators to win.
     pub fn apply_registration_ack(
         &mut self,
         ack: ShardCoordinatorRemoteRegistrationAck,
@@ -93,6 +118,7 @@ impl RegionRemoteCoordinator {
     }
 }
 
+/// Converts a decoded remote shard-home reply into the region runtime's ids.
 pub fn shard_home_plan_from_remote(home: ShardCoordinatorRemoteHome) -> RegionRemoteShardHomePlan {
     RegionRemoteShardHomePlan {
         shard: home.shard_id,
@@ -100,6 +126,7 @@ pub fn shard_home_plan_from_remote(home: ShardCoordinatorRemoteHome) -> RegionRe
     }
 }
 
+/// Derives the region runtime id from a stable actor-ref wire path.
 pub fn region_id_from_wire_ref(region: &ActorRefWireData) -> RegionId {
     region.path().to_string()
 }

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -11,10 +13,14 @@ use crate::{
     ShardCoordinatorRemoteTarget,
 };
 
+/// Failure while sending a region command to its selected remote coordinator.
 #[derive(Debug)]
 pub enum RegionRemoteCoordinatorTransportError {
+    /// Registration request serialization or delivery failed.
     Registration(ShardCoordinatorRemoteRegistrationError),
+    /// Shard-home request serialization or delivery failed.
     ShardHome(ShardCoordinatorRemoteHomeError),
+    /// Graceful-shutdown notification serialization or delivery failed.
     Shutdown(ShardCoordinatorRemoteShutdownError),
 }
 
@@ -36,6 +42,11 @@ impl Display for RegionRemoteCoordinatorTransportError {
 
 impl std::error::Error for RegionRemoteCoordinatorTransportError {}
 
+/// Composes stable outbound region-to-coordinator protocol bridges.
+///
+/// Every envelope carries the region wire ref as sender metadata. Operations
+/// are transport-neutral and report immediate serialization or enqueue
+/// failures; the region actor owns retry policy.
 #[derive(Clone)]
 pub struct RegionRemoteCoordinatorTransport {
     region: ActorRefWireData,
@@ -44,6 +55,7 @@ pub struct RegionRemoteCoordinatorTransport {
 }
 
 impl RegionRemoteCoordinatorTransport {
+    /// Creates a transport from a concrete outbound recipient.
     pub fn new(
         region: ActorRefWireData,
         registry: Arc<Registry>,
@@ -52,6 +64,7 @@ impl RegionRemoteCoordinatorTransport {
         Self::from_arc(region, registry, Arc::new(outbound))
     }
 
+    /// Creates a transport from a shared type-erased outbound recipient.
     pub fn from_arc(
         region: ActorRefWireData,
         registry: Arc<Registry>,
@@ -64,10 +77,12 @@ impl RegionRemoteCoordinatorTransport {
         }
     }
 
+    /// Returns the stable wire ref used as region identity and sender metadata.
     pub fn region(&self) -> &ActorRefWireData {
         &self.region
     }
 
+    /// Sends a stable [`crate::Register`] request to `target`.
     pub fn register(
         &self,
         target: &ShardCoordinatorRemoteTarget,
@@ -82,6 +97,7 @@ impl RegionRemoteCoordinatorTransport {
         .map_err(RegionRemoteCoordinatorTransportError::Registration)
     }
 
+    /// Sends a stable shard-home lookup request to `target`.
     pub fn request_shard_home(
         &self,
         target: &ShardCoordinatorRemoteTarget,
@@ -97,6 +113,7 @@ impl RegionRemoteCoordinatorTransport {
         .map_err(RegionRemoteCoordinatorTransportError::ShardHome)
     }
 
+    /// Requests coordinator-managed handoff before this region shuts down.
     pub fn graceful_shutdown(
         &self,
         target: &ShardCoordinatorRemoteTarget,
@@ -111,6 +128,7 @@ impl RegionRemoteCoordinatorTransport {
         .map_err(RegionRemoteCoordinatorTransportError::Shutdown)
     }
 
+    /// Notifies `target` that the entire region has stopped.
     pub fn region_stopped(
         &self,
         target: &ShardCoordinatorRemoteTarget,
