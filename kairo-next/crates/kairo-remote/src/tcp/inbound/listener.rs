@@ -20,6 +20,7 @@ use crate::{
 
 use super::DEFAULT_EXPECTED_LANE_STREAMS;
 use super::accepted::{TcpAcceptedAssociation, TcpAcceptedStream};
+use super::assembly::{TcpAssociationAssemblySettings, TcpPendingAssociationAssemblies};
 use super::error::{missing_lane_error, tcp_inbound_failure};
 use super::reports::{TcpAssociationListenerReport, TcpAssociationReadReport};
 use super::stream_reader::TcpAssociationStreamReader;
@@ -36,6 +37,7 @@ pub struct TcpAssociationListener {
     local_address: Option<RemoteAssociationAddress>,
     local_identity: Option<TcpAssociationIdentity>,
     handshake_read_settings: TcpHandshakeReadSettings,
+    assembly_settings: TcpAssociationAssemblySettings,
     association_registry: Option<RemoteAssociationRegistry>,
     route_installer: Option<RemoteAssociationRouteInstaller>,
 }
@@ -76,6 +78,7 @@ impl TcpAssociationListener {
             local_address: None,
             local_identity: None,
             handshake_read_settings: TcpHandshakeReadSettings::default(),
+            assembly_settings: TcpAssociationAssemblySettings::default(),
             association_registry: None,
             route_installer: None,
         }
@@ -103,6 +106,14 @@ impl TcpAssociationListener {
 
     pub fn with_handshake_read_settings(mut self, settings: TcpHandshakeReadSettings) -> Self {
         self.handshake_read_settings = settings;
+        self
+    }
+
+    pub fn with_association_assembly_settings(
+        mut self,
+        settings: TcpAssociationAssemblySettings,
+    ) -> Self {
+        self.assembly_settings = settings;
         self
     }
 
@@ -145,6 +156,23 @@ impl TcpAssociationListener {
     }
 
     pub fn accept_association(&self) -> Result<TcpAcceptedAssociation> {
+        if self.local_address.is_some() {
+            self.listener.set_nonblocking(true).map_err(|error| {
+                RemoteError::Inbound(format!("tcp nonblocking failed: {error}"))
+            })?;
+            let mut pending =
+                TcpPendingAssociationAssemblies::new(self.expected_streams, self.assembly_settings);
+            loop {
+                pending.expire(Instant::now());
+                match self.try_accept_handshaken_association(&mut pending)? {
+                    Some(TcpHandshakenAcceptOutcome::Complete(accepted)) => return Ok(*accepted),
+                    Some(TcpHandshakenAcceptOutcome::Rejected(error)) => return Err(error),
+                    Some(TcpHandshakenAcceptOutcome::Pending) => {}
+                    None => thread::sleep(self.accept_poll_interval),
+                }
+            }
+        }
+
         let mut streams = Vec::with_capacity(self.expected_streams);
         let mut handshakes = Vec::with_capacity(self.expected_streams);
         for _ in 0..self.expected_streams {
@@ -162,16 +190,7 @@ impl TcpAssociationListener {
                 stream,
             });
         }
-        let remote_identity = self.validate_handshakes(&handshakes)?;
-        self.write_handshake_responses(&remote_identity, &mut streams)?;
-        self.register_remote_identity(&remote_identity)?;
-        let route_registration = self.install_reverse_route(&remote_identity, &streams)?;
-        Ok(TcpAcceptedAssociation {
-            reader: self.reader_for(&remote_identity),
-            remote_identity,
-            route_registration,
-            streams,
-        })
+        self.complete_association(streams, handshakes)
     }
 
     pub fn spawn_accept_loop(self) -> Result<TcpAssociationListenerHandle> {
@@ -189,17 +208,32 @@ impl TcpAssociationListener {
         let mut remote_identities = Vec::new();
         let mut reader_handles = Vec::new();
         let mut reader_supervisor = TcpAssociationReaderSupervisor::default();
+        let mut pending_associations =
+            TcpPendingAssociationAssemblies::new(self.expected_streams, self.assembly_settings);
         let mut first_error = None;
 
         while !stop.load(Ordering::SeqCst) {
-            match self.try_accept_association(&stop) {
-                Ok(Some(accepted)) => {
+            pending_associations.expire(Instant::now());
+            let accept_result = if self.local_address.is_some() {
+                self.try_accept_handshaken_association(&mut pending_associations)
+            } else {
+                self.try_accept_unhandshaken_association(&stop)
+                    .map(|accepted| {
+                        accepted.map(|accepted| {
+                            TcpHandshakenAcceptOutcome::Complete(Box::new(accepted))
+                        })
+                    })
+            };
+            match accept_result {
+                Ok(Some(TcpHandshakenAcceptOutcome::Complete(accepted))) => {
                     accepted_associations += 1;
                     if let Some(identity) = accepted.remote_identity().cloned() {
                         remote_identities.push(identity);
                     }
-                    reader_handles.push(accepted.spawn_lane_readers());
+                    reader_handles.push((*accepted).spawn_lane_readers());
                 }
+                Ok(Some(TcpHandshakenAcceptOutcome::Pending)) => {}
+                Ok(Some(TcpHandshakenAcceptOutcome::Rejected(_))) => {}
                 Ok(None) => thread::sleep(self.accept_poll_interval),
                 Err(error) => {
                     first_error.get_or_insert(error);
@@ -241,7 +275,72 @@ impl TcpAssociationListener {
         }
     }
 
-    fn try_accept_association(&self, stop: &AtomicBool) -> Result<Option<TcpAcceptedAssociation>> {
+    fn try_accept_handshaken_association(
+        &self,
+        pending: &mut TcpPendingAssociationAssemblies,
+    ) -> Result<Option<TcpHandshakenAcceptOutcome>> {
+        let (mut stream, peer) = match self.listener.accept() {
+            Ok(accepted) => accepted,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => return Ok(None),
+            Err(error) => {
+                return Err(RemoteError::Inbound(format!("tcp accept failed: {error}")));
+            }
+        };
+        stream
+            .set_nonblocking(false)
+            .map_err(|error| tcp_inbound_failure(&peer.to_string(), error))?;
+        stream
+            .set_nodelay(true)
+            .map_err(|error| tcp_inbound_failure(&peer.to_string(), error))?;
+        let handshake = match self.read_handshake_value(&mut stream) {
+            Ok(Some(handshake)) => handshake,
+            Ok(None) => {
+                return Ok(Some(TcpHandshakenAcceptOutcome::Rejected(
+                    RemoteError::InvalidFrame(
+                        "tcp handshaken listener received no handshake".to_string(),
+                    ),
+                )));
+            }
+            Err(error) => return Ok(Some(TcpHandshakenAcceptOutcome::Rejected(error))),
+        };
+        let local_address = self
+            .local_address
+            .as_ref()
+            .expect("handshaken accept requires a local address");
+        if handshake.to() != local_address {
+            return Ok(Some(TcpHandshakenAcceptOutcome::Rejected(
+                RemoteError::InvalidFrame(format!(
+                    "tcp association handshake addressed to {}, expected {}",
+                    handshake.to(),
+                    local_address
+                )),
+            )));
+        }
+        let stream_id = handshake.stream_id();
+        let accepted_stream = TcpAcceptedStream {
+            peer,
+            stream_id: Some(stream_id),
+            stream,
+        };
+        let completed = match pending.insert(handshake, accepted_stream, Instant::now()) {
+            Ok(completed) => completed,
+            Err(error) => return Ok(Some(TcpHandshakenAcceptOutcome::Rejected(error))),
+        };
+        let Some(completed) = completed else {
+            return Ok(Some(TcpHandshakenAcceptOutcome::Pending));
+        };
+        match self.complete_association(completed.streams, completed.handshakes) {
+            Ok(accepted) => Ok(Some(TcpHandshakenAcceptOutcome::Complete(Box::new(
+                accepted,
+            )))),
+            Err(error) => Ok(Some(TcpHandshakenAcceptOutcome::Rejected(error))),
+        }
+    }
+
+    fn try_accept_unhandshaken_association(
+        &self,
+        stop: &AtomicBool,
+    ) -> Result<Option<TcpAcceptedAssociation>> {
         let mut streams = Vec::with_capacity(self.expected_streams);
         let mut handshakes = Vec::with_capacity(self.expected_streams);
         while streams.len() < self.expected_streams {
@@ -278,16 +377,7 @@ impl TcpAssociationListener {
                 }
             }
         }
-        let remote_identity = self.validate_handshakes(&handshakes)?;
-        self.write_handshake_responses(&remote_identity, &mut streams)?;
-        self.register_remote_identity(&remote_identity)?;
-        let route_registration = self.install_reverse_route(&remote_identity, &streams)?;
-        Ok(Some(TcpAcceptedAssociation {
-            reader: self.reader_for(&remote_identity),
-            remote_identity,
-            route_registration,
-            streams,
-        }))
+        self.complete_association(streams, handshakes).map(Some)
     }
 
     fn read_handshake(
@@ -295,6 +385,19 @@ impl TcpAssociationListener {
         stream: &mut TcpStream,
         handshakes: &mut Vec<TcpAssociationHandshake>,
     ) -> Result<Option<RemoteStreamId>> {
+        let handshake = self.read_handshake_value(stream)?;
+        if let Some(handshake) = handshake {
+            let stream_id = handshake.stream_id();
+            handshakes.push(handshake);
+            return Ok(Some(stream_id));
+        }
+        Ok(None)
+    }
+
+    fn read_handshake_value(
+        &self,
+        stream: &mut TcpStream,
+    ) -> Result<Option<TcpAssociationHandshake>> {
         if self.local_address.is_some() {
             stream
                 .set_read_timeout(Some(self.handshake_read_settings.read_timeout()))
@@ -310,11 +413,26 @@ impl TcpAssociationListener {
             stream.set_read_timeout(None).map_err(|error| {
                 RemoteError::Inbound(format!("tcp handshake read timeout clear failed: {error}"))
             })?;
-            let stream_id = handshake.stream_id();
-            handshakes.push(handshake);
-            return Ok(Some(stream_id));
+            return Ok(Some(handshake));
         }
         Ok(None)
+    }
+
+    fn complete_association(
+        &self,
+        mut streams: Vec<TcpAcceptedStream>,
+        handshakes: Vec<TcpAssociationHandshake>,
+    ) -> Result<TcpAcceptedAssociation> {
+        let remote_identity = self.validate_handshakes(&handshakes)?;
+        self.write_handshake_responses(&remote_identity, &mut streams)?;
+        self.register_remote_identity(&remote_identity)?;
+        let route_registration = self.install_reverse_route(&remote_identity, &streams)?;
+        Ok(TcpAcceptedAssociation {
+            reader: self.reader_for(&remote_identity),
+            remote_identity,
+            route_registration,
+            streams,
+        })
     }
 
     fn validate_handshakes(
@@ -395,6 +513,12 @@ impl TcpAssociationListener {
             None => self.reader.clone(),
         }
     }
+}
+
+enum TcpHandshakenAcceptOutcome {
+    Complete(Box<TcpAcceptedAssociation>),
+    Pending,
+    Rejected(RemoteError),
 }
 
 fn clone_lane_sink(

@@ -54,7 +54,7 @@ impl Default for TcpHandshakeReadSettings {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TcpAssociationIdentity {
     address: RemoteAssociationAddress,
     uid: u64,

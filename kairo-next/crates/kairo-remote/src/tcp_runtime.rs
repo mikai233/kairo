@@ -21,10 +21,10 @@ use crate::{
     RemoteAssociationRouteRegistration, RemoteDeathWatchCommand, RemoteDeathWatchEffect,
     RemoteDeathWatchEffectObserver, RemoteDeathWatchOutboundSink, RemoteEnvelopeHandler,
     RemoteError, RemoteLaneClassifier, RemoteOutbound, RemoteOutboundQueueSettings, RemoteSettings,
-    RemoteStreamId, ResolvedActorRef, Result, TcpAssociationDialer, TcpAssociationListener,
-    TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReaderHandle,
-    TcpAssociationStreamReader, TcpHandshakeReadSettings, UnwatchRemote, WatchRemote,
-    is_remote_death_watch_manifest,
+    RemoteStreamId, ResolvedActorRef, Result, TcpAssociationAssemblySettings, TcpAssociationDialer,
+    TcpAssociationListener, TcpAssociationListenerHandle, TcpAssociationListenerReport,
+    TcpAssociationReaderHandle, TcpAssociationStreamReader, TcpHandshakeReadSettings,
+    UnwatchRemote, WatchRemote, is_remote_death_watch_manifest,
 };
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -108,6 +108,7 @@ pub struct TcpRemoteActorRuntimeBuilder {
     lane_classifier: RemoteLaneClassifier,
     outbound_queue_settings: RemoteOutboundQueueSettings,
     handshake_read_settings: TcpHandshakeReadSettings,
+    association_assembly_settings: TcpAssociationAssemblySettings,
     reliable_delivery_settings: ReliableSystemDeliverySettings,
     reliable_delivery_observer: Arc<dyn ReliableSystemDeliveryObserver>,
     reliable_manifests: HashSet<String>,
@@ -216,6 +217,7 @@ impl TcpRemoteActorRuntime {
             lane_classifier,
             outbound_queue_settings: RemoteOutboundQueueSettings::default(),
             handshake_read_settings: TcpHandshakeReadSettings::default(),
+            association_assembly_settings: TcpAssociationAssemblySettings::default(),
             reliable_delivery_settings: ReliableSystemDeliverySettings::default(),
             reliable_delivery_observer: Arc::new(IgnoreReliableSystemDeliveryFailures),
             reliable_manifests: default_reliable_manifests(),
@@ -237,6 +239,14 @@ impl TcpRemoteActorRuntimeBuilder {
 
     pub fn with_handshake_read_settings(mut self, settings: TcpHandshakeReadSettings) -> Self {
         self.handshake_read_settings = settings;
+        self
+    }
+
+    pub fn with_association_assembly_settings(
+        mut self,
+        settings: TcpAssociationAssemblySettings,
+    ) -> Self {
+        self.association_assembly_settings = settings;
         self
     }
 
@@ -352,6 +362,7 @@ impl TcpRemoteActorRuntimeBuilder {
             lane_classifier,
             outbound_queue_settings,
             handshake_read_settings,
+            association_assembly_settings,
             reliable_delivery_settings,
             reliable_delivery_observer,
             reliable_manifests,
@@ -457,6 +468,7 @@ impl TcpRemoteActorRuntimeBuilder {
             ))
             .with_local_identity(local_address.clone(), local_system_uid)
             .with_handshake_read_settings(handshake_read_settings)
+            .with_association_assembly_settings(association_assembly_settings)
             .with_association_registry(association_registry.clone())
             .with_route_installer(installer.clone())
             .spawn_accept_loop()?;

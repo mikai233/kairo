@@ -1,10 +1,15 @@
 mod accepted;
+mod assembly;
 mod error;
 mod listener;
 mod reports;
 mod stream_reader;
 
 pub use self::accepted::{TcpAcceptedAssociation, TcpAssociationReaderHandle};
+pub use self::assembly::{
+    DEFAULT_TCP_LANE_ARRIVAL_TIMEOUT, DEFAULT_TCP_MAX_PENDING_ASSOCIATIONS,
+    TcpAssociationAssemblySettings,
+};
 pub use self::listener::{
     TcpAssociationFrameHandlerFactory, TcpAssociationListener, TcpAssociationListenerHandle,
 };

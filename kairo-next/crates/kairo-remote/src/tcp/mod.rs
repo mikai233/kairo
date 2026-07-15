@@ -12,7 +12,8 @@ pub use self::handshake::{
     validate_tcp_association_handshakes,
 };
 pub use self::inbound::{
-    TcpAcceptedAssociation, TcpAssociationFrameHandlerFactory, TcpAssociationListener,
+    DEFAULT_TCP_LANE_ARRIVAL_TIMEOUT, DEFAULT_TCP_MAX_PENDING_ASSOCIATIONS, TcpAcceptedAssociation,
+    TcpAssociationAssemblySettings, TcpAssociationFrameHandlerFactory, TcpAssociationListener,
     TcpAssociationListenerHandle, TcpAssociationListenerReport, TcpAssociationReadReport,
     TcpAssociationReaderHandle, TcpAssociationStreamReader, TcpAssociationSupervisedReadReport,
 };

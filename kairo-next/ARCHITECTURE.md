@@ -865,6 +865,14 @@ TCP association dialing:
   five-second default read timeout rejects silent peers before their lane can
   enter association assembly; both limits are replaceable on the composed
   runtime builder,
+- `TcpAssociationAssemblySettings` bounds identity-keyed partial lane
+  assemblies. The listener groups interleaved lanes by the complete remote
+  address and UID, rejects duplicate lanes or concurrent incarnations for one
+  address, expires an incomplete group after the five-second default lane
+  arrival timeout, and admits at most 64 pending peer groups by default. Both
+  limits are replaceable on the listener and composed runtime builders; an
+  invalid or over-limit peer is dropped without terminating the accept loop or
+  consuming lanes from another peer,
 - after validating all lanes, actor-system listeners return the same stable
   handshake record in the reverse direction. Dialers validate all responses
   before installing a route, so both endpoints know the peer UID and lane

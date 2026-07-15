@@ -366,3 +366,124 @@ fn tcp_listener_times_out_silent_handshake_before_lane_assembly() {
 
     assert!(matches!(error, crate::RemoteError::Inbound(_)));
 }
+
+#[test]
+fn tcp_listener_completes_interleaved_peer_without_mixing_partial_lanes() {
+    let (frame_tx, frame_rx) = mpsc::channel();
+    let handler = Arc::new(ChannelFrameHandler::new(frame_tx)) as Arc<dyn RemoteFrameHandler>;
+    let listener = TcpAssociationListener::bind(("127.0.0.1", 0), handler)
+        .unwrap()
+        .with_accept_poll_interval(Duration::from_millis(1));
+    let port = listener.local_addr().unwrap().port();
+    let receiver_address = association_address("receiver", port);
+    let listener = listener.with_local_identity(receiver_address.clone(), 11);
+    let listener_handle = listener.spawn_accept_loop().unwrap();
+
+    let mut partial_lane = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let partial_handshake = TcpAssociationHandshake::new(
+        RemoteStreamId::Control,
+        TcpAssociationIdentity::new(association_address("partial", 25521), 21),
+        receiver_address.clone(),
+    );
+    partial_lane
+        .write_all(&encode_tcp_association_handshake(&partial_handshake).unwrap())
+        .unwrap();
+
+    let cache = RemoteAssociationCache::new();
+    let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone());
+    let complete_identity = association_address("complete", 25522);
+    let dialer = TcpAssociationDialer::new(installer)
+        .with_local_identity(complete_identity.clone(), 22)
+        .with_handshake_response_required()
+        .with_connect_timeout(Duration::from_secs(1));
+    let registration = dialer.dial(receiver_address).unwrap();
+
+    cache.send(envelope_to("receiver", port, 61)).unwrap();
+    let (stream_id, frame) = frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(stream_id, RemoteStreamId::Ordinary);
+    let decoded = decode_remote_envelope_frame(frame).unwrap();
+    assert_eq!(decoded.message.payload, Bytes::from_static(&[61]));
+
+    listener_handle.stop();
+    drop(partial_lane);
+    drop(registration);
+    drop(cache);
+    drop(dialer);
+
+    let report = listener_handle.join().unwrap();
+    assert_eq!(report.accepted_associations, 1);
+    assert_eq!(
+        report.remote_identities,
+        vec![TcpAssociationIdentity::new(complete_identity, 22)]
+    );
+}
+
+#[test]
+fn tcp_listener_expires_partial_peer_and_releases_pending_capacity() {
+    let (frame_tx, frame_rx) = mpsc::channel();
+    let handler = Arc::new(ChannelFrameHandler::new(frame_tx)) as Arc<dyn RemoteFrameHandler>;
+    let listener = TcpAssociationListener::bind(("127.0.0.1", 0), handler)
+        .unwrap()
+        .with_accept_poll_interval(Duration::from_millis(1))
+        .with_association_assembly_settings(
+            TcpAssociationAssemblySettings::new(Duration::from_millis(200), 1).unwrap(),
+        );
+    let port = listener.local_addr().unwrap().port();
+    let receiver_address = association_address("receiver", port);
+    let listener = listener.with_local_identity(receiver_address.clone(), 11);
+    let listener_handle = listener.spawn_accept_loop().unwrap();
+
+    let mut partial_lane = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    partial_lane
+        .write_all(
+            &encode_tcp_association_handshake(&TcpAssociationHandshake::new(
+                RemoteStreamId::Control,
+                TcpAssociationIdentity::new(association_address("partial", 25521), 21),
+                receiver_address.clone(),
+            ))
+            .unwrap(),
+        )
+        .unwrap();
+    thread::sleep(Duration::from_millis(20));
+
+    let rejected_cache = RemoteAssociationCache::new();
+    let rejected_dialer = TcpAssociationDialer::new(crate::RemoteAssociationRouteInstaller::new(
+        rejected_cache.clone(),
+    ))
+    .with_local_identity(association_address("over-limit", 25522), 22)
+    .with_handshake_response_required()
+    .with_handshake_read_settings(
+        TcpHandshakeReadSettings::new(1_024, Duration::from_millis(100)).unwrap(),
+    )
+    .with_connect_timeout(Duration::from_secs(1));
+    assert!(rejected_dialer.dial(receiver_address.clone()).is_err());
+    assert_eq!(rejected_cache.route_count(), 0);
+
+    thread::sleep(Duration::from_millis(220));
+    let accepted_cache = RemoteAssociationCache::new();
+    let accepted_dialer = TcpAssociationDialer::new(crate::RemoteAssociationRouteInstaller::new(
+        accepted_cache.clone(),
+    ))
+    .with_local_identity(association_address("after-timeout", 25523), 23)
+    .with_handshake_response_required()
+    .with_connect_timeout(Duration::from_secs(1));
+    let registration = accepted_dialer.dial(receiver_address).unwrap();
+
+    accepted_cache
+        .send(envelope_to("receiver", port, 62))
+        .unwrap();
+    let (_, frame) = frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let decoded = decode_remote_envelope_frame(frame).unwrap();
+    assert_eq!(decoded.message.payload, Bytes::from_static(&[62]));
+
+    listener_handle.stop();
+    drop(partial_lane);
+    drop(registration);
+    drop(accepted_cache);
+    drop(accepted_dialer);
+    drop(rejected_cache);
+    drop(rejected_dialer);
+
+    let report = listener_handle.join().unwrap();
+    assert_eq!(report.accepted_associations, 1);
+}

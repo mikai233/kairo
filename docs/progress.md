@@ -172,10 +172,16 @@ refreshable at-most-once control traffic. Handshake reads now have builder-
 configurable payload and duration bounds: the decoder rejects the declared
 length before allocating a body above the 64 KiB default, accepted streams time
 out silent peers before lane assembly, and symmetric dialers apply the same
-bounds to identity responses. Partial-lane assembly, concurrent-peer limits,
-and association-wide reader/writer failure ownership remain next. The older
-subsystem-specific TCP runtimes remain migration baselines until their higher
-runtime owners adopt the shared core.
+bounds to identity responses. Accepted handshaken lanes now enter bounded,
+identity-keyed partial assemblies instead of assuming that the next three
+sockets belong to one peer. Interleaved complete peers can progress around an
+incomplete peer, duplicate or mixed-incarnation lanes are rejected, incomplete
+groups expire after a configurable five-second default, and a configurable
+64-peer default caps pending groups without terminating the listener. Real TCP
+tests pin interleaved delivery plus capacity rejection and recovery after
+expiry. Association-wide reader/writer failure ownership remains next. The
+older subsystem-specific TCP runtimes remain migration baselines until their
+higher runtime owners adopt the shared core.
 
 The reliable-delivery wire/state-machine layer and its composed runtime are now
 implemented: registered stable envelope/ack/nack codecs preserve a nested
