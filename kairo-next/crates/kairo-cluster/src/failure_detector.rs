@@ -1,10 +1,15 @@
+#![deny(missing_docs)]
+
 use std::{collections::HashMap, hash::Hash, time::Duration};
 
+/// Invalid deadline failure-detector configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FailureDetectorError {
+    /// The expected heartbeat interval was zero.
     ZeroHeartbeatInterval,
 }
 
+/// Timing policy for a deadline-based failure detector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DeadlineFailureDetectorSettings {
     heartbeat_interval: Duration,
@@ -12,6 +17,12 @@ pub struct DeadlineFailureDetectorSettings {
 }
 
 impl DeadlineFailureDetectorSettings {
+    /// Creates validated deadline failure-detector settings.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FailureDetectorError::ZeroHeartbeatInterval`] when the expected
+    /// heartbeat interval is zero.
     pub fn new(
         heartbeat_interval: Duration,
         acceptable_heartbeat_pause: Duration,
@@ -25,10 +36,12 @@ impl DeadlineFailureDetectorSettings {
         })
     }
 
+    /// Returns the expected interval between heartbeats.
     pub fn heartbeat_interval(&self) -> Duration {
         self.heartbeat_interval
     }
 
+    /// Returns the tolerated delay beyond one expected heartbeat interval.
     pub fn acceptable_heartbeat_pause(&self) -> Duration {
         self.acceptable_heartbeat_pause
     }
@@ -38,6 +51,11 @@ impl DeadlineFailureDetectorSettings {
     }
 }
 
+/// Deterministic failure detector based on a last-heartbeat deadline.
+///
+/// An unmonitored resource is available. Once monitoring begins, it remains
+/// available strictly until `heartbeat_interval + acceptable_heartbeat_pause`
+/// after the latest heartbeat.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeadlineFailureDetector {
     settings: DeadlineFailureDetectorSettings,
@@ -45,6 +63,7 @@ pub struct DeadlineFailureDetector {
 }
 
 impl DeadlineFailureDetector {
+    /// Creates an unmonitored detector with the supplied timing policy.
     pub fn new(settings: DeadlineFailureDetectorSettings) -> Self {
         Self {
             settings,
@@ -52,10 +71,12 @@ impl DeadlineFailureDetector {
         }
     }
 
+    /// Records a heartbeat at monotonic time `now`.
     pub fn heartbeat(&mut self, now: Duration) {
         self.latest_heartbeat_at = Some(now);
     }
 
+    /// Returns whether the resource is available at monotonic time `now`.
     pub fn is_available(&self, now: Duration) -> bool {
         self.latest_heartbeat_at.is_none_or(|latest| {
             latest
@@ -64,15 +85,18 @@ impl DeadlineFailureDetector {
         })
     }
 
+    /// Returns whether at least one heartbeat has started monitoring.
     pub fn is_monitoring(&self) -> bool {
         self.latest_heartbeat_at.is_some()
     }
 
+    /// Returns the monotonic time of the latest heartbeat.
     pub fn latest_heartbeat_at(&self) -> Option<Duration> {
         self.latest_heartbeat_at
     }
 }
 
+/// Per-resource registry of identically configured deadline failure detectors.
 #[derive(Debug, Clone)]
 pub struct FailureDetectorRegistry<K> {
     settings: DeadlineFailureDetectorSettings,
@@ -83,6 +107,7 @@ impl<K> FailureDetectorRegistry<K>
 where
     K: Eq + Hash + Clone,
 {
+    /// Creates an empty registry using `settings` for newly monitored resources.
     pub fn new(settings: DeadlineFailureDetectorSettings) -> Self {
         Self {
             settings,
@@ -90,6 +115,7 @@ where
         }
     }
 
+    /// Records a heartbeat, creating the resource detector on first use.
     pub fn heartbeat(&mut self, resource: K, now: Duration) {
         self.detectors
             .entry(resource)
@@ -97,6 +123,9 @@ where
             .heartbeat(now);
     }
 
+    /// Returns whether `resource` is available at `now`.
+    ///
+    /// Unknown resources are considered available.
     pub fn is_available(&self, resource: &K, now: Duration) -> bool {
         self.detectors
             .get(resource)
@@ -104,6 +133,7 @@ where
             .unwrap_or(true)
     }
 
+    /// Returns whether `resource` has an active detector.
     pub fn is_monitoring(&self, resource: &K) -> bool {
         self.detectors
             .get(resource)
@@ -111,14 +141,17 @@ where
             .unwrap_or(false)
     }
 
+    /// Removes all monitoring history for `resource`.
     pub fn remove(&mut self, resource: &K) {
         self.detectors.remove(resource);
     }
 
+    /// Removes every monitored resource.
     pub fn reset(&mut self) {
         self.detectors.clear();
     }
 
+    /// Returns the detector for `resource`, when monitoring has begun.
     pub fn detector(&self, resource: &K) -> Option<&DeadlineFailureDetector> {
         self.detectors.get(resource)
     }

@@ -93,7 +93,10 @@ Status terms in this document mean:
   tombstone-aware gossip merge, convergence, and leader-selection public APIs
   now document their Pekko-aligned ordering and eligibility contracts and deny
   missing documentation module by module. The cluster-domain event model and
-  deterministic gossip-diff publication order carry the same hard gate.
+  deterministic gossip-diff publication order carry the same hard gate. The
+  deadline failure-detector and deterministic heartbeat-ring policy now also
+  document their timing, receiver-retention, and recovery contracts under hard
+  missing-documentation gates.
 - M6 cluster runtime and membership protocol: complete. Membership actors,
   join/welcome handling, heartbeat, downing hooks, remote envelopes, and TCP
   peer bootstrap components exist. The composed daemon now proves seed contact,

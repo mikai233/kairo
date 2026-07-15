@@ -1,13 +1,22 @@
+#![deny(missing_docs)]
+
 use std::{collections::HashSet, time::Duration};
 
 use crate::{DeadlineFailureDetectorSettings, FailureDetectorRegistry, UniqueAddress};
 
+/// Invalid heartbeat-ring or sender-state configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HeartbeatError {
+    /// The ring's node set omitted the local node.
     MissingSelfAddress,
+    /// The configured number of monitoring members was zero.
     ZeroMonitoredByNrOfMembers,
 }
 
+/// Immutable deterministic ring used to choose heartbeat receivers.
+///
+/// Nodes are shuffled by a fixed hash of their unique-address ordering key so
+/// monitoring does not simply follow physical or lexical address adjacency.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeartbeatNodeRing {
     self_node: UniqueAddress,
@@ -17,6 +26,12 @@ pub struct HeartbeatNodeRing {
 }
 
 impl HeartbeatNodeRing {
+    /// Creates a validated heartbeat receiver ring.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the monitoring count is zero or `nodes` omits
+    /// `self_node`.
     pub fn new(
         self_node: UniqueAddress,
         nodes: impl IntoIterator<Item = UniqueAddress>,
@@ -38,22 +53,31 @@ impl HeartbeatNodeRing {
         })
     }
 
+    /// Returns the local unique address anchoring this ring view.
     pub fn self_node(&self) -> &UniqueAddress {
         &self.self_node
     }
 
+    /// Returns all current ring members, including self.
     pub fn nodes(&self) -> &HashSet<UniqueAddress> {
         &self.nodes
     }
 
+    /// Returns members currently marked unreachable in this ring view.
     pub fn unreachable(&self) -> &HashSet<UniqueAddress> {
         &self.unreachable
     }
 
+    /// Returns the receivers selected for the local node.
     pub fn my_receivers(&self) -> HashSet<UniqueAddress> {
         self.receivers(&self.self_node)
     }
 
+    /// Returns the deterministic receiver set for `sender`.
+    ///
+    /// Selection walks forward around the ring until the configured number of
+    /// reachable receivers is chosen. Intermediate unreachable nodes are also
+    /// retained so simultaneous failures remain monitored for leader cleanup.
     pub fn receivers(&self, sender: &UniqueAddress) -> HashSet<UniqueAddress> {
         let ring = self.sorted_ring();
         if self.monitored_by_nr_of_members >= ring.len().saturating_sub(1) {
@@ -89,6 +113,7 @@ impl HeartbeatNodeRing {
         selected
     }
 
+    /// Returns a ring containing `node`.
     pub fn add_node(&self, node: UniqueAddress) -> Self {
         if self.nodes.contains(&node) {
             return self.clone();
@@ -98,6 +123,7 @@ impl HeartbeatNodeRing {
         changed
     }
 
+    /// Returns a ring without `node` or its unreachable marker.
     pub fn remove_node(&self, node: &UniqueAddress) -> Self {
         if !self.nodes.contains(node) && !self.unreachable.contains(node) {
             return self.clone();
@@ -108,12 +134,14 @@ impl HeartbeatNodeRing {
         changed
     }
 
+    /// Returns a ring that marks `node` unreachable.
     pub fn with_unreachable(&self, node: UniqueAddress) -> Self {
         let mut changed = self.clone();
         changed.unreachable.insert(node);
         changed
     }
 
+    /// Returns a ring that clears `node`'s unreachable marker.
     pub fn with_reachable(&self, node: &UniqueAddress) -> Self {
         let mut changed = self.clone();
         changed.unreachable.remove(node);
@@ -127,6 +155,10 @@ impl HeartbeatNodeRing {
     }
 }
 
+/// Immutable heartbeat-sender policy state with cloned failure-detector state.
+///
+/// Receivers that rotate out while unavailable remain active until a heartbeat
+/// proves recovery, preventing a ring change from forgetting a failed node.
 #[derive(Debug, Clone)]
 pub struct HeartbeatSenderState {
     ring: HeartbeatNodeRing,
@@ -135,6 +167,11 @@ pub struct HeartbeatSenderState {
 }
 
 impl HeartbeatSenderState {
+    /// Creates sender state containing only the local node.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `monitored_by_nr_of_members` is zero.
     pub fn new(
         self_node: UniqueAddress,
         monitored_by_nr_of_members: usize,
@@ -153,28 +190,36 @@ impl HeartbeatSenderState {
         })
     }
 
+    /// Returns the current heartbeat ring.
     pub fn ring(&self) -> &HeartbeatNodeRing {
         &self.ring
     }
 
+    /// Returns former receivers retained because they are still unavailable.
     pub fn old_receivers_now_unreachable(&self) -> &HashSet<UniqueAddress> {
         &self.old_receivers_now_unreachable
     }
 
+    /// Returns the current per-member failure-detector registry.
     pub fn failure_detector(&self) -> &FailureDetectorRegistry<UniqueAddress> {
         &self.failure_detector
     }
 
+    /// Returns current ring receivers plus unavailable receivers rotated out of the ring.
     pub fn active_receivers(&self) -> HashSet<UniqueAddress> {
         let mut active = self.ring.my_receivers();
         active.extend(self.old_receivers_now_unreachable.iter().cloned());
         active
     }
 
+    /// Returns whether `node` is a current ring member.
     pub fn contains(&self, node: &UniqueAddress) -> bool {
         self.ring.nodes.contains(node)
     }
 
+    /// Replaces the membership and unreachable snapshot while retaining detector history.
+    ///
+    /// The local node is always inserted into the resulting ring.
     pub fn init(
         &self,
         nodes: impl IntoIterator<Item = UniqueAddress>,
@@ -194,10 +239,12 @@ impl HeartbeatSenderState {
         }
     }
 
+    /// Returns state after adding one member and reconciling receiver ownership.
     pub fn add_member(&self, node: UniqueAddress, now: Duration) -> Self {
         self.membership_change(self.ring.add_node(node), now)
     }
 
+    /// Returns state after removing a member and all of its detector history.
     pub fn remove_member(&self, node: &UniqueAddress, now: Duration) -> Self {
         let mut changed = self.membership_change(self.ring.remove_node(node), now);
         changed.failure_detector.remove(node);
@@ -205,14 +252,20 @@ impl HeartbeatSenderState {
         changed
     }
 
+    /// Returns state after marking a member unreachable and reconciling receivers.
     pub fn unreachable_member(&self, node: UniqueAddress, now: Duration) -> Self {
         self.membership_change(self.ring.with_unreachable(node), now)
     }
 
+    /// Returns state after marking a member reachable and reconciling receivers.
     pub fn reachable_member(&self, node: &UniqueAddress, now: Duration) -> Self {
         self.membership_change(self.ring.with_reachable(node), now)
     }
 
+    /// Records a response from an active receiver at monotonic time `now`.
+    ///
+    /// A recovered former receiver is released when it is no longer selected by
+    /// the current ring.
     pub fn heartbeat_response(&self, from: &UniqueAddress, now: Duration) -> Self {
         if !self.active_receivers().contains(from) {
             return self.clone();
@@ -228,6 +281,9 @@ impl HeartbeatSenderState {
         changed
     }
 
+    /// Starts failure detection when an active receiver's first response is overdue.
+    ///
+    /// Inactive or already monitored receivers leave the state unchanged.
     pub fn trigger_expected_first_heartbeat(&self, from: &UniqueAddress, now: Duration) -> Self {
         if !self.active_receivers().contains(from) || self.failure_detector.is_monitoring(from) {
             return self.clone();
@@ -238,6 +294,7 @@ impl HeartbeatSenderState {
         changed
     }
 
+    /// Clears all detector history and retained former receivers.
     pub fn reset_failure_detector(&self) -> Self {
         let mut changed = self.clone();
         changed.failure_detector.reset();
