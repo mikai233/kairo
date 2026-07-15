@@ -10,7 +10,7 @@ use crate::dead_letters::DeadLetters;
 use crate::death_watch::{
     DeathWatchKind, DeathWatchRegistration, DeathWatchRegistry, TerminationCause,
 };
-use crate::dispatcher::DispatcherSettings;
+use crate::dispatcher::{Dispatcher, DispatcherSettings};
 use crate::error::ActorError;
 use crate::event_stream::EventStream;
 use crate::extensions::{Extension, ExtensionRegistry};
@@ -31,10 +31,10 @@ pub use builder::ActorSystemBuilder;
 pub struct ActorSystem {
     name: String,
     address: Address,
-    inner: Arc<ActorSystemInner>,
+    pub(crate) inner: Arc<ActorSystemInner>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct ActorSystemInner {
     pub(crate) next_uid: AtomicU64,
     pub(crate) next_anonymous: AtomicU64,
@@ -43,7 +43,8 @@ pub(crate) struct ActorSystemInner {
     pub(crate) terminated: AtomicBool,
     pub(crate) registry: ActorRegistry,
     pub(crate) death_watch: DeathWatchRegistry,
-    pub(crate) dispatcher: DispatcherSettings,
+    pub(crate) dispatcher_settings: DispatcherSettings,
+    pub(crate) dispatcher: Dispatcher,
     pub(crate) mailbox: MailboxSettings,
     pub(crate) scheduler: Scheduler,
     pub(crate) event_stream: EventStream,
@@ -71,7 +72,7 @@ impl ActorSystem {
     }
 
     pub fn dispatcher_settings(&self) -> DispatcherSettings {
-        self.inner.dispatcher
+        self.inner.dispatcher_settings
     }
 
     pub fn mailbox_settings(&self) -> MailboxSettings {
@@ -260,6 +261,7 @@ impl ActorSystem {
             &[user_root.as_str(), system_root.as_str()],
             deadline,
         )?;
+        self.inner.dispatcher.shutdown();
         self.inner.terminated.store(true, Ordering::Release);
         Ok(())
     }

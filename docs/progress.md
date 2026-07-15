@@ -31,9 +31,9 @@ Status terms in this document mean:
   is enforced, and the Pekko reference path is documented.
 - M1 local actor vertical slice: complete. Typed local actors can be spawned,
   messaged, stopped, observed, and routed through actor paths and providers.
-  The current worker-thread-per-actor implementation remains the baseline
-  recorded by ADR-0003, not the production dispatcher contract required before
-  release readiness.
+  Actor mailboxes now run as throughput-limited activations on an
+  ActorSystem-owned fixed worker pool, with atomic schedule-once wakeups and
+  cooperative child lifecycle progress as recorded by ADR-0102.
 - M2 lifecycle, supervision, patterns, and testkit: substantial component
   coverage. Lifecycle, supervision, death watch, timers, scheduler, ask,
   pipe-to-self, adapters, stash, event stream, receptionist, coordinated
@@ -96,6 +96,14 @@ when they are isolated, but they must not deepen coupling to a provisional
 runtime. Each phase has an explicit exit gate.
 
 ### Phase 1: Production Actor Execution Foundation
+
+Current checkpoint: actor startup, synchronous receive turns, system-message
+priority, throughput rescheduling, stop, and restart now run on the shared
+dispatcher without one OS thread per actor. Focused coverage pins lost-wakeup
+avoidance, single-turn execution, one-worker fairness and child-stop progress,
+factory-panic isolation, and 2,000 idle actors on two workers. Actor helper
+tasks and the real-time scheduler still use per-operation threads and remain
+the open Phase 1 execution work.
 
 Task: replace the worker-thread-per-actor/task/timer baseline with an explicit
 dispatcher, task-executor, and scheduler ownership model while preserving the

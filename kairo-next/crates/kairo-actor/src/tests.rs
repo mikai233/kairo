@@ -9,6 +9,7 @@ mod adapters;
 mod asks;
 mod backoff_supervisor;
 mod coordinated_shutdown;
+mod dispatcher;
 mod event_stream;
 mod extensions;
 mod local_core;

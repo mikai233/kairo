@@ -1,8 +1,7 @@
 use std::any::Any;
 use std::panic::{self, AssertUnwindSafe};
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
-use std::thread;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 mod lifecycle;
@@ -10,8 +9,9 @@ mod lifecycle;
 use crate::actor::{Actor, Context, Props};
 use crate::dead_letters::DeadLetters;
 use crate::death_watch::TerminationCause;
+use crate::dispatcher::{DispatchTask, DispatcherHandle};
 use crate::error::{ActorError, ActorResult};
-use crate::mailbox::{Dequeued, SystemMessage, UserEnvelope};
+use crate::mailbox::{Dequeued, MailboxScheduler, SystemMessage, UserEnvelope};
 use crate::path::ActorPath;
 use crate::receive_timeout::ReceiveTimeoutState;
 use crate::refs::ActorRef;
@@ -27,112 +27,313 @@ use lifecycle::{
     stop_children_except_for_restart, stop_children_for_restart,
 };
 
-pub(crate) fn run_actor<A>(
-    mut props: Props<A>,
+pub(crate) fn schedule_actor<A>(
+    props: Props<A>,
     actor_ref: ActorRef<A::Msg>,
-    dead_letters: DeadLetters,
-    system_inner: Arc<ActorSystemInner>,
     registry_key: String,
-    thread_system: ActorSystem,
+    actor_system: ActorSystem,
     parent_path: ActorPath,
-) where
+) -> bool
+where
     A: Actor,
 {
-    let mut actor = props.build();
-    let throughput = thread_system.dispatcher_settings().throughput();
-    let mut context = Context {
-        myself: actor_ref.clone(),
-        parent: parent_path.clone(),
-        system: thread_system,
-        stop_requested: false,
-        timers: TimerState::default(),
-        receive_timeout: ReceiveTimeoutState::default(),
-        stash: StashState::new(props.stash_capacity()),
-        tasks: Default::default(),
-        asks: Default::default(),
-        adapters: Default::default(),
-    };
-    let mut run_state = ActorRunState::default();
-
-    if let Some(reason) = apply_start_result(
-        &mut actor,
-        &actor_ref,
-        &mut context,
-        &props,
-        &system_inner,
-        &mut run_state.supervision,
-    ) {
-        run_state.termination_cause = TerminationCause::Failed(reason);
-        actor_ref.target.stopped.store(true, Ordering::Release);
-    } else if context.stop_requested {
-        actor_ref.target.stopped.store(true, Ordering::Release);
-    } else {
-        context.after_influencing_message();
-    }
-
+    let dead_letters = actor_system.dead_letters();
+    let system_inner = Arc::clone(&actor_system.inner);
+    let dispatcher = actor_system.inner.dispatcher.handle();
     let mailbox = actor_ref
         .target
         .mailbox
         .as_ref()
-        .expect("live actor ref must have a mailbox");
-    while !actor_ref.target.stopped.load(Ordering::Acquire) {
-        let processed = process_dequeued(
-            mailbox.dequeue(),
-            &actor_ref,
-            &mut actor,
-            &mut context,
-            &props,
-            &system_inner,
-            &mut run_state,
-        );
-        let mut processed_user = usize::from(processed);
+        .expect("live actor ref must have a mailbox")
+        .clone();
+    let runner = Arc::new(ActorRunner {
+        state: Mutex::new(ActorRunnerState {
+            props: Some(props),
+            execution: None,
+            terminated: false,
+        }),
+        actor_ref,
+        dead_letters,
+        system_inner,
+        registry_key,
+        actor_system,
+        parent_path,
+    });
+    let schedule = Arc::new(ActorSchedule {
+        runner,
+        dispatcher,
+        scheduled: AtomicBool::new(false),
+    });
+    mailbox.set_scheduler(schedule.clone());
+    let scheduled = MailboxScheduler::schedule(schedule);
+    if !scheduled {
+        mailbox.clear_scheduler();
+    }
+    scheduled
+}
 
-        while processed_user < throughput && !actor_ref.target.stopped.load(Ordering::Acquire) {
+struct ActorRunner<A: Actor> {
+    state: Mutex<ActorRunnerState<A>>,
+    actor_ref: ActorRef<A::Msg>,
+    dead_letters: DeadLetters,
+    system_inner: Arc<ActorSystemInner>,
+    registry_key: String,
+    actor_system: ActorSystem,
+    parent_path: ActorPath,
+}
+
+struct ActorRunnerState<A: Actor> {
+    props: Option<Props<A>>,
+    execution: Option<ActorExecution<A>>,
+    terminated: bool,
+}
+
+struct ActorExecution<A: Actor> {
+    props: Props<A>,
+    actor: A,
+    context: Context<A::Msg>,
+    run_state: ActorRunState,
+}
+
+impl<A: Actor> ActorRunner<A> {
+    fn run_activation(&self) {
+        let mut state = self.state.lock().expect("actor runner poisoned");
+        if state.terminated {
+            return;
+        }
+        if state.execution.is_none() && !self.initialize(&mut state) {
+            return;
+        }
+        if self.actor_ref.target.stopped.load(Ordering::Acquire) {
+            self.terminate(&mut state);
+            return;
+        }
+
+        let throughput = self.actor_system.dispatcher_settings().throughput();
+        let mailbox = self
+            .actor_ref
+            .target
+            .mailbox
+            .as_ref()
+            .expect("live actor ref must have a mailbox");
+        let execution = state
+            .execution
+            .as_mut()
+            .expect("actor activation must be initialized");
+        let mut processed_user = 0;
+        while processed_user < throughput && !self.actor_ref.target.stopped.load(Ordering::Acquire)
+        {
             let Some(next) = mailbox.try_dequeue() else {
                 break;
             };
             if process_dequeued(
                 next,
-                &actor_ref,
-                &mut actor,
-                &mut context,
-                &props,
-                &system_inner,
-                &mut run_state,
+                &self.actor_ref,
+                &mut execution.actor,
+                &mut execution.context,
+                &execution.props,
+                &self.system_inner,
+                &mut execution.run_state,
             ) {
                 processed_user += 1;
             }
         }
-
-        if processed_user >= throughput && !actor_ref.target.stopped.load(Ordering::Acquire) {
-            thread::yield_now();
+        while !self.actor_ref.target.stopped.load(Ordering::Acquire) {
+            let Some(system_message) = mailbox.try_dequeue_system() else {
+                break;
+            };
+            process_dequeued(
+                Dequeued::System(system_message),
+                &self.actor_ref,
+                &mut execution.actor,
+                &mut execution.context,
+                &execution.props,
+                &self.system_inner,
+                &mut execution.run_state,
+            );
+        }
+        if self.actor_ref.target.stopped.load(Ordering::Acquire) {
+            self.terminate(&mut state);
         }
     }
 
-    context.cancel_all_timers();
-    context.cancel_receive_timeout();
-    context.cancel_tasks();
-    context.cancel_asks();
-    stop_adapter_refs(&system_inner, &mut context);
-    let _ = context.drain_stash_to_mailbox();
-    for _ in 0..mailbox.close_and_drain_user() {
-        dead_letters.publish::<A::Msg>(actor_ref.path.clone(), "actor is stopped");
+    fn initialize(&self, state: &mut ActorRunnerState<A>) -> bool {
+        let mut props = state.props.take().expect("actor props already consumed");
+        let mut actor = match panic::catch_unwind(AssertUnwindSafe(|| props.build())) {
+            Ok(actor) => actor,
+            Err(payload) => {
+                let reason = panic_to_actor_error("factory", payload).to_string();
+                self.fail_before_start(state, reason);
+                return false;
+            }
+        };
+        let mut context = Context {
+            myself: self.actor_ref.clone(),
+            parent: self.parent_path.clone(),
+            system: self.actor_system.clone(),
+            stop_requested: false,
+            timers: TimerState::default(),
+            receive_timeout: ReceiveTimeoutState::default(),
+            stash: StashState::new(props.stash_capacity()),
+            tasks: Default::default(),
+            asks: Default::default(),
+            adapters: Default::default(),
+        };
+        let mut run_state = ActorRunState::default();
+        if let Some(reason) = apply_start_result(
+            &mut actor,
+            &self.actor_ref,
+            &mut context,
+            &props,
+            &self.system_inner,
+            &mut run_state.supervision,
+        ) {
+            run_state.termination_cause = TerminationCause::Failed(reason);
+            self.actor_ref.target.stopped.store(true, Ordering::Release);
+        } else if context.stop_requested {
+            self.actor_ref.target.stopped.store(true, Ordering::Release);
+        } else {
+            context.after_influencing_message();
+        }
+        state.execution = Some(ActorExecution {
+            props,
+            actor,
+            context,
+            run_state,
+        });
+        true
     }
 
-    system_inner.death_watch.remove_watcher(actor_ref.path());
-    stop_children(&system_inner, actor_ref.path.as_str());
-    let _ = invoke_signal(&mut actor, &mut context, Signal::PostStop);
-    system_inner.registry.remove_ref(actor_ref.path());
-    system_inner.registry.release_name(&registry_key);
-    system_inner
-        .registry
-        .remove_child(parent_path.as_str(), actor_ref.path());
-    system_inner.registry.remove_handle(actor_ref.path());
-    system_inner.receptionist.remove_actor(actor_ref.path());
-    actor_ref.target.terminated.mark_stopped();
-    system_inner
-        .death_watch
-        .notify(actor_ref.path(), run_state.termination_cause);
+    fn fail_before_start(&self, state: &mut ActorRunnerState<A>, reason: String) {
+        self.actor_ref.target.stopped.store(true, Ordering::Release);
+        let mailbox = self
+            .actor_ref
+            .target
+            .mailbox
+            .as_ref()
+            .expect("live actor ref must have a mailbox");
+        for _ in 0..mailbox.close_and_drain_user() {
+            self.dead_letters
+                .publish::<A::Msg>(self.actor_ref.path.clone(), "actor is stopped");
+        }
+        self.system_inner
+            .death_watch
+            .remove_watcher(self.actor_ref.path());
+        self.system_inner.registry.remove_ref(self.actor_ref.path());
+        self.system_inner.registry.release_name(&self.registry_key);
+        self.system_inner
+            .registry
+            .remove_child(self.parent_path.as_str(), self.actor_ref.path());
+        self.system_inner
+            .registry
+            .remove_handle(self.actor_ref.path());
+        self.system_inner
+            .receptionist
+            .remove_actor(self.actor_ref.path());
+        self.actor_ref.target.terminated.mark_stopped();
+        self.system_inner
+            .death_watch
+            .notify(self.actor_ref.path(), TerminationCause::Failed(reason));
+        state.terminated = true;
+        mailbox.clear_scheduler();
+    }
+
+    fn terminate(&self, state: &mut ActorRunnerState<A>) {
+        let Some(mut execution) = state.execution.take() else {
+            return;
+        };
+        let mailbox = self
+            .actor_ref
+            .target
+            .mailbox
+            .as_ref()
+            .expect("live actor ref must have a mailbox");
+        execution.context.cancel_all_timers();
+        execution.context.cancel_receive_timeout();
+        execution.context.cancel_tasks();
+        execution.context.cancel_asks();
+        stop_adapter_refs(&self.system_inner, &mut execution.context);
+        let _ = execution.context.drain_stash_to_mailbox();
+        for _ in 0..mailbox.close_and_drain_user() {
+            self.dead_letters
+                .publish::<A::Msg>(self.actor_ref.path.clone(), "actor is stopped");
+        }
+        self.system_inner
+            .death_watch
+            .remove_watcher(self.actor_ref.path());
+        stop_children(&self.system_inner, self.actor_ref.path.as_str());
+        let _ = invoke_signal(
+            &mut execution.actor,
+            &mut execution.context,
+            Signal::PostStop,
+        );
+        self.system_inner.registry.remove_ref(self.actor_ref.path());
+        self.system_inner.registry.release_name(&self.registry_key);
+        self.system_inner
+            .registry
+            .remove_child(self.parent_path.as_str(), self.actor_ref.path());
+        self.system_inner
+            .registry
+            .remove_handle(self.actor_ref.path());
+        self.system_inner
+            .receptionist
+            .remove_actor(self.actor_ref.path());
+        self.actor_ref.target.terminated.mark_stopped();
+        self.system_inner
+            .death_watch
+            .notify(self.actor_ref.path(), execution.run_state.termination_cause);
+        state.terminated = true;
+        mailbox.clear_scheduler();
+    }
+
+    fn needs_activation(&self) -> bool {
+        let state = self.state.lock().expect("actor runner poisoned");
+        if state.terminated {
+            return false;
+        }
+        self.actor_ref.target.stopped.load(Ordering::Acquire)
+            || self
+                .actor_ref
+                .target
+                .mailbox
+                .as_ref()
+                .is_some_and(|mailbox| mailbox.has_messages())
+    }
+}
+
+struct ActorSchedule<A: Actor> {
+    runner: Arc<ActorRunner<A>>,
+    dispatcher: DispatcherHandle,
+    scheduled: AtomicBool,
+}
+
+impl<A: Actor> MailboxScheduler for ActorSchedule<A> {
+    fn schedule(self: Arc<Self>) -> bool {
+        if self
+            .scheduled
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return true;
+        }
+        let task: Arc<dyn DispatchTask> = self.clone();
+        if self.dispatcher.execute(task) {
+            true
+        } else {
+            self.scheduled.store(false, Ordering::Release);
+            false
+        }
+    }
+}
+
+impl<A: Actor> DispatchTask for ActorSchedule<A> {
+    fn run(self: Arc<Self>) {
+        self.runner.run_activation();
+        self.scheduled.store(false, Ordering::Release);
+        if self.runner.needs_activation() {
+            MailboxScheduler::schedule(self);
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -562,7 +763,7 @@ where
             .registry
             .child_handles(actor_ref.path().as_str())
     };
-    let Some(mut restarted) = props.restart() else {
+    let Some(mut restarted) = build_restart(props)? else {
         return Err(ActorError::Message(
             "restart supervision requires restartable props".to_string(),
         ));
@@ -610,7 +811,7 @@ where
     }
 
     loop {
-        let Some(mut restarted) = props.restart() else {
+        let Some(mut restarted) = build_restart(props)? else {
             return Err(ActorError::Message(
                 "restart supervision requires restartable props".to_string(),
             ));
@@ -670,7 +871,7 @@ where
     context.cancel_asks();
     stop_adapter_refs(system_inner, context);
     stop_children_for_restart(system_inner, actor_ref.path());
-    let Some(restarted) = props.restart() else {
+    let Some(restarted) = build_restart(props)? else {
         return Err(ActorError::Message(
             "restart supervision requires restartable props".to_string(),
         ));
@@ -678,6 +879,14 @@ where
     context.stop_requested = false;
     *actor = restarted;
     Ok(())
+}
+
+fn build_restart<A>(props: &Props<A>) -> Result<Option<A>, ActorError>
+where
+    A: Actor,
+{
+    panic::catch_unwind(AssertUnwindSafe(|| props.restart()))
+        .map_err(|payload| panic_to_actor_error("restart factory", payload))
 }
 
 fn invoke_pre_restart<A>(actor: &mut A, context: &mut Context<A::Msg>) -> ActorResult

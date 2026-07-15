@@ -26,6 +26,16 @@ fn actor_system_builder_configures_dispatcher_throughput() {
 }
 
 #[test]
+fn actor_system_builder_configures_dispatcher_workers() {
+    let system = ActorSystem::builder("test")
+        .dispatcher_workers(2)
+        .build()
+        .unwrap();
+
+    assert_eq!(system.dispatcher_settings().workers(), 2);
+}
+
+#[test]
 fn actor_system_builder_configures_mailbox_capacity() {
     let system = ActorSystem::builder("test")
         .mailbox_capacity(1)
@@ -43,6 +53,16 @@ fn actor_system_builder_rejects_zero_dispatcher_throughput() {
         .unwrap_err();
 
     assert!(matches!(error, ActorError::InvalidThroughput));
+}
+
+#[test]
+fn actor_system_builder_rejects_zero_dispatcher_workers() {
+    let error = ActorSystem::builder("test")
+        .dispatcher_workers(0)
+        .build()
+        .unwrap_err();
+
+    assert!(matches!(error, ActorError::InvalidDispatcherWorkers));
 }
 
 #[test]

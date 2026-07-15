@@ -29,6 +29,8 @@ pub enum ActorError {
     ShutdownPhaseTimeout { phase: String, timeout: Duration },
     #[error("dispatcher throughput must be greater than zero")]
     InvalidThroughput,
+    #[error("dispatcher worker count must be greater than zero")]
+    InvalidDispatcherWorkers,
     #[error("mailbox capacity must be greater than zero")]
     InvalidMailboxCapacity,
     #[error("extension `{0}` is not registered")]

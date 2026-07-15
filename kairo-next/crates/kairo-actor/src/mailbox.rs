@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::fmt;
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 
 use crate::receive_timeout::ReceiveTimeoutEnvelope;
 use crate::signal::Signal;
@@ -43,11 +43,26 @@ impl<M: fmt::Debug> fmt::Debug for UserEnvelope<M> {
     }
 }
 
-#[derive(Debug)]
 pub(crate) struct Mailbox<M> {
     settings: MailboxSettings,
     state: Mutex<MailboxState<M>>,
-    ready: Condvar,
+    scheduler: Mutex<Option<Arc<dyn MailboxScheduler>>>,
+}
+
+impl<M> fmt::Debug for Mailbox<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let state = self.state.lock().expect("mailbox poisoned");
+        f.debug_struct("Mailbox")
+            .field("settings", &self.settings)
+            .field("system_messages", &state.system.len())
+            .field("user_messages", &state.user.len())
+            .field("closed", &state.closed)
+            .finish_non_exhaustive()
+    }
+}
+
+pub(crate) trait MailboxScheduler: Send + Sync + 'static {
+    fn schedule(self: Arc<Self>) -> bool;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -120,8 +135,19 @@ impl<M> Mailbox<M> {
                 user: VecDeque::new(),
                 closed: false,
             }),
-            ready: Condvar::new(),
+            scheduler: Mutex::new(None),
         }
+    }
+
+    pub(crate) fn set_scheduler(&self, scheduler: Arc<dyn MailboxScheduler>) {
+        *self.scheduler.lock().expect("mailbox scheduler poisoned") = Some(scheduler);
+    }
+
+    pub(crate) fn clear_scheduler(&self) {
+        self.scheduler
+            .lock()
+            .expect("mailbox scheduler poisoned")
+            .take();
     }
 
     pub(crate) fn enqueue_user(&self, message: M) -> Result<(), MailboxEnqueueError<M>> {
@@ -133,7 +159,8 @@ impl<M> Mailbox<M> {
             return Err(MailboxEnqueueError::Full(message));
         }
         state.user.push_back(UserEnvelope::Message(message));
-        self.ready.notify_one();
+        drop(state);
+        self.schedule();
         Ok(())
     }
 
@@ -145,7 +172,8 @@ impl<M> Mailbox<M> {
         for message in messages.drain(..).rev() {
             state.user.push_front(UserEnvelope::Message(message));
         }
-        self.ready.notify_one();
+        drop(state);
+        self.schedule();
         Ok(())
     }
 
@@ -161,7 +189,8 @@ impl<M> Mailbox<M> {
             return Err(MailboxEnqueueError::Full(timer));
         }
         state.user.push_back(UserEnvelope::Timer(timer));
-        self.ready.notify_one();
+        drop(state);
+        self.schedule();
         Ok(())
     }
 
@@ -177,7 +206,8 @@ impl<M> Mailbox<M> {
             return Err(MailboxEnqueueError::Full(timeout));
         }
         state.user.push_back(UserEnvelope::ReceiveTimeout(timeout));
-        self.ready.notify_one();
+        drop(state);
+        self.schedule();
         Ok(())
     }
 
@@ -200,7 +230,8 @@ impl<M> Mailbox<M> {
         state
             .user
             .push_back(UserEnvelope::Adapted(Box::new(move || adapt(message))));
-        self.ready.notify_one();
+        drop(state);
+        self.schedule();
         Ok(())
     }
 
@@ -210,23 +241,8 @@ impl<M> Mailbox<M> {
             return;
         }
         state.system.push_back(message);
-        self.ready.notify_one();
-    }
-
-    pub(crate) fn dequeue(&self) -> Dequeued<M> {
-        let mut state = self.state.lock().expect("mailbox poisoned");
-        loop {
-            if let Some(message) = state.system.pop_front() {
-                return Dequeued::System(message);
-            }
-            if let Some(message) = state.user.pop_front() {
-                return Dequeued::User(message);
-            }
-            if state.closed {
-                return Dequeued::Closed;
-            }
-            state = self.ready.wait(state).expect("mailbox poisoned");
-        }
+        drop(state);
+        self.schedule();
     }
 
     pub(crate) fn try_dequeue(&self) -> Option<Dequeued<M>> {
@@ -243,6 +259,14 @@ impl<M> Mailbox<M> {
         None
     }
 
+    pub(crate) fn try_dequeue_system(&self) -> Option<SystemMessage> {
+        self.state
+            .lock()
+            .expect("mailbox poisoned")
+            .system
+            .pop_front()
+    }
+
     pub(crate) fn close_and_drain_user(&self) -> usize {
         let mut state = self.state.lock().expect("mailbox poisoned");
         state.closed = true;
@@ -253,8 +277,23 @@ impl<M> Mailbox<M> {
             .filter(|envelope| matches!(envelope, UserEnvelope::Message(_)))
             .count();
         state.user.clear();
-        self.ready.notify_all();
         drained
+    }
+
+    pub(crate) fn has_messages(&self) -> bool {
+        let state = self.state.lock().expect("mailbox poisoned");
+        !state.system.is_empty() || !state.user.is_empty()
+    }
+
+    fn schedule(&self) {
+        let scheduler = self
+            .scheduler
+            .lock()
+            .expect("mailbox scheduler poisoned")
+            .clone();
+        if let Some(scheduler) = scheduler {
+            scheduler.schedule();
+        }
     }
 
     fn is_full(&self, state: &MailboxState<M>) -> bool {

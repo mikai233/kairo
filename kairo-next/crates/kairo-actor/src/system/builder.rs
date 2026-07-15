@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::dead_letters::DeadLetters;
-use crate::dispatcher::DispatcherSettings;
+use crate::dispatcher::{Dispatcher, DispatcherSettings};
 use crate::error::ActorError;
 use crate::event_stream::EventStream;
 use crate::mailbox::MailboxSettings;
@@ -31,7 +31,13 @@ impl ActorSystemBuilder {
     }
 
     pub fn dispatcher_throughput(mut self, throughput: usize) -> Self {
-        self.dispatcher = DispatcherSettings::new(throughput);
+        self.dispatcher =
+            DispatcherSettings::new(throughput).with_workers(self.dispatcher.workers());
+        self
+    }
+
+    pub fn dispatcher_workers(mut self, workers: usize) -> Self {
+        self.dispatcher = self.dispatcher.with_workers(workers);
         self
     }
 
@@ -54,6 +60,9 @@ impl ActorSystemBuilder {
         if self.dispatcher.throughput() == 0 {
             return Err(ActorError::InvalidThroughput);
         }
+        if self.dispatcher.workers() == 0 {
+            return Err(ActorError::InvalidDispatcherWorkers);
+        }
         if self.mailbox.user_capacity() == Some(0) {
             return Err(ActorError::InvalidMailboxCapacity);
         }
@@ -63,16 +72,28 @@ impl ActorSystemBuilder {
         } else {
             DeadLetters::without_event_stream()
         };
+        let dispatcher = Dispatcher::new(self.dispatcher)?;
+        dispatcher.start();
         Ok(ActorSystem {
             address: Address::local(self.name.clone()),
             name: self.name,
             inner: Arc::new(ActorSystemInner {
-                dispatcher: self.dispatcher,
+                dispatcher_settings: self.dispatcher,
+                dispatcher,
                 mailbox: self.mailbox,
                 scheduler: self.scheduler,
                 event_stream,
                 dead_letters,
-                ..ActorSystemInner::default()
+                next_uid: Default::default(),
+                next_anonymous: Default::default(),
+                next_temp: Default::default(),
+                terminating: Default::default(),
+                terminated: Default::default(),
+                registry: Default::default(),
+                death_watch: Default::default(),
+                extensions: Default::default(),
+                receptionist: Default::default(),
+                coordinated_shutdown: Default::default(),
             }),
         })
     }

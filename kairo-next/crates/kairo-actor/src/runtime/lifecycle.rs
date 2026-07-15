@@ -29,7 +29,7 @@ pub(super) fn stop_children_for_restart(system_inner: &ActorSystemInner, parent_
         system_inner.death_watch.unwatch(child.path(), parent_path);
     }
 
-    let _ = stop_child_handles_with_timeout(children, Duration::MAX);
+    let _ = stop_child_handles_with_timeout(system_inner, children, Duration::MAX);
 }
 
 pub(super) fn stop_children_except_for_restart(
@@ -52,7 +52,7 @@ pub(super) fn stop_children_except_for_restart(
         system_inner.death_watch.unwatch(child.path(), parent_path);
     }
 
-    let _ = stop_child_handles_with_timeout(children, Duration::MAX);
+    let _ = stop_child_handles_with_timeout(system_inner, children, Duration::MAX);
 }
 
 pub(super) fn restart_children_after_parent_restart(children: &[LocalActorHandle]) {
@@ -67,7 +67,7 @@ pub(crate) fn stop_children_with_timeout(
     timeout: Duration,
 ) -> Result<(), ActorError> {
     let children = system_inner.registry.child_handles(parent_path);
-    stop_child_handles_until_deadline(children, deadline_after(timeout))
+    stop_child_handles_until_deadline(system_inner, children, deadline_after(timeout))
 }
 
 pub(crate) fn stop_child_roots_until_deadline(
@@ -79,17 +79,19 @@ pub(crate) fn stop_child_roots_until_deadline(
         .iter()
         .flat_map(|parent_path| system_inner.registry.child_handles(parent_path))
         .collect();
-    stop_child_handles_until_deadline(children, deadline)
+    stop_child_handles_until_deadline(system_inner, children, deadline)
 }
 
 fn stop_child_handles_with_timeout(
+    system_inner: &ActorSystemInner,
     children: Vec<LocalActorHandle>,
     timeout: Duration,
 ) -> Result<(), ActorError> {
-    stop_child_handles_until_deadline(children, deadline_after(timeout))
+    stop_child_handles_until_deadline(system_inner, children, deadline_after(timeout))
 }
 
 fn stop_child_handles_until_deadline(
+    system_inner: &ActorSystemInner,
     children: Vec<LocalActorHandle>,
     deadline: Instant,
 ) -> Result<(), ActorError> {
@@ -98,11 +100,19 @@ fn stop_child_handles_until_deadline(
     }
 
     for child in children {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .ok_or(ActorError::TerminationTimeout)?;
-        if !child.wait_for_stop(remaining) {
-            return Err(ActorError::TerminationTimeout);
+        loop {
+            if child.wait_for_stop(Duration::ZERO) {
+                break;
+            }
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .ok_or(ActorError::TerminationTimeout)?;
+            if system_inner.dispatcher.run_one() {
+                continue;
+            }
+            if child.wait_for_stop(remaining.min(Duration::from_millis(1))) {
+                break;
+            }
         }
     }
     Ok(())

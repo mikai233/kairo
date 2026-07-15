@@ -1,13 +1,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 
 use crate::actor::{Actor, Props};
 use crate::error::ActorError;
 use crate::mailbox::Mailbox;
 use crate::path::ActorPath;
 use crate::refs::{ActorRef, TerminationLatch};
-use crate::runtime::run_actor;
+use crate::runtime::schedule_actor;
 
 use super::ActorSystem;
 
@@ -99,43 +98,31 @@ impl ActorSystem {
             self.inner.dead_letters.clone(),
         );
         self.inner.registry.add_ref(actor_ref.clone());
-        let thread_ref = actor_ref.clone();
-        let dead_letters = self.inner.dead_letters.clone();
-        let system_inner = Arc::clone(&self.inner);
-        let actor_name = name.to_string();
-        let registry_key_for_thread = registry_key.clone();
-        let thread_system = self.clone();
+        let runner_ref = actor_ref.clone();
+        let registry_key_for_runner = registry_key.clone();
+        let runner_system = self.clone();
         let parent_path_for_registry = parent_path.to_string();
-        let parent_path_for_thread = parent_path.clone();
+        let parent_path_for_runner = parent_path.clone();
         let actor_handle = actor_ref.to_local_handle(props.can_restart());
         self.inner.registry.add_handle(actor_handle.clone());
         self.inner
             .registry
             .add_child(parent_path_for_registry.clone(), actor_handle);
 
-        if let Err(error) = thread::Builder::new()
-            .name(format!("kairo-actor-{actor_name}"))
-            .spawn(move || {
-                run_actor(
-                    props,
-                    thread_ref,
-                    dead_letters,
-                    system_inner,
-                    registry_key_for_thread,
-                    thread_system,
-                    parent_path_for_thread,
-                );
-            })
-        {
+        if !schedule_actor(
+            props,
+            runner_ref,
+            registry_key_for_runner,
+            runner_system,
+            parent_path_for_runner,
+        ) {
             self.inner.registry.remove_ref(actor_ref.path());
             self.inner.registry.remove_handle(actor_ref.path());
             self.inner.registry.release_name(&registry_key);
             self.inner
                 .registry
                 .remove_child(&parent_path_for_registry, actor_ref.path());
-            return Err(ActorError::Message(format!(
-                "failed to spawn actor thread: {error}"
-            )));
+            return Err(ActorError::SystemTerminating);
         }
 
         Ok(actor_ref)
