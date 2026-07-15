@@ -194,6 +194,7 @@ mod local_delivery;
 mod outbound;
 mod protocol;
 mod provider;
+mod reliable_delivery;
 mod remote_ref;
 mod remote_watch;
 mod remote_watch_actor;
@@ -247,6 +248,13 @@ pub use protocol::{
     WatchRemote,
 };
 pub use provider::{RemoteActorRefProvider, RemoteActorRefResolver};
+pub use reliable_delivery::{
+    RELIABLE_SYSTEM_ACK_SERIALIZER_ID, RELIABLE_SYSTEM_ENVELOPE_SERIALIZER_ID,
+    RELIABLE_SYSTEM_NACK_SERIALIZER_ID, ReliableSystemAck, ReliableSystemAckCodec,
+    ReliableSystemEnvelope, ReliableSystemEnvelopeCodec, ReliableSystemNack,
+    ReliableSystemNackCodec, ReliableSystemReceiveOutcome, ReliableSystemReceiver,
+    ReliableSystemSender, register_reliable_system_codecs,
+};
 pub use remote_ref::RemoteActorRef;
 pub use remote_watch::{RemoteDeathWatchEffect, RemoteDeathWatchState};
 pub use remote_watch_actor::{

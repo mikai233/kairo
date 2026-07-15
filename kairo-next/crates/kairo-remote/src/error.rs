@@ -26,6 +26,12 @@ pub enum RemoteError {
     /// A lane writer has closed and rejects further frames.
     #[error("remote {lane} lane writer is closed: {reason}")]
     OutboundLaneClosed { lane: String, reason: String },
+    /// The bounded reliable-system retention buffer is full.
+    #[error("reliable system delivery buffer is full at capacity {capacity}")]
+    ReliableSystemBufferFull { capacity: usize },
+    /// Reliable delivery metadata did not match the active association state.
+    #[error("invalid reliable system delivery transition: {0}")]
+    InvalidReliableSystemDelivery(String),
     /// Inbound delivery failed after a frame was decoded.
     #[error("remote inbound delivery failed: {0}")]
     Inbound(String),

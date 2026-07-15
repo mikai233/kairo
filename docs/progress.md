@@ -160,9 +160,17 @@ runtime creates one FIFO writer owner for each control, ordinary, and large
 lane, `try_send` reports saturation without blocking actor turns, a 2,000-frame
 stress test proves single-writer ordering, route shutdown interrupts active
 socket writes, and control overflow quarantines the exact active remote UID.
-Reliable sequencing/acknowledgement remains next. The older subsystem-specific
+Runtime reliable retry integration remains next. The older subsystem-specific
 TCP runtimes remain migration baselines until their higher runtime owners adopt
 the shared core.
+
+The reliable-delivery core is now implemented as a separately verified wire
+and state-machine layer: registered stable envelope/ack/nack codecs preserve a
+nested `RemoteEnvelope`; bounded sender state sequences from one, retains FIFO,
+applies cumulative replies, rejects stale UIDs, and resets on incarnation
+change; receiver state delivers once, acknowledges duplicates, and nacks gaps.
+Runtime manifest selection, retry scheduling, acknowledgement routing, and
+give-up quarantine remain the next checkpoint.
 
 Task: converge business messages and system protocols on one ActorSystem-owned
 remoting lifecycle and canonical transport address.

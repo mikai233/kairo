@@ -23,6 +23,7 @@ pub fn register_remote_protocol_codecs(registry: &mut Registry) -> kairo_seriali
     registry.register::<RemoteHeartbeatAck, _>(RemoteHeartbeatAckCodec)?;
     registry.register::<AddressTerminated, _>(AddressTerminatedCodec)?;
     registry.register::<RemoteTerminated, _>(RemoteTerminatedCodec)?;
+    crate::register_reliable_system_codecs(registry)?;
     Ok(())
 }
 

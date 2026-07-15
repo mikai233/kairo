@@ -943,6 +943,17 @@ delivery:
 - retry until ack or quarantine,
 - preserve ordering within the system-message lane.
 
+The stable wire core uses `ReliableSystemEnvelope`, `ReliableSystemAck`, and
+`ReliableSystemNack`, with explicit registered serializer IDs and nested stable
+`RemoteEnvelope` bytes. `ReliableSystemSender` retains a bounded FIFO beginning
+at sequence one, applies cumulative ack/nack progress, rejects replies from a
+different `(local UID, remote UID)` pair, and drains/reset sequences when the
+remote UID changes. `ReliableSystemReceiver` delivers only the next expected
+sequence, acknowledges duplicates without redelivery, and nacks gaps with the
+highest contiguous sequence. Runtime retry timers, give-up quarantine, and
+manifest selection compose around this state machine rather than changing its
+wire or ordering rules.
+
 ### Remote Watch
 
 `RemoteWatcher` maintains:
