@@ -4187,3 +4187,85 @@ Consequences:
   control through `shutdown_with_timeout` and coordinated-shutdown settings.
 - The default may wait longer before reporting a genuinely stuck remoting
   shutdown, but it still remains bounded.
+
+## ADR-0131: Testkit Actor Systems Use Bounded Worker Defaults
+
+Status: Accepted
+
+Context:
+`ActorSystemTestKit::new` inherited the production actor-system worker defaults,
+which allocate one dispatcher worker per logical CPU. A test binary running many
+actor-system tests in parallel could therefore create hundreds of runnable
+threads and delay probes, timers, heartbeats, and TCP work past their test
+deadlines.
+
+Decision:
+Testkit-created actor systems use two dispatcher workers and one task-executor
+worker by default, including manual-time systems. Tests that intentionally need
+a different topology use `ActorSystemTestKit::with_runtime_workers`.
+
+Consequences:
+- Parallel test binaries have bounded aggregate thread growth independent of
+  the host's logical CPU count.
+- Actor turns still execute concurrently, so ordinary testkit use continues to
+  exercise the real dispatcher rather than a single-threaded substitute.
+- Dispatcher-width-specific tests can opt into the exact worker count they
+  need.
+
+## ADR-0132: Buffered Shard Routes Retry Best-Effort Coordinator Delivery
+
+Status: Accepted
+
+Context:
+A region can buffer a user message while coordinator registration or a remote
+association is still settling. Kairo previously issued one `GetShardHome`
+request and never retried an ignored or failed send. The coordinator also
+converted remote register acknowledgements, shard-home replies, and host-shard
+transport failures into actor errors, allowing a transient route gap to stop
+the singleton. Pekko periodically retries homes for buffered shards, while
+ordinary actor sends remain best-effort and do not crash the coordinator.
+
+Decision:
+While shard-home requests remain buffered, the region schedules at most one
+retry at its registration retry interval. Each retry reissues every pending
+home request and continues until the corresponding buffer drains. Coordinator
+serialization failures remain fatal, but transient remote reply and host-shard
+send failures are non-fatal. The durable allocation remains available for the
+region's next request. Coordinator snapshots expose the existing
+`all_regions_registered` readiness gate.
+
+Consequences:
+- A transient route gap no longer strands a buffered entity message or kills
+  the coordinator singleton.
+- Retry scheduling is bounded to one outstanding wakeup per region regardless
+  of the number of buffered shards.
+- Remember-store failures retain their existing stop-and-recover semantics;
+  this decision changes only transport delivery failure behavior.
+- Acceptance workflows can wait on explicit coordinator readiness and TCP
+  peer-route readiness before sending at-most-once traffic.
+
+## ADR-0133: Cached Membership Reply Routes Survive Transport Gaps
+
+Status: Accepted
+
+Context:
+Pekko's same-version gossip exchange immediately talks back when the received
+gossip has not yet seen the local node. Kairo provides that sender path through
+a cached membership wire actor per peer. The actor previously stopped when a
+transport send failed, while the cache retained its stopped actor reference.
+Later status exchanges could then repeatedly send the less-complete gossip to a
+peer without receiving the peer's fuller `seen` set in return.
+
+Decision:
+Membership wire outbound actors treat transport-send failures as best-effort
+delivery gaps and remain alive for later seed-join or gossip retries.
+Serialization and unsupported-message errors remain fatal because retrying the
+same invalid protocol value cannot repair them.
+
+Consequences:
+- A route created before its TCP association is ready no longer becomes a
+  permanently stopped reply path.
+- Same-version gossip talkback remains available until every node merges the
+  converged `seen` set.
+- Membership remains gossip-based; this changes only failure handling for an
+  existing peer route and introduces no authoritative store.

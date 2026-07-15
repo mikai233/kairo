@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-As of 2026-07-15, `kairo-next` has broad component coverage across local
+As of 2026-07-16, `kairo-next` has broad component coverage across local
 actors, serialization, remoting, gossip state, distributed data, sharding, and
 cluster tools. The component depth, composed acceptance workflows, and
 validation history now place the rewrite in its M13 hardening phase. The production
@@ -52,7 +52,9 @@ Status terms in this document mean:
   and restart ordering, queued mailbox/helper cleanup, child-name reservation,
   death-watch cleanup, and guardian shutdown. It also closes the startup race
   where a late parent watch could lose a child's failure cause and receive
-  `Terminated` instead of `ChildFailed`.
+  `Terminated` instead of `ChildFailed`. Testkit-owned actor systems now use a
+  bounded two-worker dispatcher and one-worker task executor by default so
+  parallel tests do not multiply the host CPU count into a thread storm.
 - M3 serialization and message metadata: mostly complete. Stable
   `RemoteMessage` metadata, derive support, codec registration, manifests,
   remote envelopes, and actor-ref serialization boundaries exist.
@@ -70,7 +72,10 @@ Status terms in this document mean:
   budget. Cluster and other extension adoption proceeds in Phases 3 and 4.
 - M5 gossip data model: near complete. Vector clocks, gossip, reachability,
   convergence, leader selection, and event diffing have strong pure-state test
-  coverage without a central membership authority.
+  coverage without a central membership authority. Remote membership reply
+  routes now survive transient transport-send failures, preserving Pekko's
+  same-version gossip talkback path until all nodes merge the fuller `seen`
+  set.
 - M6 cluster runtime and membership protocol: complete. Membership actors,
   join/welcome handling, heartbeat, downing hooks, remote envelopes, and TCP
   peer bootstrap components exist. The composed daemon now proves seed contact,
@@ -125,6 +130,11 @@ Status terms in this document mean:
   acceptance demo now composes the real cluster daemon, singleton coordinator,
   node-local ORSet replicas, periodic rebalance/handoff, coordinated oldest-node
   leave, and remembered-entity restart before the next business message.
+  Regions now retry buffered shard-home requests until a coordinator reply
+  resolves them, and coordinators treat transient remote register, shard-home,
+  and host-shard send failures as best-effort delivery gaps rather than fatal
+  actor errors. Coordinator state snapshots expose the all-regions-registered
+  readiness gate used before at-most-once acceptance traffic is sent.
 - M10 cluster tools: complete through its acceptance boundary. Singleton and
   pubsub state, remote delivery, TCP peer runtime, examples, and composed
   public extensions exist. Real two-node tests cover pubsub convergence, named
@@ -657,6 +667,22 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- Latest M13 sharding hardening validates buffered shard-home retry and
+  best-effort coordinator delivery under transient route gaps:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding region_actor_requests_shard_home_from_registered_coordinator_for_local_route --lib --all-features
+  cargo test -p kairo-cluster-sharding extension::tests::singleton_successor_recovers_shard_from_transport_ddata --lib --all-features # 10 stress runs
+  cargo test -p kairo-cluster-sharding --lib --all-features # 5 stress runs
+  cargo test -p kairo-cluster wire_outbound_actor_survives_transient_transport_failure
+  cargo test -p kairo-examples --test sharding_tcp_acceptance --all-features -- --nocapture # 5 stress runs
+  cargo test -p kairo-testkit --all-targets --all-features
+  cargo fmt --all -- --check
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  cargo test --workspace --all-targets --all-features
+  git diff --check
+  ```
 
 - Latest M13 remoting shutdown hardening validates that the implicit shutdown
   budget outlives configured TCP connect attempts and survives repeated
