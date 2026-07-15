@@ -3,6 +3,7 @@ use kairo_cluster::{
     Cluster, ClusterSubscriptionEvent, ClusterSubscriptionInitialState, CurrentClusterState,
     UniqueAddress,
 };
+use kairo_remote::RemoteAssociationAddress;
 
 use crate::{
     AggregationTargetRegistry, DeltaPropagationTargetRegistry, DeltaReplicatedData,
@@ -60,6 +61,7 @@ where
     aggregation_target_registry: Option<AggregationTargetRegistry>,
     gossip_target_registry: Option<ReplicatorGossipTargetRegistry>,
     last_target_registration: Option<ReplicatorRemoteRouteRegistrationReport>,
+    remote_source_replicas: Option<crate::ReplicatorRemoteSourceMap>,
 }
 
 #[derive(Debug, Clone)]

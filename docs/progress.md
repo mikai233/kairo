@@ -71,8 +71,12 @@ Status terms in this document mean:
   and tombstones the old incarnation, retries Join, and converges to `Up`.
 - M7 distributed data: substantial component coverage. Core CRDTs, replicator
   state, delta/full gossip, read/write consistency flows, pruning, cluster
-  connectors, TCP peer runtime, and examples exist. Product acceptance remains
-  gated by the composed M4/M6 runtime and process-level validation.
+  connectors, TCP peer runtime, and examples exist. The first composed
+  ActorSystem slice now installs a typed distributed-data extension, derives
+  routes and source identities from real cluster membership, and converges a
+  two-node `GCounter` through periodic gossip over the shared remoting runtime.
+  Delta propagation, remote consistency aggregation, broader typed data
+  registration, and process/fault acceptance remain open.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
@@ -364,6 +368,19 @@ observations; discovery supplies contact addresses only.
 ### Phase 4: Distributed Integration And Public Extensions
 
 Status: **active**.
+
+Current checkpoint: distributed data now registers its ten stable manifests on
+the ordinary lane of the composed remoting runtime, materializes
+`/system/ddata` after the cluster daemon at bind, and installs one typed
+`DistributedDataExtension<D>` after activation. Its cluster connector derives
+remote gossip targets and sender-to-`ReplicaId` validation from authoritative
+cluster snapshots/events while sharing the remoting association cache; it does
+not bind a second listener or infer membership from transport. A real
+two-ActorSystem test forms through seed contact, observes cluster-derived
+replica routes, updates a local `GCounter`, and reads the converged value from
+the peer through periodic full-state gossip. This is the first Phase 4 slice;
+delta propagation and remote consistency aggregation still need composition,
+followed by sharding and cluster-tools extensions on the same lifecycle.
 
 Task: run distributed data, sharding, and cluster tools on the composed remoting
 and cluster lifecycle, then expose cohesive ActorSystem extensions.
@@ -5962,6 +5979,17 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest Phase 4 validation after composed distributed data:
+
+```bash
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo test -p kairo --all-targets --all-features
+cargo check --workspace --all-targets --all-features
+cargo clippy -p kairo-distributed-data -p kairo --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
+git diff --check
+```
 
 Latest Phase 3 validation after process-level reincarnation:
 

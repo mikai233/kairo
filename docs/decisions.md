@@ -3570,3 +3570,53 @@ Consequences:
   protocol and the same daemon ownership; discovery remains contact-only.
 - Binding and post-bind activation remain two explicit bootstrap steps until a
   later configured facade owns the full remote-plus-cluster builder lifecycle.
+
+## ADR-0114: Distributed Data Shares Cluster And Remoting Lifecycle
+
+Status: Accepted
+
+Context:
+Kairo's distributed-data state machines, CRDTs, consistency logic, and legacy
+TCP peer bootstrap were mature, but that bootstrap owned a separate listener
+and accepted manually supplied cluster snapshots. Composed applications need
+`/system/ddata` to use the same canonical node, association incarnation, peer
+routes, cluster events, extension registry, and shutdown ordering as ordinary
+remote actors and cluster protocols. The existing replicator actor is generic
+over one `DeltaReplicatedData` type, so a Rust-first public lifecycle also has
+to state how that typed namespace is owned.
+
+Decision:
+`register_distributed_data<D>` registers all ten stable replicator
+request/reply manifests on the ordinary lane of an existing
+`TcpRemoteActorRuntimeBuilder`. Cluster daemon registration must occur first.
+The bind-time factory obtains the materialized cluster handle and shared remote
+context, spawns the typed replicator at `/system/ddata` plus its cluster
+connector, and uses the shared serialization registry and association cache;
+it never binds another listener.
+
+The connector remains the sole bridge from cluster snapshots/events to
+distributed-data routing. It derives outbound targets and an inbound canonical
+address-to-`ReplicaId` map from eligible live cluster members. Sender-derived
+inbound traffic is rejected when the envelope has no valid remote sender or
+the canonical address is absent from that map. Reachability does not erase a
+live identity; removal does. Association state and sender claims consequently
+cannot create membership facts.
+
+Post-bind activation requires the ActorSystem's `ClusterExtension`, installs
+one `DistributedDataExtension<D>`, and schedules both connector and replicator
+termination before cluster shutdown. The first composed slice enables periodic
+full-state/status gossip. One registration owns the stable `/system/ddata`
+manifest namespace for one configured `D` family per ActorSystem; broadening
+this into a heterogeneous data registry is future API work rather than type
+erasure in the current actor boundary.
+
+Consequences:
+- Distributed data and cluster membership now run on one ActorSystem-owned TCP
+  listener and association lifecycle.
+- Real cluster formation drives replica routes and validates inbound source
+  identity without making distributed data or transport a membership authority.
+- Applications retrieve the typed replicator and connector through the
+  ActorSystem extension after activation.
+- Delta propagation, remote read/write aggregation, and a broader multi-type
+  registration facade remain later Phase 4 slices; the legacy standalone TCP
+  bootstrap remains a compatibility and focused-test boundary meanwhile.

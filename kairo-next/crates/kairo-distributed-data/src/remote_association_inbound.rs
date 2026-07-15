@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use kairo_remote::{
-    RemoteAssociationAddress, RemoteError, RemoteFrameHandler, RemoteStreamId,
-    Result as RemoteResult, decode_remote_envelope_frame,
+    RemoteAssociationAddress, RemoteEnvelopeHandler, RemoteError, RemoteFrameHandler,
+    RemoteStreamId, Result as RemoteResult, decode_remote_envelope_frame,
 };
 use kairo_serialization::{RemoteEnvelope, RemoteMessage};
 
@@ -61,6 +61,9 @@ impl ReplicatorRemoteReplyReceiver for ReplicatorRemoteReplyInbound {
 
 #[derive(Debug)]
 pub enum ReplicatorRemoteAssociationInboundError {
+    MissingSender,
+    InvalidSender { reason: String },
+    UnknownSource { address: RemoteAssociationAddress },
     UnexpectedControlLane { manifest: String },
     UnsupportedManifest { manifest: String },
     Request(ReplicatorRemoteRequestError),
@@ -70,6 +73,14 @@ pub enum ReplicatorRemoteAssociationInboundError {
 impl Display for ReplicatorRemoteAssociationInboundError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::MissingSender => write!(f, "distributed-data remote envelope has no sender"),
+            Self::InvalidSender { reason } => {
+                write!(f, "distributed-data remote sender is invalid: {reason}")
+            }
+            Self::UnknownSource { address } => write!(
+                f,
+                "distributed-data remote sender `{address}` is not a cluster replica"
+            ),
             Self::UnexpectedControlLane { manifest } => {
                 write!(
                     f,
@@ -168,30 +179,113 @@ impl ReplicatorRemoteAssociationInbound {
         stream_id: RemoteStreamId,
         envelope: RemoteEnvelope,
     ) -> Result<(), ReplicatorRemoteAssociationInboundError> {
-        let from = self.source.replica();
-        let manifest = envelope.message.manifest.as_str();
-        if stream_id == RemoteStreamId::Control {
-            return Err(
-                ReplicatorRemoteAssociationInboundError::UnexpectedControlLane {
-                    manifest: manifest.to_string(),
-                },
-            );
+        dispatch_replicator_envelope(
+            self.source.replica(),
+            stream_id,
+            envelope,
+            self.requests.as_ref(),
+            self.replies.as_ref(),
+        )
+    }
+}
+
+/// Shared-runtime inbound router for the stable `/system/ddata` manifests.
+///
+/// Unlike [`ReplicatorRemoteAssociationInbound`], this handler is shared by
+/// every ordinary-lane association. It therefore resolves the source replica
+/// from the envelope sender through a cluster-maintained address map.
+#[derive(Clone)]
+pub struct ReplicatorRemoteSystemInbound {
+    replicas: ReplicatorRemoteSourceMap,
+    requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
+    replies: Arc<dyn ReplicatorRemoteReplyReceiver>,
+}
+
+impl ReplicatorRemoteSystemInbound {
+    pub fn new(
+        replicas: ReplicatorRemoteSourceMap,
+        requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
+        replies: Arc<dyn ReplicatorRemoteReplyReceiver>,
+    ) -> Self {
+        Self {
+            replicas,
+            requests,
+            replies,
         }
-        if is_replicator_request_manifest(manifest) {
-            self.requests
-                .receive_request_from(from, envelope)
-                .map_err(ReplicatorRemoteAssociationInboundError::Request)
-        } else if is_replicator_reply_manifest(manifest) {
-            self.replies
-                .receive_reply_from(from, envelope)
-                .map_err(ReplicatorRemoteAssociationInboundError::Reply)
-        } else {
-            Err(
-                ReplicatorRemoteAssociationInboundError::UnsupportedManifest {
-                    manifest: manifest.to_string(),
-                },
-            )
-        }
+    }
+
+    pub fn receive_envelope(
+        &self,
+        envelope: RemoteEnvelope,
+    ) -> Result<(), ReplicatorRemoteAssociationInboundError> {
+        let from = self.source_replica(&envelope)?;
+        dispatch_replicator_envelope(
+            from,
+            RemoteStreamId::Ordinary,
+            envelope,
+            self.requests.as_ref(),
+            self.replies.as_ref(),
+        )
+    }
+
+    fn source_replica(
+        &self,
+        envelope: &RemoteEnvelope,
+    ) -> Result<ReplicaId, ReplicatorRemoteAssociationInboundError> {
+        let sender = envelope
+            .sender
+            .as_ref()
+            .ok_or(ReplicatorRemoteAssociationInboundError::MissingSender)?;
+        let host = sender.host().ok_or_else(|| {
+            ReplicatorRemoteAssociationInboundError::InvalidSender {
+                reason: "sender has no remote host".to_string(),
+            }
+        })?;
+        let address =
+            RemoteAssociationAddress::new(sender.protocol(), sender.system(), host, sender.port())
+                .map_err(
+                    |error| ReplicatorRemoteAssociationInboundError::InvalidSender {
+                        reason: error.to_string(),
+                    },
+                )?;
+        self.replicas
+            .lock()
+            .expect("replicator remote source map lock poisoned")
+            .get(&address)
+            .cloned()
+            .ok_or(ReplicatorRemoteAssociationInboundError::UnknownSource { address })
+    }
+}
+
+fn dispatch_replicator_envelope(
+    from: ReplicaId,
+    stream_id: RemoteStreamId,
+    envelope: RemoteEnvelope,
+    requests: &dyn ReplicatorRemoteRequestReceiver,
+    replies: &dyn ReplicatorRemoteReplyReceiver,
+) -> Result<(), ReplicatorRemoteAssociationInboundError> {
+    let manifest = envelope.message.manifest.as_str();
+    if stream_id == RemoteStreamId::Control {
+        return Err(
+            ReplicatorRemoteAssociationInboundError::UnexpectedControlLane {
+                manifest: manifest.to_string(),
+            },
+        );
+    }
+    if is_replicator_request_manifest(manifest) {
+        requests
+            .receive_request_from(from, envelope)
+            .map_err(ReplicatorRemoteAssociationInboundError::Request)
+    } else if is_replicator_reply_manifest(manifest) {
+        replies
+            .receive_reply_from(from, envelope)
+            .map_err(ReplicatorRemoteAssociationInboundError::Reply)
+    } else {
+        Err(
+            ReplicatorRemoteAssociationInboundError::UnsupportedManifest {
+                manifest: manifest.to_string(),
+            },
+        )
     }
 }
 
@@ -199,6 +293,13 @@ impl RemoteFrameHandler for ReplicatorRemoteAssociationInbound {
     fn handle_frame(&self, stream_id: RemoteStreamId, frame: Bytes) -> RemoteResult<()> {
         let envelope = decode_remote_envelope_frame(frame)?;
         self.receive_envelope(stream_id, envelope)
+            .map_err(|error| RemoteError::Inbound(error.to_string()))
+    }
+}
+
+impl RemoteEnvelopeHandler for ReplicatorRemoteSystemInbound {
+    fn receive(&self, envelope: RemoteEnvelope) -> RemoteResult<()> {
+        self.receive_envelope(envelope)
             .map_err(|error| RemoteError::Inbound(error.to_string()))
     }
 }
@@ -366,6 +467,52 @@ mod tests {
             ReplicatorDeltaPropagation::MANIFEST
         );
         assert!(replies.received().is_empty());
+    }
+
+    #[test]
+    fn sender_derived_inbound_accepts_only_cluster_mapped_replica_addresses() {
+        let requests = Arc::new(RecordingRequests::default());
+        let replies = Arc::new(RecordingReplies::default());
+        let address =
+            RemoteAssociationAddress::new("kairo", "remote", "127.0.0.1", Some(25520)).unwrap();
+        let replicas = ReplicatorRemoteSourceMap::default();
+        replicas
+            .lock()
+            .expect("replicator remote source map poisoned")
+            .insert(address, ReplicaId::new("remote-uid"));
+        let inbound =
+            ReplicatorRemoteSystemInbound::new(replicas, requests.clone(), replies.clone());
+
+        inbound
+            .receive_envelope(envelope(
+                ReplicatorDeltaPropagation::MANIFEST,
+                REPLICATOR_DELTA_PROPAGATION_SERIALIZER_ID,
+            ))
+            .unwrap();
+
+        assert_eq!(requests.received()[0].0, ReplicaId::new("remote-uid"));
+        assert!(replies.received().is_empty());
+    }
+
+    #[test]
+    fn sender_derived_inbound_rejects_non_member_replica_addresses() {
+        let inbound = ReplicatorRemoteSystemInbound::new(
+            ReplicatorRemoteSourceMap::default(),
+            Arc::new(RecordingRequests::default()),
+            Arc::new(RecordingReplies::default()),
+        );
+
+        let error = inbound
+            .receive_envelope(envelope(
+                ReplicatorRead::MANIFEST,
+                REPLICATOR_READ_SERIALIZER_ID,
+            ))
+            .expect_err("non-member sender should be rejected");
+
+        assert!(matches!(
+            error,
+            ReplicatorRemoteAssociationInboundError::UnknownSource { .. }
+        ));
     }
 
     #[test]

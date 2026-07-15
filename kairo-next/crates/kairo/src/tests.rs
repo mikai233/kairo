@@ -2097,6 +2097,13 @@ fn prelude_exposes_distributed_data_entry_points() {
     assert!(matches!(state.get_local(&key), GetResponse::Success { .. }));
     let _ = std::mem::size_of::<Option<ReplicatorActor<GCounter>>>();
     let _ = std::mem::size_of::<Option<ReplicatorActorMsg<GCounter>>>();
+    let _ = std::mem::size_of::<Option<DistributedDataExtension<GCounter>>>();
+    let _ = std::mem::size_of::<Option<DistributedDataHandle<GCounter>>>();
+    let _ = std::mem::size_of::<Option<DistributedDataRegistration<GCounter>>>();
+    let _ = std::mem::size_of::<Option<DistributedDataSettings<GCounter>>>();
+    let _ = std::mem::size_of::<Option<DistributedDataBootstrapError>>();
+    let _ = DDATA_SYSTEM_MANIFESTS;
+    let _ = register_distributed_data::<GCounter>;
     let _ = std::mem::size_of::<Option<UpdateResponse<<GCounter as DeltaReplicatedData>::Delta>>>();
     let _ = std::mem::size_of::<Option<GSet<String>>>();
     let _ = std::mem::size_of::<Option<ORSet<String>>>();

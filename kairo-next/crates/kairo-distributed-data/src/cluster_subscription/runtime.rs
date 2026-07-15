@@ -59,6 +59,7 @@ where
     }
 
     fn register_remote_route_targets(&mut self) -> ActorResult {
+        self.register_remote_sources()?;
         let Some(targets) = &self.remote_route_targets else {
             return Ok(());
         };
@@ -98,6 +99,33 @@ where
             aggregation_registered,
             gossip_registered,
         ));
+        Ok(())
+    }
+
+    fn register_remote_sources(&self) -> ActorResult {
+        let Some(replicas) = &self.remote_source_replicas else {
+            return Ok(());
+        };
+        let mut sources = replicas
+            .lock()
+            .expect("replicator remote source map lock poisoned");
+        sources.clear();
+        for node in self.routes.remote_nodes() {
+            let host = node.address.host().ok_or_else(|| {
+                ActorError::Message(format!(
+                    "distributed-data cluster replica {} has no remote host",
+                    node.ordering_key()
+                ))
+            })?;
+            let address = RemoteAssociationAddress::new(
+                node.address.protocol(),
+                node.address.system(),
+                host,
+                node.address.port(),
+            )
+            .map_err(|error| ActorError::Message(error.to_string()))?;
+            sources.insert(address, ReplicaId::from(node));
+        }
         Ok(())
     }
 

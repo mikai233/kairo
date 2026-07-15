@@ -1,0 +1,650 @@
+use std::fmt::{self, Display, Formatter};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use kairo_actor::{ActorError, ActorRef, ActorSystem, PHASE_BEFORE_CLUSTER_SHUTDOWN, Props};
+use kairo_cluster::{ClusterDaemonRegistration, ClusterExtension, UniqueAddress};
+use kairo_remote::{RemoteError, TcpRemoteActorRuntime, TcpRemoteActorRuntimeBuilder};
+use kairo_serialization::{ActorRefWireData, RemoteMessage};
+
+use crate::{
+    DEFAULT_REPLICATOR_REMOTE_PATH, DeltaReplicatedData, RemovedNodePruning, ReplicaId,
+    ReplicatorActor, ReplicatorActorMsg, ReplicatorClusterConnector, ReplicatorClusterConnectorMsg,
+    ReplicatorDeltaAck, ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGossip,
+    ReplicatorGossipStatus, ReplicatorGossipTargetRegistry, ReplicatorGossipTransport,
+    ReplicatorRead, ReplicatorReadResult, ReplicatorRemoteAssociationCacheOutbound,
+    ReplicatorRemoteReplyInbound, ReplicatorRemoteRequestInbound, ReplicatorRemoteRouteTargets,
+    ReplicatorRemoteSourceMap, ReplicatorRemoteSystemInbound, ReplicatorWireCodecs,
+    ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
+};
+
+pub const DDATA_SYSTEM_MANIFESTS: [&str; 10] = [
+    ReplicatorDeltaPropagation::MANIFEST,
+    ReplicatorDeltaAck::MANIFEST,
+    ReplicatorDeltaNack::MANIFEST,
+    ReplicatorWrite::MANIFEST,
+    ReplicatorWriteAck::MANIFEST,
+    ReplicatorWriteNack::MANIFEST,
+    ReplicatorRead::MANIFEST,
+    ReplicatorReadResult::MANIFEST,
+    ReplicatorGossipStatus::MANIFEST,
+    ReplicatorGossip::MANIFEST,
+];
+
+pub struct DistributedDataSettings<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    codecs: ReplicatorWireCodecs<D>,
+    gossip_interval: Duration,
+    shutdown_timeout: Duration,
+}
+
+impl<D> Clone for DistributedDataSettings<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            codecs: self.codecs.clone(),
+            gossip_interval: self.gossip_interval,
+            shutdown_timeout: self.shutdown_timeout,
+        }
+    }
+}
+
+impl<D> DistributedDataSettings<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    pub fn new(codecs: ReplicatorWireCodecs<D>) -> Self {
+        Self {
+            codecs,
+            gossip_interval: Duration::from_secs(2),
+            shutdown_timeout: Duration::from_secs(3),
+        }
+    }
+
+    pub fn with_gossip_interval(mut self, value: Duration) -> Self {
+        self.gossip_interval = value;
+        self
+    }
+
+    pub fn with_shutdown_timeout(mut self, value: Duration) -> Self {
+        self.shutdown_timeout = value;
+        self
+    }
+
+    fn validate(&self) -> Result<(), DistributedDataBootstrapError> {
+        if self.gossip_interval.is_zero() {
+            return Err(DistributedDataBootstrapError::InvalidSettings {
+                reason: "gossip interval must be greater than zero",
+            });
+        }
+        if self.shutdown_timeout.is_zero() {
+            return Err(DistributedDataBootstrapError::InvalidSettings {
+                reason: "shutdown timeout must be greater than zero",
+            });
+        }
+        Ok(())
+    }
+}
+
+pub struct DistributedDataHandle<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    self_node: UniqueAddress,
+    replicator: ActorRef<ReplicatorActorMsg<D>>,
+    connector: ActorRef<ReplicatorClusterConnectorMsg>,
+}
+
+impl<D> Clone for DistributedDataHandle<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            self_node: self.self_node.clone(),
+            replicator: self.replicator.clone(),
+            connector: self.connector.clone(),
+        }
+    }
+}
+
+impl<D> DistributedDataHandle<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    pub fn self_node(&self) -> &UniqueAddress {
+        &self.self_node
+    }
+
+    pub fn self_replica(&self) -> ReplicaId {
+        ReplicaId::from(&self.self_node)
+    }
+
+    pub fn replicator(&self) -> &ActorRef<ReplicatorActorMsg<D>> {
+        &self.replicator
+    }
+
+    pub fn connector(&self) -> &ActorRef<ReplicatorClusterConnectorMsg> {
+        &self.connector
+    }
+}
+
+pub struct DistributedDataExtension<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    handle: DistributedDataHandle<D>,
+}
+
+impl<D> DistributedDataExtension<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    fn new(handle: DistributedDataHandle<D>) -> Self {
+        Self { handle }
+    }
+
+    pub fn get(system: &ActorSystem) -> Result<Arc<Self>, ActorError> {
+        system.extension::<Self>()
+    }
+
+    pub fn self_replica(&self) -> ReplicaId {
+        self.handle.self_replica()
+    }
+
+    pub fn replicator(&self) -> &ActorRef<ReplicatorActorMsg<D>> {
+        self.handle.replicator()
+    }
+
+    pub fn connector(&self) -> &ActorRef<ReplicatorClusterConnectorMsg> {
+        self.handle.connector()
+    }
+}
+
+pub struct DistributedDataRegistration<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    settings: DistributedDataSettings<D>,
+    handle: Arc<Mutex<Option<DistributedDataHandle<D>>>>,
+    activated: Arc<Mutex<bool>>,
+}
+
+impl<D> Clone for DistributedDataRegistration<D>
+where
+    D: DeltaReplicatedData + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            settings: self.settings.clone(),
+            handle: Arc::clone(&self.handle),
+            activated: Arc::clone(&self.activated),
+        }
+    }
+}
+
+impl<D> DistributedDataRegistration<D>
+where
+    D: DeltaReplicatedData + RemovedNodePruning + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    pub fn handle(&self) -> Option<DistributedDataHandle<D>> {
+        self.handle
+            .lock()
+            .expect("distributed-data handle poisoned")
+            .clone()
+    }
+
+    pub fn activate(
+        &self,
+        runtime: &TcpRemoteActorRuntime,
+    ) -> Result<DistributedDataHandle<D>, DistributedDataBootstrapError> {
+        let handle = self
+            .handle()
+            .ok_or(DistributedDataBootstrapError::NotMaterialized)?;
+        ClusterExtension::get(runtime.system())?;
+        let mut activated = self
+            .activated
+            .lock()
+            .expect("distributed-data activation poisoned");
+        if !*activated {
+            let timeout = self.settings.shutdown_timeout;
+            runtime
+                .system()
+                .coordinated_shutdown()
+                .add_actor_termination_task(
+                    PHASE_BEFORE_CLUSTER_SHUTDOWN,
+                    "ddata-cluster-connector-stop",
+                    handle.connector.clone(),
+                    None,
+                    timeout,
+                )?;
+            runtime
+                .system()
+                .coordinated_shutdown()
+                .add_actor_termination_task(
+                    PHASE_BEFORE_CLUSTER_SHUTDOWN,
+                    "ddata-replicator-stop",
+                    handle.replicator.clone(),
+                    None,
+                    timeout,
+                )?;
+            let extension_handle = handle.clone();
+            runtime
+                .system()
+                .register_extension(move |_| DistributedDataExtension::new(extension_handle));
+            *activated = true;
+        }
+        Ok(handle)
+    }
+}
+
+#[derive(Debug)]
+pub enum DistributedDataBootstrapError {
+    Actor(ActorError),
+    InvalidSettings { reason: &'static str },
+    NotMaterialized,
+    Remote(RemoteError),
+}
+
+impl Display for DistributedDataBootstrapError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Actor(error) => write!(f, "{error}"),
+            Self::InvalidSettings { reason } => {
+                write!(f, "invalid distributed-data settings: {reason}")
+            }
+            Self::NotMaterialized => {
+                write!(f, "distributed data has not been materialized by bind")
+            }
+            Self::Remote(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for DistributedDataBootstrapError {}
+
+impl From<ActorError> for DistributedDataBootstrapError {
+    fn from(error: ActorError) -> Self {
+        Self::Actor(error)
+    }
+}
+
+impl From<RemoteError> for DistributedDataBootstrapError {
+    fn from(error: RemoteError) -> Self {
+        Self::Remote(error)
+    }
+}
+
+pub fn register_distributed_data<D>(
+    builder: &mut TcpRemoteActorRuntimeBuilder,
+    cluster: ClusterDaemonRegistration,
+    settings: DistributedDataSettings<D>,
+) -> Result<DistributedDataRegistration<D>, DistributedDataBootstrapError>
+where
+    D: DeltaReplicatedData + RemovedNodePruning + Send + 'static,
+    D::Delta: Send + 'static,
+{
+    settings.validate()?;
+    let handle = Arc::new(Mutex::new(None));
+    let factory_handle = Arc::clone(&handle);
+    let factory_settings = settings.clone();
+    builder.register_ordinary_handler(&DDATA_SYSTEM_MANIFESTS, move |context| {
+        let cluster = cluster.handle().ok_or_else(|| {
+            RemoteError::Inbound(
+                "cluster daemon must be registered before distributed data".to_string(),
+            )
+        })?;
+        let self_node = cluster.self_node().clone();
+        let registry = context.registry().clone();
+        let outbound =
+            ReplicatorRemoteAssociationCacheOutbound::new(context.association_cache().clone());
+        let local_sender = ActorRefWireData::new(format!(
+            "{}{}",
+            self_node.address, DEFAULT_REPLICATOR_REMOTE_PATH
+        ))
+        .map_err(|error| RemoteError::Inbound(error.to_string()))?;
+        let gossip_targets = ReplicatorGossipTargetRegistry::new();
+        let gossip_transport =
+            ReplicatorGossipTransport::with_target_registry(gossip_targets.clone());
+        let actor_gossip_transport = gossip_transport.clone();
+        let actor_data_codec = factory_settings.codecs.data_codec();
+        let gossip_interval = factory_settings.gossip_interval;
+        let local_system_uid = context.local_system_uid();
+        let replicator = context
+            .system()
+            .spawn_system(
+                "ddata",
+                Props::new(move || {
+                    ReplicatorActor::<D>::with_gossip_interval(
+                        actor_gossip_transport.clone(),
+                        actor_data_codec.clone(),
+                        gossip_interval,
+                    )
+                    .with_self_system_uid(local_system_uid)
+                }),
+            )
+            .map_err(|error| RemoteError::Inbound(error.to_string()))?;
+        let source_replicas = ReplicatorRemoteSourceMap::default();
+        let remote_targets = ReplicatorRemoteRouteTargets::new(registry.clone(), outbound.clone())
+            .with_sender(Some(local_sender.clone()));
+        let connector_replicator = replicator.clone();
+        let connector_cluster = cluster.cluster().clone();
+        let connector_self_node = self_node.clone();
+        let connector_sources = Arc::clone(&source_replicas);
+        let connector = match context.system().spawn_system(
+            "ddata-cluster",
+            Props::new(move || {
+                ReplicatorClusterConnector::new(
+                    connector_cluster.clone(),
+                    connector_self_node.clone(),
+                    connector_replicator.clone(),
+                )
+                .with_remote_route_targets(
+                    remote_targets.clone(),
+                    None,
+                    None,
+                    Some(gossip_targets.clone()),
+                )
+                .with_remote_source_replicas(Arc::clone(&connector_sources))
+            }),
+        ) {
+            Ok(connector) => connector,
+            Err(error) => {
+                context.system().stop(&replicator);
+                return Err(RemoteError::Inbound(error.to_string()));
+            }
+        };
+        let requests = Arc::new(ReplicatorRemoteRequestInbound::new(
+            context.system().clone(),
+            local_sender.clone(),
+            Some(local_sender),
+            registry.clone(),
+            replicator.clone(),
+            factory_settings.codecs.clone(),
+            outbound,
+        ));
+        let replies = Arc::new(ReplicatorRemoteReplyInbound::with_remote_settings(
+            context.system().clone(),
+            context.settings().clone(),
+            registry,
+        ));
+        *factory_handle
+            .lock()
+            .expect("distributed-data handle poisoned") = Some(DistributedDataHandle {
+            self_node,
+            replicator,
+            connector,
+        });
+        Ok(ReplicatorRemoteSystemInbound::new(
+            source_replicas,
+            requests,
+            replies,
+        ))
+    })?;
+    Ok(DistributedDataRegistration {
+        settings,
+        handle,
+        activated: Arc::new(Mutex::new(false)),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use bytes::Bytes;
+    use kairo_cluster::{
+        ClusterDaemonBootstrapSettings, ClusterGossipProcessSettings, ClusterMembershipMsg,
+        DeadlineFailureDetectorSettings, Gossip, HeartbeatSenderSettings, MemberStatus,
+        register_cluster_daemon, register_cluster_protocol_codecs,
+    };
+    use kairo_remote::{
+        RemoteSettings, TcpRemoteActorRuntime, TcpRemoteReconnectSettings,
+        register_remote_protocol_codecs,
+    };
+    use kairo_serialization::Registry;
+    use kairo_testkit::{ActorSystemTestKit, TestProbe, await_assert};
+
+    use super::*;
+    use crate::{
+        GCounter, GCounterCodec, GetResponse, ReadConsistency, ReplicatorClusterConnectorSnapshot,
+        ReplicatorKey, UpdateResponse, WriteConsistency, register_ddata_protocol_codecs,
+    };
+
+    struct ComposedDdataNode {
+        kit: ActorSystemTestKit,
+        runtime: TcpRemoteActorRuntime,
+        cluster: kairo_cluster::ClusterDaemonHandle,
+        ddata: DistributedDataHandle<GCounter>,
+        gossip_probe: TestProbe<Gossip>,
+        connector_probe: TestProbe<ReplicatorClusterConnectorSnapshot>,
+    }
+
+    impl ComposedDdataNode {
+        fn start(
+            system: &str,
+            node_uid: u64,
+            remote_uid: u64,
+            seed_nodes: Vec<kairo_actor::Address>,
+            registry: Arc<Registry>,
+        ) -> Self {
+            let kit = ActorSystemTestKit::new(system).unwrap();
+            let mut builder = TcpRemoteActorRuntime::builder(
+                kit.system().clone(),
+                registry,
+                RemoteSettings::new("127.0.0.1", 0),
+                remote_uid,
+            )
+            .with_reconnect_settings(
+                TcpRemoteReconnectSettings::new(
+                    Duration::from_millis(100),
+                    Duration::from_millis(300),
+                )
+                .unwrap(),
+            );
+            let cluster_registration = register_cluster_daemon(
+                &mut builder,
+                ClusterDaemonBootstrapSettings::new(node_uid)
+                    .with_seed_nodes(seed_nodes)
+                    .with_config_digest(Some(Bytes::from_static(b"ddata-cluster")))
+                    .with_gossip_process_settings(
+                        ClusterGossipProcessSettings::new(Duration::from_millis(15)).unwrap(),
+                    )
+                    .with_heartbeat_sender_settings(
+                        HeartbeatSenderSettings::new(
+                            5,
+                            DeadlineFailureDetectorSettings::new(
+                                Duration::from_millis(15),
+                                Duration::from_millis(100),
+                            )
+                            .unwrap(),
+                        )
+                        .with_heartbeat_expected_response_after(Duration::from_millis(10)),
+                    ),
+            )
+            .unwrap();
+            let ddata_registration = register_distributed_data(
+                &mut builder,
+                cluster_registration.clone(),
+                DistributedDataSettings::new(ReplicatorWireCodecs::new(
+                    Arc::new(GCounterCodec),
+                    Arc::new(GCounterCodec),
+                ))
+                .with_gossip_interval(Duration::from_millis(20)),
+            )
+            .unwrap();
+            let runtime = builder.bind().unwrap();
+            let cluster = cluster_registration.activate(&runtime).unwrap();
+            let ddata = ddata_registration.activate(&runtime).unwrap();
+            assert!(
+                kit.system()
+                    .has_extension::<DistributedDataExtension<GCounter>>()
+            );
+            Self {
+                gossip_probe: kit.create_probe("cluster-gossip").unwrap(),
+                connector_probe: kit.create_probe("ddata-connector").unwrap(),
+                kit,
+                runtime,
+                cluster,
+                ddata,
+            }
+        }
+
+        fn gossip(&self) -> Gossip {
+            self.cluster
+                .membership()
+                .tell(ClusterMembershipMsg::SendCurrentGossip {
+                    reply_to: self.gossip_probe.actor_ref(),
+                })
+                .unwrap();
+            self.gossip_probe
+                .expect_msg(Duration::from_secs(1))
+                .unwrap()
+        }
+
+        fn connector(&self) -> ReplicatorClusterConnectorSnapshot {
+            self.ddata
+                .connector()
+                .tell(ReplicatorClusterConnectorMsg::Snapshot {
+                    reply_to: self.connector_probe.actor_ref(),
+                })
+                .unwrap();
+            self.connector_probe
+                .expect_msg(Duration::from_secs(1))
+                .unwrap()
+        }
+
+        fn shutdown(self) {
+            self.kit.system().stop(self.cluster.root());
+            self.runtime.shutdown().unwrap();
+            self.kit.shutdown(Duration::from_secs(1)).unwrap();
+        }
+    }
+
+    fn registry() -> Arc<Registry> {
+        let mut registry = Registry::new();
+        register_remote_protocol_codecs(&mut registry).unwrap();
+        register_cluster_protocol_codecs(&mut registry).unwrap();
+        register_ddata_protocol_codecs(&mut registry).unwrap();
+        Arc::new(registry)
+    }
+
+    #[test]
+    fn settings_reject_zero_runtime_intervals() {
+        let settings = || {
+            DistributedDataSettings::new(ReplicatorWireCodecs::new(
+                Arc::new(GCounterCodec),
+                Arc::new(GCounterCodec),
+            ))
+        };
+
+        assert!(matches!(
+            settings().with_gossip_interval(Duration::ZERO).validate(),
+            Err(DistributedDataBootstrapError::InvalidSettings { .. })
+        ));
+        assert!(matches!(
+            settings().with_shutdown_timeout(Duration::ZERO).validate(),
+            Err(DistributedDataBootstrapError::InvalidSettings { .. })
+        ));
+    }
+
+    #[test]
+    fn composed_extension_gossips_counter_from_real_cluster_membership() {
+        let registry = registry();
+        let seed =
+            ComposedDdataNode::start("ddata-extension-seed", 1, 101, vec![], registry.clone());
+        await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
+            (seed
+                .gossip()
+                .member(seed.cluster.self_node())
+                .map(|member| member.status)
+                == Some(MemberStatus::Up))
+            .then_some(())
+            .ok_or_else(|| "ddata seed has not formed".to_string())
+        })
+        .unwrap();
+        let peer = ComposedDdataNode::start(
+            "ddata-extension-peer",
+            2,
+            102,
+            vec![seed.cluster.self_node().address.clone()],
+            registry,
+        );
+        await_assert(Duration::from_secs(3), Duration::from_millis(10), || {
+            let seed_routes = seed.connector();
+            let peer_routes = peer.connector();
+            (seed_routes.remote_replicas == vec![ReplicaId::from(peer.cluster.self_node())]
+                && peer_routes.remote_replicas == vec![ReplicaId::from(seed.cluster.self_node())])
+            .then_some(())
+            .ok_or_else(|| "ddata connectors have not derived cluster replicas".to_string())
+        })
+        .unwrap();
+
+        let key = ReplicatorKey::new("visits");
+        let updates = seed
+            .kit
+            .create_probe::<UpdateResponse<GCounter>>("updates")
+            .unwrap();
+        let self_replica = seed.ddata.self_replica();
+        seed.ddata
+            .replicator()
+            .tell(ReplicatorActorMsg::Update {
+                key: key.clone(),
+                initial: GCounter::new(),
+                consistency: WriteConsistency::local(),
+                modify: Box::new(move |counter| {
+                    counter
+                        .increment(self_replica, 3)
+                        .map_err(|error| error.to_string())
+                }),
+                reply_to: updates.actor_ref(),
+            })
+            .unwrap();
+        assert!(matches!(
+            updates.expect_msg(Duration::from_secs(1)).unwrap(),
+            UpdateResponse::Success(_)
+        ));
+
+        let reads = peer
+            .kit
+            .create_probe::<GetResponse<GCounter>>("reads")
+            .unwrap();
+        await_assert(Duration::from_secs(3), Duration::from_millis(20), || {
+            peer.ddata
+                .replicator()
+                .tell(ReplicatorActorMsg::Get {
+                    key: key.clone(),
+                    consistency: ReadConsistency::local(),
+                    reply_to: reads.actor_ref(),
+                })
+                .map_err(|error| error.reason().to_string())?;
+            match reads
+                .expect_msg(Duration::from_millis(100))
+                .map_err(|error| error.to_string())?
+            {
+                GetResponse::Success { data, .. } if data.value().unwrap() == 3 => Ok(()),
+                response => Err(format!("counter has not converged: {response:?}")),
+            }
+        })
+        .unwrap();
+
+        peer.shutdown();
+        seed.shutdown();
+    }
+}

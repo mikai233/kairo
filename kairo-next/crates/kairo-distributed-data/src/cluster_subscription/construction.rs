@@ -30,6 +30,7 @@ where
             aggregation_target_registry: None,
             gossip_target_registry: None,
             last_target_registration: None,
+            remote_source_replicas: None,
         }
     }
 
@@ -60,6 +61,7 @@ where
             aggregation_target_registry: None,
             gossip_target_registry: None,
             last_target_registration: None,
+            remote_source_replicas: None,
         }
     }
 
@@ -97,6 +99,14 @@ where
         self.delta_target_registry = delta_registry;
         self.aggregation_target_registry = aggregation_registry;
         self.gossip_target_registry = gossip_registry;
+        self
+    }
+
+    pub fn with_remote_source_replicas(
+        mut self,
+        replicas: crate::ReplicatorRemoteSourceMap,
+    ) -> Self {
+        self.remote_source_replicas = Some(replicas);
         self
     }
 }

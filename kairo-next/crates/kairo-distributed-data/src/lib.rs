@@ -75,6 +75,7 @@ mod delta_transport;
 mod delta_wire;
 mod envelope;
 mod errors;
+mod extension;
 mod gcounter;
 mod gossip;
 mod gossip_transport;
@@ -189,6 +190,11 @@ pub use delta_wire::{
 };
 pub use envelope::DataEnvelope;
 pub use errors::{ConsistencyError, CrdtError};
+pub use extension::{
+    DDATA_SYSTEM_MANIFESTS, DistributedDataBootstrapError, DistributedDataExtension,
+    DistributedDataHandle, DistributedDataRegistration, DistributedDataSettings,
+    register_distributed_data,
+};
 pub use gcounter::GCounter;
 pub use gossip::{
     REPLICATOR_GOSSIP_NOT_FOUND_DIGEST, ReplicatorGossipApplyReport, ReplicatorGossipError,
@@ -225,7 +231,7 @@ pub use remote_association::{
 pub use remote_association_inbound::{
     ReplicatorRemoteAssociationInbound, ReplicatorRemoteAssociationInboundError,
     ReplicatorRemoteReplyReceiver, ReplicatorRemoteRequestReceiver, ReplicatorRemoteSourceMap,
-    is_replicator_reply_manifest, is_replicator_request_manifest,
+    ReplicatorRemoteSystemInbound, is_replicator_reply_manifest, is_replicator_request_manifest,
 };
 pub use remote_envelope::{
     ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeError, ReplicatorRemoteEnvelopeInbound,

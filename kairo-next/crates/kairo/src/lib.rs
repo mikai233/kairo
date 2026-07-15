@@ -173,9 +173,12 @@ pub mod prelude {
     };
     #[cfg(feature = "distributed-data")]
     pub use kairo_distributed_data::{
-        DeltaReplicatedData, GCounter, GSet, GetResponse, ORSet, PNCounter, ReadConsistency,
+        DDATA_SYSTEM_MANIFESTS, DeltaReplicatedData, DistributedDataBootstrapError,
+        DistributedDataExtension, DistributedDataHandle, DistributedDataRegistration,
+        DistributedDataSettings, GCounter, GSet, GetResponse, ORSet, PNCounter, ReadConsistency,
         ReplicaId, ReplicatedData, ReplicatedDelta, ReplicatorActor, ReplicatorActorMsg,
         ReplicatorKey, ReplicatorState, UpdateResponse, WriteConsistency,
+        register_distributed_data,
     };
     #[cfg(feature = "remote")]
     pub use kairo_remote::{

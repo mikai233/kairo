@@ -1567,10 +1567,11 @@ Graceful leave and coordinated shutdown:
 5. `cluster-shutdown` stops the complete `/system/cluster` root and waits for
    its children before later ActorSystem/transport termination phases proceed.
 
-The composed `Cluster` handle exposes self identity, leave, down, current-state
-queries, and event subscription from one typed facade. Explicit join remains a
-daemon/bootstrap lifecycle operation until the final ActorSystem cluster
-extension owns bind and activation.
+The composed `Cluster` handle exposes self identity, join, leave, down,
+current-state queries, and event subscription from one typed facade. Post-bind
+activation installs that facade as `ClusterExtension`; automatic and explicit
+one-shot joining therefore share the same daemon and managed remoting
+lifecycle.
 
 Downing:
 
@@ -1694,6 +1695,31 @@ Remote association integration:
   spawns the connector under an explicit actor name, and registers coordinated
   shutdown to stop the connector before cluster shutdown so socket routes are
   cleared through the same actor stop path.
+
+The composed ActorSystem path uses `register_distributed_data` instead of that
+legacy standalone listener. Cluster daemon registration must precede it on the
+same `TcpRemoteActorRuntimeBuilder`. At bind, the distributed-data factory uses
+the materialized cluster handle, shared serialization registry, shared
+association cache, and effective canonical address to spawn `/system/ddata`
+and its cluster connector. Its ten stable request/reply manifests are ordinary
+lane protocols: they do not create another listener or transport lifecycle.
+
+The connector derives both outbound targets and inbound source identities from
+real cluster snapshots and events. A sender canonical address resolves through
+a map of current role-eligible Up/WeaklyUp cluster incarnations to `ReplicaId`;
+missing, malformed, or non-member senders are rejected. Reachability remains a
+separate routing observation, so an unreachable-but-live incarnation retains
+its identity mapping, while membership removal deletes it. Neither envelope
+metadata nor the association cache can add a replica to this map.
+
+Post-bind activation installs one typed `DistributedDataExtension<D>` and
+registers the replicator and connector to stop before cluster shutdown. The
+current composed vertical slice schedules periodic full-state/status gossip
+and proves two-node CRDT convergence over the shared cluster/remoting runtime.
+Because the replicator actor protocol is generic in `D`, one registration owns
+the `/system/ddata` manifest namespace for one configured replicated-data
+family per ActorSystem. A later heterogeneous registry may broaden that API;
+it must preserve the same stable wire metadata and typed user boundary.
 
 Sharding uses this later for coordinator state and remember entities. MVP
 sharding may start with an in-memory coordinator store to prove the routing
