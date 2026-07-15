@@ -354,7 +354,19 @@ impl TcpRemoteActorRuntimeBuilder {
         F: FnOnce(&TcpRemoteActorRuntimeContext) -> Result<H> + Send + 'static,
         H: RemoteEnvelopeHandler,
     {
-        self.register_control_handler_with_reliability(manifests, false, factory)
+        self.register_handler_on_lane(manifests, RemoteStreamId::Control, false, factory)
+    }
+
+    pub fn register_ordinary_handler<F, H>(
+        &mut self,
+        manifests: &[&'static str],
+        factory: F,
+    ) -> Result<&mut Self>
+    where
+        F: FnOnce(&TcpRemoteActorRuntimeContext) -> Result<H> + Send + 'static,
+        H: RemoteEnvelopeHandler,
+    {
+        self.register_handler_on_lane(manifests, RemoteStreamId::Ordinary, false, factory)
     }
 
     pub fn register_reliable_control_handler<F, H>(
@@ -366,12 +378,13 @@ impl TcpRemoteActorRuntimeBuilder {
         F: FnOnce(&TcpRemoteActorRuntimeContext) -> Result<H> + Send + 'static,
         H: RemoteEnvelopeHandler,
     {
-        self.register_control_handler_with_reliability(manifests, true, factory)
+        self.register_handler_on_lane(manifests, RemoteStreamId::Control, true, factory)
     }
 
-    fn register_control_handler_with_reliability<F, H>(
+    fn register_handler_on_lane<F, H>(
         &mut self,
         manifests: &[&'static str],
+        required_lane: RemoteStreamId,
         reliable: bool,
         factory: F,
     ) -> Result<&mut Self>
@@ -399,7 +412,9 @@ impl TcpRemoteActorRuntimeBuilder {
             .collect::<Vec<_>>();
         for manifest in &manifests {
             self.manifests.insert(manifest.clone());
-            self.lane_classifier.add_control_manifest(manifest.clone());
+            if required_lane == RemoteStreamId::Control {
+                self.lane_classifier.add_control_manifest(manifest.clone());
+            }
             if reliable {
                 self.reliable_manifests.insert(manifest.clone());
             }
@@ -408,7 +423,7 @@ impl TcpRemoteActorRuntimeBuilder {
             let handler = Arc::new(factory(context)?) as Arc<dyn RemoteEnvelopeHandler>;
             inbound
                 .router_mut()
-                .register_handler(&manifests, RemoteStreamId::Control, handler)
+                .register_handler(&manifests, required_lane, handler)
         }));
         Ok(self)
     }

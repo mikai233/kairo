@@ -9,7 +9,7 @@ use kairo_actor::{
 };
 use kairo_serialization::{
     ActorRefResolver, ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage,
-    SerializationRegistry,
+    SerializationRegistry, SerializedMessage,
 };
 use kairo_testkit::await_assert;
 
@@ -361,6 +361,83 @@ fn tcp_remote_runtime_rejects_duplicate_protocol_before_bind() {
         crate::RemoteError::DuplicateProtocolManifest(manifest)
             if manifest == Ping::MANIFEST
     ));
+
+    let error = match builder.register_ordinary_handler(&[Ping::MANIFEST], |_| {
+        Ok(|_envelope: RemoteEnvelope| Ok(()))
+    }) {
+        Ok(_) => panic!("typed and ordinary handlers must not share a manifest"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        crate::RemoteError::DuplicateProtocolManifest(manifest)
+            if manifest == Ping::MANIFEST
+    ));
+}
+
+#[test]
+fn tcp_remote_runtime_delivers_custom_handler_on_ordinary_lane() {
+    const MANIFEST: &str = "kairo.remote.test.CustomOrdinary";
+
+    let receiver = ActorSystem::builder("ordinary-receiver").build().unwrap();
+    let sender = ActorSystem::builder("ordinary-sender").build().unwrap();
+    let (received_tx, received_rx) = mpsc::channel();
+    let mut receiver_builder = TcpRemoteActorRuntime::builder(
+        receiver.clone(),
+        registry(),
+        RemoteSettings::new("127.0.0.1", 0),
+        11,
+    );
+    receiver_builder
+        .register_ordinary_handler(&[MANIFEST], move |_| {
+            Ok(move |envelope: RemoteEnvelope| {
+                received_tx
+                    .send(envelope.message.payload)
+                    .map_err(|error| crate::RemoteError::Inbound(error.to_string()))
+            })
+        })
+        .unwrap();
+    let receiver_remote = receiver_builder.bind().unwrap();
+    let sender_remote = TcpRemoteActorRuntime::builder(
+        sender.clone(),
+        registry(),
+        RemoteSettings::new("127.0.0.1", 0),
+        22,
+    )
+    .bind()
+    .unwrap();
+    let receiver_address = RemoteAssociationAddress::new(
+        "kairo",
+        "ordinary-receiver",
+        "127.0.0.1",
+        Some(receiver_remote.settings().canonical_port),
+    )
+    .unwrap();
+    sender_remote.dial(receiver_address).unwrap();
+
+    let payload = Bytes::from_static(b"ordinary-handler");
+    let recipient = ActorRefWireData::new(format!(
+        "kairo://ordinary-receiver@127.0.0.1:{}/system/ddata",
+        receiver_remote.settings().canonical_port
+    ))
+    .unwrap();
+    sender_remote
+        .association_cache()
+        .send(RemoteEnvelope::new(
+            recipient,
+            None,
+            SerializedMessage::new(999, MANIFEST.into(), 1, payload.clone()),
+        ))
+        .unwrap();
+
+    assert_eq!(
+        received_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        payload
+    );
+    sender_remote.shutdown().unwrap();
+    receiver_remote.shutdown().unwrap();
+    sender.terminate(Duration::from_secs(1)).unwrap();
+    receiver.terminate(Duration::from_secs(1)).unwrap();
 }
 
 #[test]

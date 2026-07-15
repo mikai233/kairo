@@ -985,7 +985,13 @@ death-watch manifests are delivered to the actor-backed remote watcher, while
 registered business manifests are deserialized by their typed `RemoteInbound<M>`
 handlers and resolved through the local `ActorSystem` registry. The older
 `ActorSystemRemoteInbound<M>` remains as a single-protocol compatibility
-surface.
+surface. Protocols whose stable manifests share one heterogeneous system actor
+may register a bind-time `RemoteEnvelopeHandler` for either the ordinary or
+control lane. Manifest ownership is still exclusive across typed and custom
+handlers and is rejected before bind; ordinary custom handlers do not enter the
+control classifier or reliable-system-delivery path. This is the shared runtime
+boundary used by distributed data and later system protocols that must perform
+their own typed internal dispatch after wire validation.
 Recipients addressed to the local system's canonical remote host and port are
 normalized to local actor paths before registry lookup, matching Pekko's
 provider behavior for addresses owned by the local node. Recipients addressed
