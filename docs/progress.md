@@ -198,6 +198,9 @@ Status terms in this document mean:
   Typed read, write, update-outcome, and subscription responses now hard-gate
   successful absence versus consistency failure, local-update timeout, delta,
   and coalesced change-notification semantics.
+  Replicator state now hard-gates deterministic key iteration, local update and
+  delta reset, full/delta merge, coalesced change flush, and pruning transition
+  contracts used by actor and gossip paths.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

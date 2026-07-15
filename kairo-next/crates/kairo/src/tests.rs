@@ -295,6 +295,7 @@ fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn
         "kairo-next/crates/kairo-distributed-data/src/pncounter.rs",
         "kairo-next/crates/kairo-distributed-data/src/response.rs",
         "kairo-next/crates/kairo-distributed-data/src/replica.rs",
+        "kairo-next/crates/kairo-distributed-data/src/state.rs",
     ];
 
     for relative_path in documented_modules {
