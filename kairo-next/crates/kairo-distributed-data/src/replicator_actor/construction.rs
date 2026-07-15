@@ -28,6 +28,7 @@ where
             gossip_next_index: 0,
             gossip_next_chunk: 0,
             self_system_uid: None,
+            self_replica: None,
             removed_node_pruning: RemovedNodePruningTracker::new(),
         }
     }
@@ -101,6 +102,11 @@ where
 
     pub fn with_self_system_uid(mut self, uid: u64) -> Self {
         self.self_system_uid = Some(uid);
+        self
+    }
+
+    pub fn with_self_replica(mut self, replica: ReplicaId) -> Self {
+        self.self_replica = Some(replica);
         self
     }
 

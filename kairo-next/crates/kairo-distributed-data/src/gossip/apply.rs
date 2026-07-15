@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    CrdtDataCodec, DeltaReplicatedData, ReplicatorGossip, ReplicatorGossipEntry, ReplicatorKey,
-    ReplicatorState, decode_data_envelope, encode_data_envelope,
+    CrdtDataCodec, DataEnvelope, DeltaReplicatedData, RemovedNodePruning, ReplicaId,
+    ReplicatorGossip, ReplicatorGossipEntry, ReplicatorKey, ReplicatorState, decode_data_envelope,
+    encode_data_envelope,
 };
 
 use super::{ReplicatorGossipApplyReport, ReplicatorGossipError};
@@ -15,13 +16,73 @@ pub fn apply_gossip<D>(
 where
     D: DeltaReplicatedData,
 {
+    apply_gossip_envelopes(state, gossip, codec, |envelope| envelope)
+}
+
+pub(crate) fn apply_gossip_with_seen<D>(
+    state: &mut ReplicatorState<D>,
+    gossip: &ReplicatorGossip,
+    codec: &dyn CrdtDataCodec<D>,
+    seen_by: &ReplicaId,
+    now_millis: u64,
+) -> Result<ReplicatorGossipApplyReport, ReplicatorGossipError>
+where
+    D: DeltaReplicatedData + RemovedNodePruning,
+{
     let mut changed_keys = BTreeSet::new();
     let mut reply_keys = Vec::new();
 
     for entry in &gossip.entries {
         let key = ReplicatorKey::new(entry.key.clone());
         let had_data = state.contains_key(&key);
-        let envelope = decode_data_envelope(&entry.envelope, codec)?;
+        let envelope =
+            decode_data_envelope(&entry.envelope, codec)?.add_pruning_seen(seen_by.clone());
+        let changed = state.write_full_pruned(key.clone(), envelope, now_millis);
+        if changed {
+            changed_keys.insert(key.clone());
+        }
+        if gossip.send_back {
+            let has_pruning = state
+                .envelope(&key)
+                .is_some_and(|envelope| !envelope.pruning().is_empty());
+            if had_data || has_pruning {
+                reply_keys.push(key);
+            }
+        }
+    }
+
+    let reply = (!reply_keys.is_empty())
+        .then(|| {
+            create_gossip(
+                state,
+                reply_keys,
+                false,
+                gossip.from_system_uid,
+                gossip.to_system_uid,
+                codec,
+            )
+        })
+        .transpose()?;
+
+    Ok(ReplicatorGossipApplyReport::new(changed_keys, reply))
+}
+
+fn apply_gossip_envelopes<D>(
+    state: &mut ReplicatorState<D>,
+    gossip: &ReplicatorGossip,
+    codec: &dyn CrdtDataCodec<D>,
+    mut prepare: impl FnMut(DataEnvelope<D>) -> DataEnvelope<D>,
+) -> Result<ReplicatorGossipApplyReport, ReplicatorGossipError>
+where
+    D: DeltaReplicatedData,
+{
+    let mut changed_keys = BTreeSet::new();
+    let mut reply_keys = Vec::new();
+
+    for entry in &gossip.entries {
+        let key = ReplicatorKey::new(entry.key.clone());
+        let had_data = state.contains_key(&key);
+        let envelope = prepare(decode_data_envelope(&entry.envelope, codec)?);
         let changed = state.write_full(key.clone(), envelope);
         if changed {
             changed_keys.insert(key.clone());

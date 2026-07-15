@@ -15,10 +15,10 @@ work.
 Current active stage: **foundation convergence before M13**, with Phases 1-3
 complete and Phase 4 distributed integration now active. The three-node final
 acceptance workflow now passes through the public composed runtime. Remaining
-Phase 4 work is broader distributed-data pruning and partition depth, rather
-than the sharding or cluster-tools architecture itself. M13 begins only after
-those remaining gaps can be treated as tuning and release hardening rather
-than replacement.
+Phase 4 work is broader distributed-data type registration and healed-partition
+depth, rather than the sharding or cluster-tools architecture itself. M13
+begins only after those remaining gaps can be treated as tuning and release
+hardening rather than replacement.
 
 Status terms in this document mean:
 
@@ -81,9 +81,13 @@ Status terms in this document mean:
   three-node crash test preserves a stopped replica's converged counter
   contribution, observes failure detection and explicit downing remove and
   tombstone that replica, verifies both live connectors drop its route, and
-  completes new majority write/read operations across the two survivors.
-  Broader typed data registration, removed-node pruning, and network-partition
-  acceptance remain open.
+  completes new majority write/read operations across the two survivors. The
+  composed runtime now also runs Pekko-aligned removed-node pruning timers. The
+  same test proves pruning pauses while the crashed replica is unreachable,
+  then collapses its GCounter contribution into the leader after removal,
+  disseminates the performed marker, and cleans the removed replica on both
+  survivors without changing the total. Broader typed data registration and
+  healed network-partition acceptance remain open.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
@@ -425,7 +429,15 @@ for heartbeat failure detection, explicitly downs it through the public
 cluster facade, and observes gossip removal/tombstoning plus connector route
 cleanup. Its two survivors preserve the crashed node's converged GCounter
 contribution and complete new majority write and read operations after the
-replica set shrinks.
+replica set shrinks. `DistributedDataSettings<D>` now exposes Pekko-aligned
+pruning interval, maximum dissemination, and marker-TTL settings; composed
+connectors advance the all-reachable clock and schedule pruning by default.
+The fault test observes pruning ticks stop during the unreachable window, then
+proves both survivors remove the crashed replica's GCounter slot after downing
+while preserving its contribution. Full-state gossip marks initialized
+pruning as seen by the local replica, and pruning-aware gossip/direct-write
+merges clean performed replicas from stale input before CRDT merge so removed
+state cannot be resurrected.
 Cluster singleton now has the corresponding abrupt-owner path. A three-node
 test admits the intended successor before the observer, routes remote traffic
 to the oldest node, and records a local-protocol message buffered at the
@@ -496,7 +508,8 @@ next command. The Phase 4 three-node acceptance exit gate is therefore met,
 and distributed data now has a same-runtime crash/down survivor-quorum
 scenario. Singleton now also has a same-runtime abrupt-oldest recovery
 scenario, and pubsub has a same-runtime crashed-subscriber cleanup scenario.
-Broader ddata pruning/partition coverage remains the active gate.
+Broader ddata type registration and healed-partition coverage remain the active
+gate.
 Cluster tools now have
 their first composed transport seam: `register_cluster_tools_system_inbound`
 registers all eight stable pubsub and singleton manifests on the control lane
@@ -6156,12 +6169,12 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest Phase 4 validation after pubsub crashed-subscriber cleanup:
+Latest Phase 4 validation after composed removed-node pruning:
 
 ```bash
-cargo test -p kairo-cluster-tools extension::tests::composed_extension_removes_crashed_subscriber_and_keeps_live_delivery -- --nocapture
-cargo test -p kairo-cluster-tools
-cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+cargo test -p kairo-distributed-data extension::tests::composed_extension_survivors_reform_quorum_after_replica_crash -- --nocapture
+cargo test -p kairo-distributed-data --all-targets --all-features
+cargo clippy -p kairo-distributed-data --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check
 ```

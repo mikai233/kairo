@@ -1,6 +1,6 @@
 use crate::{
-    CrdtDataCodec, DeltaReplicatedData, ReplicaId, ReplicatorKey, ReplicatorRead,
-    ReplicatorReadResult, ReplicatorState, ReplicatorWrite, ReplicatorWriteAck,
+    CrdtDataCodec, DeltaReplicatedData, RemovedNodePruning, ReplicaId, ReplicatorKey,
+    ReplicatorRead, ReplicatorReadResult, ReplicatorState, ReplicatorWrite, ReplicatorWriteAck,
     ReplicatorWriteNack,
 };
 
@@ -73,14 +73,14 @@ pub fn apply_write<D, Codec>(
     codec: &Codec,
 ) -> DirectWriteResult
 where
-    D: DeltaReplicatedData,
+    D: DeltaReplicatedData + RemovedNodePruning,
     Codec: CrdtDataCodec<D> + ?Sized,
 {
     let key = ReplicatorKey::new(write.key.clone());
     let from = write.from.clone();
     match crate::decode_data_envelope(&write.envelope, codec) {
         Ok(envelope) => {
-            let changed = state.write_full(key.clone(), envelope);
+            let changed = state.write_full_pruned(key.clone(), envelope, wall_millis());
             DirectWriteResult::Ack {
                 key,
                 from,
@@ -95,6 +95,14 @@ where
             message: ReplicatorWriteNack,
         },
     }
+}
+
+fn wall_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or(std::time::Duration::ZERO)
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
 }
 
 pub fn serve_read<D, Codec>(

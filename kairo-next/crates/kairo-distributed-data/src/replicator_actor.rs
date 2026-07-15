@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 
+use crate::gossip::{apply_gossip, apply_gossip_with_seen};
 use crate::{
     AggregationError, CrdtDataCodec, DataEnvelope, DeltaPropagation, DeltaPropagationLog,
     DeltaPropagationLoop, DeltaPropagationReceiveReport, DeltaPropagationTickReport,
@@ -16,8 +17,8 @@ use crate::{
     ReplicatorGossipStatusReceiveReport, ReplicatorGossipTickReport,
     ReplicatorGossipTickSkipReason, ReplicatorGossipTransport, ReplicatorGossipTransportReport,
     ReplicatorKey, ReplicatorRead, ReplicatorState, ReplicatorWrite, UpdateResponse,
-    WriteAggregationPlan, WriteAggregatorState, WriteConsistency, apply_gossip,
-    build_gossip_status, respond_to_gossip_status,
+    WriteAggregationPlan, WriteAggregatorState, WriteConsistency, build_gossip_status,
+    respond_to_gossip_status,
 };
 
 mod client_ops;
@@ -49,6 +50,7 @@ where
     gossip_next_index: usize,
     gossip_next_chunk: u32,
     self_system_uid: Option<u64>,
+    self_replica: Option<ReplicaId>,
     removed_node_pruning: RemovedNodePruningTracker,
 }
 

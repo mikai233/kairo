@@ -12,12 +12,13 @@ use crate::{
     DeltaPropagationLoop, DeltaPropagationTargetRegistry, DeltaPropagationTransport,
     DeltaReplicatedData, RemovedNodePruning, ReplicaId, ReplicatorActor, ReplicatorActorMsg,
     ReplicatorAggregation, ReplicatorClusterConnector, ReplicatorClusterConnectorMsg,
-    ReplicatorDeltaAck, ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGossip,
-    ReplicatorGossipStatus, ReplicatorGossipTargetRegistry, ReplicatorGossipTransport,
-    ReplicatorRead, ReplicatorReadResult, ReplicatorRemoteAssociationCacheOutbound,
-    ReplicatorRemoteReplyInbound, ReplicatorRemoteRequestInbound, ReplicatorRemoteRouteTargets,
-    ReplicatorRemoteSourceMap, ReplicatorRemoteSystemInbound, ReplicatorWireCodecs,
-    ReplicatorWrite, ReplicatorWriteAck, ReplicatorWriteNack,
+    ReplicatorClusterConnectorTimingSettings, ReplicatorClusterPruningSettings, ReplicatorDeltaAck,
+    ReplicatorDeltaNack, ReplicatorDeltaPropagation, ReplicatorGossip, ReplicatorGossipStatus,
+    ReplicatorGossipTargetRegistry, ReplicatorGossipTransport, ReplicatorRead,
+    ReplicatorReadResult, ReplicatorRemoteAssociationCacheOutbound, ReplicatorRemoteReplyInbound,
+    ReplicatorRemoteRequestInbound, ReplicatorRemoteRouteTargets, ReplicatorRemoteSourceMap,
+    ReplicatorRemoteSystemInbound, ReplicatorWireCodecs, ReplicatorWrite, ReplicatorWriteAck,
+    ReplicatorWriteNack,
 };
 
 const DELTA_GOSSIP_INTERVAL_DIVISOR: u32 = 5;
@@ -44,6 +45,9 @@ where
     codecs: ReplicatorWireCodecs<D>,
     gossip_interval: Duration,
     delta_propagation_interval: Option<Duration>,
+    pruning_interval: Option<Duration>,
+    max_pruning_dissemination: Duration,
+    pruning_marker_ttl: Duration,
     shutdown_timeout: Duration,
 }
 
@@ -57,6 +61,9 @@ where
             codecs: self.codecs.clone(),
             gossip_interval: self.gossip_interval,
             delta_propagation_interval: self.delta_propagation_interval,
+            pruning_interval: self.pruning_interval,
+            max_pruning_dissemination: self.max_pruning_dissemination,
+            pruning_marker_ttl: self.pruning_marker_ttl,
             shutdown_timeout: self.shutdown_timeout,
         }
     }
@@ -72,6 +79,9 @@ where
             codecs,
             gossip_interval: Duration::from_secs(2),
             delta_propagation_interval: None,
+            pruning_interval: Some(Duration::from_secs(120)),
+            max_pruning_dissemination: Duration::from_secs(300),
+            pruning_marker_ttl: Duration::from_secs(6 * 60 * 60),
             shutdown_timeout: Duration::from_secs(3),
         }
     }
@@ -86,9 +96,36 @@ where
         self
     }
 
+    pub fn with_pruning_interval(mut self, value: Option<Duration>) -> Self {
+        self.pruning_interval = value;
+        self
+    }
+
+    pub fn with_max_pruning_dissemination(mut self, value: Duration) -> Self {
+        self.max_pruning_dissemination = value;
+        self
+    }
+
+    pub fn with_pruning_marker_ttl(mut self, value: Duration) -> Self {
+        self.pruning_marker_ttl = value;
+        self
+    }
+
     pub fn with_shutdown_timeout(mut self, value: Duration) -> Self {
         self.shutdown_timeout = value;
         self
+    }
+
+    pub fn pruning_interval(&self) -> Option<Duration> {
+        self.pruning_interval
+    }
+
+    pub fn max_pruning_dissemination(&self) -> Duration {
+        self.max_pruning_dissemination
+    }
+
+    pub fn pruning_marker_ttl(&self) -> Duration {
+        self.pruning_marker_ttl
     }
 
     fn validate(&self) -> Result<(), DistributedDataBootstrapError> {
@@ -103,6 +140,21 @@ where
         {
             return Err(DistributedDataBootstrapError::InvalidSettings {
                 reason: "delta propagation interval must be greater than zero",
+            });
+        }
+        if self.pruning_interval.is_some_and(|value| value.is_zero()) {
+            return Err(DistributedDataBootstrapError::InvalidSettings {
+                reason: "pruning interval must be greater than zero when enabled",
+            });
+        }
+        if self.max_pruning_dissemination.is_zero() {
+            return Err(DistributedDataBootstrapError::InvalidSettings {
+                reason: "max pruning dissemination must be greater than zero",
+            });
+        }
+        if self.pruning_marker_ttl.is_zero() {
+            return Err(DistributedDataBootstrapError::InvalidSettings {
+                reason: "pruning marker ttl must be greater than zero",
             });
         }
         if self.shutdown_timeout.is_zero() {
@@ -389,6 +441,7 @@ where
         );
         let gossip_interval = factory_settings.gossip_interval;
         let local_system_uid = context.local_system_uid();
+        let actor_self_replica = ReplicaId::from(&self_node);
         let replicator = context
             .system()
             .spawn_system(
@@ -402,6 +455,7 @@ where
                     .enable_delta_propagation(actor_delta_loop.clone(), delta_propagation_interval)
                     .enable_aggregation(actor_aggregation.clone())
                     .with_self_system_uid(local_system_uid)
+                    .with_self_replica(actor_self_replica.clone())
                 }),
             )
             .map_err(|error| RemoteError::Inbound(error.to_string()))?;
@@ -412,6 +466,13 @@ where
         let connector_cluster = cluster.cluster().clone();
         let connector_self_node = self_node.clone();
         let connector_sources = Arc::clone(&source_replicas);
+        let pruning_settings = ReplicatorClusterPruningSettings::new(
+            duration_as_u64_nanos(factory_settings.max_pruning_dissemination),
+            duration_as_u64_millis(factory_settings.pruning_marker_ttl),
+        );
+        let timing_settings = ReplicatorClusterConnectorTimingSettings::disabled()
+            .with_clock_interval(Some(factory_settings.gossip_interval))
+            .with_pruning_interval(factory_settings.pruning_interval);
         let connector = match context.system().spawn_system(
             "ddata-cluster",
             Props::new(move || {
@@ -420,6 +481,8 @@ where
                     connector_self_node.clone(),
                     connector_replicator.clone(),
                 )
+                .with_pruning_settings(pruning_settings)
+                .with_timing_settings(timing_settings.clone())
                 .with_remote_route_targets(
                     remote_targets.clone(),
                     Some(delta_targets.clone()),
@@ -469,6 +532,14 @@ where
     })
 }
 
+fn duration_as_u64_nanos(duration: Duration) -> u64 {
+    duration.as_nanos().min(u128::from(u64::MAX)) as u64
+}
+
+fn duration_as_u64_millis(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -515,6 +586,57 @@ mod tests {
             gossip_interval: Duration,
             delta_propagation_interval: Option<Duration>,
         ) -> Self {
+            Self::start_configured(
+                system,
+                node_uid,
+                remote_uid,
+                seed_nodes,
+                registry,
+                gossip_interval,
+                delta_propagation_interval,
+                None,
+            )
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn start_with_pruning(
+            system: &str,
+            node_uid: u64,
+            remote_uid: u64,
+            seed_nodes: Vec<kairo_actor::Address>,
+            registry: Arc<Registry>,
+            gossip_interval: Duration,
+            pruning_interval: Duration,
+            max_pruning_dissemination: Duration,
+            pruning_marker_ttl: Duration,
+        ) -> Self {
+            Self::start_configured(
+                system,
+                node_uid,
+                remote_uid,
+                seed_nodes,
+                registry,
+                gossip_interval,
+                Some(gossip_interval),
+                Some((
+                    pruning_interval,
+                    max_pruning_dissemination,
+                    pruning_marker_ttl,
+                )),
+            )
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn start_configured(
+            system: &str,
+            node_uid: u64,
+            remote_uid: u64,
+            seed_nodes: Vec<kairo_actor::Address>,
+            registry: Arc<Registry>,
+            gossip_interval: Duration,
+            delta_propagation_interval: Option<Duration>,
+            pruning: Option<(Duration, Duration, Duration)>,
+        ) -> Self {
             let kit = ActorSystemTestKit::new(system).unwrap();
             let mut builder = TcpRemoteActorRuntime::builder(
                 kit.system().clone(),
@@ -557,6 +679,12 @@ mod tests {
             .with_gossip_interval(gossip_interval);
             if let Some(interval) = delta_propagation_interval {
                 ddata_settings = ddata_settings.with_delta_propagation_interval(interval);
+            }
+            if let Some((interval, dissemination, marker_ttl)) = pruning {
+                ddata_settings = ddata_settings
+                    .with_pruning_interval(Some(interval))
+                    .with_max_pruning_dissemination(dissemination)
+                    .with_pruning_marker_ttl(marker_ttl);
             }
             let ddata_registration = register_distributed_data(
                 &mut builder,
@@ -659,6 +787,37 @@ mod tests {
             .unwrap();
         }
 
+        fn await_counter_pruned(&self, key: ReplicatorKey, removed: &ReplicaId, expected: u128) {
+            let id = PROBE_ID.fetch_add(1, Ordering::Relaxed);
+            let reads = self
+                .kit
+                .create_probe::<GetResponse<GCounter>>(format!("pruned-reads-{id}"))
+                .unwrap();
+            await_assert(Duration::from_secs(5), Duration::from_millis(20), || {
+                self.ddata
+                    .replicator()
+                    .tell(ReplicatorActorMsg::Get {
+                        key: key.clone(),
+                        consistency: ReadConsistency::local(),
+                        reply_to: reads.actor_ref(),
+                    })
+                    .map_err(|error| error.reason().to_string())?;
+                match reads
+                    .expect_msg(Duration::from_millis(100))
+                    .map_err(|error| error.to_string())?
+                {
+                    GetResponse::Success { data, .. }
+                        if data.value().unwrap() == expected
+                            && !data.need_pruning_from(removed) =>
+                    {
+                        Ok(())
+                    }
+                    response => Err(format!("counter has not been pruned: {response:?}")),
+                }
+            })
+            .unwrap();
+        }
+
         fn shutdown(self) {
             self.kit.system().stop(self.cluster.root());
             self.runtime.shutdown().unwrap();
@@ -702,6 +861,42 @@ mod tests {
                 .validate(),
             Err(DistributedDataBootstrapError::InvalidSettings { .. })
         ));
+        assert!(matches!(
+            settings()
+                .with_pruning_interval(Some(Duration::ZERO))
+                .validate(),
+            Err(DistributedDataBootstrapError::InvalidSettings { .. })
+        ));
+        assert!(matches!(
+            settings()
+                .with_max_pruning_dissemination(Duration::ZERO)
+                .validate(),
+            Err(DistributedDataBootstrapError::InvalidSettings { .. })
+        ));
+        assert!(matches!(
+            settings()
+                .with_pruning_marker_ttl(Duration::ZERO)
+                .validate(),
+            Err(DistributedDataBootstrapError::InvalidSettings { .. })
+        ));
+    }
+
+    #[test]
+    fn settings_use_pekko_aligned_removed_node_pruning_defaults() {
+        let settings = DistributedDataSettings::new(ReplicatorWireCodecs::new(
+            Arc::new(GCounterCodec),
+            Arc::new(GCounterCodec),
+        ));
+
+        assert_eq!(settings.pruning_interval(), Some(Duration::from_secs(120)));
+        assert_eq!(
+            settings.max_pruning_dissemination(),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            settings.pruning_marker_ttl(),
+            Duration::from_secs(6 * 60 * 60)
+        );
     }
 
     #[test]
@@ -940,14 +1135,16 @@ mod tests {
     #[test]
     fn composed_extension_survivors_reform_quorum_after_replica_crash() {
         let registry = registry();
-        let seed = ComposedDdataNode::start(
+        let seed = ComposedDdataNode::start_with_pruning(
             "ddata-fault-seed",
             1,
             401,
             vec![],
             registry.clone(),
             Duration::from_millis(20),
-            Some(Duration::from_millis(20)),
+            Duration::from_millis(20),
+            Duration::from_millis(100),
+            Duration::from_secs(5),
         );
         await_assert(Duration::from_secs(2), Duration::from_millis(5), || {
             (seed
@@ -959,23 +1156,36 @@ mod tests {
             .ok_or_else(|| "ddata fault seed has not formed".to_string())
         })
         .unwrap();
-        let peer = ComposedDdataNode::start(
+        let peer = ComposedDdataNode::start_with_pruning(
             "ddata-fault-peer",
             2,
             402,
             vec![seed.cluster.self_node().address.clone()],
             registry.clone(),
             Duration::from_millis(20),
-            Some(Duration::from_millis(20)),
+            Duration::from_millis(20),
+            Duration::from_millis(100),
+            Duration::from_secs(5),
         );
-        let crashed = ComposedDdataNode::start(
+        await_assert(Duration::from_secs(4), Duration::from_millis(10), || {
+            let seed_routes = seed.connector();
+            let peer_routes = peer.connector();
+            (seed_routes.remote_replicas == vec![ReplicaId::from(peer.cluster.self_node())]
+                && peer_routes.remote_replicas == vec![ReplicaId::from(seed.cluster.self_node())])
+            .then_some(())
+            .ok_or_else(|| "ddata pruning survivors have not formed before third join".to_string())
+        })
+        .unwrap();
+        let crashed = ComposedDdataNode::start_with_pruning(
             "ddata-fault-crashed",
             3,
             403,
             vec![seed.cluster.self_node().address.clone()],
             registry,
             Duration::from_millis(20),
-            Some(Duration::from_millis(20)),
+            Duration::from_millis(20),
+            Duration::from_millis(100),
+            Duration::from_secs(5),
         );
         let crashed_node = crashed.cluster.self_node().clone();
         let crashed_replica = ReplicaId::from(&crashed_node);
@@ -1014,6 +1224,16 @@ mod tests {
                 .ok_or_else(|| "crashed ddata replica is not yet unreachable".to_string())
         })
         .unwrap();
+        await_assert(Duration::from_secs(2), Duration::from_millis(10), || {
+            seed.connector()
+                .last_pruning_report
+                .filter(|report| report.skipped_unreachable)
+                .map(|_| ())
+                .ok_or_else(|| {
+                    "removed-node pruning did not pause for unreachable replica".to_string()
+                })
+        })
+        .unwrap();
 
         seed.cluster
             .cluster()
@@ -1045,6 +1265,8 @@ mod tests {
                 })
         })
         .unwrap();
+        seed.await_counter_pruned(key.clone(), &crashed_replica, 5);
+        peer.await_counter_pruned(key.clone(), &crashed_replica, 5);
 
         let writes = seed
             .kit

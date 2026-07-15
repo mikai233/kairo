@@ -70,8 +70,12 @@ where
         gossip: &ReplicatorGossip,
         codec: &dyn CrdtDataCodec<D>,
     ) -> Result<ReplicatorGossipReceiveReport, ActorError> {
-        let apply = apply_gossip(&mut self.state, gossip, codec)
-            .map_err(|error| ActorError::Message(error.to_string()))?;
+        let apply = if let Some(self_replica) = &self.self_replica {
+            apply_gossip_with_seen(&mut self.state, gossip, codec, self_replica, wall_millis())
+        } else {
+            apply_gossip(&mut self.state, gossip, codec)
+        }
+        .map_err(|error| ActorError::Message(error.to_string()))?;
         let mut transport_report = ReplicatorGossipTransportReport::empty();
         if let (Some(transport), Some(reply)) = (&self.gossip_transport, apply.reply().cloned()) {
             transport_report.extend(transport.send_gossip(from, reply));
@@ -99,6 +103,14 @@ where
             ctx.schedule_once_self(interval, ReplicatorActorMsg::GossipTick);
         }
     }
+}
+
+fn wall_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
 }
 
 fn gossip_total_chunks(entry_count: usize, max_entries: usize) -> u32 {

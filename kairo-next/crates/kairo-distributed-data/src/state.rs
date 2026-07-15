@@ -132,6 +132,19 @@ impl<D> ReplicatorState<D>
 where
     D: DeltaReplicatedData + RemovedNodePruning,
 {
+    pub fn write_full_pruned(
+        &mut self,
+        key: ReplicatorKey,
+        envelope: DataEnvelope<D>,
+        now_millis: u64,
+    ) -> bool {
+        let next = match self.entries.get(&key) {
+            Some(existing) => existing.merge_pruned(&envelope, now_millis),
+            None => envelope,
+        };
+        self.set_data(key, next)
+    }
+
     pub fn modified_by_replica_ids(&self) -> BTreeSet<ReplicaId> {
         self.entries
             .values()
