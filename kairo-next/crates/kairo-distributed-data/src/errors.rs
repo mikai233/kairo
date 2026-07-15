@@ -1,8 +1,15 @@
+#![deny(missing_docs)]
+
+//! Errors shared by CRDT arithmetic and consistency planning.
+
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure produced by a CRDT value operation.
 pub enum CrdtError {
+    /// An unsigned per-replica counter or aggregate exceeded its numeric range.
     CounterOverflow,
+    /// A signed counter result cannot be represented by the public value type.
     CounterValueOutOfRange,
 }
 
@@ -20,8 +27,13 @@ impl Display for CrdtError {
 impl std::error::Error for CrdtError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Invalid replica-count input for a non-local consistency level.
 pub enum ConsistencyError {
-    ReplicaCountTooSmall { requested: usize },
+    /// Fewer than two replicas were requested for distributed consistency.
+    ReplicaCountTooSmall {
+        /// Invalid requested replica count.
+        requested: usize,
+    },
 }
 
 impl Display for ConsistencyError {

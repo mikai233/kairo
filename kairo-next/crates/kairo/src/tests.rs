@@ -278,6 +278,28 @@ fn cluster_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::err
 }
 
 #[test]
+fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::error::Error>>
+{
+    let repo_root = repo_root()?;
+    let documented_modules = [
+        "kairo-next/crates/kairo-distributed-data/src/data.rs",
+        "kairo-next/crates/kairo-distributed-data/src/errors.rs",
+        "kairo-next/crates/kairo-distributed-data/src/key.rs",
+        "kairo-next/crates/kairo-distributed-data/src/replica.rs",
+    ];
+
+    for relative_path in documented_modules {
+        let source = std::fs::read_to_string(repo_root.join(relative_path))?.replace("\r\n", "\n");
+        assert!(
+            source.starts_with("#![deny(missing_docs)]\n"),
+            "{relative_path} must keep missing public documentation as a hard error"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
 fn sharding_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let documented_modules = [

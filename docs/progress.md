@@ -172,6 +172,10 @@ Status terms in this document mean:
   withdraws managed associations without removing either member, observes both
   replicas become unreachable, applies independent counter increments, heals
   the links, and proves both replicas merge to the same total.
+  The foundational replica-id, typed-namespace key, replicated-data/delta,
+  removed-node pruning, and CRDT/consistency error surfaces now document and
+  hard-gate their identity, merge-law, delta-reset, first-delta zero-state, and
+  prune-before-cleanup contracts.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
