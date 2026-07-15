@@ -36,6 +36,34 @@ impl RemoteMessage for TestMessage {
     const VERSION: u16 = 1;
 }
 
+#[derive(Debug, Clone)]
+struct DifferentMessage;
+
+impl RemoteMessage for DifferentMessage {
+    const MANIFEST: &'static str = "kairo.sharding.test.DifferentExtensionMessage";
+    const VERSION: u16 = 1;
+}
+
+struct DifferentEntity;
+
+impl Actor for DifferentEntity {
+    type Msg = DifferentMessage;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
+struct ReplacementEntity;
+
+impl Actor for ReplacementEntity {
+    type Msg = TestMessage;
+
+    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, _msg: Self::Msg) -> ActorResult {
+        Ok(())
+    }
+}
+
 struct TestMessageCodec;
 
 impl MessageCodec<TestMessage> for TestMessageCodec {
@@ -600,6 +628,59 @@ fn settings_reject_zero_capacities_and_intervals() {
             .validate()
             .is_err()
     );
+}
+
+#[test]
+fn typed_entity_initialization_is_idempotent_and_rejects_name_collisions() {
+    let _guard = composed_test_guard();
+    let type_key = EntityTypeKey::new("typed-init-account");
+    let node = ComposedShardingNode::start_direct(
+        "sharding-typed-init",
+        9,
+        109,
+        Vec::new(),
+        registry(),
+        type_key.clone(),
+    );
+
+    let existing = node
+        .sharding
+        .init(
+            Entity::new(type_key.clone(), |_| ReplacementEntity)
+                .with_stop_message(TestMessage("stop".to_string())),
+        )
+        .unwrap();
+    let initialized_path = {
+        let entities = node.sharding.entities.lock().unwrap();
+        entities
+            .get(type_key.name())
+            .unwrap()
+            .downcast_ref::<InitializedEntity<TestMessage>>()
+            .unwrap()
+            .router
+            .path()
+            .clone()
+    };
+    assert_eq!(existing.path(), &initialized_path);
+
+    let collision_key = EntityTypeKey::<DifferentMessage>::new(type_key.name());
+    assert!(matches!(
+        node.sharding.init(
+            Entity::new(collision_key, |_| DifferentEntity).with_stop_message(DifferentMessage)
+        ),
+        Err(ClusterShardingBootstrapError::TypeMismatch { type_name })
+            if type_name == type_key.name()
+    ));
+    assert!(matches!(
+        node.sharding.entity_ref_for(
+            EntityTypeKey::<TestMessage>::new("not-initialized"),
+            "entity-1"
+        ),
+        Err(ClusterShardingBootstrapError::InvalidEntity { type_name, reason })
+            if type_name == "not-initialized" && reason == "entity type is not initialized"
+    ));
+
+    node.shutdown();
 }
 
 #[test]

@@ -247,6 +247,11 @@ Status terms in this document mean:
   The concrete entity-shard actor now hard-gates typed child construction,
   UID-aware death watch, passivation replay, remembered restart, distributed
   remember-store ownership, and entity-stopper handoff completion.
+  The public cluster-sharding extension now hard-gates its pre-bind
+  registration, post-bind activation, typed multi-entity initialization,
+  coordinator placement, remember-store composition, shutdown timing, and
+  `EntityRef` lookup contracts; focused coverage pins idempotent same-type
+  initialization, different-type name rejection, and uninitialized lookup.
   Duplicate region registration is a rejected no-op that preserves every
   existing shard assignment. The
   cluster-integrated extension now runs each entity-type coordinator

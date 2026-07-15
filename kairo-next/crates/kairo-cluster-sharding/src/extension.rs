@@ -1,3 +1,19 @@
+#![deny(missing_docs)]
+
+//! Cluster-sharding registration and the typed [`ClusterSharding`] extension.
+//!
+//! Call [`register_cluster_sharding`] or
+//! [`register_cluster_sharding_with_singleton`] while assembling the shared TCP
+//! runtime, bind the runtime, and then activate the returned registration. Each
+//! call to [`ClusterSharding::init`] installs one typed entity kind behind a
+//! local [`ActorRef<ShardingEnvelope<M>>`](ActorRef). Applications normally
+//! address one logical entity through [`ClusterSharding::entity_ref_for`].
+//!
+//! Business messages cross nodes only when `M` implements [`RemoteMessage`] and
+//! its codec is present in the shared registry. The extension's internal
+//! protocol enums remain local implementation details; stable sharding
+//! envelopes and control messages form the wire boundary.
+
 use std::any::Any;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Display, Formatter};
@@ -36,8 +52,10 @@ use crate::{
     ShardStopped, ShardingEnvelope, ShardingEnvelopeRouter, remote_region_id,
 };
 
+/// Manifests carried on the ordinary, unordered remoting lane for sharding.
 pub const SHARDING_ORDINARY_MANIFESTS: [&str; 1] = [RoutedShardEnvelope::MANIFEST];
 
+/// Manifests carried on the reliable, ordered control lane for sharding.
 pub const SHARDING_CONTROL_MANIFESTS: [&str; 12] = [
     Register::MANIFEST,
     RegisterAck::MANIFEST,
@@ -54,6 +72,10 @@ pub const SHARDING_CONTROL_MANIFESTS: [&str; 12] = [
 ];
 
 #[derive(Debug, Clone)]
+/// Runtime-wide capacity and timing settings for the sharding extension.
+///
+/// Entity-specific shard counts, coordinator roles, stop messages, and
+/// remember-entity stores are configured on [`Entity`].
 pub struct ClusterShardingSettings {
     region_buffer_capacity: usize,
     shard_buffer_capacity: usize,
@@ -77,31 +99,50 @@ impl Default for ClusterShardingSettings {
 }
 
 impl ClusterShardingSettings {
+    /// Sets the maximum number of messages buffered by a region.
+    ///
+    /// The capacity must be greater than zero.
     pub fn with_region_buffer_capacity(mut self, capacity: usize) -> Self {
         self.region_buffer_capacity = capacity;
         self
     }
 
+    /// Sets the maximum number of messages buffered by each local shard.
+    ///
+    /// The capacity must be greater than zero.
     pub fn with_shard_buffer_capacity(mut self, capacity: usize) -> Self {
         self.shard_buffer_capacity = capacity;
         self
     }
 
+    /// Sets how often a region retries coordinator registration.
+    ///
+    /// The interval must be greater than zero.
     pub fn with_registration_retry_interval(mut self, interval: Duration) -> Self {
         self.registration_retry_interval = interval;
         self
     }
 
+    /// Sets how often the coordinator evaluates periodic rebalancing.
+    ///
+    /// The interval must be greater than zero.
     pub fn with_rebalance_interval(mut self, interval: Duration) -> Self {
         self.rebalance_interval = interval;
         self
     }
 
+    /// Sets the maximum time allowed for a shard handoff.
+    ///
+    /// The timeout must be greater than zero.
     pub fn with_handoff_timeout(mut self, timeout: Duration) -> Self {
         self.handoff_timeout = timeout;
         self
     }
 
+    /// Sets the wait used by coordinated-shutdown actor-stop tasks.
+    ///
+    /// A region is asked to stop gracefully first and is force-stopped after
+    /// this timeout. The timeout must be greater than zero.
     pub fn with_shutdown_timeout(mut self, timeout: Duration) -> Self {
         self.shutdown_timeout = timeout;
         self
@@ -142,6 +183,12 @@ impl ClusterShardingSettings {
     }
 }
 
+/// Describes one typed sharded entity kind for [`ClusterSharding::init`].
+///
+/// The type key name is the cluster-wide identity of the entity kind. Every
+/// node must initialize a given name with the same message type, shard count,
+/// role, and lifecycle settings. Kairo requires an explicit stop message so
+/// coordinator-driven shard handoff can terminate entity actors cleanly.
 pub struct Entity<M>
 where
     M: Clone + Send + 'static,
@@ -168,6 +215,11 @@ enum CoordinatorRememberStoreTargetSettings {
 }
 
 #[derive(Clone)]
+/// Distributed-data stores used to remember both shards and entity identities.
+///
+/// The coordinator store remembers allocated shard identifiers. The shard
+/// replica and replicator remember entity identifiers within each shard so a
+/// new region incarnation can restart them after failover.
 pub struct DDataRememberEntitiesSettings {
     coordinator_store: ActorRef<RememberCoordinatorDDataStoreMsg>,
     shard_replica_id: ReplicaId,
@@ -176,6 +228,10 @@ pub struct DDataRememberEntitiesSettings {
 }
 
 impl DDataRememberEntitiesSettings {
+    /// Creates distributed-data remember-entity settings.
+    ///
+    /// `timeout` bounds coordinator and shard store operations and must be
+    /// greater than zero when the containing [`Entity`] is initialized.
     pub fn new(
         coordinator_store: ActorRef<RememberCoordinatorDDataStoreMsg>,
         shard_replica_id: impl Into<ReplicaId>,
@@ -195,6 +251,10 @@ impl<M> Entity<M>
 where
     M: Clone + Send + 'static,
 {
+    /// Creates an entity definition from a typed key and actor factory.
+    ///
+    /// The factory receives the logical entity identifier whenever the local
+    /// region needs to start a new actor incarnation.
     pub fn new<A, F>(type_key: EntityTypeKey<M>, factory: F) -> Self
     where
         A: Actor<Msg = M>,
@@ -211,6 +271,7 @@ where
         }
     }
 
+    /// Alias for [`Entity::new`].
     pub fn of<A, F>(type_key: EntityTypeKey<M>, factory: F) -> Self
     where
         A: Actor<Msg = M>,
@@ -219,16 +280,28 @@ where
         Self::new(type_key, factory)
     }
 
+    /// Sets the fixed shard count for this entity kind.
+    ///
+    /// The count must be greater than zero and must agree across the cluster.
     pub fn with_shard_count(mut self, shard_count: u64) -> Self {
         self.shard_count = shard_count;
         self
     }
 
+    /// Restricts coordinator singleton ownership to members with `role`.
+    ///
+    /// Regions still run and may host entities on every node in the current
+    /// implementation. Role-based entity-hosting proxies are a separate
+    /// placement capability.
     pub fn with_coordinator_role(mut self, role: impl Into<String>) -> Self {
         self.coordinator_role = Some(role.into());
         self
     }
 
+    /// Configures an actor-backed store for remembered coordinator shards.
+    ///
+    /// This replaces any previously configured coordinator remember store.
+    /// The timeout must be greater than zero.
     pub fn with_coordinator_remember_store(
         mut self,
         store: ActorRef<RememberCoordinatorStoreMsg>,
@@ -241,6 +314,10 @@ where
         self
     }
 
+    /// Configures a distributed-data-backed store for remembered coordinator shards.
+    ///
+    /// This replaces any previously configured coordinator remember store.
+    /// The timeout must be greater than zero.
     pub fn with_coordinator_ddata_remember_store(
         mut self,
         store: ActorRef<RememberCoordinatorDDataStoreMsg>,
@@ -253,6 +330,10 @@ where
         self
     }
 
+    /// Enables distributed-data recovery of coordinator shards and entity identities.
+    ///
+    /// This also selects `settings`' coordinator store, replacing any
+    /// coordinator-only remember store configured earlier.
     pub fn with_ddata_remember_entities(mut self, settings: DDataRememberEntitiesSettings) -> Self {
         self.coordinator_remember_store = Some(CoordinatorRememberStoreSettings {
             target: CoordinatorRememberStoreTargetSettings::DistributedData(
@@ -264,6 +345,9 @@ where
         self
     }
 
+    /// Sets the message sent to entities during shard handoff.
+    ///
+    /// The entity actor must stop itself after receiving this message.
     pub fn with_stop_message(mut self, stop_message: M) -> Self {
         self.stop_message = Some(stop_message);
         self
@@ -271,21 +355,35 @@ where
 }
 
 #[derive(Debug)]
+/// Failure returned while registering, activating, or initializing sharding.
 pub enum ClusterShardingBootstrapError {
+    /// Actor-system setup or extension lookup failed.
     Actor(ActorError),
+    /// An entity definition violates a required invariant.
     InvalidEntity {
+        /// Cluster-wide entity type name.
         type_name: String,
+        /// Violated invariant.
         reason: &'static str,
     },
+    /// Runtime-wide sharding settings violate a required invariant.
     InvalidSettings(&'static str),
+    /// Activation was attempted before the shared TCP runtime materialized the handlers.
     NotMaterialized,
+    /// Remoting handler registration or wire setup failed.
     Remote(RemoteError),
+    /// Cluster-singleton registration or activation failed.
     Singleton(ClusterSingletonBootstrapError),
+    /// A type name is already initialized with a different Rust message type.
     TypeMismatch {
+        /// Conflicting cluster-wide entity type name.
         type_name: String,
     },
+    /// A deterministic system actor path could not be registered or encoded.
     WirePath {
+        /// Entity type or recipient path associated with the failure.
         type_name: String,
+        /// Path validation or registration failure.
         reason: String,
     },
 }
@@ -401,6 +499,11 @@ struct ShardingRuntimeResources {
     inbound: ShardingInboundRouter,
 }
 
+/// Pre-bind registration token used to activate cluster sharding after bind.
+///
+/// Registration installs the shared sharding manifests on the TCP runtime
+/// builder. Activation requires the cluster daemon extension to be active and
+/// returns the system's single [`ClusterSharding`] extension instance.
 pub struct ClusterShardingRegistration {
     settings: ClusterShardingSettings,
     resources: Arc<Mutex<Option<ShardingRuntimeResources>>>,
@@ -418,6 +521,11 @@ impl Clone for ClusterShardingRegistration {
 }
 
 impl ClusterShardingRegistration {
+    /// Activates cluster sharding against a bound TCP runtime.
+    ///
+    /// Returns [`ClusterShardingBootstrapError::NotMaterialized`] if the
+    /// runtime was not bound after registration, and an actor error if the
+    /// cluster extension has not been activated first.
     pub fn activate(
         &self,
         runtime: &TcpRemoteActorRuntime,
@@ -444,6 +552,12 @@ impl ClusterShardingRegistration {
     }
 }
 
+/// Registers sharding manifests and handlers on a shared TCP runtime builder.
+///
+/// This compatibility mode starts a coordinator actor on each node and is
+/// suitable for direct single-node use. Use
+/// [`register_cluster_sharding_with_singleton`] for clustered coordinator
+/// ownership and handover. Call this before binding the builder.
 pub fn register_cluster_sharding(
     builder: &mut TcpRemoteActorRuntimeBuilder,
     cluster: ClusterDaemonRegistration,
@@ -467,6 +581,12 @@ pub fn register_cluster_sharding(
     })
 }
 
+/// Registers sharding plus cluster-singleton coordinator lifecycle support.
+///
+/// The returned registration activates both extensions. Each initialized
+/// entity type then runs its coordinator through a local-protocol singleton,
+/// while stable sharding adapters continue to own the remote wire contract.
+/// Call this before binding the builder.
 pub fn register_cluster_sharding_with_singleton(
     builder: &mut TcpRemoteActorRuntimeBuilder,
     cluster: ClusterDaemonRegistration,
@@ -535,6 +655,11 @@ where
     }
 }
 
+/// Actor-system extension that owns typed sharding entity kinds on one node.
+///
+/// One extension can initialize multiple entity types. The internal registry
+/// uses the [`EntityTypeKey`] name for cluster-wide identity and Rust's concrete
+/// message type only to recover the corresponding typed local handle.
 pub struct ClusterSharding {
     resources: ShardingRuntimeResources,
     settings: ClusterShardingSettings,
@@ -542,10 +667,19 @@ pub struct ClusterSharding {
 }
 
 impl ClusterSharding {
+    /// Retrieves the activated extension from `system`.
     pub fn get(system: &ActorSystem) -> Result<Arc<Self>, ActorError> {
         system.extension::<Self>()
     }
 
+    /// Initializes one typed sharded entity kind and returns its local envelope router.
+    ///
+    /// Calling `init` again with the same type-key name and message type returns
+    /// the existing router; later factory or settings values are not applied.
+    /// Reusing the name with a different message type returns
+    /// [`ClusterShardingBootstrapError::TypeMismatch`]. The message type must
+    /// have stable [`RemoteMessage`] metadata and a registered codec because
+    /// entity traffic may cross nodes.
     pub fn init<M>(
         &self,
         entity: Entity<M>,
@@ -870,6 +1004,12 @@ impl ClusterSharding {
         Ok(router)
     }
 
+    /// Creates a typed reference to one logical entity of an initialized kind.
+    ///
+    /// The returned [`EntityRef`] adds `entity_id` to each outgoing
+    /// [`ShardingEnvelope`]; callers do not need to embed the identifier in
+    /// business messages. Lookup fails if the key was not initialized or if
+    /// its name belongs to a different Rust message type.
     pub fn entity_ref_for<M>(
         &self,
         type_key: EntityTypeKey<M>,
