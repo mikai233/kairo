@@ -79,9 +79,11 @@ Status terms in this document mean:
   delivery, association lifecycle/cache/registry/route ownership and composed
   inbound/outbound data path, reliable system-delivery protocol/state/runtime
   policy, remote death-watch state/actor/protocol/effect composition, typed
-  failure contract, settings, and canonical-address boundary now documents its
-  complete public surface and denies missing documentation module by module.
-  Cluster and other extension adoption proceeds in Phases 3 and 4.
+  failure contract, settings, canonical-address boundary, and TCP runtime now
+  document their complete public surface. The entire `kairo-remote` crate
+  denies missing public documentation, with focused module gates retained as
+  governance defense in depth. Cluster and other extension adoption proceeds
+  in Phases 3 and 4.
 - M5 gossip data model: near complete. Vector clocks, gossip, reachability,
   convergence, leader selection, and event diffing have strong pure-state test
   coverage without a central membership authority. Remote membership reply

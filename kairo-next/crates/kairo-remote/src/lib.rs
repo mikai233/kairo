@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 //! Remote actor references, associations, transports, and remote death watch.
 //!
 //! `kairo-remote` is the typed boundary between local actors and transport

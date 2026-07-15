@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
@@ -21,6 +23,11 @@ pub struct TcpRemoteReconnectSettings {
 }
 
 impl TcpRemoteReconnectSettings {
+    /// Creates a validated exponential-backoff interval range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `min_backoff` is zero or exceeds `max_backoff`.
     pub fn new(min_backoff: Duration, max_backoff: Duration) -> Result<Self> {
         if min_backoff.is_zero() {
             return Err(RemoteError::InvalidTcpReconnectSettings(
@@ -38,10 +45,12 @@ impl TcpRemoteReconnectSettings {
         })
     }
 
+    /// Returns the initial reconnect delay.
     pub fn min_backoff(self) -> Duration {
         self.min_backoff
     }
 
+    /// Returns the maximum reconnect delay.
     pub fn max_backoff(self) -> Duration {
         self.max_backoff
     }

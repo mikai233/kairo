@@ -131,6 +131,7 @@ fn user_facing_crates_deny_missing_public_documentation() -> Result<(), Box<dyn 
         "kairo-next/crates/kairo/src/lib.rs",
         "kairo-next/crates/kairo-actor/src/lib.rs",
         "kairo-next/crates/kairo-actor-macros/src/lib.rs",
+        "kairo-next/crates/kairo-remote/src/lib.rs",
         "kairo-next/crates/kairo-serialization/src/lib.rs",
         "kairo-next/crates/kairo-testkit/src/lib.rs",
     ];
@@ -191,6 +192,8 @@ fn remote_boundary_modules_deny_missing_docs() -> Result<(), Box<dyn std::error:
         "kairo-next/crates/kairo-remote/src/tcp/inbound/stream_reader.rs",
         "kairo-next/crates/kairo-remote/src/tcp/sink.rs",
         "kairo-next/crates/kairo-remote/src/tcp/supervision.rs",
+        "kairo-next/crates/kairo-remote/src/tcp_runtime.rs",
+        "kairo-next/crates/kairo-remote/src/tcp_runtime/reconnect.rs",
         "kairo-next/crates/kairo-remote/src/transport.rs",
     ];
 

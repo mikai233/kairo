@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::net::TcpListener;
@@ -90,6 +92,13 @@ pub struct TcpRemotePeerManager {
 }
 
 impl TcpRemotePeerManager {
+    /// Adds `address` to the managed reconnect set and establishes its route.
+    ///
+    /// This is idempotent while a route is already installed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an outbound transport or association error when the initial dial fails.
     pub fn connect(&self, address: RemoteAssociationAddress) -> Result<()> {
         if self.association_cache.contains_route(&address) {
             return Ok(());
@@ -97,6 +106,13 @@ impl TcpRemotePeerManager {
         self.reconnect.dial(address).map(|_| ())
     }
 
+    /// Removes reconnect intent and closes the currently installed route.
+    ///
+    /// Returns whether either managed intent or an installed route was removed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when closing the installed route fails.
     pub fn disconnect(&self, address: &RemoteAssociationAddress, reason: &str) -> Result<bool> {
         let removed_intent = self.reconnect.disconnect(address);
         let Some(closed) = self
@@ -109,10 +125,12 @@ impl TcpRemotePeerManager {
         Ok(true)
     }
 
+    /// Returns whether an outbound route is currently installed for `address`.
     pub fn is_connected(&self, address: &RemoteAssociationAddress) -> bool {
         self.association_cache.contains_route(address)
     }
 
+    /// Returns the number of peers retained for automatic reconnect.
     pub fn managed_peer_count(&self) -> usize {
         self.reconnect.managed_peer_count()
     }
@@ -135,26 +153,32 @@ pub struct TcpRemoteActorRuntimeContext {
 }
 
 impl TcpRemoteActorRuntimeContext {
+    /// Returns the local actor system being bound.
     pub fn system(&self) -> &ActorSystem {
         &self.system
     }
 
+    /// Returns the shared serialization registry.
     pub fn registry(&self) -> &Arc<Registry> {
         &self.registry
     }
 
+    /// Returns the effective canonical remote settings.
     pub fn settings(&self) -> &RemoteSettings {
         &self.settings
     }
 
+    /// Returns the local actor-system incarnation identifier.
     pub fn local_system_uid(&self) -> u64 {
         self.local_system_uid
     }
 
+    /// Returns the shared outbound association cache.
     pub fn association_cache(&self) -> &RemoteAssociationCache {
         &self.association_cache
     }
 
+    /// Returns the composed outbound envelope transport.
     pub fn outbound(&self) -> &Arc<dyn RemoteOutbound> {
         &self.outbound
     }
@@ -211,6 +235,12 @@ impl<M> TcpRemoteActorSystem<M>
 where
     M: RemoteMessage,
 {
+    /// Binds a compatibility runtime for one registered remote message type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid protocol metadata, duplicate registration,
+    /// actor startup, listener bind, or transport composition failure.
     pub fn bind(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -226,6 +256,12 @@ where
         )
     }
 
+    /// Binds a single-message runtime with a remote death-watch effect observer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid protocol metadata, duplicate registration,
+    /// actor startup, listener bind, or transport composition failure.
     pub fn bind_with_observer(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -243,10 +279,20 @@ where
         })
     }
 
+    /// Stops the compatibility runtime using its derived shutdown budget.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first actor, reconnect, listener, reader, route, or timeout failure.
     pub fn shutdown(self) -> Result<TcpAssociationListenerReport> {
         self.runtime.shutdown()
     }
 
+    /// Stops the compatibility runtime within `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first actor, reconnect, listener, reader, route, or timeout failure.
     pub fn shutdown_with_timeout(self, timeout: Duration) -> Result<TcpAssociationListenerReport> {
         self.runtime.shutdown_with_timeout(timeout)
     }
@@ -261,6 +307,7 @@ impl<M> Deref for TcpRemoteActorSystem<M> {
 }
 
 impl TcpRemoteActorRuntime {
+    /// Creates a pre-bind builder for one local actor system and incarnation.
     pub fn builder(
         system: ActorSystem,
         registry: Arc<Registry>,
@@ -292,21 +339,25 @@ impl TcpRemoteActorRuntime {
 }
 
 impl TcpRemoteActorRuntimeBuilder {
+    /// Sets the observer for remote death-watch effects.
     pub fn with_observer(mut self, observer: Arc<dyn RemoteDeathWatchEffectObserver>) -> Self {
         self.observer = observer;
         self
     }
 
+    /// Sets bounded outbound lane queue capacities.
     pub fn with_outbound_queue_settings(mut self, settings: RemoteOutboundQueueSettings) -> Self {
         self.outbound_queue_settings = settings;
         self
     }
 
+    /// Sets inbound and response-handshake read limits.
     pub fn with_handshake_read_settings(mut self, settings: TcpHandshakeReadSettings) -> Self {
         self.handshake_read_settings = settings;
         self
     }
 
+    /// Sets inbound lane assembly limits.
     pub fn with_association_assembly_settings(
         mut self,
         settings: TcpAssociationAssemblySettings,
@@ -315,11 +366,13 @@ impl TcpRemoteActorRuntimeBuilder {
         self
     }
 
+    /// Sets the managed-peer reconnect backoff policy.
     pub fn with_reconnect_settings(mut self, settings: TcpRemoteReconnectSettings) -> Self {
         self.reconnect_settings = settings;
         self
     }
 
+    /// Sets retention and retry policy for reliable system delivery.
     pub fn with_reliable_system_delivery_settings(
         mut self,
         settings: ReliableSystemDeliverySettings,
@@ -328,6 +381,7 @@ impl TcpRemoteActorRuntimeBuilder {
         self
     }
 
+    /// Sets the observer for terminal reliable system-delivery failures.
     pub fn with_reliable_system_delivery_observer(
         mut self,
         observer: Arc<dyn ReliableSystemDeliveryObserver>,
@@ -336,6 +390,11 @@ impl TcpRemoteActorRuntimeBuilder {
         self
     }
 
+    /// Registers one typed business protocol on the ordinary lane.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid or reserved metadata or a duplicate manifest.
     pub fn register<M>(&mut self) -> Result<&mut Self>
     where
         M: RemoteMessage,
@@ -354,6 +413,14 @@ impl TcpRemoteActorRuntimeBuilder {
         Ok(self)
     }
 
+    /// Registers a custom envelope handler for manifests restricted to the control lane.
+    ///
+    /// The factory receives the effective runtime context after the listener is bound.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid, reserved, or duplicate manifests. Binding can
+    /// later return a factory or router-registration error.
     pub fn register_control_handler<F, H>(
         &mut self,
         manifests: &[&'static str],
@@ -366,6 +433,12 @@ impl TcpRemoteActorRuntimeBuilder {
         self.register_handler_on_lane(manifests, RemoteStreamId::Control, false, factory)
     }
 
+    /// Registers a custom envelope handler for manifests restricted to the ordinary lane.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid, reserved, or duplicate manifests. Binding can
+    /// later return a factory or router-registration error.
     pub fn register_ordinary_handler<F, H>(
         &mut self,
         manifests: &[&'static str],
@@ -378,6 +451,12 @@ impl TcpRemoteActorRuntimeBuilder {
         self.register_handler_on_lane(manifests, RemoteStreamId::Ordinary, false, factory)
     }
 
+    /// Registers reliably delivered custom manifests on the control lane.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid, reserved, or duplicate manifests. Binding can
+    /// later return a factory or router-registration error.
     pub fn register_reliable_control_handler<F, H>(
         &mut self,
         manifests: &[&'static str],
@@ -437,6 +516,12 @@ impl TcpRemoteActorRuntimeBuilder {
         Ok(self)
     }
 
+    /// Binds the listener and composes all registered protocols into one runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for listener setup, canonical addressing, actor startup,
+    /// handler construction, or route composition failure.
     pub fn bind(self) -> Result<TcpRemoteActorRuntime> {
         let Self {
             system,
@@ -607,50 +692,66 @@ impl TcpRemoteActorRuntimeBuilder {
 }
 
 impl TcpRemoteActorRuntime {
+    /// Returns the local actor system.
     pub fn system(&self) -> &ActorSystem {
         &self.system
     }
 
+    /// Returns the shared serialization registry.
     pub fn registry(&self) -> &Arc<Registry> {
         &self.registry
     }
 
+    /// Returns the effective canonical remote settings.
     pub fn settings(&self) -> &RemoteSettings {
         &self.settings
     }
 
+    /// Returns the configured outbound queue capacities.
     pub fn outbound_queue_settings(&self) -> RemoteOutboundQueueSettings {
         self.outbound_queue_settings
     }
 
+    /// Returns the shared outbound association cache.
     pub fn association_cache(&self) -> &RemoteAssociationCache {
         &self.association_cache
     }
 
+    /// Returns the composed outbound envelope transport.
     pub fn outbound(&self) -> &Arc<dyn RemoteOutbound> {
         &self.outbound
     }
 
+    /// Returns the address and UID association registry.
     pub fn association_registry(&self) -> &RemoteAssociationRegistry {
         &self.association_registry
     }
 
+    /// Returns a snapshot of reliable system-delivery counters.
     pub fn reliable_system_delivery_stats(&self) -> ReliableSystemDeliveryStats {
         self.reliable_delivery.stats()
     }
 
+    /// Returns the actor-ref provider backed by this runtime.
     pub fn provider(&self) -> &RemoteActorRefProvider {
         &self.provider
     }
 
+    /// Returns the low-level three-lane association dialer.
     pub fn dialer(&self) -> &TcpAssociationDialer {
         &self.dialer
     }
 
+    /// Returns the remote death-watch system actor reference.
     pub fn death_watch(&self) -> &ActorRef<RemoteDeathWatchCommand> {
         &self.death_watch
     }
 
+    /// Adds a peer to managed reconnect and performs its initial dial.
+    ///
+    /// # Errors
+    ///
+    /// Returns an outbound transport or association error when dialing fails.
     pub fn dial(
         &self,
         address: RemoteAssociationAddress,
@@ -658,14 +759,17 @@ impl TcpRemoteActorRuntime {
         self.reconnect.dial(address)
     }
 
+    /// Returns the managed-peer reconnect policy.
     pub fn reconnect_settings(&self) -> TcpRemoteReconnectSettings {
         self.reconnect_settings
     }
 
+    /// Returns the number of peers retained for automatic reconnect.
     pub fn managed_reconnect_peer_count(&self) -> usize {
         self.reconnect.managed_peer_count()
     }
 
+    /// Returns a cloneable control-plane handle for managed peer intent.
     pub fn peer_manager(&self) -> TcpRemotePeerManager {
         TcpRemotePeerManager {
             association_cache: self.association_cache.clone(),
@@ -673,10 +777,20 @@ impl TcpRemoteActorRuntime {
         }
     }
 
+    /// Removes reconnect intent and closes the current route to `address`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when closing the installed route fails.
     pub fn disconnect(&self, address: &RemoteAssociationAddress, reason: &str) -> Result<bool> {
         self.peer_manager().disconnect(address, reason)
     }
 
+    /// Resolves a canonical remote path to a typed remote actor reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid, local-only, or unregistered remote path.
     pub fn resolve<N>(&self, path: impl Into<String>) -> Result<RemoteActorRef<N>>
     where
         N: RemoteMessage,
@@ -684,6 +798,11 @@ impl TcpRemoteActorRuntime {
         self.provider.resolve(path)
     }
 
+    /// Resolves a path to a local or remote typed actor reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for invalid addressing or missing remote protocol metadata.
     pub fn resolve_actor_ref<N>(&self, path: impl Into<String>) -> Result<ResolvedActorRef<N>>
     where
         N: RemoteMessage,
@@ -691,6 +810,7 @@ impl TcpRemoteActorRuntime {
         self.provider.resolve_actor_ref(path)
     }
 
+    /// Returns a serializable typed actor-ref resolver backed by this provider.
     pub fn resolver<N>(&self) -> RemoteActorRefResolver<N>
     where
         N: RemoteMessage,
@@ -698,6 +818,12 @@ impl TcpRemoteActorRuntime {
         self.provider.resolver()
     }
 
+    /// Registers local `watcher` for remote watchee termination.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the watcher cannot be serialized, local watch state
+    /// cannot be installed, or the death-watch actor rejects the command.
     pub fn watch_remote<W, N>(
         &self,
         watcher: ActorRef<W>,
@@ -727,6 +853,12 @@ impl TcpRemoteActorRuntime {
         Ok(())
     }
 
+    /// Removes a previously registered remote watch.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the watcher cannot be serialized or the death-watch
+    /// actor rejects the command.
     pub fn unwatch_remote<W, N>(
         &self,
         watcher: &ActorRef<W>,
@@ -751,11 +883,21 @@ impl TcpRemoteActorRuntime {
             })
     }
 
+    /// Stops the runtime using a budget derived from its connection timeout.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first actor, reconnect, listener, reader, route, or timeout failure.
     pub fn shutdown(self) -> Result<TcpAssociationListenerReport> {
         let timeout = default_shutdown_timeout(&self.settings);
         self.shutdown_with_timeout(timeout)
     }
 
+    /// Stops runtime actors and transport resources within `timeout`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first actor, reconnect, listener, reader, route, or timeout failure.
     pub fn shutdown_with_timeout(self, timeout: Duration) -> Result<TcpAssociationListenerReport> {
         shutdown_runtime(
             &self.system,
@@ -774,6 +916,12 @@ impl TcpRemoteActorRuntime {
         )
     }
 
+    /// Registers runtime shutdown as an actor-system coordinated-shutdown task.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the phase is unknown, the task name is duplicated,
+    /// or coordinated-shutdown registration otherwise fails.
     pub fn register_coordinated_shutdown(
         &self,
         phase: impl AsRef<str>,
