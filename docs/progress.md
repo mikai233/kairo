@@ -221,6 +221,11 @@ Status terms in this document mean:
   The region runtime now hard-gates its bidirectional home cache, globally
   bounded per-shard FIFO buffers, local startup, remote forwarding, region-stop
   cleanup, and Pekko-aligned begin-handoff and reorder-prevention contracts.
+  The typed local region protocol now hard-gates membership-derived target
+  replacement, pure and actor-applied routing, remote-control adapters,
+  registration and home retries, two-phase local handoff, generation-checked
+  shard restart, graceful shutdown, and diagnostic snapshots while remaining
+  explicitly separate from the stable wire protocol.
   The shard runtime now hard-gates entity activation, shard-wide bounded FIFO
   buffering, passivation, remember-store sequencing, unexpected termination and
   restart, moved-entity cleanup, coordinated shutdown, and handoff completion.
