@@ -485,6 +485,11 @@ Status terms in this document mean:
   terminal self-removal/downing, prior-owner removal evidence, bidirectional
   handover retries, child-termination ordering, and explicit state/effect
   transitions.
+  Both singleton actor adapters now carry the same hard gate: the generic
+  adapter documents its mailbox-owned retries, terminal manager stop, and
+  effect-sink contract, while the typed local adapter documents lazy child
+  creation, watched termination before handover completion, local effect
+  execution, remote-only transport forwarding, and deterministic snapshots.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -499,8 +504,9 @@ Status terms in this document mean:
   the primary cluster-singleton and composed distributed-pubsub facades carry
   the same module-level hard gate, as do the local topic/pubsub and distributed
   registry/gossip, mediator, delivery, remote wire, and singleton ownership
-  APIs. The remote ping-pong example and compile-tested serialization docs now
-  exercise the format-neutral closure registration path. The
+  APIs, including both generic and typed local singleton manager actor
+  adapters. The remote ping-pong example and compile-tested serialization docs
+  now exercise the format-neutral closure registration path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower

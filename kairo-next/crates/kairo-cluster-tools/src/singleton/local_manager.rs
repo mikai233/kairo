@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::sync::Arc;
 
 use kairo_actor::{Actor, ActorPath, ActorRef, ActorResult, Context, Props, Recipient};
@@ -11,6 +13,11 @@ use crate::{
 const HAND_OVER_RETRY_TIMER_KEY: &str = "local-singleton-manager-handover-retry";
 const TAKE_OVER_RETRY_TIMER_KEY: &str = "local-singleton-manager-takeover-retry";
 
+/// Singleton-manager actor that owns a real typed local singleton child.
+///
+/// Local start and stop effects are executed directly. Protocol effects are
+/// optionally copied to a transport-facing recipient, while an independent
+/// effect sink can observe complete effect batches for testing or diagnostics.
 pub struct LocalSingletonManagerActor<A>
 where
     A: Actor,
@@ -30,6 +37,11 @@ where
     A: Actor,
     A::Msg: Clone,
 {
+    /// Creates a local manager with default retry settings.
+    ///
+    /// The child is spawned lazily under `singleton_name` when ownership is
+    /// acquired. A stop effect sends `termination_message` and waits for the
+    /// watched child to terminate before completing handover.
     pub fn new<F>(
         self_node: UniqueAddress,
         singleton_name: impl Into<String>,
@@ -51,6 +63,7 @@ where
         }
     }
 
+    /// Creates actor properties with default retry settings.
     pub fn props<F>(
         self_node: UniqueAddress,
         singleton_name: impl Into<String>,
@@ -74,6 +87,7 @@ where
         })
     }
 
+    /// Creates actor properties that copy every non-empty effect batch to a sink.
     pub fn props_with_effect_sink<F>(
         self_node: UniqueAddress,
         singleton_name: impl Into<String>,
@@ -99,6 +113,9 @@ where
         })
     }
 
+    /// Creates actor properties that forward only remote protocol effects.
+    ///
+    /// Child lifecycle and manager-stop effects remain local to this adapter.
     pub fn props_with_remote_effect_sink<F, R>(
         self_node: UniqueAddress,
         singleton_name: impl Into<String>,
@@ -127,6 +144,7 @@ where
         })
     }
 
+    /// Returns the underlying ownership state machine.
     pub fn runtime(&self) -> &SingletonManagerRuntime {
         &self.runtime
     }
@@ -244,58 +262,96 @@ fn is_remote_effect(effect: &SingletonManagerEffect) -> bool {
     )
 }
 
+/// Commands accepted by [`LocalSingletonManagerActor`].
 pub enum LocalSingletonManagerMsg<M: Send + 'static> {
+    /// Applies the first role-scoped oldest-member observation.
     ApplyInitialObservation {
+        /// Initial ordered ownership observation.
         observation: SingletonOldestObservation,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Applies a later role-scoped oldest-member change.
     ApplyOldestChange {
+        /// Membership-derived ownership change.
         change: SingletonOldestChange,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Records definitive removal of one member incarnation.
     MarkRemoved {
+        /// Exact removed member incarnation.
         node: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Requests handover from this manager to `from`.
     HandOverToMe {
+        /// Exact requesting successor incarnation.
         from: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Confirms that a prior owner has started handover.
     HandOverInProgress {
+        /// Exact prior-owner incarnation.
         from: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Confirms that a prior owner has completed handover.
     HandOverDone {
+        /// Exact prior-owner incarnation.
         from: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Retries the current request to a prior owner.
     HandOverRetry {
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Retries the current request to a newly selected owner.
     TakeOverRetry {
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Asks the previous owner to transfer responsibility to `from`.
     TakeOverFromMe {
+        /// Exact newly selected owner incarnation.
         from: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Reports watched singleton-child termination.
     SingletonTerminated,
+    /// Requests terminal manager shutdown.
     StopManager {
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Requests an immutable manager and child state snapshot.
     GetState {
+        /// Recipient for the snapshot.
         reply_to: ActorRef<LocalSingletonManagerSnapshot>,
     },
+    /// Requests the currently owned singleton child, if any.
     GetSingleton {
+        /// Recipient for the optional typed child reference.
         reply_to: ActorRef<Option<ActorRef<M>>>,
     },
 }
 
+/// Observable state of a [`LocalSingletonManagerActor`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalSingletonManagerSnapshot {
+    /// Exact local member incarnation.
     pub self_node: UniqueAddress,
+    /// Current ownership and handover state.
     pub state: SingletonManagerState,
+    /// Definitively removed member incarnations in deterministic order.
     pub removed_members: Vec<UniqueAddress>,
+    /// Current child path, or none when no singleton child is owned.
     pub singleton_path: Option<ActorPath>,
 }
 

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use kairo_actor::{Actor, ActorRef, ActorResult, Context, Props};
 use kairo_cluster::UniqueAddress;
 
@@ -9,6 +11,10 @@ use crate::{
 const HAND_OVER_RETRY_TIMER_KEY: &str = "singleton-manager-handover-retry";
 const TAKE_OVER_RETRY_TIMER_KEY: &str = "singleton-manager-takeover-retry";
 
+/// Mailbox adapter for the pure [`SingletonManagerRuntime`] state machine.
+///
+/// This adapter owns retry timers and manager termination, but deliberately
+/// leaves singleton-child and transport effects to an optional effect sink.
 pub struct SingletonManagerActor {
     runtime: SingletonManagerRuntime,
     settings: SingletonManagerSettings,
@@ -16,6 +22,7 @@ pub struct SingletonManagerActor {
 }
 
 impl SingletonManagerActor {
+    /// Creates a manager for `self_node` with default retry settings.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             runtime: SingletonManagerRuntime::new(self_node),
@@ -24,10 +31,12 @@ impl SingletonManagerActor {
         }
     }
 
+    /// Creates actor properties with default retry settings.
     pub fn props(self_node: UniqueAddress) -> Props<Self> {
         Props::new(move || Self::new(self_node))
     }
 
+    /// Creates a manager with explicit retry settings.
     pub fn with_settings(self_node: UniqueAddress, settings: SingletonManagerSettings) -> Self {
         Self {
             runtime: SingletonManagerRuntime::new(self_node),
@@ -36,6 +45,7 @@ impl SingletonManagerActor {
         }
     }
 
+    /// Creates actor properties with explicit retry settings.
     pub fn props_with_settings(
         self_node: UniqueAddress,
         settings: SingletonManagerSettings,
@@ -43,6 +53,7 @@ impl SingletonManagerActor {
         Props::new(move || Self::with_settings(self_node, settings))
     }
 
+    /// Creates a manager that copies every non-empty effect batch to `effect_sink`.
     pub fn with_effect_sink(
         self_node: UniqueAddress,
         settings: SingletonManagerSettings,
@@ -55,6 +66,7 @@ impl SingletonManagerActor {
         }
     }
 
+    /// Creates actor properties that copy effect batches to `effect_sink`.
     pub fn props_with_effect_sink(
         self_node: UniqueAddress,
         settings: SingletonManagerSettings,
@@ -63,6 +75,7 @@ impl SingletonManagerActor {
         Props::new(move || Self::with_effect_sink(self_node, settings, effect_sink.clone()))
     }
 
+    /// Returns the underlying ownership state machine.
     pub fn runtime(&self) -> &SingletonManagerRuntime {
         &self.runtime
     }
@@ -145,56 +158,92 @@ impl SingletonManagerActor {
     }
 }
 
+/// Commands accepted by [`SingletonManagerActor`].
 pub enum SingletonManagerMsg {
+    /// Applies the first role-scoped oldest-member observation.
     ApplyInitialObservation {
+        /// Initial ordered ownership observation.
         observation: SingletonOldestObservation,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Applies a later role-scoped oldest-member change.
     ApplyOldestChange {
+        /// Membership-derived ownership change.
         change: SingletonOldestChange,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Records definitive removal of one member incarnation.
     MarkRemoved {
+        /// Exact removed member incarnation.
         node: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Requests handover from this manager to `from`.
     HandOverToMe {
+        /// Exact requesting successor incarnation.
         from: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Confirms that a prior owner has started handover.
     HandOverInProgress {
+        /// Exact prior-owner incarnation.
         from: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Confirms that a prior owner has completed handover.
     HandOverDone {
+        /// Exact prior-owner incarnation.
         from: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Retries the current request to a prior owner.
     HandOverRetry {
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Retries the current request to a newly selected owner.
     TakeOverRetry {
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Asks the previous owner to transfer responsibility to `from`.
     TakeOverFromMe {
+        /// Exact newly selected owner incarnation.
         from: UniqueAddress,
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Reports that the singleton child has terminated.
     SingletonTerminated {
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Requests terminal manager shutdown.
     StopManager {
+        /// Optional recipient for the effects produced by this turn.
         reply_to: Option<ActorRef<Vec<SingletonManagerEffect>>>,
     },
+    /// Requests an immutable state snapshot.
     GetState {
+        /// Recipient for the snapshot.
         reply_to: ActorRef<SingletonManagerSnapshot>,
     },
 }
 
+/// Observable state of a [`SingletonManagerActor`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SingletonManagerSnapshot {
+    /// Exact local member incarnation.
     pub self_node: UniqueAddress,
+    /// Current ownership and handover state.
     pub state: SingletonManagerState,
+    /// Definitively removed member incarnations in deterministic order.
     pub removed_members: Vec<UniqueAddress>,
 }
 
