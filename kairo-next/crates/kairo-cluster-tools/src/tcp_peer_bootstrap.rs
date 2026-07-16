@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
 
@@ -16,8 +18,11 @@ const DEFAULT_SHUTDOWN_TASK_NAME: &str = "cluster-tools-tcp-peer-connector-stop"
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug)]
+/// Failure while binding the cluster-tools TCP runtime or installing its connector actor.
 pub enum ClusterToolsTcpPeerBootstrapError {
+    /// Listener bind or remote-runtime setup failed.
     Remote(RemoteError),
+    /// Connector spawn or coordinated-shutdown registration failed.
     Actor(ActorError),
 }
 
@@ -51,9 +56,11 @@ impl From<ActorError> for ClusterToolsTcpPeerBootstrapError {
     }
 }
 
+/// Result of composing a membership-driven cluster-tools TCP peer runtime.
 pub type ClusterToolsTcpPeerBootstrapResult<T> = Result<T, ClusterToolsTcpPeerBootstrapError>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Connector and coordinated-shutdown settings for cluster-tools TCP peer composition.
 pub struct ClusterToolsTcpPeerBootstrapSettings {
     connector_name: String,
     connector_settings: ClusterToolsTcpPeerConnectorSettings,
@@ -63,15 +70,18 @@ pub struct ClusterToolsTcpPeerBootstrapSettings {
 }
 
 impl ClusterToolsTcpPeerBootstrapSettings {
+    /// Creates settings with the default connector name, retry policy, and shutdown task.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the system-actor name used for the TCP peer connector.
     pub fn with_connector_name(mut self, name: impl Into<String>) -> Self {
         self.connector_name = name.into();
         self
     }
 
+    /// Sets retry scheduling for the TCP peer connector.
     pub fn with_connector_settings(
         mut self,
         settings: ClusterToolsTcpPeerConnectorSettings,
@@ -80,37 +90,45 @@ impl ClusterToolsTcpPeerBootstrapSettings {
         self
     }
 
+    /// Sets the coordinated-shutdown phase that stops the connector and owned runtime.
     pub fn with_shutdown_phase(mut self, phase: impl Into<String>) -> Self {
         self.shutdown_phase = phase.into();
         self
     }
 
+    /// Sets the coordinated-shutdown task name.
     pub fn with_shutdown_task_name(mut self, task_name: impl Into<String>) -> Self {
         self.shutdown_task_name = task_name.into();
         self
     }
 
+    /// Sets how long coordinated shutdown waits for the connector actor to stop.
     pub fn with_shutdown_timeout(mut self, timeout: Duration) -> Self {
         self.shutdown_timeout = timeout;
         self
     }
 
+    /// Returns the system-actor name used for the connector.
     pub fn connector_name(&self) -> &str {
         &self.connector_name
     }
 
+    /// Returns the connector retry policy.
     pub fn connector_settings(&self) -> &ClusterToolsTcpPeerConnectorSettings {
         &self.connector_settings
     }
 
+    /// Returns the coordinated-shutdown phase that owns connector stop.
     pub fn shutdown_phase(&self) -> &str {
         &self.shutdown_phase
     }
 
+    /// Returns the coordinated-shutdown task name.
     pub fn shutdown_task_name(&self) -> &str {
         &self.shutdown_task_name
     }
 
+    /// Returns the connector stop deadline used by coordinated shutdown.
     pub fn shutdown_timeout(&self) -> Duration {
         self.shutdown_timeout
     }
@@ -128,6 +146,11 @@ impl Default for ClusterToolsTcpPeerBootstrapSettings {
     }
 }
 
+/// Handle to a spawned membership-driven cluster-tools connector and bound identity.
+///
+/// The connector owns the runtime after spawn. Stopping it unsubscribes from
+/// cluster events, clears pending work, closes managed routes, and shuts down
+/// the listener.
 pub struct ClusterToolsTcpPeerBootstrap<M>
 where
     M: RemoteMessage + Send + 'static,
@@ -142,6 +165,12 @@ impl<M> ClusterToolsTcpPeerBootstrap<M>
 where
     M: RemoteMessage + Send + 'static,
 {
+    /// Binds a TCP peer runtime, spawns its cluster connector, and registers shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when transport binding, connector spawn, or
+    /// coordinated-shutdown registration fails.
     pub fn bind_and_spawn(
         system: &ActorSystem,
         cluster: Cluster,
@@ -161,6 +190,15 @@ where
         Self::spawn_with_runtime(system, cluster, runtime, settings)
     }
 
+    /// Spawns a connector around an already-bound runtime and registers shutdown.
+    ///
+    /// If shutdown registration fails, the newly spawned connector is stopped
+    /// and allowed to release its owned runtime before the error is returned.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when connector spawn or coordinated-shutdown
+    /// registration fails.
     pub fn spawn_with_runtime(
         system: &ActorSystem,
         cluster: Cluster,
@@ -199,14 +237,17 @@ where
         })
     }
 
+    /// Returns the system actor that owns membership subscription and the runtime.
     pub fn connector(&self) -> &ActorRef<ClusterToolsTcpPeerConnectorMsg> {
         &self.connector
     }
 
+    /// Returns the canonical local cluster identity derived during bind.
     pub fn self_node(&self) -> &UniqueAddress {
         &self.self_node
     }
 
+    /// Returns the canonical local association address derived during bind.
     pub fn local_address(&self) -> &RemoteAssociationAddress {
         &self.local_address
     }

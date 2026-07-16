@@ -1563,7 +1563,10 @@ Membership transport:
   subscriptions to the peer runtime. It subscribes for an initial snapshot,
   applies later membership events to `ClusterTcpPeerRuntime`, accepts explicit
   deterministic retry ticks, can schedule fixed-delay retry ticks through
-  actor timers, and shuts the runtime down when the actor stops.
+  actor timers, and shuts the runtime down when the actor stops. Potentially
+  blocking route work runs one command at a time outside synchronous actor
+  turns; completions return through the mailbox and snapshots use the last
+  completed runtime state.
 - `ClusterTcpPeerBootstrap` binds the cluster TCP peer runtime, spawns the
   connector under an explicit actor name, and registers coordinated shutdown to
   stop the connector before cluster shutdown so socket routes are cleared
@@ -1789,7 +1792,10 @@ Remote association integration:
   subscription events and actor timers into the peer runtime. It subscribes for
   an initial snapshot, applies later membership/reachability events, drives
   explicit or timer-based retry turns, exposes typed snapshots for tests, and
-  shuts down the owned runtime when the actor stops.
+  shuts down the owned runtime when the actor stops. Potentially blocking route
+  work runs one command at a time outside synchronous actor turns; completions
+  return through the mailbox and snapshots use the last completed runtime
+  state.
 - `ReplicatorTcpPeerBootstrap` binds the distributed-data TCP peer runtime,
   spawns the connector under an explicit actor name, and registers coordinated
   shutdown to stop the connector before cluster shutdown so socket routes are
@@ -2498,7 +2504,9 @@ Cluster-tools TCP runtime:
   subscriptions to the cluster-tools peer runtime. It subscribes for an
   initial snapshot, applies later member/reachability events, exposes runtime
   snapshots for diagnostics, and can schedule fixed-delay retry ticks through
-  actor timers,
+  actor timers. Potentially blocking route work runs one command at a time
+  outside synchronous actor turns; completions return through the mailbox and
+  snapshots use the last completed runtime state,
 - `ClusterToolsTcpPeerBootstrap<M>` binds the cluster-tools TCP peer runtime,
   spawns the connector under the actor system, and registers a coordinated
   shutdown actor-termination task so configured socket routes are stopped

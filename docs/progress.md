@@ -300,6 +300,11 @@ Status terms in this document mean:
   Aggregation wire conversion now hard-gates stable CRDT manifest/version
   metadata, deterministic pruning projection, successful absent reads, and
   duplicate removed-replica pruning-entry rejection.
+  The standalone replicator TCP peer connector now serializes membership,
+  retry, and route-clear work through one background command at a time, so TCP
+  connection work cannot hold synchronous actor turns. Typed snapshots remain
+  mailbox-responsive from the last completed runtime state, and the connector
+  API now denies missing public documentation.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
@@ -507,6 +512,12 @@ Status terms in this document mean:
   unsupported-manifest rejection, typed envelope dispatch, and framed remote
   error mapping. Runtime registration and manifest classification consume the
   same protocol-owned list, preventing classifier/transport drift.
+  The complete standalone TCP peer lifecycle now hard-gates bootstrap,
+  connector scheduling and diagnostics, reconnect policy, membership-derived
+  route ownership, runtime cleanup, and the legacy shutdown-timeout caveat.
+  Connector route work is serialized off-turn and returns through typed
+  mailbox completions, keeping snapshots responsive while transport work is in
+  flight.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -524,9 +535,10 @@ Status terms in this document mean:
   APIs, including both generic and typed local singleton manager actor
   adapters, the singleton proxy/target boundary, and the singleton codec and
   remote handover adapters, the shared cluster-tools system ingress, and the
-  standalone cluster-tools TCP ownership boundary. The standalone outbound
-  classifier now consumes the same authoritative eight-manifest list as
-  shared registration and inbound dispatch. The remote ping-pong example and
+  complete standalone cluster-tools TCP peer lifecycle. The distributed-data
+  TCP peer connector carries the same hard gate. The standalone outbound
+  classifier consumes the same authoritative eight-manifest list as shared
+  registration and inbound dispatch. The remote ping-pong example and
   compile-tested serialization docs
   now exercise the format-neutral closure registration path. The
   `cluster_sharding_tcp` example

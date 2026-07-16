@@ -267,6 +267,69 @@ fn publish_changes_and_wait(
 }
 
 #[test]
+fn connector_serves_snapshots_while_runtime_command_is_blocked() {
+    let _guard = ddata_socket_test_lock();
+    let kit = ActorSystemTestKit::new("ddata-tcp-peer-responsive").unwrap();
+    let runtime = bind_peer_runtime(
+        "responsive",
+        1,
+        11,
+        ReplicaId::new("remote"),
+        Duration::from_millis(25),
+    );
+    let self_node = runtime.self_node().clone();
+    let publisher = spawn_publisher(&kit, self_node.clone());
+    let cluster = Cluster::new(publisher);
+    let snapshots = kit
+        .create_probe::<ReplicatorTcpPeerConnectorSnapshot>("responsive-snapshots")
+        .unwrap();
+    let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let gate = ReplicatorTcpPeerConnectorRuntimeCommandGate {
+        started: Arc::clone(&started),
+        released: Arc::clone(&released),
+    };
+    let connector = kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ReplicatorTcpPeerConnector::with_settings(
+                    cluster,
+                    runtime,
+                    ReplicatorTcpPeerConnectorSettings::default().with_automatic_retry_ticks(false),
+                )
+                .with_runtime_command_gate(gate)
+            }),
+        )
+        .unwrap();
+
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        started
+            .load(std::sync::atomic::Ordering::SeqCst)
+            .then_some(())
+            .ok_or_else(|| "runtime command has not started".to_string())
+    })
+    .unwrap();
+    connector
+        .tell(ReplicatorTcpPeerConnectorMsg::Snapshot {
+            reply_to: snapshots.actor_ref(),
+        })
+        .unwrap();
+    let observed = snapshots.expect_msg(Duration::from_millis(100));
+    released.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let snapshot = observed.unwrap();
+    assert_eq!(snapshot.self_node, Some(self_node));
+    assert_eq!(snapshot.route_count, 0);
+    assert!(snapshot.last_report.is_none());
+    assert!(snapshot.last_error.is_none());
+    kit.system().stop(&connector);
+    assert!(connector.wait_for_stop(Duration::from_secs(1)));
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn connector_subscribes_to_cluster_and_applies_tcp_peer_routes() {
     let _guard = ddata_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("ddata-tcp-peer-connector-sender").unwrap();

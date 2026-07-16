@@ -1,4 +1,11 @@
+#![deny(missing_docs)]
+
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 use kairo_cluster::{
@@ -8,13 +15,14 @@ use kairo_cluster::{
 
 use crate::{
     ReplicatorTcpPeerReconnectPending, ReplicatorTcpPeerRouteReport, ReplicatorTcpPeerRuntime,
-    ReplicatorTcpPeerRuntimeResult,
 };
 
 const TCP_PEER_RETRY_TIMER_KEY: &str = "ddata-tcp-peer-retry";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Invalid distributed-data TCP peer connector scheduling configuration.
 pub enum ReplicatorTcpPeerConnectorSettingsError {
+    /// A zero interval would create an immediate retry loop.
     ZeroRetryInterval,
 }
 
@@ -34,6 +42,7 @@ impl std::fmt::Display for ReplicatorTcpPeerConnectorSettingsError {
 impl std::error::Error for ReplicatorTcpPeerConnectorSettingsError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Actor timer policy for retrying failed replicator peer dials.
 pub struct ReplicatorTcpPeerConnectorSettings {
     retry_interval: Duration,
     initial_retry_delay: Duration,
@@ -41,6 +50,12 @@ pub struct ReplicatorTcpPeerConnectorSettings {
 }
 
 impl ReplicatorTcpPeerConnectorSettings {
+    /// Creates settings with automatic retry ticks and an initial delay equal to `retry_interval`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReplicatorTcpPeerConnectorSettingsError::ZeroRetryInterval`]
+    /// when `retry_interval` is zero.
     pub fn new(retry_interval: Duration) -> Result<Self, ReplicatorTcpPeerConnectorSettingsError> {
         if retry_interval.is_zero() {
             return Err(ReplicatorTcpPeerConnectorSettingsError::ZeroRetryInterval);
@@ -52,16 +67,22 @@ impl ReplicatorTcpPeerConnectorSettings {
         })
     }
 
+    /// Sets the delay before the first automatic retry tick.
     pub fn with_initial_retry_delay(mut self, delay: Duration) -> Self {
         self.initial_retry_delay = delay;
         self
     }
 
+    /// Enables or disables actor-owned periodic retry ticks.
+    ///
+    /// Disabling ticks allows tests or an embedding runtime to drive retries
+    /// explicitly with [`ReplicatorTcpPeerConnectorMsg::RetryDuePeerRoutes`].
     pub fn with_automatic_retry_ticks(mut self, automatic: bool) -> Self {
         self.automatic_retry_ticks = automatic;
         self
     }
 
+    /// Returns the non-zero interval between automatic retry ticks.
     pub fn retry_interval(&self) -> Duration {
         self.retry_interval
     }
@@ -77,9 +98,20 @@ impl Default for ReplicatorTcpPeerConnectorSettings {
     }
 }
 
+/// Actor that serializes cluster events and reconnect ticks onto an owned replicator runtime.
+///
+/// Potentially blocking transport operations execute outside synchronous actor
+/// turns one at a time. Their completions re-enter through the mailbox, while
+/// snapshots are served from the last completed runtime state. Stopping the
+/// actor unsubscribes from cluster events and shuts down the owned runtime.
 pub struct ReplicatorTcpPeerConnector {
     cluster: Cluster,
-    runtime: Option<ReplicatorTcpPeerRuntime>,
+    runtime: Arc<Mutex<Option<ReplicatorTcpPeerRuntime>>>,
+    runtime_state: ReplicatorTcpPeerConnectorRuntimeState,
+    pending_commands: VecDeque<ReplicatorTcpPeerConnectorRuntimeCommand>,
+    command_in_flight: bool,
+    #[cfg(test)]
+    runtime_command_gate: Option<ReplicatorTcpPeerConnectorRuntimeCommandGate>,
     settings: ReplicatorTcpPeerConnectorSettings,
     subscription: Option<ActorRef<ClusterSubscriptionEvent>>,
     last_report: Option<ReplicatorTcpPeerRouteReport>,
@@ -88,6 +120,7 @@ pub struct ReplicatorTcpPeerConnector {
 }
 
 impl ReplicatorTcpPeerConnector {
+    /// Creates a connector with the default one-second automatic retry policy.
     pub fn new(cluster: Cluster, runtime: ReplicatorTcpPeerRuntime) -> Self {
         Self::with_settings(
             cluster,
@@ -96,14 +129,21 @@ impl ReplicatorTcpPeerConnector {
         )
     }
 
+    /// Creates a connector with explicit actor timer settings.
     pub fn with_settings(
         cluster: Cluster,
         runtime: ReplicatorTcpPeerRuntime,
         settings: ReplicatorTcpPeerConnectorSettings,
     ) -> Self {
+        let runtime_state = ReplicatorTcpPeerConnectorRuntimeState::from_runtime(&runtime);
         Self {
             cluster,
-            runtime: Some(runtime),
+            runtime: Arc::new(Mutex::new(Some(runtime))),
+            runtime_state,
+            pending_commands: VecDeque::new(),
+            command_in_flight: false,
+            #[cfg(test)]
+            runtime_command_gate: None,
             settings,
             subscription: None,
             last_report: None,
@@ -113,93 +153,113 @@ impl ReplicatorTcpPeerConnector {
     }
 
     fn snapshot(&self) -> ReplicatorTcpPeerConnectorSnapshot {
-        let runtime = self.runtime.as_ref();
         ReplicatorTcpPeerConnectorSnapshot {
-            self_node: runtime.map(|runtime| runtime.self_node().clone()),
-            active_targets: runtime
-                .map(ReplicatorTcpPeerRuntime::active_peer_targets)
-                .unwrap_or_default(),
-            route_count: runtime.map_or(0, ReplicatorTcpPeerRuntime::peer_route_count),
-            pending_reconnects: runtime
-                .map(ReplicatorTcpPeerRuntime::pending_peer_reconnects)
-                .unwrap_or_default(),
+            self_node: self.runtime_state.self_node.clone(),
+            active_targets: self.runtime_state.active_targets.clone(),
+            route_count: self.runtime_state.route_count,
+            pending_reconnects: self.runtime_state.pending_reconnects.clone(),
             last_report: self.last_report.clone(),
             last_error: self.last_error.clone(),
         }
     }
 
-    fn apply_cluster_event(&mut self, event: ClusterSubscriptionEvent) -> ActorResult {
-        let Some(runtime) = self.runtime.as_mut() else {
-            return Err(ActorError::Message(
-                "distributed-data tcp peer connector runtime is stopped".to_string(),
-            ));
-        };
-        let result = match event {
-            ClusterSubscriptionEvent::CurrentState(state) => runtime.apply_snapshot(state),
-            ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
-        };
-        self.record_route_result(result);
-        Ok(())
-    }
-
-    fn retry_due(&mut self, now: Duration) -> ActorResult {
-        let Some(runtime) = self.runtime.as_mut() else {
-            return Err(ActorError::Message(
-                "distributed-data tcp peer connector runtime is stopped".to_string(),
-            ));
-        };
-        let result = runtime.retry_due_peer_routes(now);
-        self.record_route_result(result);
-        Ok(())
-    }
-
-    fn clear_routes(&mut self) -> ActorResult {
-        let Some(runtime) = self.runtime.as_mut() else {
-            return Err(ActorError::Message(
-                "distributed-data tcp peer connector runtime is stopped".to_string(),
-            ));
-        };
-        self.last_report = Some(runtime.clear_peer_routes());
-        self.last_error = None;
-        Ok(())
-    }
-
-    fn record_route_result(
-        &mut self,
-        result: ReplicatorTcpPeerRuntimeResult<ReplicatorTcpPeerRouteReport>,
-    ) {
-        match result {
-            Ok(report) => {
-                self.last_report = Some(report);
-                self.last_error = None;
-            }
-            Err(error) => {
-                self.last_error = Some(error.to_string());
-            }
-        }
+    #[cfg(test)]
+    fn with_runtime_command_gate(
+        mut self,
+        gate: ReplicatorTcpPeerConnectorRuntimeCommandGate,
+    ) -> Self {
+        self.runtime_command_gate = Some(gate);
+        self
     }
 }
 
 #[derive(Debug, Clone)]
+/// Commands accepted by the distributed-data TCP peer connector actor.
 pub enum ReplicatorTcpPeerConnectorMsg {
+    /// Applies a current cluster snapshot or subsequent domain event.
     Cluster(ClusterSubscriptionEvent),
+    /// Retries all peer dials due at the caller-provided clock value.
     RetryDuePeerRoutes {
+        /// Monotonic logical time used by reconnect deadlines.
         now: Duration,
     },
+    /// Advances the actor-owned retry clock and retries due peer routes.
     RetryTimerTick,
+    /// Clears managed peer routes while leaving pending reconnect deadlines intact.
     ClearRoutes,
+    /// Completes the serialized runtime command currently in flight.
+    RuntimeCommandComplete(ReplicatorTcpPeerConnectorRuntimeCommandResult),
+    /// Requests the connector's last completed runtime and route diagnostics.
     Snapshot {
+        /// Recipient for the diagnostic snapshot.
         reply_to: ActorRef<ReplicatorTcpPeerConnectorSnapshot>,
     },
 }
 
+#[derive(Debug, Clone)]
+/// Opaque completion value produced by connector-owned background runtime work.
+pub struct ReplicatorTcpPeerConnectorRuntimeCommandResult {
+    outcome: Result<ReplicatorTcpPeerRouteReport, String>,
+    state: Option<ReplicatorTcpPeerConnectorRuntimeState>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct ReplicatorTcpPeerConnectorRuntimeState {
+    self_node: Option<UniqueAddress>,
+    active_targets: Vec<ClusterAssociationPeerTarget>,
+    route_count: usize,
+    pending_reconnects: Vec<ReplicatorTcpPeerReconnectPending>,
+}
+
+impl ReplicatorTcpPeerConnectorRuntimeState {
+    fn from_runtime(runtime: &ReplicatorTcpPeerRuntime) -> Self {
+        Self {
+            self_node: Some(runtime.self_node().clone()),
+            active_targets: runtime.active_peer_targets(),
+            route_count: runtime.peer_route_count(),
+            pending_reconnects: runtime.pending_peer_reconnects(),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum ReplicatorTcpPeerConnectorRuntimeCommand {
+    ApplyClusterEvent(Box<ClusterSubscriptionEvent>),
+    RetryDuePeerRoutes { now: Duration },
+    ClearRoutes,
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+struct ReplicatorTcpPeerConnectorRuntimeCommandGate {
+    started: Arc<AtomicBool>,
+    released: Arc<AtomicBool>,
+}
+
+#[cfg(test)]
+impl ReplicatorTcpPeerConnectorRuntimeCommandGate {
+    fn block_until_released(&self) {
+        self.started.store(true, Ordering::SeqCst);
+        while !self.released.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic snapshot of connector-owned replicator TCP peer state.
 pub struct ReplicatorTcpPeerConnectorSnapshot {
+    /// Local cluster identity last mirrored from the owned runtime, when available.
     pub self_node: Option<UniqueAddress>,
+    /// Exact member incarnations with managed route entries.
     pub active_targets: Vec<ClusterAssociationPeerTarget>,
+    /// Number of managed peer route entries.
     pub route_count: usize,
+    /// Failed peer dials waiting for a reconnect deadline.
     pub pending_reconnects: Vec<ReplicatorTcpPeerReconnectPending>,
+    /// Outcome of the most recently successful runtime command.
     pub last_report: Option<ReplicatorTcpPeerRouteReport>,
+    /// Most recent runtime-command failure, cleared by the next success.
     pub last_error: Option<String>,
 }
 
@@ -230,27 +290,148 @@ impl Actor for ReplicatorTcpPeerConnector {
         if let Some(subscription) = self.subscription.take() {
             let _ = self.cluster.unsubscribe(subscription);
         }
-        if let Some(runtime) = self.runtime.take() {
+        self.pending_commands.clear();
+        if let Some(runtime) = self
+            .runtime
+            .lock()
+            .expect("distributed-data tcp peer connector runtime lock poisoned")
+            .take()
+        {
             let _ = runtime.shutdown();
         }
         Ok(())
     }
 
-    fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
+    fn receive(&mut self, ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
         match msg {
-            ReplicatorTcpPeerConnectorMsg::Cluster(event) => self.apply_cluster_event(event),
-            ReplicatorTcpPeerConnectorMsg::RetryDuePeerRoutes { now } => self.retry_due(now),
+            ReplicatorTcpPeerConnectorMsg::Cluster(event) => self.enqueue_runtime_command(
+                ctx,
+                ReplicatorTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(Box::new(event)),
+            ),
+            ReplicatorTcpPeerConnectorMsg::RetryDuePeerRoutes { now } => self
+                .enqueue_runtime_command(
+                    ctx,
+                    ReplicatorTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now },
+                ),
             ReplicatorTcpPeerConnectorMsg::RetryTimerTick => {
                 self.retry_clock = self
                     .retry_clock
                     .saturating_add(self.settings.retry_interval);
-                self.retry_due(self.retry_clock)
+                self.enqueue_runtime_command(
+                    ctx,
+                    ReplicatorTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes {
+                        now: self.retry_clock,
+                    },
+                )
             }
-            ReplicatorTcpPeerConnectorMsg::ClearRoutes => self.clear_routes(),
+            ReplicatorTcpPeerConnectorMsg::ClearRoutes => self.enqueue_runtime_command(
+                ctx,
+                ReplicatorTcpPeerConnectorRuntimeCommand::ClearRoutes,
+            ),
+            ReplicatorTcpPeerConnectorMsg::RuntimeCommandComplete(result) => {
+                self.finish_runtime_command(ctx, result)
+            }
             ReplicatorTcpPeerConnectorMsg::Snapshot { reply_to } => reply_to
                 .tell(self.snapshot())
                 .map_err(|error| ActorError::Message(error.reason().to_string())),
         }
+    }
+}
+
+impl ReplicatorTcpPeerConnector {
+    fn enqueue_runtime_command(
+        &mut self,
+        ctx: &Context<ReplicatorTcpPeerConnectorMsg>,
+        command: ReplicatorTcpPeerConnectorRuntimeCommand,
+    ) -> ActorResult {
+        self.pending_commands.push_back(command);
+        self.start_next_runtime_command(ctx)
+    }
+
+    fn start_next_runtime_command(
+        &mut self,
+        ctx: &Context<ReplicatorTcpPeerConnectorMsg>,
+    ) -> ActorResult {
+        if self.command_in_flight {
+            return Ok(());
+        }
+        let Some(command) = self.pending_commands.pop_front() else {
+            return Ok(());
+        };
+        self.command_in_flight = true;
+        let runtime = Arc::clone(&self.runtime);
+        #[cfg(test)]
+        let runtime_command_gate = self.runtime_command_gate.clone();
+        ctx.spawn_task(move |myself| {
+            #[cfg(test)]
+            if let Some(gate) = runtime_command_gate {
+                gate.block_until_released();
+            }
+            let result = run_runtime_command(runtime, command);
+            let _ = myself.tell(ReplicatorTcpPeerConnectorMsg::RuntimeCommandComplete(
+                result,
+            ));
+        })?;
+        Ok(())
+    }
+
+    fn finish_runtime_command(
+        &mut self,
+        ctx: &Context<ReplicatorTcpPeerConnectorMsg>,
+        result: ReplicatorTcpPeerConnectorRuntimeCommandResult,
+    ) -> ActorResult {
+        self.command_in_flight = false;
+        if let Some(state) = result.state {
+            self.runtime_state = state;
+        }
+        self.record_route_outcome(result.outcome);
+        self.start_next_runtime_command(ctx)
+    }
+
+    fn record_route_outcome(&mut self, result: Result<ReplicatorTcpPeerRouteReport, String>) {
+        match result {
+            Ok(report) => {
+                self.last_report = Some(report);
+                self.last_error = None;
+            }
+            Err(error) => {
+                self.last_error = Some(error);
+            }
+        }
+    }
+}
+
+fn run_runtime_command(
+    runtime: Arc<Mutex<Option<ReplicatorTcpPeerRuntime>>>,
+    command: ReplicatorTcpPeerConnectorRuntimeCommand,
+) -> ReplicatorTcpPeerConnectorRuntimeCommandResult {
+    let mut guard = runtime
+        .lock()
+        .expect("distributed-data tcp peer connector runtime lock poisoned");
+    let Some(runtime) = guard.as_mut() else {
+        return ReplicatorTcpPeerConnectorRuntimeCommandResult {
+            outcome: Err("distributed-data tcp peer connector runtime is stopped".to_string()),
+            state: None,
+        };
+    };
+
+    let outcome = match command {
+        ReplicatorTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(event) => match *event {
+            ClusterSubscriptionEvent::CurrentState(state) => runtime.apply_snapshot(state),
+            ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
+        },
+        ReplicatorTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now } => {
+            runtime.retry_due_peer_routes(now)
+        }
+        ReplicatorTcpPeerConnectorRuntimeCommand::ClearRoutes => Ok(runtime.clear_peer_routes()),
+    }
+    .map_err(|error| error.to_string());
+
+    ReplicatorTcpPeerConnectorRuntimeCommandResult {
+        outcome,
+        state: Some(ReplicatorTcpPeerConnectorRuntimeState::from_runtime(
+            runtime,
+        )),
     }
 }
 
