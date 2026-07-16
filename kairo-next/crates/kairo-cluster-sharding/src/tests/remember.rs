@@ -381,8 +381,7 @@ fn remember_coordinator_ddata_store_updates_emit_gset_delta_wire() {
     let delta_target = kit
         .create_probe::<ReplicatorDeltaPropagation>("delta-target")
         .unwrap();
-    let mut transport =
-        DeltaPropagationTransport::new(ReplicaId::new("node-a"), GSetStringDeltaCodec);
+    let transport = DeltaPropagationTransport::new(ReplicaId::new("node-a"), GSetStringDeltaCodec);
     transport.insert_target(DeltaPropagationTarget::new(
         ReplicaId::new("node-b"),
         delta_target.actor_ref(),
@@ -708,8 +707,7 @@ fn remember_shard_ddata_store_updates_emit_orset_delta_wire() {
     let delta_target = kit
         .create_probe::<ReplicatorDeltaPropagation>("delta-target")
         .unwrap();
-    let mut transport =
-        DeltaPropagationTransport::new(ReplicaId::new("node-a"), ORSetStringDeltaCodec);
+    let transport = DeltaPropagationTransport::new(ReplicaId::new("node-a"), ORSetStringDeltaCodec);
     transport.insert_target(DeltaPropagationTarget::new(
         ReplicaId::new("node-b"),
         delta_target.actor_ref(),

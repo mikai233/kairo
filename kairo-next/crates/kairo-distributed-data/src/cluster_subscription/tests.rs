@@ -1008,6 +1008,67 @@ fn connector_registers_remote_route_targets_from_cluster_routes() {
     system.terminate(Duration::from_secs(1)).unwrap();
 }
 
+#[test]
+fn connector_preserves_remote_sources_when_route_refresh_is_invalid() {
+    let system = ActorSystem::builder("ddata-cluster-connector-invalid-source")
+        .build()
+        .unwrap();
+    let self_node = node("self", 1);
+    let peer = node("zzzz-peer", 2);
+    let invalid = UniqueAddress::new(Address::new("kairo", "ddata", None, Some(2552)), 3);
+    assert!(ReplicaId::from(&invalid) < ReplicaId::from(&peer));
+
+    let publisher = system
+        .spawn(
+            "publisher",
+            Props::new({
+                let self_node = self_node.clone();
+                move || ClusterEventPublisher::new(self_node)
+            }),
+        )
+        .unwrap();
+    let cluster = Cluster::new(publisher);
+    let replicator = system
+        .spawn("replicator", Props::new(ReplicatorActor::<GCounter>::new))
+        .unwrap();
+    let sources = crate::ReplicatorRemoteSourceMap::default();
+    let mut connector =
+        ReplicatorClusterConnector::with_required_roles(cluster, self_node, replicator, ["ddata"])
+            .with_remote_source_replicas(Arc::clone(&sources));
+
+    connector
+        .routes
+        .apply_event(&ClusterEvent::Member(MemberEvent::Up(member(
+            peer,
+            MemberStatus::Up,
+            ["ddata"],
+        ))));
+    connector.register_remote_route_targets().unwrap();
+    let before = sources
+        .lock()
+        .expect("replicator remote source map poisoned")
+        .clone();
+    assert_eq!(before.len(), 1);
+
+    connector
+        .routes
+        .apply_event(&ClusterEvent::Member(MemberEvent::Up(member(
+            invalid,
+            MemberStatus::Up,
+            ["ddata"],
+        ))));
+    let error = connector.register_remote_route_targets().unwrap_err();
+    assert!(error.to_string().contains("has no remote host"));
+    assert_eq!(
+        *sources
+            .lock()
+            .expect("replicator remote source map poisoned"),
+        before
+    );
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
 fn eventually_snapshot(
     connector: &ActorRef<ReplicatorClusterConnectorMsg>,
     reply_to: &ActorRef<ReplicatorClusterConnectorSnapshot>,

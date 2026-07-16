@@ -5,6 +5,7 @@ where
     D: DeltaReplicatedData + Send + 'static,
     D::Delta: Send + 'static,
 {
+    /// Creates a connector that accepts all cluster roles.
     pub fn new(
         cluster: Cluster,
         self_node: UniqueAddress,
@@ -34,6 +35,7 @@ where
         }
     }
 
+    /// Creates a connector requiring every supplied role on routed replicas.
     pub fn with_required_roles(
         cluster: Cluster,
         self_node: UniqueAddress,
@@ -65,16 +67,19 @@ where
         }
     }
 
+    /// Restores the accumulated all-reachable pruning clock.
     pub fn with_all_reachable_time_nanos(mut self, all_reachable_time_nanos: u64) -> Self {
         self.all_reachable_time_nanos = all_reachable_time_nanos;
         self
     }
 
+    /// Sets removed-node pruning dissemination and marker-retention thresholds.
     pub fn with_pruning_settings(mut self, settings: ReplicatorClusterPruningSettings) -> Self {
         self.pruning_settings = settings;
         self
     }
 
+    /// Sets optional connector-owned clock and pruning schedules.
     pub fn with_timing_settings(
         mut self,
         settings: ReplicatorClusterConnectorTimingSettings,
@@ -83,11 +88,16 @@ where
         self
     }
 
+    /// Replaces the system clock used by periodic lifecycle ticks.
     pub fn with_clock(mut self, clock: SharedReplicatorClusterConnectorClock) -> Self {
         self.clock = clock;
         self
     }
 
+    /// Attaches shared outbound registries refreshed from cluster-approved routes.
+    ///
+    /// Each optional registry is replaced only after every current route has
+    /// passed canonical remote-target validation.
     pub fn with_remote_route_targets(
         mut self,
         targets: ReplicatorRemoteRouteTargets,
@@ -102,6 +112,10 @@ where
         self
     }
 
+    /// Attaches the shared inbound association-address to replica map.
+    ///
+    /// Each refresh is prepared completely before replacing the map, so an
+    /// invalid cluster address preserves the last valid source projection.
     pub fn with_remote_source_replicas(
         mut self,
         replicas: crate::ReplicatorRemoteSourceMap,

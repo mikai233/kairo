@@ -360,6 +360,12 @@ Status terms in this document mean:
   missing-target diagnostics, and message-kind-specific recipient failures.
   Transport sends remain single-attempt delivery state; retry scheduling and
   membership ownership stay outside the route registry.
+  The actor-backed cluster connector now prepares inbound source identities and
+  validates every configured outbound target before replacing shared route
+  projections, so a malformed member cannot erase the last valid source map or
+  expose a mixed refresh. Its subscription, route/report, reachability clock,
+  pruning tick, timer, diagnostic snapshot, and construction surfaces now carry
+  compile-time public-documentation gates.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

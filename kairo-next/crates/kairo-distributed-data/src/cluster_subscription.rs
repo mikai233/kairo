@@ -1,3 +1,10 @@
+#![deny(missing_docs)]
+//! Actor-owned projection from cluster membership into replicator lifecycle state.
+//!
+//! The connector subscribes with event replay, forwards role-filtered routes to
+//! one typed replicator, refreshes cluster-authorized transport identities, and
+//! drives the all-reachable clock and removed-node pruning ticks.
+
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 use kairo_cluster::{
     Cluster, ClusterSubscriptionEvent, ClusterSubscriptionInitialState, CurrentClusterState,
@@ -23,12 +30,16 @@ mod runtime;
 mod tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Timing thresholds used by one removed-node pruning lifecycle.
 pub struct ReplicatorClusterPruningSettings {
+    /// Required continuously reachable time before initialized markers may be performed.
     pub max_pruning_dissemination_nanos: u64,
+    /// Retention time for performed pruning markers before cleanup.
     pub pruning_marker_ttl_millis: u64,
 }
 
 impl ReplicatorClusterPruningSettings {
+    /// Creates pruning thresholds in their explicit monotonic and wall-clock units.
     pub fn new(max_pruning_dissemination_nanos: u64, pruning_marker_ttl_millis: u64) -> Self {
         Self {
             max_pruning_dissemination_nanos,
@@ -37,6 +48,11 @@ impl ReplicatorClusterPruningSettings {
     }
 }
 
+/// Connects gossip-owned cluster membership to one typed distributed-data replicator.
+///
+/// Membership remains authoritative in `kairo-cluster`. This actor only derives
+/// delivery routes, inbound source identities, reachability pauses, and the
+/// role-scoped pruning leader from subscribed snapshots and events.
 pub struct ReplicatorClusterConnector<D>
 where
     D: DeltaReplicatedData + Send + 'static,
@@ -65,33 +81,55 @@ where
 }
 
 #[derive(Debug, Clone)]
+/// Commands and adapter results consumed by [`ReplicatorClusterConnector`].
 pub enum ReplicatorClusterConnectorMsg {
+    /// Applies a cluster snapshot or domain event from the subscription adapter.
     Cluster(ClusterSubscriptionEvent),
+    /// Records the replicator's result after applying a cluster route update.
     RouteApplied(ReplicatorClusterRouteReport),
+    /// Records the replicator's result after one removed-node pruning tick.
     PruningTickApplied(RemovedNodePruningTickReport),
+    /// Advances the all-reachable clock to an explicit monotonic timestamp.
     ClockTick {
+        /// Monotonic timestamp in nanoseconds.
         now_nanos: u64,
     },
+    /// Replaces the accumulated all-reachable duration, primarily for restoration or tests.
     SetAllReachableTimeNanos(u64),
+    /// Replaces the thresholds used by subsequent pruning ticks.
     SetPruningSettings(ReplicatorClusterPruningSettings),
+    /// Runs removed-node pruning at an explicit wall-clock timestamp.
     RunRemovedNodePruning {
+        /// Wall-clock timestamp in milliseconds since the Unix epoch.
         now_millis: u64,
     },
+    /// Internal periodic tick for the monotonic all-reachable clock.
     ClockTimerTick,
+    /// Internal periodic tick for removed-node pruning.
     PruningTimerTick,
+    /// Returns the connector's last completed diagnostic state.
     Snapshot {
+        /// Recipient for the diagnostic snapshot.
         reply_to: ActorRef<ReplicatorClusterConnectorSnapshot>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Last completed membership, pruning, and transport projection state.
 pub struct ReplicatorClusterConnectorSnapshot {
+    /// Current role-matching remote replicas eligible for delivery.
     pub remote_replicas: Vec<ReplicaId>,
+    /// Current role-matching remote replicas observed as unreachable.
     pub unreachable_replicas: std::collections::BTreeSet<ReplicaId>,
+    /// Whether the local replica is the role-scoped pruning leader.
     pub is_leader: bool,
+    /// Accumulated continuously reachable time in nanoseconds.
     pub all_reachable_time_nanos: u64,
+    /// Last route update report returned by the replicator.
     pub last_report: Option<ReplicatorClusterRouteReport>,
+    /// Last removed-node pruning report returned by the replicator.
     pub last_pruning_report: Option<RemovedNodePruningTickReport>,
+    /// Last successful delta, aggregation, and gossip target registration.
     pub last_target_registration: Option<ReplicatorRemoteRouteRegistrationReport>,
 }
 

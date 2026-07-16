@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::*;
 
 impl<D> ReplicatorClusterConnector<D>
@@ -58,11 +60,29 @@ where
             .map_err(|error| ActorError::Message(error.reason().to_string()))
     }
 
-    fn register_remote_route_targets(&mut self) -> ActorResult {
-        self.register_remote_sources()?;
+    pub(super) fn register_remote_route_targets(&mut self) -> ActorResult {
+        let prepared_sources = self.prepare_remote_sources()?;
         let Some(targets) = &self.remote_route_targets else {
+            self.replace_remote_sources(prepared_sources);
             return Ok(());
         };
+
+        // Validate every route before mutating any shared transport projection. Target
+        // construction is otherwise repeated by each registry setter below, and a malformed
+        // member or configured path must not leave inbound source identities newer than the
+        // outbound target registries.
+        if self.delta_target_registry.is_some()
+            || self.aggregation_target_registry.is_some()
+            || self.gossip_target_registry.is_some()
+        {
+            for node in self.routes.remote_nodes() {
+                targets
+                    .target_for_node(&node)
+                    .map_err(|error| ActorError::Message(error.to_string()))?;
+            }
+        }
+
+        self.replace_remote_sources(prepared_sources);
 
         let delta_registered = if let Some(registry) = &self.delta_target_registry {
             targets
@@ -102,14 +122,14 @@ where
         Ok(())
     }
 
-    fn register_remote_sources(&self) -> ActorResult {
-        let Some(replicas) = &self.remote_source_replicas else {
-            return Ok(());
+    fn prepare_remote_sources(
+        &self,
+    ) -> Result<Option<BTreeMap<RemoteAssociationAddress, ReplicaId>>, ActorError> {
+        if self.remote_source_replicas.is_none() {
+            return Ok(None);
         };
-        let mut sources = replicas
-            .lock()
-            .expect("replicator remote source map lock poisoned");
-        sources.clear();
+
+        let mut sources = BTreeMap::new();
         for node in self.routes.remote_nodes() {
             let host = node.address.host().ok_or_else(|| {
                 ActorError::Message(format!(
@@ -126,7 +146,20 @@ where
             .map_err(|error| ActorError::Message(error.to_string()))?;
             sources.insert(address, ReplicaId::from(node));
         }
-        Ok(())
+        Ok(Some(sources))
+    }
+
+    fn replace_remote_sources(
+        &self,
+        prepared_sources: Option<BTreeMap<RemoteAssociationAddress, ReplicaId>>,
+    ) {
+        let (Some(replicas), Some(sources)) = (&self.remote_source_replicas, prepared_sources)
+        else {
+            return;
+        };
+        *replicas
+            .lock()
+            .expect("replicator remote source map lock poisoned") = sources;
     }
 
     pub(super) fn advance_all_reachable_clock(&mut self, now_nanos: u64) {

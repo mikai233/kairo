@@ -1914,11 +1914,15 @@ lane protocols: they do not create another listener or transport lifecycle.
 
 The connector derives both outbound targets and inbound source identities from
 real cluster snapshots and events. A sender canonical address resolves through
-a map of current role-eligible Up/WeaklyUp cluster incarnations to `ReplicaId`;
-missing, malformed, or non-member senders are rejected. Reachability remains a
-separate routing observation, so an unreachable-but-live incarnation retains
-its identity mapping, while membership removal deletes it. Neither envelope
-metadata nor the association cache can add a replica to this map.
+a map of current role-eligible Up/WeaklyUp cluster incarnations to `ReplicaId`.
+The connector prepares the complete replacement map and validates every
+configured outbound target before replacing shared projections. Invalid
+local-only or malformed member addresses therefore preserve the last valid
+inbound and outbound routes instead of exposing a partial membership refresh;
+missing or non-member senders are rejected. Reachability remains a separate
+routing observation, so an unreachable-but-live incarnation retains its
+identity mapping, while membership removal deletes it. Neither envelope metadata
+nor the association cache can add a replica to this map.
 
 Post-bind activation installs a distributed-data runtime that may own multiple
 typed `DistributedDataExtension<D>` families and registers their replicators
