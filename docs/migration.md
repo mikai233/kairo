@@ -126,6 +126,14 @@ in the same directory pins current encode/decode bytes including initialized
 and performed removed-replica pruning state. A future delta schema must keep
 every required older decode path rather than reinterpreting either fixture.
 
+Cluster-tools pubsub registry convergence has the same explicit boundary. The
+checked
+`kairo-next/crates/kairo-cluster-tools/tests/fixtures/pubsub-delta-v1.hex`
+pins `PubSubDelta` version 1 in both directions, including source and bucket
+incarnations, bucket and entry versions, topic/group/path key tags, and removal
+tombstones. Change that payload only through a new message version with the
+required rolling-upgrade decode paths.
+
 The runnable `ask_pipe_to_self` example shows local request/reply and external
 work returning through the actor mailbox without borrowing actor state across
 an await point:

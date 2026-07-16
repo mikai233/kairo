@@ -2362,6 +2362,21 @@ Remote gossip wiring:
 - pubsub still consumes cluster membership/events for peer selection; the
   association cache is only an outbound transport route table.
 
+`PubSubDelta` uses serializer id `5001`, manifest
+`kairo.cluster-tools.pubsub.delta`, and wire version 1. Its payload starts with
+the source `UniqueAddress`, followed by a big-endian `u64` bucket count. Each
+bucket carries its owner address, `u64` bucket version, and `u64` entry count;
+entries are emitted in deterministic `BTreeMap` key order and carry a `u64`
+entry version, a one-byte key tag (`0` topic, `1` group, `2` path), the tagged
+length-prefixed strings, and a one-byte present/tombstone flag. Addresses use
+length-prefixed protocol, system, and optional host strings, an optional
+big-endian `u64` port, and a big-endian `u64` incarnation UID. The checked
+281-byte fixture at
+`kairo-cluster-tools/tests/fixtures/pubsub-delta-v1.hex` must both decode to
+the expected registry state and be reproduced exactly by the encoder. An
+incompatible layout change requires a new message version and an explicit
+rolling-upgrade compatibility path.
+
 Remote publish and path delivery:
 
 - remote pubsub user-message delivery uses a stable `PubSubPublishEnvelope`

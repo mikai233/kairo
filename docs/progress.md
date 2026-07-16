@@ -77,8 +77,10 @@ Status terms in this document mean:
   encode/decode with CRDT metadata, causal ranges, and both pruning lifecycle
   states. Checked sharding v1 fixtures now pin exact shard-home ownership and
   routed entity-envelope bytes, including nested application serializer
-  metadata. Optional codec helpers and broader system-protocol compatibility
-  fixtures remain. The
+  metadata. A checked cluster-tools `PubSubDelta`-v1 fixture now pins source
+  and bucket incarnations, registry versions, every key tag, and removal
+  tombstones in exact encode/decode directions. Optional codec helpers and
+  broader system-protocol compatibility fixtures remain. The
   serialization contract crate and remote-message derive crate now deny
   missing public documentation at compile time.
 - M4 remoting: complete through the composed runtime boundary. One
@@ -440,7 +442,8 @@ Status terms in this document mean:
   pubsub fault test converges live and doomed subscriptions, crashes the doomed
   subscriber without unregistering, and proves downing removes its peer route
   and registry bucket on both survivors while a new publish targets and reaches
-  only the live subscriber.
+  only the live subscriber. A checked 281-byte `PubSubDelta` v1 fixture pins
+  exact registry-gossip encode/decode compatibility, including tombstones.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -6531,8 +6534,9 @@ Not yet implemented:
   fixtures beyond the checked remote-envelope frame-v1 and TCP association
   handshake-v2 bytes, checked cluster full-gossip payload-v1 bytes, checked
   ddata delta-propagation payload-v1/v2 bytes, checked sharding ownership and
-  routed-envelope payload-v1 bytes, and current bidirectional process-level
-  v1/v2 remote-message migration tests.
+  routed-envelope payload-v1 bytes, checked cluster-tools pubsub-delta
+  payload-v1 bytes, and current bidirectional process-level v1/v2
+  remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
