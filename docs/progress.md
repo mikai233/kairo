@@ -501,6 +501,12 @@ Status terms in this document mean:
   and local-only typed manager ingress, unsupported-manifest errors, and nested
   business-message metadata. Concrete codec types are parent-module
   implementation details rather than accidental public API.
+  Shared cluster-tools system ingress now hard-gates the authoritative eight
+  control-plane manifests, post-bind handler registration, canonical recipient
+  validation, optional protocol-handler composition, missing-handler and
+  unsupported-manifest rejection, typed envelope dispatch, and framed remote
+  error mapping. Runtime registration and manifest classification consume the
+  same protocol-owned list, preventing classifier/transport drift.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -517,8 +523,8 @@ Status terms in this document mean:
   registry/gossip, mediator, delivery, remote wire, and singleton ownership
   APIs, including both generic and typed local singleton manager actor
   adapters, the singleton proxy/target boundary, and the singleton codec and
-  remote handover adapters. The remote ping-pong example and compile-tested
-  serialization docs
+  remote handover adapters, and the shared cluster-tools system ingress. The
+  remote ping-pong example and compile-tested serialization docs
   now exercise the format-neutral closure registration path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and

@@ -103,9 +103,9 @@ pub use extension::{
     register_distributed_pubsub,
 };
 pub use protocol::{
-    PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope, PubSubStatus, SingletonHandOverDone,
-    SingletonHandOverInProgress, SingletonHandOverToMe, SingletonMessageEnvelope,
-    SingletonTakeOverFromMe,
+    CLUSTER_TOOLS_SYSTEM_MANIFESTS, PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope,
+    PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
+    SingletonMessageEnvelope, SingletonTakeOverFromMe,
 };
 pub use pubsub::{
     CurrentTopics, DEFAULT_PUBSUB_REMOTE_PATH, DistributedPubSubMediatorActor,
@@ -125,9 +125,7 @@ pub use remote_tcp::{
     ClusterToolsTcpAssociationRuntime, cluster_tools_association_identity_for,
     cluster_tools_lane_classifier,
 };
-pub use shared_remote_runtime::{
-    CLUSTER_TOOLS_SYSTEM_MANIFESTS, register_cluster_tools_system_inbound,
-};
+pub use shared_remote_runtime::register_cluster_tools_system_inbound;
 pub use singleton::{
     DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, LocalSingletonManagerActor, LocalSingletonManagerMsg,
     LocalSingletonManagerRemoteInbound, LocalSingletonManagerSnapshot, SingletonManagerActor,

@@ -7,6 +7,22 @@ use kairo_serialization::{RemoteMessage, SerializedMessage};
 
 use crate::{PubSubRegistryDelta, TopicName};
 
+/// Stable manifests handled by the shared cluster-tools control-plane ingress.
+///
+/// Singleton business-message envelopes are deliberately absent because they
+/// use per-singleton ordinary-lane handlers rather than the shared system
+/// router.
+pub const CLUSTER_TOOLS_SYSTEM_MANIFESTS: [&str; 8] = [
+    PubSubStatus::MANIFEST,
+    PubSubDelta::MANIFEST,
+    PubSubPublishEnvelope::MANIFEST,
+    PubSubPathEnvelope::MANIFEST,
+    SingletonHandOverToMe::MANIFEST,
+    SingletonHandOverInProgress::MANIFEST,
+    SingletonHandOverDone::MANIFEST,
+    SingletonTakeOverFromMe::MANIFEST,
+];
+
 /// Version summary exchanged at the start of a distributed-pubsub gossip round.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubSubStatus {
@@ -144,6 +160,19 @@ mod tests {
 
     #[test]
     fn cluster_tools_system_manifests_are_stable() {
+        assert_eq!(
+            CLUSTER_TOOLS_SYSTEM_MANIFESTS,
+            [
+                PubSubStatus::MANIFEST,
+                PubSubDelta::MANIFEST,
+                PubSubPublishEnvelope::MANIFEST,
+                PubSubPathEnvelope::MANIFEST,
+                SingletonHandOverToMe::MANIFEST,
+                SingletonHandOverInProgress::MANIFEST,
+                SingletonHandOverDone::MANIFEST,
+                SingletonTakeOverFromMe::MANIFEST,
+            ]
+        );
         assert_eq!(PubSubStatus::MANIFEST, "kairo.cluster-tools.pubsub.status");
         assert_eq!(PubSubDelta::MANIFEST, "kairo.cluster-tools.pubsub.delta");
         assert_eq!(

@@ -12,11 +12,12 @@ use kairo_testkit::ActorSystemTestKit;
 
 use super::*;
 use crate::{
-    DEFAULT_PUBSUB_REMOTE_PATH, DEFAULT_SINGLETON_MANAGER_REMOTE_PATH,
-    DistributedPubSubMediatorMsg, LocalPubSubMsg, PubSubGossipMsg, PubSubGossipWireInbound,
-    PubSubPathEnvelope, PubSubPublishEnvelope, PubSubRemoteDeliveryInbound, PubSubStatus,
-    SingletonHandOverToMe, SingletonManagerMsg, SingletonManagerRemoteInbound, TopicName,
-    TopicPublishMode, register_cluster_tools_protocol_codecs,
+    CLUSTER_TOOLS_SYSTEM_MANIFESTS, DEFAULT_PUBSUB_REMOTE_PATH,
+    DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, DistributedPubSubMediatorMsg, LocalPubSubMsg,
+    PubSubGossipMsg, PubSubGossipWireInbound, PubSubPathEnvelope, PubSubPublishEnvelope,
+    PubSubRemoteDeliveryInbound, PubSubStatus, SingletonHandOverToMe, SingletonManagerMsg,
+    SingletonManagerRemoteInbound, TopicName, TopicPublishMode,
+    register_cluster_tools_protocol_codecs,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -341,15 +342,8 @@ fn system_inbound_decodes_remote_frames() {
 
 #[test]
 fn cluster_tools_manifest_helper_matches_system_protocols() {
-    assert!(is_cluster_tools_system_manifest(PubSubStatus::MANIFEST));
-    assert!(is_cluster_tools_system_manifest(
-        PubSubPublishEnvelope::MANIFEST
-    ));
-    assert!(is_cluster_tools_system_manifest(
-        PubSubPathEnvelope::MANIFEST
-    ));
-    assert!(is_cluster_tools_system_manifest(
-        SingletonHandOverToMe::MANIFEST
-    ));
+    for manifest in CLUSTER_TOOLS_SYSTEM_MANIFESTS {
+        assert!(is_cluster_tools_system_manifest(manifest));
+    }
     assert!(!is_cluster_tools_system_manifest("kairo.remote.watch"));
 }

@@ -2,17 +2,35 @@ use std::fmt::{self, Display, Formatter};
 
 use crate::{PubSubGossipWireError, PubSubRemoteDeliveryError, SingletonManagerRemoteError};
 
+/// Failure while classifying, validating, decoding, or dispatching system traffic.
 #[derive(Debug)]
 pub enum ClusterToolsSystemInboundError {
+    /// A configured system recipient path is not absolute.
     InvalidRecipientPath(String),
-    MissingRemoteHost { node: String },
+    /// The local node has no host and cannot form a canonical remote recipient.
+    MissingRemoteHost {
+        /// Deterministic local member identity.
+        node: String,
+    },
+    /// A recognized manifest has no corresponding configured adapter.
     MissingHandler(&'static str),
+    /// Pubsub business-delivery validation or dispatch failed.
     PubSubDelivery(PubSubRemoteDeliveryError),
+    /// Pubsub gossip validation or dispatch failed.
     PubSubGossip(PubSubGossipWireError),
+    /// Remote-frame or message serialization failed.
     Serialization(kairo_serialization::SerializationError),
+    /// Singleton handover validation or dispatch failed.
     SingletonManager(SingletonManagerRemoteError),
+    /// The message manifest is outside the cluster-tools system protocol.
     UnsupportedManifest(String),
-    WrongRecipient { expected: String, actual: String },
+    /// A gossip envelope targeted a different node or system path.
+    WrongRecipient {
+        /// Canonical recipient expected for the local node.
+        expected: String,
+        /// Recipient carried by the rejected envelope.
+        actual: String,
+    },
 }
 
 impl Display for ClusterToolsSystemInboundError {

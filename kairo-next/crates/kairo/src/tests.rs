@@ -353,6 +353,8 @@ fn cluster_tools_documented_modules_deny_missing_docs() -> Result<(), Box<dyn st
         "kairo-next/crates/kairo-cluster-tools/src/singleton/proxy.rs",
         "kairo-next/crates/kairo-cluster-tools/src/singleton/proxy_target.rs",
         "kairo-next/crates/kairo-cluster-tools/src/singleton/remote/mod.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/shared_remote_runtime.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/system_inbound/mod.rs",
         "kairo-next/crates/kairo-cluster-tools/src/topic/mod.rs",
         "kairo-next/crates/kairo-cluster-tools/src/topic/local.rs",
         "kairo-next/crates/kairo-cluster-tools/src/topic/name.rs",

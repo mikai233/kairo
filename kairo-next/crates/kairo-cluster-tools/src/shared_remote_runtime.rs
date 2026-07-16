@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use kairo_actor::Address;
 use kairo_cluster::UniqueAddress;
 use kairo_remote::{
@@ -5,27 +7,15 @@ use kairo_remote::{
 };
 use kairo_serialization::RemoteMessage;
 
-use crate::{
-    ClusterToolsSystemInbound, PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope,
-    PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
-    SingletonTakeOverFromMe,
-};
-
-pub const CLUSTER_TOOLS_SYSTEM_MANIFESTS: [&str; 8] = [
-    PubSubStatus::MANIFEST,
-    PubSubDelta::MANIFEST,
-    PubSubPublishEnvelope::MANIFEST,
-    PubSubPathEnvelope::MANIFEST,
-    SingletonHandOverToMe::MANIFEST,
-    SingletonHandOverInProgress::MANIFEST,
-    SingletonHandOverDone::MANIFEST,
-    SingletonTakeOverFromMe::MANIFEST,
-];
+use crate::{CLUSTER_TOOLS_SYSTEM_MANIFESTS, ClusterToolsSystemInbound};
 
 /// Registers cluster-tools system traffic with an ActorSystem-owned remote runtime.
 ///
 /// The factory runs after TCP bind so it receives the effective canonical node
 /// address and the association cache shared by actor remoting and clustering.
+/// All [`CLUSTER_TOOLS_SYSTEM_MANIFESTS`] are registered on the control lane as
+/// one atomic handler set; duplicate manifest ownership is rejected by the
+/// remote-runtime builder.
 pub fn register_cluster_tools_system_inbound<M, F>(
     builder: &mut TcpRemoteActorRuntimeBuilder,
     node_uid: u64,

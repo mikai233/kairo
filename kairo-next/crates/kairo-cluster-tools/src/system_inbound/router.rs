@@ -6,14 +6,20 @@ use kairo_remote::{RemoteError, RemoteFrameHandler, RemoteStreamId, decode_remot
 use kairo_serialization::{ActorRefWireData, RemoteEnvelope, RemoteMessage};
 
 use crate::{
-    DEFAULT_PUBSUB_REMOTE_PATH, PubSubDelta, PubSubGossipWireInbound, PubSubPathEnvelope,
-    PubSubPublishEnvelope, PubSubRemoteDeliveryInbound, PubSubStatus, SingletonHandOverDone,
-    SingletonHandOverInProgress, SingletonHandOverToMe, SingletonManagerRemoteInbound,
-    SingletonTakeOverFromMe,
+    CLUSTER_TOOLS_SYSTEM_MANIFESTS, DEFAULT_PUBSUB_REMOTE_PATH, PubSubDelta,
+    PubSubGossipWireInbound, PubSubPathEnvelope, PubSubPublishEnvelope,
+    PubSubRemoteDeliveryInbound, PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress,
+    SingletonHandOverToMe, SingletonManagerRemoteInbound, SingletonTakeOverFromMe,
 };
 
 use super::ClusterToolsSystemInboundError;
 
+/// Shared control-plane ingress for cluster-tools remote protocols.
+///
+/// The router classifies stable manifests before invoking an optional typed
+/// adapter. Gossip, pubsub business delivery, and singleton handover remain
+/// separate handlers so applications can compose only the facilities they
+/// enable. Recognized traffic without a handler fails explicitly.
 #[derive(Clone)]
 pub struct ClusterToolsSystemInbound<M>
 where
@@ -30,6 +36,7 @@ impl<M> ClusterToolsSystemInbound<M>
 where
     M: Send + 'static,
 {
+    /// Creates an ingress with no protocol handlers installed.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             self_node,
@@ -40,21 +47,29 @@ where
         }
     }
 
+    /// Installs the pubsub status/delta gossip adapter.
     pub fn with_pubsub_gossip(mut self, inbound: PubSubGossipWireInbound) -> Self {
         self.pubsub_gossip = Some(inbound);
         self
     }
 
+    /// Installs the typed pubsub publish/path delivery adapter.
     pub fn with_pubsub_delivery(mut self, inbound: PubSubRemoteDeliveryInbound<M>) -> Self {
         self.pubsub_delivery = Some(inbound);
         self
     }
 
+    /// Installs the singleton handover adapter.
     pub fn with_singleton_manager(mut self, inbound: SingletonManagerRemoteInbound) -> Self {
         self.singleton_manager = Some(inbound);
         self
     }
 
+    /// Validates and dispatches one decoded remote envelope by stable manifest.
+    ///
+    /// Recipient validation is delegated to the selected protocol adapter,
+    /// except gossip messages whose already-demultiplexed entry point requires
+    /// this router to validate the canonical pubsub path first.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<(), ClusterToolsSystemInboundError>
     where
         M: RemoteMessage,
@@ -112,18 +127,9 @@ where
     }
 }
 
+/// Returns whether `manifest` belongs to the shared control-plane protocol.
 pub fn is_cluster_tools_system_manifest(manifest: &str) -> bool {
-    matches!(
-        manifest,
-        PubSubStatus::MANIFEST
-            | PubSubDelta::MANIFEST
-            | PubSubPublishEnvelope::MANIFEST
-            | PubSubPathEnvelope::MANIFEST
-            | SingletonHandOverToMe::MANIFEST
-            | SingletonHandOverInProgress::MANIFEST
-            | SingletonHandOverDone::MANIFEST
-            | SingletonTakeOverFromMe::MANIFEST
-    )
+    CLUSTER_TOOLS_SYSTEM_MANIFESTS.contains(&manifest)
 }
 
 fn validate_recipient(
