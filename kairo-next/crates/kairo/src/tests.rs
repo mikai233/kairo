@@ -54,7 +54,7 @@ const FACADE_FEATURE_EXPECTATIONS: [(&str, &str, &str); 8] = [
     ),
 ];
 
-const M13_VALIDATION_GATE_EXPECTATIONS: [(&str, &str); 10] = [
+const M13_VALIDATION_GATE_EXPECTATIONS: [(&str, &str); 11] = [
     (
         "cargo fmt --all -- --check",
         "formatting must remain a release-readiness gate",
@@ -66,6 +66,10 @@ const M13_VALIDATION_GATE_EXPECTATIONS: [(&str, &str); 10] = [
     (
         "cargo test --workspace --all-targets --all-features",
         "full workspace tests must remain a release-readiness gate",
+    ),
+    (
+        "cargo check -p kairo --all-targets --no-default-features",
+        "the facade's empty optional-dependency boundary must remain buildable",
     ),
     (
         "cargo test -p kairo-examples --all-targets --all-features",
@@ -1737,6 +1741,18 @@ fn rust_ci_keeps_m13_release_readiness_gates() -> Result<(), Box<dyn std::error:
             workflow_path.display()
         );
     }
+    assert!(
+        workflow.contains("cargo check -p kairo --all-targets\n"),
+        "{} must compile the facade's default feature set",
+        workflow_path.display()
+    );
+    assert!(
+        workflow.contains(
+            "for feature in actor macros config serialization remote cluster distributed-data cluster-tools cluster-sharding testkit full; do"
+        ),
+        "{} must compile every advertised facade feature in isolation",
+        workflow_path.display()
+    );
 
     Ok(())
 }

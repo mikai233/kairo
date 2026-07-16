@@ -472,8 +472,9 @@ Status terms in this document mean:
 - M13 hardening and release readiness: active as the remaining phase. Its
   validation, documentation, dependency audit, and benchmark scaffolding
   now include a declared Rust 1.88 MSRV, Linux/Windows/macOS stable test
-  coverage, release-mode benchmark smoke, and verified release archives for
-  every public crate. The remote-send benchmark now exercises the public typed
+  coverage, an explicit no-default/default/per-feature facade compile matrix,
+  release-mode benchmark smoke, and verified release archives for every public
+  crate. The remote-send benchmark now exercises the public typed
   `RemoteActorRef<M>` path, registered codec lookup, stable wire metadata, and
   payload serialization before deterministic outbound delivery instead of
   timing prebuilt envelope cloning. The sharding-route benchmark likewise now

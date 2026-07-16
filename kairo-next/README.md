@@ -186,6 +186,12 @@ Clippy: cargo clippy --workspace --all-targets --all-features -- -D warnings
 Test: cargo test --workspace --all-targets --all-features
 Platform Test: full workspace tests on Ubuntu, Windows, and macOS
 MSRV 1.88: cargo check --workspace --all-targets --all-features
+Facade Features:
+  cargo check -p kairo --all-targets --no-default-features
+  cargo check -p kairo --all-targets
+  for feature in actor macros config serialization remote cluster distributed-data cluster-tools cluster-sharding testkit full; do
+    cargo check -p kairo --all-targets --no-default-features --features "$feature"
+  done
 Examples and Multi-Node:
   cargo test -p kairo-examples --all-targets --all-features
   cargo test --doc --workspace --all-features

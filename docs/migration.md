@@ -19,7 +19,9 @@ sharding, cluster-tools, and testkit entry points behind feature flags.
 
 Kairo declares Rust 1.88 as its minimum supported Rust version. CI checks that
 version across all workspace targets and features, while the stable test matrix
-runs on Ubuntu, Windows, and macOS.
+runs on Ubuntu, Windows, and macOS. A separate facade matrix compiles the empty,
+default, and every advertised individual feature set so optional subsystem
+boundaries do not depend accidentally on the unified `full` graph.
 
 Default facade features enable typed local actors, macros, and TOML
 configuration loading. Distributed layers are opt-in:
@@ -506,6 +508,11 @@ Run focused validation for the area you touch first, then widen as needed:
 
 ```bash
 cargo fmt --all -- --check
+cargo check -p kairo --all-targets --no-default-features
+cargo check -p kairo --all-targets
+for feature in actor macros config serialization remote cluster distributed-data cluster-tools cluster-sharding testkit full; do
+  cargo check -p kairo --all-targets --no-default-features --features "$feature"
+done
 cargo test -p kairo-examples --all-targets --all-features
 cargo test --doc --workspace --all-features
 cargo test -p kairo-examples --doc --all-features

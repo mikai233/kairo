@@ -31,6 +31,23 @@ jobs:
       - name: Check lints
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  facade-features:
+    name: Facade Feature Matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y clang mold protobuf-compiler
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check public facade feature boundaries
+        shell: bash
+        run: |
+          cargo check -p kairo --all-targets --no-default-features
+          cargo check -p kairo --all-targets
+          for feature in actor macros config serialization remote cluster distributed-data cluster-tools cluster-sharding testkit full; do
+            cargo check -p kairo --all-targets --no-default-features --features "$feature"
+          done
+
   test:
     name: Test (${{ matrix.os }})
     strategy:
