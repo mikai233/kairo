@@ -3,6 +3,7 @@ use kairo_actor::{ActorRef, Recipient, SendError};
 use super::DistributedPubSubMediatorMsg;
 use crate::LocalPubSubMsg;
 
+/// In-process bridge that re-enters a mediator through `LocalDelivery`.
 #[derive(Clone)]
 pub(super) struct MediatorLocalRecipient<M>
 where
@@ -15,6 +16,7 @@ impl<M> MediatorLocalRecipient<M>
 where
     M: Send + 'static,
 {
+    /// Creates a local-delivery bridge for one typed mediator.
     pub(super) fn new(mediator: ActorRef<DistributedPubSubMediatorMsg<M>>) -> Self {
         Self { mediator }
     }

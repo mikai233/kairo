@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_actor::{Actor, ActorRef, ActorResult, Context, Signal};
@@ -18,6 +20,13 @@ use crate::{
 };
 use recipient::MediatorLocalRecipient;
 
+/// Typed actor that composes local pubsub state with a distributed registry.
+///
+/// Local subscriptions and logical paths are watched and mirrored into this
+/// node's versioned registry bucket. Publications are planned from the current
+/// converged registry and dispatched through exact-incarnation mediator routes.
+/// Cluster events remove departed routes and stop the mediator when this
+/// member's address is removed.
 pub struct DistributedPubSubMediatorActor<M>
 where
     M: Send + 'static,
@@ -32,6 +41,7 @@ impl<M> DistributedPubSubMediatorActor<M>
 where
     M: Send + 'static,
 {
+    /// Creates a mediator owning the registry bucket for `self_node`.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             local: LocalPubSub::new(),
@@ -41,15 +51,21 @@ where
         }
     }
 
+    /// Installs the gossip actor that receives local registry mutations.
+    ///
+    /// Without this link the mediator remains usable for focused local or
+    /// manually merged scenarios, but its local changes do not converge to peers.
     pub fn with_gossip(mut self, gossip: ActorRef<crate::PubSubGossipMsg>) -> Self {
         self.gossip = Some(gossip);
         self
     }
 
+    /// Returns the mediator's current distributed registry view.
     pub fn registry(&self) -> &PubSubRegistryState {
         &self.registry
     }
 
+    /// Returns the serialization-free local pubsub state.
     pub fn local(&self) -> &LocalPubSub<M> {
         &self.local
     }
