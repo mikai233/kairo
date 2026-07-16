@@ -306,31 +306,57 @@ fn merge_members(
     right: &[Member],
     tombstones: &HashMap<UniqueAddress, Timestamp>,
 ) -> Vec<Member> {
-    let mut grouped: HashMap<UniqueAddress, Vec<Member>> = HashMap::new();
-    for member in left.iter().chain(right.iter()) {
-        grouped
-            .entry(member.unique_address.clone())
-            .or_default()
-            .push(member.clone());
+    let left_keys: Vec<_> = left
+        .iter()
+        .map(|member| member.unique_address.ordering_key())
+        .collect();
+    let right_keys: Vec<_> = right
+        .iter()
+        .map(|member| member.unique_address.ordering_key())
+        .collect();
+    let mut merged = Vec::with_capacity(left.len() + right.len());
+    let mut left_index = 0;
+    let mut right_index = 0;
+
+    while left_index < left.len() && right_index < right.len() {
+        let left_member = &left[left_index];
+        let right_member = &right[right_index];
+        if left_member.unique_address == right_member.unique_address {
+            merged.push(Member::highest_priority(left_member, right_member).clone());
+            left_index += 1;
+            right_index += 1;
+            continue;
+        }
+
+        if left_keys[left_index] <= right_keys[right_index] {
+            push_single_sided_member(&mut merged, left_member, tombstones);
+            left_index += 1;
+        } else {
+            push_single_sided_member(&mut merged, right_member, tombstones);
+            right_index += 1;
+        }
     }
 
-    normalize_members(grouped.into_iter().filter_map(|(node, members)| {
-        if members.len() > 1 {
-            let selected = members
-                .iter()
-                .reduce(Member::highest_priority)
-                .expect("group has at least one member")
-                .clone();
-            Some(selected)
-        } else {
-            let member = members.into_iter().next().expect("group has one member");
-            if tombstones.contains_key(&node) || member.status.is_removed_by_single_sided_merge() {
-                None
-            } else {
-                Some(member)
-            }
-        }
-    }))
+    for member in &left[left_index..] {
+        push_single_sided_member(&mut merged, member, tombstones);
+    }
+    for member in &right[right_index..] {
+        push_single_sided_member(&mut merged, member, tombstones);
+    }
+
+    merged
+}
+
+fn push_single_sided_member(
+    merged: &mut Vec<Member>,
+    member: &Member,
+    tombstones: &HashMap<UniqueAddress, Timestamp>,
+) {
+    if !tombstones.contains_key(&member.unique_address)
+        && !member.status.is_removed_by_single_sided_merge()
+    {
+        merged.push(member.clone());
+    }
 }
 
 fn vclock_node(node: &UniqueAddress) -> VectorClockNode {
@@ -406,6 +432,74 @@ mod tests {
 
         assert_eq!(merged.members()[0].status, MemberStatus::Up);
         assert!(merged.seen_by().is_empty());
+    }
+
+    #[test]
+    fn member_merge_preserves_two_sided_members_even_when_tombstoned() {
+        let statuses = [
+            MemberStatus::Joining,
+            MemberStatus::WeaklyUp,
+            MemberStatus::Up,
+            MemberStatus::Leaving,
+            MemberStatus::Exiting,
+            MemberStatus::Down,
+            MemberStatus::Removed,
+        ];
+        let shared = node("shared", 1);
+        let tombstones = HashMap::from([(shared.clone(), 42)]);
+
+        for left_status in statuses {
+            for right_status in statuses {
+                let left_member = member(shared.clone(), left_status);
+                let right_member = member(shared.clone(), right_status);
+                let expected = Member::highest_priority(&left_member, &right_member).status;
+
+                let merged = merge_members(&[left_member], &[right_member], &tombstones);
+
+                assert_eq!(merged.len(), 1);
+                assert_eq!(merged[0].status, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn member_merge_filters_one_sided_terminal_and_tombstoned_members() {
+        let joining = node("joining", 1);
+        let up = node("up", 2);
+        let tombstoned = node("tombstoned", 3);
+        let exiting = node("exiting", 4);
+        let down = node("down", 5);
+        let removed = node("removed", 6);
+        let right_only = node("right-only", 7);
+        let left = Gossip::from_members([
+            member(joining.clone(), MemberStatus::Joining),
+            member(up.clone(), MemberStatus::Up),
+            member(tombstoned.clone(), MemberStatus::Up),
+            member(exiting, MemberStatus::Exiting),
+            member(down, MemberStatus::Down),
+            member(removed, MemberStatus::Removed),
+        ]);
+        let right = Gossip::from_members([member(right_only.clone(), MemberStatus::Leaving)]);
+
+        let merged = merge_members(
+            left.members(),
+            right.members(),
+            &HashMap::from([(tombstoned, 42)]),
+        );
+
+        assert_eq!(
+            merged
+                .iter()
+                .map(|member| member.unique_address.clone())
+                .collect::<HashSet<_>>(),
+            HashSet::from([joining, right_only, up])
+        );
+        assert!(
+            merged
+                .windows(2)
+                .all(|members| members[0].unique_address.ordering_key()
+                    <= members[1].unique_address.ordering_key())
+        );
     }
 
     #[test]

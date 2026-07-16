@@ -92,7 +92,12 @@ Status terms in this document mean:
   set. The causal-clock, membership ordering, observer-versioned reachability,
   tombstone-aware gossip merge, convergence, and leader-selection public APIs
   now document their Pekko-aligned ordering and eligibility contracts and deny
-  missing documentation module by module. The cluster-domain event model and
+  missing documentation module by module. Member-set merge now walks the two
+  normalized membership lists linearly, preserving Pekko's two-sided
+  highest-status and one-sided terminal/tombstone rules while avoiding the
+  former group-and-renormalize allocation pass; the 48-member release
+  benchmark improves from roughly 3.7k to 10k-10.8k merges per second on the
+  current Windows validation host. The cluster-domain event model and
   deterministic gossip-diff publication order carry the same hard gate. The
   deadline failure-detector and deterministic heartbeat-ring policy now also
   document their timing, receiver-retention, and recovery contracts under hard
