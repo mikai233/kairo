@@ -270,11 +270,17 @@ impl Gossip {
             });
 
         let members = merge_members(&self.members, &other.members, &tombstones);
-        let allowed: HashSet<_> = members
-            .iter()
-            .map(|member| member.unique_address.clone())
-            .collect();
-        let reachability = self.reachability.merge(&allowed, &other.reachability);
+        let reachability = if self.reachability.is_unversioned_all_reachable()
+            && other.reachability.is_unversioned_all_reachable()
+        {
+            Reachability::new()
+        } else {
+            let allowed: HashSet<_> = members
+                .iter()
+                .map(|member| member.unique_address.clone())
+                .collect();
+            self.reachability.merge(&allowed, &other.reachability)
+        };
 
         Self {
             members,

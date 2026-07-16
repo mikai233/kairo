@@ -80,6 +80,10 @@ impl Reachability {
         self.records.is_empty()
     }
 
+    pub(crate) fn is_unversioned_all_reachable(&self) -> bool {
+        self.records.is_empty() && self.versions.is_empty()
+    }
+
     /// Returns a table where `observer` reports `subject` unreachable.
     pub fn unreachable(&self, observer: UniqueAddress, subject: UniqueAddress) -> Self {
         self.change(observer, subject, ReachabilityStatus::Unreachable)
@@ -174,6 +178,10 @@ impl Reachability {
     ///
     /// Records whose observer or subject is absent from `allowed` are discarded.
     pub fn merge(&self, allowed: &HashSet<UniqueAddress>, other: &Self) -> Self {
+        if self.is_unversioned_all_reachable() && other.is_unversioned_all_reachable() {
+            return Self::new();
+        }
+
         let mut records = Vec::new();
         let mut versions = self.versions.clone();
 
@@ -383,6 +391,32 @@ mod tests {
             merged.status(&observer, &removed),
             ReachabilityStatus::Reachable
         );
+    }
+
+    #[test]
+    fn merge_of_unversioned_all_reachable_tables_is_empty_for_any_members() {
+        let allowed = HashSet::from([node("a", 1), node("b", 2)]);
+
+        let merged = Reachability::new().merge(&allowed, &Reachability::new());
+
+        assert_eq!(merged, Reachability::new());
+    }
+
+    #[test]
+    fn merge_does_not_treat_versioned_all_reachable_table_as_empty() {
+        let observer = node("a", 1);
+        let subject = node("b", 2);
+        let allowed = HashSet::from([observer.clone(), subject.clone()]);
+        let healed = Reachability::new()
+            .unreachable(observer.clone(), subject.clone())
+            .reachable(observer.clone(), subject);
+        assert!(healed.is_all_reachable());
+        assert_eq!(healed.version(&observer), 2);
+
+        let merged = healed.merge(&allowed, &Reachability::new());
+
+        assert!(merged.is_all_reachable());
+        assert_eq!(merged.version(&observer), 2);
     }
 
     fn node(system: &str, uid: u64) -> UniqueAddress {

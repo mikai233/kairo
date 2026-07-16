@@ -95,9 +95,12 @@ Status terms in this document mean:
   missing documentation module by module. Member-set merge now walks the two
   normalized membership lists linearly, preserving Pekko's two-sided
   highest-status and one-sided terminal/tombstone rules while avoiding the
-  former group-and-renormalize allocation pass; the 48-member release
-  benchmark improves from roughly 3.7k to 10k-10.8k merges per second on the
-  current Windows validation host. The cluster-domain event model and
+  former group-and-renormalize allocation pass. Healthy gossip merges also
+  skip allowed-member set construction when both reachability tables are
+  unversioned and all-reachable, while retaining healed observer-row versions.
+  The 48-member release benchmark now reaches roughly 20.5k-22.5k merges per
+  second versus the initial 3.7k baseline on the current Windows validation
+  host. The cluster-domain event model and
   deterministic gossip-diff publication order carry the same hard gate. The
   deadline failure-detector and deterministic heartbeat-ring policy now also
   document their timing, receiver-retention, and recovery contracts under hard
