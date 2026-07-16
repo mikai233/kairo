@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -10,6 +12,11 @@ type PubSubGossipRecipient = Arc<dyn Recipient<PubSubGossipMsg> + Send + Sync>;
 
 const DEFAULT_MAX_DELTA_ENTRIES: usize = 1000;
 
+/// Transport-neutral gossip destination for one exact peer incarnation.
+///
+/// The recipient may be a local actor ref or a remote wire adapter; membership
+/// code must add and remove peers explicitly because transport reachability is
+/// not a source of cluster truth.
 #[derive(Clone)]
 pub struct PubSubGossipPeer {
     node: UniqueAddress,
@@ -17,6 +24,7 @@ pub struct PubSubGossipPeer {
 }
 
 impl PubSubGossipPeer {
+    /// Creates a peer from any typed gossip recipient.
     pub fn new(
         node: UniqueAddress,
         recipient: impl Recipient<PubSubGossipMsg> + Send + Sync + 'static,
@@ -27,66 +35,112 @@ impl PubSubGossipPeer {
         }
     }
 
+    /// Creates a peer from an already type-erased shared recipient.
     pub fn from_arc(node: UniqueAddress, recipient: PubSubGossipRecipient) -> Self {
         Self { node, recipient }
     }
 
+    /// Returns the exact peer cluster incarnation.
     pub fn node(&self) -> &UniqueAddress {
         &self.node
     }
 }
 
+/// Actor protocol for version-vector-style pubsub registry gossip.
 pub enum PubSubGossipMsg {
+    /// Adds or replaces the recipient for one membership-approved peer.
     AddPeer {
+        /// Peer identity and transport-neutral recipient.
         peer: PubSubGossipPeer,
     },
+    /// Removes a peer and its registry bucket.
     RemovePeer {
+        /// Exact peer incarnation to remove.
         node: UniqueAddress,
     },
+    /// Records local direct-topic presence.
     RegisterTopic {
+        /// Topic to advertise.
         topic: TopicName,
     },
+    /// Records a local direct-topic removal tombstone.
     UnregisterTopic {
+        /// Topic to stop advertising directly.
         topic: TopicName,
     },
+    /// Records local named-group presence.
     RegisterGroup {
+        /// Topic containing the group.
         topic: TopicName,
+        /// Group to advertise.
         group: String,
     },
+    /// Records a local named-group removal tombstone.
     UnregisterGroup {
+        /// Topic containing the group.
         topic: TopicName,
+        /// Group to stop advertising.
         group: String,
     },
+    /// Records local logical-path presence.
     RegisterPath {
+        /// Address-independent path to advertise.
         path: String,
     },
+    /// Records a local logical-path removal tombstone.
     UnregisterPath {
+        /// Address-independent path to stop advertising.
         path: String,
     },
+    /// Sets the actor that receives accepted remote deltas.
+    ///
+    /// The composed mediator uses this to keep delivery routing synchronized
+    /// with the gossip actor's registry copy.
     SetDeltaSink {
+        /// Sink for known-node, non-empty deltas after filtering.
         sink: ActorRef<PubSubRegistryDelta>,
     },
+    /// Selects one peer round-robin and sends the local version status.
     GossipTick,
+    /// Advertises known owner versions and requests missing updates.
     Status {
+        /// Exact sending peer incarnation.
         from: UniqueAddress,
+        /// Highest bucket version known by the sender for each owner key.
         versions: BTreeMap<String, u64>,
+        /// Whether this status is the one-shot reply to a peer's status.
         reply: bool,
     },
+    /// Supplies bounded registry updates to a known peer.
     Delta {
+        /// Exact sending peer incarnation.
         from: UniqueAddress,
+        /// Node-owned bucket updates.
         delta: PubSubRegistryDelta,
     },
+    /// Returns a clone of the current registry state.
     GetRegistry {
+        /// Recipient for the registry snapshot.
         reply_to: ActorRef<PubSubRegistryState>,
     },
+    /// Returns the number of accepted non-empty remote delta batches.
     GetDeltaCount {
+        /// Recipient for the monotonic count.
         reply_to: ActorRef<u64>,
     },
+    /// Returns current peer incarnations in deterministic order.
     GetPeers {
+        /// Recipient for the peer snapshot.
         reply_to: ActorRef<Vec<UniqueAddress>>,
     },
 }
 
+/// Actor that converges pubsub registry buckets with membership-approved peers.
+///
+/// Each tick contacts one peer in deterministic round-robin order. Status
+/// exchange sends bounded deltas in both directions without status ping-pong;
+/// incoming deltas are accepted only from known peers and retain buckets only
+/// for the local node or currently known peers.
 pub struct PubSubGossipActor {
     registry: PubSubRegistryState,
     peers: BTreeMap<String, PubSubGossipPeer>,
@@ -97,6 +151,7 @@ pub struct PubSubGossipActor {
 }
 
 impl PubSubGossipActor {
+    /// Creates gossip state for `self_node` with the default delta limit.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             registry: PubSubRegistryState::new(self_node),
@@ -108,23 +163,28 @@ impl PubSubGossipActor {
         }
     }
 
+    /// Sets the maximum entries emitted in one delta, clamped to at least one.
     pub fn with_max_delta_entries(mut self, max_delta_entries: usize) -> Self {
         self.max_delta_entries = max_delta_entries.max(1);
         self
     }
 
+    /// Returns the maximum entries emitted in one delta.
     pub fn max_delta_entries(&self) -> usize {
         self.max_delta_entries
     }
 
+    /// Returns the actor's current registry state.
     pub fn registry(&self) -> &PubSubRegistryState {
         &self.registry
     }
 
+    /// Returns the number of membership-approved peers.
     pub fn peer_count(&self) -> usize {
         self.peers.len()
     }
 
+    /// Returns the number of accepted non-empty remote delta batches.
     pub fn delta_count(&self) -> u64 {
         self.delta_count
     }

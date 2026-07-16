@@ -467,6 +467,11 @@ Status terms in this document mean:
   delivery modes, logical-path registry, actor protocol, death-watch cleanup,
   and immediate delivery reports. Its docs explicitly distinguish broadcast,
   one-per-group, local `Send`, and distributed `SendToAll` re-entry semantics.
+  The distributed registry and gossip boundary now hard-gates exact-incarnation
+  bucket ownership, monotonic entry versions, tombstones, bounded lowest-version
+  deltas, deterministic delivery targets, membership-approved peers,
+  round-robin status exchange, unknown-node filtering, and accepted-delta
+  forwarding to the mediator.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -479,9 +484,10 @@ Status terms in this document mean:
   recommended `kairo` facade, foundational actor and serialization APIs, and
   public `kairo-testkit` utility surface now deny missing public documentation;
   the primary cluster-singleton and composed distributed-pubsub facades carry
-  the same module-level hard gate, as do the local topic/pubsub APIs. The remote
-  ping-pong example and compile-tested serialization docs now exercise the
-  format-neutral closure registration path. The
+  the same module-level hard gate, as do the local topic/pubsub and distributed
+  registry/gossip APIs. The remote ping-pong example and compile-tested
+  serialization docs now exercise the format-neutral closure registration
+  path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower
