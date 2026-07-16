@@ -1,3 +1,10 @@
+#![deny(missing_docs)]
+//! Low-level actors that map aggregation events into client responses.
+//!
+//! These adapters are useful when an application composes aggregation actors
+//! directly. The higher-level aggregation sessions perform the same terminal
+//! response mapping while also owning transport publication and read repair.
+
 mod read;
 mod response;
 mod write;

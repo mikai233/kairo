@@ -28,16 +28,7 @@ where
                 }
             }
         }
-        WriteAggregationOutcome::Failed {
-            required,
-            available,
-        } => UpdateResponse::Failure {
-            key: key.clone(),
-            reason: format!(
-                "write quorum failed: required {required} remote acknowledgements, \
-                 only {available} replicas remain available"
-            ),
-        },
+        WriteAggregationOutcome::Failed { .. } => UpdateResponse::Timeout { key: key.clone() },
         WriteAggregationOutcome::Timeout { .. } => UpdateResponse::Timeout { key: key.clone() },
     }
 }

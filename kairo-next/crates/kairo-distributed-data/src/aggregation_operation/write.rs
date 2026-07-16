@@ -7,17 +7,28 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Non-terminal diagnostic emitted while adapting a write aggregation.
 pub enum WriteAggregationOperationEvent {
+    /// One delta NACK requests a full-state retry by the composition owner.
     RetryFullState {
+        /// Key being written.
         key: ReplicatorKey,
+        /// Replica that rejected the delta.
         replica: ReplicaId,
     },
 }
 
+/// Input protocol for a write aggregation operation adapter.
 pub enum WriteAggregationOperationMsg {
+    /// Event emitted by the underlying write aggregation actor.
     Aggregation(WriteAggregationActorEvent),
 }
 
+/// Maps a write aggregation actor's events into one typed client response.
+///
+/// Delta NACK retries can be mirrored to an optional diagnostic target. A
+/// terminal outcome consumes the retained local update outcome, produces one
+/// [`UpdateResponse`], and stops the adapter.
 pub struct WriteAggregationOperation<Delta>
 where
     Delta: ReplicatedDelta + Send + 'static,
@@ -32,6 +43,7 @@ impl<Delta> WriteAggregationOperation<Delta>
 where
     Delta: ReplicatedDelta + Send + 'static,
 {
+    /// Creates an adapter without diagnostic event publication.
     pub fn new(outcome: UpdateOutcome<Delta>, reply_to: ActorRef<UpdateResponse<Delta>>) -> Self {
         Self {
             key: outcome.key().clone(),
@@ -41,6 +53,7 @@ where
         }
     }
 
+    /// Creates an adapter that mirrors full-state retry requests to `events`.
     pub fn with_events(
         outcome: UpdateOutcome<Delta>,
         reply_to: ActorRef<UpdateResponse<Delta>>,

@@ -99,6 +99,9 @@ where
             Ok(plan) => {
                 aggregation.spawn_write(ctx, plan, envelope, outcome, timeout, reply_to)?;
             }
+            Err(AggregationError::NotEnoughReplicas { .. }) => {
+                tell_or_actor_error(&reply_to, UpdateResponse::Timeout { key })?;
+            }
             Err(error) => {
                 tell_or_actor_error(
                     &reply_to,

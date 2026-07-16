@@ -113,11 +113,10 @@ fn write_operation_maps_success_failure_timeout_and_retry_effects() {
             }),
         ))
         .unwrap();
-    assert!(matches!(
+    assert_eq!(
         replies.recv_timeout(Duration::from_secs(1)).unwrap(),
-        UpdateResponse::Failure { key: failed_key, reason }
-            if failed_key == key && reason.contains("required 2")
-    ));
+        UpdateResponse::Timeout { key: key.clone() }
+    );
 
     let timed_out = system
         .spawn(

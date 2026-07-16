@@ -258,6 +258,77 @@ fn replicator_actor_spawns_write_session_for_non_local_update() {
 }
 
 #[test]
+fn replicator_actor_reports_unavailable_write_quorum_as_timeout_after_local_update() {
+    let system = ActorSystem::builder("ddata-replicator-unavailable-write-quorum")
+        .build()
+        .unwrap();
+    let (write_ref, write_rx) = forward_ref::<crate::ReplicatorWrite>(&system, "remote-writes");
+    let (read_ref, _read_rx) = forward_ref::<crate::ReplicatorRead>(&system, "remote-reads");
+    let (update_ref, update_rx) = forward_ref(&system, "update-replies");
+    let (get_ref, get_rx) = forward_ref(&system, "get-replies");
+    let mut transport = AggregationTransport::new(replica("local"), GCounterCodec);
+    transport.insert_target(AggregationTarget::new(
+        replica("remote"),
+        write_ref,
+        read_ref,
+    ));
+    let aggregation = ReplicatorAggregation::new(transport, Arc::new(GCounterCodec));
+    let replicator = system
+        .spawn(
+            "replicator",
+            Props::new(move || ReplicatorActor::<GCounter>::with_aggregation(aggregation)),
+        )
+        .unwrap();
+    let key = ReplicatorKey::new("counter");
+
+    replicator
+        .tell(ReplicatorActorMsg::SetRemoteReplicas {
+            nodes: vec![replica("remote")],
+            unreachable: BTreeSet::new(),
+        })
+        .unwrap();
+    replicator
+        .tell(ReplicatorActorMsg::Update {
+            key: key.clone(),
+            initial: GCounter::new(),
+            consistency: WriteConsistency::to(3, Duration::from_secs(1)).unwrap(),
+            modify: Box::new(|counter| {
+                counter
+                    .increment(replica("local"), 5)
+                    .map_err(|error| error.to_string())
+            }),
+            reply_to: update_ref,
+        })
+        .unwrap();
+
+    assert_eq!(
+        update_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+        UpdateResponse::Timeout { key: key.clone() }
+    );
+    assert!(write_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+    replicator
+        .tell(ReplicatorActorMsg::Get {
+            key,
+            consistency: ReadConsistency::local(),
+            reply_to: get_ref,
+        })
+        .unwrap();
+    assert_eq!(
+        get_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .data()
+            .unwrap()
+            .value()
+            .unwrap(),
+        5
+    );
+
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn replicator_actor_spawns_read_session_for_non_local_get() {
     let system = ActorSystem::builder("ddata-replicator-aggregate-get")
         .build()

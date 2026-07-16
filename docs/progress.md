@@ -244,6 +244,12 @@ Status terms in this document mean:
   read-repair ordering, client response mapping, and Pekko-aligned delayed
   secondary publication at one fifth of the consistency timeout. Deterministic
   manual-time coverage proves a secondary reply can complete either quorum.
+  Low-level aggregation operation adapters now hard-gate decode/retry
+  diagnostics, terminal response mapping, single-use update outcomes, and
+  actor stop behavior. Non-durable impossible write quorums, including early
+  NACK exhaustion and insufficient known replicas after a successful local
+  update, now return Pekko-aligned `UpdateResponse::Timeout` rather than a
+  generic failure.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
