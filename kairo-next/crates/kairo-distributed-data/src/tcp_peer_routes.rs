@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{self, Display, Formatter};
 
@@ -7,9 +9,13 @@ use kairo_remote::{RemoteAssociationRouteRegistration, RemoteError};
 use crate::ReplicatorTcpAssociationRuntime;
 
 #[derive(Debug)]
+/// Failure while applying membership-derived distributed-data route intent.
 pub enum ReplicatorTcpPeerRouteError {
+    /// An outbound association could not be established for the target member.
     Dial {
+        /// Exact member incarnation whose route failed.
         target: Box<ClusterAssociationPeerTarget>,
+        /// Underlying remoting failure.
         source: Box<RemoteError>,
     },
 }
@@ -35,6 +41,7 @@ impl std::error::Error for ReplicatorTcpPeerRouteError {
 }
 
 impl ReplicatorTcpPeerRouteError {
+    /// Returns the exact member incarnation whose route operation failed.
     pub fn target(&self) -> &ClusterAssociationPeerTarget {
         match self {
             Self::Dial { target, .. } => target.as_ref(),
@@ -42,22 +49,33 @@ impl ReplicatorTcpPeerRouteError {
     }
 }
 
+/// Result of applying distributed-data peer route changes.
 pub type ReplicatorTcpPeerRouteResult<T> = Result<T, ReplicatorTcpPeerRouteError>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Route changes completed by one membership or cleanup operation.
 pub struct ReplicatorTcpPeerRouteReport {
+    /// Targets for which new outbound routes were established.
     pub dialed: Vec<ClusterAssociationPeerTarget>,
+    /// Targets whose managed routes were removed.
     pub removed: Vec<ClusterAssociationPeerTarget>,
+    /// Targets requiring no transport change.
     pub skipped: Vec<ClusterAssociationPeerTarget>,
 }
 
 impl ReplicatorTcpPeerRouteReport {
+    /// Returns whether no target was dialed, removed, or skipped.
     pub fn is_empty(&self) -> bool {
         self.dialed.is_empty() && self.removed.is_empty() && self.skipped.is_empty()
     }
 }
 
 #[derive(Default)]
+/// Owner of distributed-data routes derived from cluster membership.
+///
+/// Routes are keyed by member incarnation rather than transport address. The owner remembers
+/// removals so a later incarnation at the same target is re-established instead of adopting a
+/// stale route.
 pub struct ReplicatorTcpPeerRoutes {
     registrations: BTreeMap<String, ReplicatorTcpPeerRouteEntry>,
     removed_peers: BTreeSet<String>,
@@ -69,18 +87,22 @@ struct ReplicatorTcpPeerRouteEntry {
 }
 
 impl ReplicatorTcpPeerRoutes {
+    /// Creates an empty route owner.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Returns the number of managed peer targets.
     pub fn route_count(&self) -> usize {
         self.registrations.len()
     }
 
+    /// Returns whether the exact member incarnation has a managed route entry.
     pub fn contains_peer(&self, target: &ClusterAssociationPeerTarget) -> bool {
         self.registrations.contains_key(&peer_key(target))
     }
 
+    /// Returns managed targets in deterministic member order.
     pub fn active_targets(&self) -> Vec<ClusterAssociationPeerTarget> {
         self.registrations
             .values()
@@ -88,6 +110,9 @@ impl ReplicatorTcpPeerRoutes {
             .collect()
     }
 
+    /// Applies membership-derived changes in iteration order.
+    ///
+    /// Processing stops at the first dial failure and reports that target through the error.
     pub fn apply_changes(
         &mut self,
         runtime: &ReplicatorTcpAssociationRuntime,
@@ -107,6 +132,7 @@ impl ReplicatorTcpPeerRoutes {
         Ok(report)
     }
 
+    /// Removes every managed distributed-data route while preserving unrelated runtime routes.
     pub fn clear(
         &mut self,
         runtime: &ReplicatorTcpAssociationRuntime,

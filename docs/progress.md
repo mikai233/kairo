@@ -304,7 +304,11 @@ Status terms in this document mean:
   retry, and route-clear work through one background command at a time, so TCP
   connection work cannot hold synchronous actor turns. Typed snapshots remain
   mailbox-responsive from the last completed runtime state, and the connector
-  API now denies missing public documentation.
+  API now denies missing public documentation. The complete standalone TCP
+  lifecycle now carries that hard gate across association runtime, bootstrap,
+  reconnect state, route ownership, peer runtime, and connector surfaces,
+  including an explicit legacy caveat that the low-level shutdown timeout is
+  not yet enforced.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
@@ -19,6 +21,11 @@ use crate::{
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 const REPLICATOR_TCP_SHUTDOWN_REASON: &str = "replicator tcp association runtime shutdown";
 
+/// Standalone TCP association runtime for distributed-data system traffic.
+///
+/// The runtime owns one listener, a shared bidirectional route cache, accepted-association
+/// identities, source-replica mappings, and every outbound pipeline and reader it creates.
+/// Cluster membership remains the source of peer intent; this transport only realizes routes.
 pub struct ReplicatorTcpAssociationRuntime {
     local_replica: ReplicaId,
     remote_replica: ReplicaId,
@@ -37,6 +44,11 @@ pub struct ReplicatorTcpAssociationRuntime {
 }
 
 impl ReplicatorTcpAssociationRuntime {
+    /// Binds a distributed-data listener and constructs its request/reply inbound router.
+    ///
+    /// A configured port of zero is replaced with the listener's effective port. The
+    /// `local_system_uid` identifies the remoting ActorSystem incarnation, while the replica
+    /// identifiers provide local identity and an inbound fallback when no source mapping exists.
     pub fn bind(
         local_system: impl Into<String>,
         local_replica: ReplicaId,
@@ -130,6 +142,7 @@ impl ReplicatorTcpAssociationRuntime {
         })
     }
 
+    /// Returns the local distributed-data replica identity.
     pub fn local_replica(&self) -> &ReplicaId {
         &self.local_replica
     }
@@ -139,26 +152,34 @@ impl ReplicatorTcpAssociationRuntime {
         self
     }
 
+    /// Returns the fallback replica identity used for inbound traffic without a source mapping.
     pub fn remote_replica(&self) -> &ReplicaId {
         &self.remote_replica
     }
 
+    /// Returns the canonical transport address advertised during association handshakes.
     pub fn local_address(&self) -> &RemoteAssociationAddress {
         &self.local_address
     }
 
+    /// Returns the effective remote settings, including an ephemeral port selected by bind.
     pub fn settings(&self) -> &RemoteSettings {
         &self.settings
     }
 
+    /// Returns the shared bidirectional association route cache.
     pub fn association_cache(&self) -> &RemoteAssociationCache {
         &self.association_cache
     }
 
+    /// Returns the registry of accepted remote association identities.
     pub fn association_registry(&self) -> &RemoteAssociationRegistry {
         &self.association_registry
     }
 
+    /// Establishes a route using the runtime's fallback inbound replica identity.
+    ///
+    /// The runtime retains ownership of the resulting pipeline and reader.
     pub fn dial(
         &self,
         address: RemoteAssociationAddress,
@@ -177,6 +198,9 @@ impl ReplicatorTcpAssociationRuntime {
         Ok(registration)
     }
 
+    /// Establishes a route whose inbound replies and requests are attributed to `replica`.
+    ///
+    /// The source mapping is removed if dialing fails.
     pub fn dial_peer(
         &self,
         address: RemoteAssociationAddress,
@@ -215,6 +239,7 @@ impl ReplicatorTcpAssociationRuntime {
         Ok(registration)
     }
 
+    /// Associates transport traffic from `address` with a distributed-data replica identity.
     pub fn register_source_replica(&self, address: RemoteAssociationAddress, replica: ReplicaId) {
         self.source_replicas
             .lock()
@@ -222,6 +247,7 @@ impl ReplicatorTcpAssociationRuntime {
             .insert(address, replica);
     }
 
+    /// Removes and returns the source-replica mapping for `address`, if present.
     pub fn unregister_source_replica(
         &self,
         address: &RemoteAssociationAddress,
@@ -232,10 +258,16 @@ impl ReplicatorTcpAssociationRuntime {
             .remove(address)
     }
 
+    /// Removes the source mapping and closes the cached route with the default reason.
+    ///
+    /// Returns whether a route was present.
     pub fn remove_route(&self, address: &RemoteAssociationAddress) -> bool {
         self.remove_route_with_reason(address, "replicator tcp association route removed")
     }
 
+    /// Removes the source mapping and closes the cached route with an explicit diagnostic reason.
+    ///
+    /// Returns whether a route was present.
     pub fn remove_route_with_reason(
         &self,
         address: &RemoteAssociationAddress,
@@ -247,10 +279,16 @@ impl ReplicatorTcpAssociationRuntime {
             .is_some()
     }
 
+    /// Stops the runtime using the default shutdown timeout policy.
     pub fn shutdown(self) -> RemoteResult<TcpAssociationListenerReport> {
         self.shutdown_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
     }
 
+    /// Closes cached routes, stops owned readers and the listener, and reports accepted peers.
+    ///
+    /// The cache is cleared again after the listener joins so routes registered concurrently by a
+    /// closing association cannot escape shutdown. The timeout parameter is currently retained for
+    /// API symmetry; this legacy standalone runtime does not apply a shutdown deadline.
     pub fn shutdown_with_timeout(
         self,
         _timeout: Duration,
@@ -286,6 +324,7 @@ impl ReplicatorTcpAssociationRuntime {
     }
 }
 
+/// Builds the canonical `/system/ddata` wire actor reference for an ActorSystem.
 pub fn replicator_actor_ref_for(
     system: &str,
     settings: &RemoteSettings,
@@ -297,6 +336,7 @@ pub fn replicator_actor_ref_for(
     .map_err(RemoteError::from)
 }
 
+/// Builds the remoting handshake identity for a named ActorSystem incarnation.
 pub fn tcp_association_identity_for(
     system: &str,
     settings: &RemoteSettings,

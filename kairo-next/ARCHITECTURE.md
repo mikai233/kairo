@@ -1801,6 +1801,13 @@ Remote association integration:
   shutdown to stop the connector before cluster shutdown so socket routes are
   cleared through the same actor stop path.
 
+The complete standalone distributed-data TCP peer lifecycle denies missing
+public documentation at compile time. Its API contract covers transport and
+replica identity, membership-derived route ownership, fixed-interval reconnect
+state, one-at-a-time actor-backed route work, and coordinated shutdown. The
+legacy low-level association runtime retains a timeout parameter for API
+symmetry but does not currently enforce a shutdown deadline.
+
 The composed ActorSystem path uses `register_distributed_data` instead of that
 legacy standalone listener. Cluster daemon registration must precede it on the
 same `TcpRemoteActorRuntimeBuilder`. At bind, the distributed-data factory uses

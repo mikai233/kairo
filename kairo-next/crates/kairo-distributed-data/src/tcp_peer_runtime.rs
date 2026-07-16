@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,8 +22,11 @@ use crate::{
 };
 
 #[derive(Debug)]
+/// Failure while projecting cluster membership or applying distributed-data TCP route intent.
 pub enum ReplicatorTcpPeerRuntimeError {
+    /// A cluster member could not be converted to a remote peer target.
     Peer(ClusterAssociationPeerError),
+    /// A derived distributed-data route operation failed.
     Route(ReplicatorTcpPeerRouteError),
 }
 
@@ -55,15 +60,18 @@ impl From<ReplicatorTcpPeerRouteError> for ReplicatorTcpPeerRuntimeError {
     }
 }
 
+/// Result of applying membership or reconnect work to the distributed-data peer runtime.
 pub type ReplicatorTcpPeerRuntimeResult<T> = Result<T, ReplicatorTcpPeerRuntimeError>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Listener and reconnect settings for a distributed-data TCP peer runtime.
 pub struct ReplicatorTcpPeerRuntimeSettings {
     remote: RemoteSettings,
     reconnect: ReplicatorTcpPeerReconnectSettings,
 }
 
 impl ReplicatorTcpPeerRuntimeSettings {
+    /// Creates runtime settings with the default fixed-interval reconnect policy.
     pub fn new(remote: RemoteSettings) -> Self {
         Self {
             remote,
@@ -71,27 +79,38 @@ impl ReplicatorTcpPeerRuntimeSettings {
         }
     }
 
+    /// Replaces the fixed-interval reconnect policy.
     pub fn with_reconnect(mut self, reconnect: ReplicatorTcpPeerReconnectSettings) -> Self {
         self.reconnect = reconnect;
         self
     }
 
+    /// Returns listener and outbound connection settings.
     pub fn remote(&self) -> &RemoteSettings {
         &self.remote
     }
 
+    /// Returns the fixed-interval reconnect policy.
     pub fn reconnect(&self) -> &ReplicatorTcpPeerReconnectSettings {
         &self.reconnect
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Cleanup completed while shutting down a distributed-data TCP peer runtime.
 pub struct ReplicatorTcpPeerRuntimeShutdownReport {
+    /// Managed peer routes removed before listener shutdown.
     pub peer_routes: ReplicatorTcpPeerRouteReport,
+    /// Pending reconnect deadlines cleared before listener shutdown.
     pub pending_reconnects: ReplicatorTcpPeerReconnectReport,
+    /// Accepted-association report returned by the underlying listener.
     pub listener: TcpAssociationListenerReport,
 }
 
+/// Synchronous composition of membership projection, distributed-data routes, and reconnect state.
+///
+/// The runtime does not subscribe to cluster events by itself. Callers feed snapshots and events,
+/// and the runtime derives transport intent without treating associations as membership truth.
 pub struct ReplicatorTcpPeerRuntime {
     runtime: ReplicatorTcpAssociationRuntime,
     peers: ClusterAssociationPeerState,
@@ -100,6 +119,7 @@ pub struct ReplicatorTcpPeerRuntime {
 }
 
 impl ReplicatorTcpPeerRuntime {
+    /// Binds a runtime with the default fixed-interval reconnect policy.
     pub fn bind(
         local_system: impl Into<String>,
         node_uid: u64,
@@ -120,6 +140,7 @@ impl ReplicatorTcpPeerRuntime {
         )
     }
 
+    /// Binds a runtime with explicit listener and reconnect settings.
     pub fn bind_with_settings(
         local_system: impl Into<String>,
         node_uid: u64,
@@ -159,50 +180,62 @@ impl ReplicatorTcpPeerRuntime {
         })
     }
 
+    /// Returns the owned lower-level distributed-data TCP association runtime.
     pub fn runtime(&self) -> &ReplicatorTcpAssociationRuntime {
         &self.runtime
     }
 
+    /// Returns the canonical local cluster member identity.
     pub fn self_node(&self) -> &UniqueAddress {
         self.peers.self_node()
     }
 
+    /// Returns the local replica identity derived from the cluster member incarnation.
     pub fn local_replica(&self) -> &ReplicaId {
         self.runtime.local_replica()
     }
 
+    /// Returns the fallback remote replica used before a source mapping is available.
     pub fn remote_replica(&self) -> &ReplicaId {
         self.runtime.remote_replica()
     }
 
+    /// Returns the canonical local transport address.
     pub fn local_address(&self) -> &RemoteAssociationAddress {
         self.runtime.local_address()
     }
 
+    /// Returns the shared bidirectional association route cache.
     pub fn association_cache(&self) -> &RemoteAssociationCache {
         self.runtime.association_cache()
     }
 
+    /// Returns identities learned from accepted remote associations.
     pub fn association_registry(&self) -> &RemoteAssociationRegistry {
         self.runtime.association_registry()
     }
 
+    /// Returns the number of managed membership-derived route entries.
     pub fn peer_route_count(&self) -> usize {
         self.routes.route_count()
     }
 
+    /// Returns managed peer targets in deterministic member order.
     pub fn active_peer_targets(&self) -> Vec<kairo_cluster::ClusterAssociationPeerTarget> {
         self.routes.active_targets()
     }
 
+    /// Returns the number of failed peer dials waiting for retry.
     pub fn pending_peer_reconnect_count(&self) -> usize {
         self.reconnect.pending_count()
     }
 
+    /// Returns pending reconnects in deterministic member order.
     pub fn pending_peer_reconnects(&self) -> Vec<crate::ReplicatorTcpPeerReconnectPending> {
         self.reconnect.pending_reconnects()
     }
 
+    /// Applies a full cluster snapshot using zero as the reconnect clock value.
     pub fn apply_snapshot(
         &mut self,
         snapshot: CurrentClusterState,
@@ -210,6 +243,7 @@ impl ReplicatorTcpPeerRuntime {
         self.apply_snapshot_at(snapshot, Duration::ZERO)
     }
 
+    /// Applies a full cluster snapshot and schedules failed dials relative to `now`.
     pub fn apply_snapshot_at(
         &mut self,
         snapshot: CurrentClusterState,
@@ -219,6 +253,7 @@ impl ReplicatorTcpPeerRuntime {
         self.apply_route_changes(changes, now)
     }
 
+    /// Applies one cluster-domain event using zero as the reconnect clock value.
     pub fn apply_event(
         &mut self,
         event: ClusterEvent,
@@ -226,6 +261,7 @@ impl ReplicatorTcpPeerRuntime {
         self.apply_event_at(event, Duration::ZERO)
     }
 
+    /// Applies one cluster-domain event and schedules failed dials relative to `now`.
     pub fn apply_event_at(
         &mut self,
         event: ClusterEvent,
@@ -235,6 +271,7 @@ impl ReplicatorTcpPeerRuntime {
         self.apply_route_changes(changes, now)
     }
 
+    /// Retries every failed peer dial whose deadline is at or before `now`.
     pub fn retry_due_peer_routes(
         &mut self,
         now: Duration,
@@ -246,6 +283,7 @@ impl ReplicatorTcpPeerRuntime {
         )
     }
 
+    /// Clears every pending reconnect deadline without removing active routes.
     pub fn clear_pending_peer_reconnects(&mut self) -> ReplicatorTcpPeerReconnectReport {
         ReplicatorTcpPeerReconnectReport {
             scheduled: Vec::new(),
@@ -253,14 +291,19 @@ impl ReplicatorTcpPeerRuntime {
         }
     }
 
+    /// Removes every managed peer route without clearing reconnect deadlines.
     pub fn clear_peer_routes(&mut self) -> ReplicatorTcpPeerRouteReport {
         self.routes.clear(&self.runtime)
     }
 
+    /// Clears peer state and stops the TCP association runtime with its default policy.
     pub fn shutdown(self) -> RemoteResult<ReplicatorTcpPeerRuntimeShutdownReport> {
         self.shutdown_with_timeout(Duration::from_secs(1))
     }
 
+    /// Clears reconnects and routes before stopping the TCP association runtime.
+    ///
+    /// `timeout` is forwarded to the lower-level runtime, which owns listener shutdown semantics.
     pub fn shutdown_with_timeout(
         mut self,
         timeout: Duration,

@@ -312,8 +312,13 @@ fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn
         "kairo-next/crates/kairo-distributed-data/src/read_write_receive.rs",
         "kairo-next/crates/kairo-distributed-data/src/response.rs",
         "kairo-next/crates/kairo-distributed-data/src/replica.rs",
+        "kairo-next/crates/kairo-distributed-data/src/remote_tcp.rs",
         "kairo-next/crates/kairo-distributed-data/src/state.rs",
+        "kairo-next/crates/kairo-distributed-data/src/tcp_peer_bootstrap.rs",
         "kairo-next/crates/kairo-distributed-data/src/tcp_peer_connector.rs",
+        "kairo-next/crates/kairo-distributed-data/src/tcp_peer_reconnect.rs",
+        "kairo-next/crates/kairo-distributed-data/src/tcp_peer_routes.rs",
+        "kairo-next/crates/kairo-distributed-data/src/tcp_peer_runtime.rs",
     ];
 
     for relative_path in documented_modules {

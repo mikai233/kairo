@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::time::Duration;
@@ -5,7 +7,9 @@ use std::time::Duration;
 use kairo_cluster::ClusterAssociationPeerTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Invalid reconnect policy configuration.
 pub enum ReplicatorTcpPeerReconnectError {
+    /// The configured retry interval was zero.
     ZeroRetryInterval,
 }
 
@@ -24,14 +28,17 @@ impl Display for ReplicatorTcpPeerReconnectError {
 
 impl std::error::Error for ReplicatorTcpPeerReconnectError {}
 
+/// Result of validating a distributed-data peer reconnect policy.
 pub type ReplicatorTcpPeerReconnectResult<T> = Result<T, ReplicatorTcpPeerReconnectError>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Fixed-interval reconnect policy for failed distributed-data peer routes.
 pub struct ReplicatorTcpPeerReconnectSettings {
     retry_interval: Duration,
 }
 
 impl ReplicatorTcpPeerReconnectSettings {
+    /// Creates a reconnect policy, rejecting a zero retry interval.
     pub fn new(retry_interval: Duration) -> ReplicatorTcpPeerReconnectResult<Self> {
         if retry_interval.is_zero() {
             return Err(ReplicatorTcpPeerReconnectError::ZeroRetryInterval);
@@ -39,6 +46,7 @@ impl ReplicatorTcpPeerReconnectSettings {
         Ok(Self { retry_interval })
     }
 
+    /// Returns the delay applied after every failed dial attempt.
     pub fn retry_interval(&self) -> Duration {
         self.retry_interval
     }
@@ -53,31 +61,41 @@ impl Default for ReplicatorTcpPeerReconnectSettings {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One failed peer route waiting for its next fixed-interval retry.
 pub struct ReplicatorTcpPeerReconnectPending {
+    /// Exact cluster member incarnation to dial.
     pub target: ClusterAssociationPeerTarget,
+    /// Number of consecutive failures recorded for this target.
     pub attempts: u64,
+    /// Monotonic caller-supplied clock value at which the target becomes due.
     pub next_retry_at: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+/// Reconnect deadlines scheduled or cleared by one runtime operation.
 pub struct ReplicatorTcpPeerReconnectReport {
+    /// Failed targets newly scheduled for retry.
     pub scheduled: Vec<ReplicatorTcpPeerReconnectPending>,
+    /// Targets whose pending reconnect state was cleared.
     pub cleared: Vec<ClusterAssociationPeerTarget>,
 }
 
 impl ReplicatorTcpPeerReconnectReport {
+    /// Returns whether the operation scheduled and cleared no targets.
     pub fn is_empty(&self) -> bool {
         self.scheduled.is_empty() && self.cleared.is_empty()
     }
 }
 
 #[derive(Debug, Clone)]
+/// Deterministic reconnect state keyed by cluster member incarnation.
 pub struct ReplicatorTcpPeerReconnectState {
     settings: ReplicatorTcpPeerReconnectSettings,
     pending: BTreeMap<String, ReplicatorTcpPeerReconnectPending>,
 }
 
 impl ReplicatorTcpPeerReconnectState {
+    /// Creates empty reconnect state using the supplied policy.
     pub fn new(settings: ReplicatorTcpPeerReconnectSettings) -> Self {
         Self {
             settings,
@@ -85,18 +103,22 @@ impl ReplicatorTcpPeerReconnectState {
         }
     }
 
+    /// Returns the fixed-interval retry policy.
     pub fn settings(&self) -> &ReplicatorTcpPeerReconnectSettings {
         &self.settings
     }
 
+    /// Returns the number of peer incarnations waiting for retry.
     pub fn pending_count(&self) -> usize {
         self.pending.len()
     }
 
+    /// Returns pending reconnects in deterministic member order.
     pub fn pending_reconnects(&self) -> Vec<ReplicatorTcpPeerReconnectPending> {
         self.pending.values().cloned().collect()
     }
 
+    /// Records a failed dial and returns its next deadline and incremented attempt count.
     pub fn record_failure(
         &mut self,
         target: ClusterAssociationPeerTarget,
@@ -116,6 +138,7 @@ impl ReplicatorTcpPeerReconnectState {
         pending
     }
 
+    /// Clears and returns the exact pending target, if present.
     pub fn clear_peer(
         &mut self,
         target: &ClusterAssociationPeerTarget,
@@ -125,6 +148,7 @@ impl ReplicatorTcpPeerReconnectState {
             .map(|pending| pending.target)
     }
 
+    /// Clears and returns all pending targets in deterministic member order.
     pub fn clear_all(&mut self) -> Vec<ClusterAssociationPeerTarget> {
         std::mem::take(&mut self.pending)
             .into_values()
@@ -132,6 +156,7 @@ impl ReplicatorTcpPeerReconnectState {
             .collect()
     }
 
+    /// Returns targets whose retry deadline is at or before `now` without mutating state.
     pub fn due_targets(&self, now: Duration) -> Vec<ClusterAssociationPeerTarget> {
         self.pending
             .values()
