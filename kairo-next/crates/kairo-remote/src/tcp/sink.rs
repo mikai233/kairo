@@ -1,6 +1,6 @@
 #![deny(missing_docs)]
 
-use std::io::{self, Write};
+use std::io::{self, IoSlice, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -110,6 +110,38 @@ impl RemoteByteSink for TcpRemoteByteSink {
         })
     }
 
+    fn send_byte_batch(&self, batch: &[Bytes]) -> Result<()> {
+        let _guard = self
+            .write_lock
+            .lock()
+            .expect("tcp remote byte sink write lock poisoned");
+        let mut slices = batch
+            .iter()
+            .filter(|bytes| !bytes.is_empty())
+            .map(|bytes| IoSlice::new(bytes))
+            .collect::<Vec<_>>();
+        let mut pending = slices.as_mut_slice();
+        while !pending.is_empty() {
+            match (&self.stream).write_vectored(pending) {
+                Ok(0) => {
+                    return Err(RemoteError::Outbound(format!(
+                        "tcp write to {} failed: write returned zero bytes",
+                        self.peer
+                    )));
+                }
+                Ok(written) => IoSlice::advance_slices(&mut pending, written),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => {
+                    return Err(RemoteError::Outbound(format!(
+                        "tcp write to {} failed: {error}",
+                        self.peer
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn close(&self) -> Result<()> {
         let result = self.stream.shutdown(Shutdown::Both);
         map_tcp_shutdown_result(&self.peer, result)
@@ -154,7 +186,30 @@ fn tcp_outbound_failure(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Read;
+    use std::net::TcpListener;
+
     use super::*;
+
+    #[test]
+    fn tcp_remote_byte_sink_writes_batched_chunks_in_order() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        let sink = TcpRemoteByteSink::from_stream("test-peer", client);
+
+        sink.send_byte_batch(&[
+            Bytes::from_static(b"one"),
+            Bytes::new(),
+            Bytes::from_static(b"two"),
+            Bytes::from_static(b"three"),
+        ])
+        .unwrap();
+
+        let mut received = [0_u8; 11];
+        server.read_exact(&mut received).unwrap();
+        assert_eq!(&received, b"onetwothree");
+    }
 
     #[test]
     fn tcp_remote_byte_sink_close_treats_not_connected_as_idempotent_shutdown() {

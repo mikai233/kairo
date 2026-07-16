@@ -1,7 +1,7 @@
 #![deny(missing_docs)]
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
+use std::sync::mpsc::{SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
@@ -15,6 +15,18 @@ use crate::{
 pub trait RemoteByteSink: Send + Sync + 'static {
     /// Sends one encoded byte chunk.
     fn send_bytes(&self, bytes: Bytes) -> Result<()>;
+
+    /// Sends an ordered batch of encoded byte chunks.
+    ///
+    /// The default implementation preserves compatibility for sinks that only
+    /// support individual writes. Transport sinks may override this method to
+    /// amortize synchronization and system calls across a queued burst.
+    fn send_byte_batch(&self, batch: &[Bytes]) -> Result<()> {
+        for bytes in batch {
+            self.send_bytes(bytes.clone())?;
+        }
+        Ok(())
+    }
 
     /// Closes the byte sink.
     ///
@@ -101,6 +113,8 @@ pub struct QueuedRemoteByteSink {
 
 type RemoteLaneWriterFailureHandler = Arc<dyn Fn(RemoteStreamId, String) + Send + Sync + 'static>;
 
+const MAX_QUEUED_WRITE_BATCH_FRAMES: usize = 64;
+
 impl QueuedRemoteByteSink {
     /// Creates a queued sink for `lane` with a positive bounded `capacity`.
     pub fn new(
@@ -131,8 +145,18 @@ impl QueuedRemoteByteSink {
         let worker = thread::Builder::new()
             .name(format!("kairo-remote-{}-writer", lane_name(lane)))
             .spawn(move || {
+                let mut batch = Vec::with_capacity(capacity.min(MAX_QUEUED_WRITE_BATCH_FRAMES));
                 while let Ok(bytes) = receiver.recv() {
-                    if let Err(error) = worker_sink.send_bytes(bytes) {
+                    batch.push(bytes);
+                    while batch.len() < MAX_QUEUED_WRITE_BATCH_FRAMES {
+                        match receiver.try_recv() {
+                            Ok(bytes) => batch.push(bytes),
+                            Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+                        }
+                    }
+                    let write_result = worker_sink.send_byte_batch(&batch);
+                    batch.clear();
+                    if let Err(error) = write_result {
                         if !worker_closed.load(Ordering::Acquire) {
                             let reason = error.to_string();
                             *worker_failure
@@ -418,6 +442,7 @@ mod tests {
     #[derive(Default)]
     struct BlockingByteSink {
         writes: Mutex<Vec<(Bytes, ThreadId)>>,
+        batches: Mutex<Vec<Vec<Bytes>>>,
         entered: Condvar,
         released: Mutex<bool>,
         release: Condvar,
@@ -451,6 +476,10 @@ mod tests {
         fn writes(&self) -> Vec<(Bytes, ThreadId)> {
             self.writes.lock().expect("blocking sink poisoned").clone()
         }
+
+        fn batches(&self) -> Vec<Vec<Bytes>> {
+            self.batches.lock().expect("blocking sink poisoned").clone()
+        }
     }
 
     impl RemoteByteSink for BlockingByteSink {
@@ -459,6 +488,24 @@ mod tests {
                 .lock()
                 .expect("blocking sink poisoned")
                 .push((bytes, std::thread::current().id()));
+            self.entered.notify_all();
+            let mut released = self.released.lock().expect("blocking sink poisoned");
+            while !*released {
+                released = self.release.wait(released).expect("blocking sink poisoned");
+            }
+            Ok(())
+        }
+
+        fn send_byte_batch(&self, batch: &[Bytes]) -> Result<()> {
+            self.batches
+                .lock()
+                .expect("blocking sink poisoned")
+                .push(batch.to_vec());
+            let writer = std::thread::current().id();
+            self.writes
+                .lock()
+                .expect("blocking sink poisoned")
+                .extend(batch.iter().cloned().map(|bytes| (bytes, writer)));
             self.entered.notify_all();
             let mut released = self.released.lock().expect("blocking sink poisoned");
             while !*released {
@@ -662,6 +709,71 @@ mod tests {
         for (expected, (bytes, _)) in (0_u16..2_000).zip(writes) {
             assert_eq!(bytes.as_ref(), expected.to_be_bytes());
         }
+    }
+
+    #[test]
+    fn queued_sink_batches_an_already_queued_burst_in_fifo_order() {
+        let inner = Arc::new(BlockingByteSink::default());
+        let queued = QueuedRemoteByteSink::new(
+            RemoteStreamId::Ordinary,
+            4,
+            inner.clone() as Arc<dyn RemoteByteSink>,
+        )
+        .unwrap();
+
+        queued.send_bytes(Bytes::from_static(b"one")).unwrap();
+        inner.wait_until_entered(Duration::from_secs(1));
+        queued.send_bytes(Bytes::from_static(b"two")).unwrap();
+        queued.send_bytes(Bytes::from_static(b"three")).unwrap();
+        queued.send_bytes(Bytes::from_static(b"four")).unwrap();
+        inner.release();
+        queued.close().unwrap();
+
+        assert_eq!(
+            inner.batches(),
+            vec![
+                vec![Bytes::from_static(b"one")],
+                vec![
+                    Bytes::from_static(b"two"),
+                    Bytes::from_static(b"three"),
+                    Bytes::from_static(b"four"),
+                ],
+            ]
+        );
+    }
+
+    #[test]
+    fn queued_sink_caps_each_burst_batch() {
+        let inner = Arc::new(BlockingByteSink::default());
+        let queued = QueuedRemoteByteSink::new(
+            RemoteStreamId::Ordinary,
+            70,
+            inner.clone() as Arc<dyn RemoteByteSink>,
+        )
+        .unwrap();
+
+        queued.send_bytes(Bytes::from_static(b"first")).unwrap();
+        inner.wait_until_entered(Duration::from_secs(1));
+        for value in 0_u8..70 {
+            queued.send_bytes(Bytes::copy_from_slice(&[value])).unwrap();
+        }
+        inner.release();
+        queued.close().unwrap();
+
+        let batches = inner.batches();
+        assert_eq!(
+            batches.iter().map(Vec::len).collect::<Vec<_>>(),
+            vec![1, MAX_QUEUED_WRITE_BATCH_FRAMES, 6]
+        );
+        assert_eq!(
+            batches
+                .into_iter()
+                .skip(1)
+                .flatten()
+                .map(|bytes| bytes[0])
+                .collect::<Vec<_>>(),
+            (0_u8..70).collect::<Vec<_>>()
+        );
     }
 
     #[test]

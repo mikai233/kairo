@@ -435,7 +435,10 @@ Status terms in this document mean:
   enters through `EntityRef<M>`, wraps the business message once, hashes the
   bound entity id once in the public envelope router, and validates the region
   command instead of bypassing the entity-ref boundary and double-hashing.
-  Process-level remoting now also proves
+  Bounded remoting lane writers now drain already-queued bursts in FIFO batches
+  of at most 64 frames, and the TCP sink sends each batch with vectored writes
+  while preserving the existing per-lane capacity and immediate-overflow
+  behavior. Process-level remoting now also proves
   bidirectional v1/v2 compatibility through the stable serializer-id/manifest
   contract and codec-owned schema migration, while the facade, actor/serialization
   foundation, testkit, and typed remoting boundary now enforce complete
