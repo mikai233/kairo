@@ -75,7 +75,9 @@ Status terms in this document mean:
   seen ordering, reachability, causal clocks, and tombstones. Checked ddata
   delta-propagation fixtures now prove historical v1 decode plus exact v2
   encode/decode with CRDT metadata, causal ranges, and both pruning lifecycle
-  states. Optional codec helpers and broader system-protocol compatibility
+  states. Checked sharding v1 fixtures now pin exact shard-home ownership and
+  routed entity-envelope bytes, including nested application serializer
+  metadata. Optional codec helpers and broader system-protocol compatibility
   fixtures remain. The
   serialization contract crate and remote-message derive crate now deny
   missing public documentation at compile time.
@@ -380,6 +382,9 @@ Status terms in this document mean:
   invariants, region home conflicts, remember-key validation, and store
   read/update failure context while remaining explicitly local rather than a
   wire protocol.
+  Checked 80-byte `ShardHome` and 77-byte `RoutedShardEnvelope` v1 fixtures now
+  pin the coordinator ownership and remote entity-routing payloads in both
+  encode and decode directions.
   Remember-entity pure state, local actors, additive coordinator ddata stores,
   and partitioned shard ORSet stores now hard-gate their fixed five-key Java
   hashing, load-before-update, single-update, consistency, and explicit failure
@@ -6525,8 +6530,9 @@ Not yet implemented:
   existing TCP association primitives, and system-protocol compatibility
   fixtures beyond the checked remote-envelope frame-v1 and TCP association
   handshake-v2 bytes, checked cluster full-gossip payload-v1 bytes, checked
-  ddata delta-propagation payload-v1/v2 bytes, and current bidirectional
-  process-level v1/v2 remote-message migration tests.
+  ddata delta-propagation payload-v1/v2 bytes, checked sharding ownership and
+  routed-envelope payload-v1 bytes, and current bidirectional process-level
+  v1/v2 remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost

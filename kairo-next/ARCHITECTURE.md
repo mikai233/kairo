@@ -1895,6 +1895,19 @@ one ActorSystem without making erased messages the user API. Type names are
 encoded into stable `/system` coordinator and region paths, and a duplicate
 type name with a different `M` is rejected.
 
+The sharding version-1 ownership and routing payloads are byte-stable.
+`ShardHome` uses serializer-id `4003`, manifest `kairo.sharding.shard-home`,
+and writes the shard id followed by the owning region's canonical actor-ref
+path. `RoutedShardEnvelope` uses serializer-id `4010`, manifest
+`kairo.sharding.routed-envelope`, and writes shard id, entity id, nested
+business serializer-id as big-endian `u32`, nested manifest, nested big-endian
+`u16` version, and codec-owned business bytes. All strings and payloads use
+big-endian `u32` byte-length prefixes. The checked 80-byte
+`kairo-cluster-sharding/tests/fixtures/shard-home-v1.hex` and 77-byte
+`routed-shard-envelope-v1.hex` fixtures must decode and reproduce exactly.
+Incompatible ownership, routing, or nested-metadata changes require new message
+versions and explicit compatibility paths.
+
 `ClusterSharding::init` currently requires an explicit stop message because
 the coordinator's host-shard and handoff transport are one lifecycle boundary.
 Every node starts a type-specific coordinator candidate, while membership age

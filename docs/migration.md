@@ -371,6 +371,14 @@ Business messages should not need embedded entity ids by default. Shard ids use
 the documented stable FNV-1a hash exposed by `stable_hash_entity_id` and
 `shard_id_for`; do not use Rust `DefaultHasher` for cross-node routing.
 
+Sharding ownership and forwarded entity traffic are stable system protocols.
+Version-1 fixtures under
+`kairo-next/crates/kairo-cluster-sharding/tests/fixtures/` pin `ShardHome`
+region ownership and `RoutedShardEnvelope` shard/entity routing with nested
+business serializer metadata in both encode and decode directions. Change
+either payload only through a new message version and an explicit
+rolling-upgrade path; never derive these bytes from Rust type names or layout.
+
 The runnable `cluster_sharding_local` example wires a local coordinator,
 shard region, `ShardingEnvelopeRouter`, and `EntityRef<String>` through the
 current actor-backed sharding path. It also demonstrates passivation/restart
