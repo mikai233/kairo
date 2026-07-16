@@ -173,7 +173,7 @@ fn route_targets_reject_local_only_cluster_addresses() {
 #[test]
 fn cloned_transports_share_later_target_registration() {
     let (target, rx) = channel_outbound();
-    let mut transport = DeltaPropagationTransport::new(ReplicaId::new("self"), GCounterCodec);
+    let transport = DeltaPropagationTransport::new(ReplicaId::new("self"), GCounterCodec);
     let cloned = transport.clone();
     transport.insert_target(DeltaPropagationTarget::new(
         ReplicaId::new("peer"),

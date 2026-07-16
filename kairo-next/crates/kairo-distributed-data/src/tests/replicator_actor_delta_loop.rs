@@ -129,7 +129,7 @@ fn replicator_actor_delta_loop_publishes_and_cleans_on_manual_tick() {
         .unwrap();
     let (target_ref, target_rx) =
         forward_ref::<ReplicatorDeltaPropagation>(&system, "delta-target");
-    let mut transport = DeltaPropagationTransport::new(replica("local"), GCounterCodec);
+    let transport = DeltaPropagationTransport::new(replica("local"), GCounterCodec);
     transport.insert_target(DeltaPropagationTarget::new(replica("remote"), target_ref));
     let delta_loop = DeltaPropagationLoop::new(transport).with_cleanup_every_ticks(1);
     let replicator = system
@@ -211,7 +211,7 @@ fn replicator_actor_delta_loop_publishes_ormap_delta_group_with_codec() {
         .unwrap();
     let (target_ref, target_rx) =
         forward_ref::<ReplicatorDeltaPropagation>(&system, "delta-target");
-    let mut transport = DeltaPropagationTransport::new(replica("local"), ORMapStringGSetDeltaCodec);
+    let transport = DeltaPropagationTransport::new(replica("local"), ORMapStringGSetDeltaCodec);
     transport.insert_target(DeltaPropagationTarget::new(replica("remote"), target_ref));
     let delta_loop = DeltaPropagationLoop::new(transport);
     let local = system
@@ -336,7 +336,7 @@ fn replicator_actor_schedules_delta_loop_ticks_with_manual_time() {
         .unwrap();
     let (target_ref, target_rx) =
         forward_ref::<ReplicatorDeltaPropagation>(&system, "delta-target");
-    let mut transport = DeltaPropagationTransport::new(replica("local"), GCounterCodec);
+    let transport = DeltaPropagationTransport::new(replica("local"), GCounterCodec);
     transport.insert_target(DeltaPropagationTarget::new(replica("remote"), target_ref));
     let delta_loop = DeltaPropagationLoop::new(transport).with_cleanup_every_ticks(5);
     let replicator = system

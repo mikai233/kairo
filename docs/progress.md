@@ -247,6 +247,12 @@ Status terms in this document mean:
   The delta propagation loop now hard-gates collection-before-publication,
   empty-tick counting, post-publication cleanup cadence, skipped reports, and
   transport diagnostics.
+  Typed delta transport now hard-gates the immutable source/reply/codec
+  configuration, shared route replacement and removal without exclusive
+  transport access, deterministic per-target outcomes, empty-batch skips, and
+  isolated missing-target, codec, and recipient failures. Publication remains
+  a single best-effort attempt per selected replica; scheduling, cleanup, and
+  full-state repair stay with the replicator lifecycle.
   Delta propagation v2 now carries each key's current pruning metadata, while
   retaining v1 decode compatibility. Checked 79-byte v1 and 300-byte v2
   fixtures pin that rolling-upgrade boundary and the current serializer tuple.

@@ -1918,6 +1918,17 @@ manifests and the unlikely case where different manifests produce the same
 path token are rejected during registration. Type erasure is confined to this
 transport router and does not introduce a global user-facing data enum.
 
+`DeltaPropagationTransport<Codec>` is the typed best-effort publication
+boundary used by the periodic loop. It retains one source replica and optional
+reply request, encodes each non-empty per-replica selection with the configured
+CRDT codec, and attempts every target independently in deterministic replica
+order. Missing routes are detected before encoding; codec and recipient
+failures retain the logical target without suppressing later sends. Cloned
+transports and registries share atomic target-set replacement, individual
+replacement, and removal. This registry is delivery state populated from
+cluster membership, never membership truth, and the transport itself does not
+retry; full-state gossip repairs best-effort propagation loss.
+
 Each composed replicator schedules both periodic full-state/status gossip and
 delta propagation over its cluster-derived target registry. Unless explicitly
 overridden, the delta interval is one fifth of the gossip interval with a
