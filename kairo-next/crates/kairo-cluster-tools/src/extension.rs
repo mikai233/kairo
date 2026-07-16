@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -18,6 +20,7 @@ mod connector;
 use connector::{DistributedPubSubConnector, DistributedPubSubConnectorConfig};
 pub use connector::{DistributedPubSubConnectorMsg, DistributedPubSubConnectorSnapshot};
 
+/// Stable manifests handled by the composed distributed-pubsub endpoint.
 pub const PUBSUB_SYSTEM_MANIFESTS: [&str; 4] = [
     PubSubStatus::MANIFEST,
     PubSubDelta::MANIFEST,
@@ -25,6 +28,12 @@ pub const PUBSUB_SYSTEM_MANIFESTS: [&str; 4] = [
     PubSubPathEnvelope::MANIFEST,
 ];
 
+/// Settings for one typed distributed-pubsub extension.
+///
+/// The role filters participating members, the gossip interval drives periodic
+/// status exchange, and the delta limit bounds registry entries per response.
+/// The shutdown timeout bounds each actor termination task installed before
+/// cluster shutdown.
 #[derive(Debug, Clone)]
 pub struct DistributedPubSubSettings {
     gossip_interval: Duration,
@@ -45,38 +54,46 @@ impl Default for DistributedPubSubSettings {
 }
 
 impl DistributedPubSubSettings {
+    /// Sets the fixed-delay interval between pubsub gossip ticks.
     pub fn with_gossip_interval(mut self, interval: Duration) -> Self {
         self.gossip_interval = interval;
         self
     }
 
+    /// Sets the maximum registry entries emitted in one gossip delta.
     pub fn with_max_delta_entries(mut self, max: usize) -> Self {
         self.max_delta_entries = max;
         self
     }
 
+    /// Restricts peer participation to members carrying `role`.
     pub fn with_role(mut self, role: impl Into<String>) -> Self {
         self.role = Some(role.into());
         self
     }
 
+    /// Sets the maximum wait for each pubsub actor to stop during shutdown.
     pub fn with_shutdown_timeout(mut self, timeout: Duration) -> Self {
         self.shutdown_timeout = timeout;
         self
     }
 
+    /// Returns the fixed-delay gossip interval.
     pub fn gossip_interval(&self) -> Duration {
         self.gossip_interval
     }
 
+    /// Returns the maximum number of entries in one outgoing delta.
     pub fn max_delta_entries(&self) -> usize {
         self.max_delta_entries
     }
 
+    /// Returns the required cluster role, if configured.
     pub fn role(&self) -> Option<&str> {
         self.role.as_deref()
     }
 
+    /// Returns the per-actor coordinated-shutdown timeout.
     pub fn shutdown_timeout(&self) -> Duration {
         self.shutdown_timeout
     }
@@ -110,6 +127,11 @@ impl DistributedPubSubSettings {
     }
 }
 
+/// Typed handles materialized for one distributed-pubsub protocol.
+///
+/// The actors are created when the shared remote runtime binds. Activation
+/// installs coordinated-shutdown tasks and the actor-system extension but does
+/// not replace these references.
 pub struct DistributedPubSubHandle<M>
 where
     M: Send + 'static,
@@ -138,23 +160,31 @@ impl<M> DistributedPubSubHandle<M>
 where
     M: Send + 'static,
 {
+    /// Returns the effective local cluster incarnation used by pubsub gossip.
     pub fn self_node(&self) -> &UniqueAddress {
         &self.self_node
     }
 
+    /// Returns the typed mediator used for subscriptions and delivery.
     pub fn mediator(&self) -> &ActorRef<DistributedPubSubMediatorMsg<M>> {
         &self.mediator
     }
 
+    /// Returns the registry-gossip actor.
     pub fn gossip(&self) -> &ActorRef<PubSubGossipMsg> {
         &self.gossip
     }
 
+    /// Returns the membership connector for diagnostics and explicit snapshots.
     pub fn connector(&self) -> &ActorRef<DistributedPubSubConnectorMsg> {
         &self.connector
     }
 }
 
+/// Actor-system extension for one remote-capable pubsub message protocol.
+///
+/// The generic parameter keeps mediator traffic typed; it is not erased into a
+/// global application-message enum at the remote boundary.
 pub struct DistributedPubSubExtension<M>
 where
     M: Send + 'static,
@@ -166,27 +196,37 @@ impl<M> DistributedPubSubExtension<M>
 where
     M: Send + 'static,
 {
+    /// Retrieves the activated extension for `M` from `system`.
     pub fn get(system: &ActorSystem) -> Result<Arc<Self>, ActorError> {
         system.extension::<Self>()
     }
 
+    /// Returns the typed distributed-pubsub mediator.
     pub fn mediator(&self) -> &ActorRef<DistributedPubSubMediatorMsg<M>> {
         self.handle.mediator()
     }
 
+    /// Returns the effective local cluster incarnation.
     pub fn self_node(&self) -> &UniqueAddress {
         self.handle.self_node()
     }
 
+    /// Returns the registry-gossip actor.
     pub fn gossip(&self) -> &ActorRef<PubSubGossipMsg> {
         self.handle.gossip()
     }
 
+    /// Returns the membership connector for diagnostics and snapshots.
     pub fn connector(&self) -> &ActorRef<DistributedPubSubConnectorMsg> {
         self.handle.connector()
     }
 }
 
+/// Pre-bind registration token for one typed distributed-pubsub extension.
+///
+/// Clones share materialization and one-shot activation state. Only one
+/// registration may own the stable pubsub manifests and `/system/pubsub` path
+/// in a remote runtime builder.
 pub struct DistributedPubSubRegistration<M>
 where
     M: Send + 'static,
@@ -213,6 +253,9 @@ impl<M> DistributedPubSubRegistration<M>
 where
     M: Clone + RemoteMessage + Send + 'static,
 {
+    /// Returns the bind-time actor handles once the runtime has materialized.
+    ///
+    /// This is `None` before a successful remote runtime bind.
     pub fn handle(&self) -> Option<DistributedPubSubHandle<M>> {
         self.handle
             .lock()
@@ -220,6 +263,10 @@ where
             .clone()
     }
 
+    /// Installs shutdown ownership and the actor-system extension after bind.
+    ///
+    /// The cluster extension must already be active on the same actor system.
+    /// Repeated calls are idempotent and return the same materialized handles.
     pub fn activate(
         &self,
         runtime: &TcpRemoteActorRuntime,
@@ -268,11 +315,16 @@ where
     }
 }
 
+/// Failure returned while registering or activating distributed pubsub.
 #[derive(Debug)]
 pub enum DistributedPubSubBootstrapError {
+    /// The actor runtime rejected a child, extension, or shutdown task.
     Actor(ActorError),
+    /// A composed pubsub setting was invalid.
     InvalidSettings(&'static str),
+    /// Activation ran before the remote runtime materialized the actor graph.
     NotMaterialized,
+    /// The shared remoting builder or inbound boundary rejected registration.
     Remote(RemoteError),
 }
 
@@ -303,6 +355,13 @@ impl From<RemoteError> for DistributedPubSubBootstrapError {
     }
 }
 
+/// Registers a typed pubsub endpoint on the shared remote runtime before bind.
+///
+/// The cluster daemon registration must belong to the same builder and must be
+/// registered first. Bind materializes the mediator, gossip actor, membership
+/// connector, and stable inbound routes; call
+/// [`DistributedPubSubRegistration::activate`] afterward to install extension
+/// and coordinated-shutdown ownership.
 pub fn register_distributed_pubsub<M>(
     builder: &mut TcpRemoteActorRuntimeBuilder,
     cluster: ClusterDaemonRegistration,

@@ -456,7 +456,13 @@ Status terms in this document mean:
   registration, post-bind activation, typed and local-only initialization,
   proxy delivery, settings, diagnostics, and bootstrap failures; connector
   implementation types that were not externally reachable are now explicitly
-  module-private.
+  module-private. The composed distributed-pubsub facade now carries the same
+  gate across typed settings and handles, bind-time materialization,
+  idempotent activation, shutdown ownership, connector diagnostics, and
+  bootstrap failures. Its membership connector documents and preserves
+  Pekko's asymmetric membership rule: initial snapshots accept role-matching
+  non-Joining members, while later Up/WeaklyUp events add and
+  Left/Downed/Removed events remove peers.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -468,9 +474,10 @@ Status terms in this document mean:
   rustdoc warning gates, and compile-tested public API snippets exist. The
   recommended `kairo` facade, foundational actor and serialization APIs, and
   public `kairo-testkit` utility surface now deny missing public documentation;
-  the primary cluster-singleton facade carries the same module-level hard gate.
-  The remote ping-pong example and compile-tested serialization docs now
-  exercise the format-neutral closure registration path. The
+  the primary cluster-singleton and composed distributed-pubsub facades carry
+  the same module-level hard gate. The remote ping-pong example and
+  compile-tested serialization docs now exercise the format-neutral closure
+  registration path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower

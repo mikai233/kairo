@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,7 +20,7 @@ use crate::{
 
 const GOSSIP_TIMER_KEY: &str = "distributed-pubsub-gossip";
 
-pub struct DistributedPubSubConnector<M>
+pub(super) struct DistributedPubSubConnector<M>
 where
     M: Send + 'static,
 {
@@ -35,39 +37,51 @@ where
 }
 
 #[derive(Clone)]
+/// Internal membership and gossip-control protocol exposed for diagnostics.
 pub enum DistributedPubSubConnectorMsg {
+    /// Applies the initial cluster snapshot or one later cluster event.
+    ///
+    /// Pekko-compatible snapshots admit role-matching members except those
+    /// still `Joining`; later `Up`/`WeaklyUp` events add peers and
+    /// `Left`/`Downed`/`Removed` events remove them.
     Cluster(ClusterSubscriptionEvent),
+    /// Merges an accepted remote registry delta into the delivery mediator.
     RemoteDelta(PubSubRegistryDelta),
+    /// Asks the gossip actor to select peers and exchange registry state.
     GossipTick,
+    /// Replies with the connector's current eligible peer set.
     Snapshot {
+        /// Recipient for the diagnostic snapshot.
         reply_to: ActorRef<DistributedPubSubConnectorSnapshot>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic snapshot of peers currently installed for gossip and delivery.
 pub struct DistributedPubSubConnectorSnapshot {
+    /// Role-eligible remote member incarnations in deterministic address order.
     pub peers: Vec<UniqueAddress>,
 }
 
-pub struct DistributedPubSubConnectorConfig<M>
+pub(super) struct DistributedPubSubConnectorConfig<M>
 where
     M: Send + 'static,
 {
-    pub cluster: Cluster,
-    pub self_node: UniqueAddress,
-    pub role: Option<String>,
-    pub gossip_interval: Duration,
-    pub registry: Arc<Registry>,
-    pub outbound: Arc<dyn RemoteOutbound>,
-    pub gossip: ActorRef<PubSubGossipMsg>,
-    pub mediator: ActorRef<DistributedPubSubMediatorMsg<M>>,
+    pub(super) cluster: Cluster,
+    pub(super) self_node: UniqueAddress,
+    pub(super) role: Option<String>,
+    pub(super) gossip_interval: Duration,
+    pub(super) registry: Arc<Registry>,
+    pub(super) outbound: Arc<dyn RemoteOutbound>,
+    pub(super) gossip: ActorRef<PubSubGossipMsg>,
+    pub(super) mediator: ActorRef<DistributedPubSubMediatorMsg<M>>,
 }
 
 impl<M> DistributedPubSubConnector<M>
 where
     M: Send + 'static,
 {
-    pub fn new(config: DistributedPubSubConnectorConfig<M>) -> Self {
+    pub(super) fn new(config: DistributedPubSubConnectorConfig<M>) -> Self {
         Self {
             cluster: config.cluster,
             self_node: config.self_node,
