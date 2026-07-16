@@ -14,6 +14,12 @@ use super::{
     DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, SingletonManagerRemoteError, recipient_for_node,
 };
 
+/// Converts singleton-manager protocol effects into stable remote envelopes.
+///
+/// The adapter stamps every message with the exact local member incarnation,
+/// serializes it through the shared registry, and sends it to the target's
+/// canonical manager path. Local lifecycle effects are rejected rather than
+/// silently crossing the transport boundary.
 #[derive(Clone)]
 pub struct SingletonManagerRemoteOutbound {
     self_node: UniqueAddress,
@@ -23,6 +29,7 @@ pub struct SingletonManagerRemoteOutbound {
 }
 
 impl SingletonManagerRemoteOutbound {
+    /// Creates an adapter that owns `outbound` behind a shared trait object.
     pub fn new(
         self_node: UniqueAddress,
         registry: Arc<Registry>,
@@ -31,6 +38,7 @@ impl SingletonManagerRemoteOutbound {
         Self::from_arc(self_node, registry, Arc::new(outbound))
     }
 
+    /// Creates an adapter from an existing shared outbound transport.
     pub fn from_arc(
         self_node: UniqueAddress,
         registry: Arc<Registry>,
@@ -44,11 +52,18 @@ impl SingletonManagerRemoteOutbound {
         }
     }
 
+    /// Overrides the canonical recipient path used for subsequent sends.
+    ///
+    /// Path validation is deferred until a recipient is constructed.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Constructs the canonical wire recipient for one target incarnation.
+    ///
+    /// The target must have a remote host and the configured path must be
+    /// absolute.
     pub fn recipient_for_node(
         &self,
         node: &UniqueAddress,
@@ -56,6 +71,10 @@ impl SingletonManagerRemoteOutbound {
         recipient_for_node(node, &self.recipient_path)
     }
 
+    /// Sends one remote protocol effect.
+    ///
+    /// Local child-start, child-stop, and manager-stop effects return
+    /// [`SingletonManagerRemoteError::UnsupportedEffect`].
     pub fn send_effect(
         &self,
         effect: &SingletonManagerEffect,
@@ -97,6 +116,10 @@ impl SingletonManagerRemoteOutbound {
         }
     }
 
+    /// Sends an effect batch in slice order, stopping at the first failure.
+    ///
+    /// This operation is not transactional: effects preceding a failure may
+    /// already have been delivered.
     pub fn send_effects(
         &self,
         effects: &[SingletonManagerEffect],

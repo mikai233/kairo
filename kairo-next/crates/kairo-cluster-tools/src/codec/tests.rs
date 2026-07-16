@@ -9,12 +9,13 @@ use super::{
     PUBSUB_DELTA_SERIALIZER_ID, PUBSUB_PATH_SERIALIZER_ID, PUBSUB_PUBLISH_SERIALIZER_ID,
     PUBSUB_STATUS_SERIALIZER_ID, SINGLETON_HAND_OVER_DONE_SERIALIZER_ID,
     SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID, SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID,
-    SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID, register_cluster_tools_protocol_codecs,
+    SINGLETON_MESSAGE_SERIALIZER_ID, SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID,
+    register_cluster_tools_protocol_codecs,
 };
 use crate::{
     PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope, PubSubRegistryState, PubSubStatus,
     SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
-    SingletonTakeOverFromMe, TopicName,
+    SingletonMessageEnvelope, SingletonTakeOverFromMe, TopicName,
 };
 
 fn registry() -> Registry {
@@ -213,6 +214,33 @@ fn cluster_tools_codecs_round_trip_singleton_handover_messages() {
 }
 
 #[test]
+fn cluster_tools_codecs_round_trip_singleton_business_envelope() {
+    let registry = registry();
+    let envelope = SingletonMessageEnvelope {
+        message: SerializedMessage::new(
+            77,
+            Manifest::new("example.singleton.business-message"),
+            3,
+            Bytes::from_static(&[1, 2, 3]),
+        ),
+    };
+
+    let serialized = registry.serialize(&envelope).unwrap();
+
+    assert_eq!(serialized.serializer_id, SINGLETON_MESSAGE_SERIALIZER_ID);
+    assert_eq!(
+        serialized.manifest.as_str(),
+        SingletonMessageEnvelope::MANIFEST
+    );
+    assert_eq!(
+        registry
+            .deserialize::<SingletonMessageEnvelope>(serialized)
+            .unwrap(),
+        envelope
+    );
+}
+
+#[test]
 fn cluster_tools_codecs_reject_unknown_versions() {
     let registry = registry();
     let status = PubSubStatus {
@@ -290,4 +318,15 @@ fn cluster_tools_codecs_reject_trailing_payload_bytes() {
     );
     assert_rejects_trailing_payload_bytes(&registry, &SingletonHandOverDone { from: node.clone() });
     assert_rejects_trailing_payload_bytes(&registry, &SingletonTakeOverFromMe { from: node });
+    assert_rejects_trailing_payload_bytes(
+        &registry,
+        &SingletonMessageEnvelope {
+            message: SerializedMessage::new(
+                77,
+                Manifest::new("example.singleton.business-message"),
+                3,
+                Bytes::from_static(&[1, 2, 3]),
+            ),
+        },
+    );
 }

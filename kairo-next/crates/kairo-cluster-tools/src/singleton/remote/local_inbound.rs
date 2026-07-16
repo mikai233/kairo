@@ -14,6 +14,11 @@ use super::{
     DEFAULT_SINGLETON_MANAGER_REMOTE_PATH, SingletonManagerRemoteError, validate_recipient,
 };
 
+/// Validating inbound adapter for a typed local singleton-manager actor.
+///
+/// This is the child-owning counterpart to [`super::SingletonManagerRemoteInbound`].
+/// It accepts only stable handover manifests and never imposes serialization
+/// requirements on the singleton's local business-message type `M`.
 #[derive(Clone)]
 pub struct LocalSingletonManagerRemoteInbound<M>
 where
@@ -30,6 +35,7 @@ impl<M> LocalSingletonManagerRemoteInbound<M>
 where
     M: Send + 'static,
 {
+    /// Creates an inbound adapter for `manager` at the default system path.
     pub fn new(
         self_node: UniqueAddress,
         registry: Arc<Registry>,
@@ -44,16 +50,22 @@ where
         }
     }
 
+    /// Overrides the canonical recipient path expected on full envelopes.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Validates and delivers one complete remote envelope.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<(), SingletonManagerRemoteError> {
         validate_recipient(&self.self_node, &self.recipient_path, &envelope.recipient)?;
         self.receive_message(envelope.message)
     }
 
+    /// Delivers an already-demultiplexed serialized handover message.
+    ///
+    /// This entry point does not validate an envelope recipient; callers must
+    /// perform canonical routing before discarding the outer envelope.
     pub fn receive_message(
         &self,
         message: SerializedMessage,

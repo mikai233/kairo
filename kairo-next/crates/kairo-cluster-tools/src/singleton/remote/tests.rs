@@ -129,6 +129,38 @@ fn remote_outbound_can_use_association_cache() {
 }
 
 #[test]
+fn remote_outbound_rejects_local_effects_and_invalid_recipients() {
+    let collecting = Arc::new(CollectingRemoteOutbound::default());
+    let outbound = SingletonManagerRemoteOutbound::from_arc(
+        node("self", 1),
+        registry(),
+        collecting.clone() as Arc<dyn kairo_remote::RemoteOutbound>,
+    );
+
+    assert!(matches!(
+        outbound
+            .send_effect(&SingletonManagerEffect::StartSingleton)
+            .unwrap_err(),
+        SingletonManagerRemoteError::UnsupportedEffect("start-singleton")
+    ));
+
+    let relative = outbound
+        .clone()
+        .with_recipient_path("system/singleton/manager");
+    assert!(matches!(
+        relative.recipient_for_node(&node("next", 2)).unwrap_err(),
+        SingletonManagerRemoteError::InvalidRecipientPath(_)
+    ));
+
+    let local_only = UniqueAddress::new(Address::new("kairo", "singleton", None, Some(2552)), 3);
+    assert!(matches!(
+        outbound.recipient_for_node(&local_only).unwrap_err(),
+        SingletonManagerRemoteError::MissingRemoteHost { .. }
+    ));
+    assert!(collecting.sent().is_empty());
+}
+
+#[test]
 fn remote_inbound_delivers_takeover_to_manager_actor_ref() {
     let kit = ActorSystemTestKit::new("singleton-manager-remote-in").unwrap();
     let registry = registry();

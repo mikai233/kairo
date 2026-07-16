@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_cluster::UniqueAddress;
 use kairo_serialization::{MessageCodec, WireReader, WireWriter};
@@ -12,14 +14,19 @@ use super::wire::{
     write_unique_address,
 };
 
+/// Stable serializer id for singleton handover requests.
 pub const SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID: u32 = 5_010;
+/// Stable serializer id for handover-in-progress responses.
 pub const SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID: u32 = 5_011;
+/// Stable serializer id for handover-completed responses.
 pub const SINGLETON_HAND_OVER_DONE_SERIALIZER_ID: u32 = 5_012;
+/// Stable serializer id for singleton takeover requests.
 pub const SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID: u32 = 5_013;
+/// Stable serializer id for nested singleton business-message envelopes.
 pub const SINGLETON_MESSAGE_SERIALIZER_ID: u32 = 5_014;
 
 #[derive(Debug, Clone, Copy)]
-pub struct SingletonMessageEnvelopeCodec;
+pub(super) struct SingletonMessageEnvelopeCodec;
 
 impl MessageCodec<SingletonMessageEnvelope> for SingletonMessageEnvelopeCodec {
     fn serializer_id(&self) -> u32 {
@@ -46,7 +53,7 @@ impl MessageCodec<SingletonMessageEnvelope> for SingletonMessageEnvelopeCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct SingletonHandOverToMeCodec;
+pub(super) struct SingletonHandOverToMeCodec;
 
 impl MessageCodec<SingletonHandOverToMe> for SingletonHandOverToMeCodec {
     fn serializer_id(&self) -> u32 {
@@ -70,7 +77,7 @@ impl MessageCodec<SingletonHandOverToMe> for SingletonHandOverToMeCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct SingletonHandOverInProgressCodec;
+pub(super) struct SingletonHandOverInProgressCodec;
 
 impl MessageCodec<SingletonHandOverInProgress> for SingletonHandOverInProgressCodec {
     fn serializer_id(&self) -> u32 {
@@ -94,7 +101,7 @@ impl MessageCodec<SingletonHandOverInProgress> for SingletonHandOverInProgressCo
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct SingletonHandOverDoneCodec;
+pub(super) struct SingletonHandOverDoneCodec;
 
 impl MessageCodec<SingletonHandOverDone> for SingletonHandOverDoneCodec {
     fn serializer_id(&self) -> u32 {
@@ -118,7 +125,7 @@ impl MessageCodec<SingletonHandOverDone> for SingletonHandOverDoneCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct SingletonTakeOverFromMeCodec;
+pub(super) struct SingletonTakeOverFromMeCodec;
 
 impl MessageCodec<SingletonTakeOverFromMe> for SingletonTakeOverFromMeCodec {
     fn serializer_id(&self) -> u32 {

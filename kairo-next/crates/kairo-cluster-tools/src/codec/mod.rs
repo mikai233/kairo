@@ -12,9 +12,11 @@ pub use pubsub::{
 pub use singleton::{
     SINGLETON_HAND_OVER_DONE_SERIALIZER_ID, SINGLETON_HAND_OVER_IN_PROGRESS_SERIALIZER_ID,
     SINGLETON_HAND_OVER_TO_ME_SERIALIZER_ID, SINGLETON_MESSAGE_SERIALIZER_ID,
-    SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID, SingletonHandOverDoneCodec,
-    SingletonHandOverInProgressCodec, SingletonHandOverToMeCodec, SingletonMessageEnvelopeCodec,
-    SingletonTakeOverFromMeCodec,
+    SINGLETON_TAKE_OVER_FROM_ME_SERIALIZER_ID,
+};
+use singleton::{
+    SingletonHandOverDoneCodec, SingletonHandOverInProgressCodec, SingletonHandOverToMeCodec,
+    SingletonMessageEnvelopeCodec, SingletonTakeOverFromMeCodec,
 };
 
 use crate::{

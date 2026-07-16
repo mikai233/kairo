@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 mod error;
 mod inbound;
 mod local_inbound;
@@ -11,6 +13,7 @@ pub use self::inbound::SingletonManagerRemoteInbound;
 pub use self::local_inbound::LocalSingletonManagerRemoteInbound;
 pub use self::outbound::SingletonManagerRemoteOutbound;
 
+/// Canonical system path used for singleton handover protocol envelopes.
 pub const DEFAULT_SINGLETON_MANAGER_REMOTE_PATH: &str = "/system/singleton/manager";
 
 fn recipient_for_node(
