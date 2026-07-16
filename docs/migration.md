@@ -98,6 +98,12 @@ must deliberately accept a newer wire version if forward-compatible traffic is
 required. Remoting carries the declared version unchanged and does not infer a
 schema from Rust types or negotiate an automatic downgrade.
 
+The canonical remote-envelope frame is independently versioned from business
+message schemas. Frame version 1 is pinned by
+`kairo-next/crates/kairo-remote/tests/fixtures/remote-envelope-frame-v1.hex`;
+wire-layout changes require a new frame version and an explicit compatibility
+path rather than changing the version-1 bytes in place.
+
 The runnable `ask_pipe_to_self` example shows local request/reply and external
 work returning through the actor mailbox without borrowing actor state across
 an await point:

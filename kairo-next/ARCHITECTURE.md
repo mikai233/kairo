@@ -630,7 +630,7 @@ counter.tell(CounterCmd::Increment)?;
 Local-only messages do not need serialization. Remote actor refs and remote
 delivery paths require `M: RemoteMessage`.
 
-Wire envelope:
+Wire envelope fields:
 
 ```text
 target_path: actor path
@@ -640,6 +640,30 @@ manifest: string
 version: u16
 payload: bytes
 ```
+
+The canonical remote-envelope frame version 1 is byte-stable. All integer and
+length fields are unsigned big-endian values; strings are UTF-8 prefixed by
+their `u32` byte length; arbitrary bytes use the same `u32` length prefix; and
+an optional string starts with a one-byte `0` or `1` presence marker. The frame
+payload passed to lane framing is:
+
+```text
+magic: u64 = 0x4b4149524f52454d ("KAIROREM")
+frame_version: u16 = 1
+target_path: string
+sender_present: u8
+sender_path: string                    # only when sender_present = 1
+serializer_id: u32
+manifest: string
+message_version: u16
+payload: bytes
+```
+
+`kairo-remote/tests/fixtures/remote-envelope-frame-v1.hex` is the checked
+historical fixture. Both decoding that fixture and reproducing it from the
+public envelope encoder are release compatibility gates. Changing these bytes
+requires a new frame version and a compatibility path rather than silently
+rewriting version 1.
 
 Modules:
 
