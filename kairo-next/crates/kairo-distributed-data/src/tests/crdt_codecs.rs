@@ -1,4 +1,5 @@
 use super::*;
+use crate::{ORMapDelta, ORSetDelta};
 use bytes::Bytes;
 
 fn with_trailing_byte(serialized: crate::SerializedCrdt) -> crate::SerializedCrdt {
@@ -9,6 +10,38 @@ fn with_trailing_byte(serialized: crate::SerializedCrdt) -> crate::SerializedCrd
         serialized.version(),
         Bytes::from(payload),
     )
+}
+
+fn codec_metadata<D>(codec: &impl CrdtDataCodec<D>) -> (&'static str, u16) {
+    (codec.manifest(), codec.version())
+}
+
+#[test]
+fn built_in_crdt_codec_metadata_tuples_are_stable() {
+    assert_eq!(
+        [
+            codec_metadata::<GSet<String>>(&GSetStringCodec),
+            codec_metadata::<GSet<String>>(&GSetStringDeltaCodec),
+            codec_metadata::<GCounter>(&GCounterCodec),
+            codec_metadata::<PNCounter>(&PNCounterCodec),
+            codec_metadata::<LWWRegister<String>>(&LWWRegisterStringCodec),
+            codec_metadata::<ORSet<String>>(&ORSetStringCodec),
+            codec_metadata::<ORSetDelta<String>>(&ORSetStringDeltaCodec),
+            codec_metadata::<ORMap<String, GSet<String>>>(&ORMapStringGSetCodec),
+            codec_metadata::<ORMapDelta<String, GSet<String>>>(&ORMapStringGSetDeltaCodec),
+        ],
+        [
+            ("kairo.ddata.gset-string", 1),
+            ("kairo.ddata.gset-string-delta", 1),
+            ("kairo.ddata.gcounter", 1),
+            ("kairo.ddata.pncounter", 1),
+            ("kairo.ddata.lww-register-string", 1),
+            ("kairo.ddata.orset-string", 1),
+            ("kairo.ddata.orset-string-delta", 1),
+            ("kairo.ddata.ormap-string-gset", 1),
+            ("kairo.ddata.ormap-string-gset-delta", 1),
+        ]
+    );
 }
 
 #[test]

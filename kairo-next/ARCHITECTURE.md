@@ -1758,6 +1758,17 @@ CRDT requirements:
 - pruning removed cluster nodes,
 - serializer manifests for all internal messages.
 
+CRDT payload serialization is explicit and type-directed. `CrdtDataCodec<D>`
+owns one stable manifest/version pair and encodes only the payload bytes;
+`SerializedCrdt` carries that metadata without Rust type names, discriminants,
+or memory layout. Decode requires an exact manifest, each built-in codec rejects
+unknown versions and trailing bytes, and ordered CRDT state is emitted through
+deterministic map/set iteration. The initial built-ins cover full and delta
+forms of `GSet<String>`, `GCounter`, `PNCounter`, `LWWRegister<String>`,
+`ORSet<String>`, and `ORMap<String, GSet<String>>`; this Kairo format preserves
+Pekko's manifest-directed semantic boundary but does not claim protobuf byte
+compatibility.
+
 Remote association integration:
 
 - cluster-route state selects remote replicas and builds `/system/ddata`

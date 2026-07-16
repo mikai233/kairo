@@ -1,3 +1,13 @@
+#![deny(missing_docs)]
+
+//! Stable payload codecs for Kairo's built-in replicated-data families.
+//!
+//! A [`CrdtDataCodec`] supplies explicit manifest and version metadata and
+//! converts one concrete CRDT type to an opaque payload. The built-in codecs
+//! use deterministic map/set iteration and reject unknown versions, malformed
+//! operation tags, and trailing bytes. These are Kairo wire contracts; they do
+//! not claim byte compatibility with Pekko's protobuf serializers.
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -9,15 +19,25 @@ use crate::{
     ReplicaId,
 };
 
+/// Stable manifest for a full `GSet<String>` value.
 pub const GSET_STRING_MANIFEST: &str = "kairo.ddata.gset-string";
+/// Stable manifest for a `GSet<String>` delta value.
 pub const GSET_STRING_DELTA_MANIFEST: &str = "kairo.ddata.gset-string-delta";
+/// Stable manifest for a full `GCounter` value or its absolute-component delta.
 pub const GCOUNTER_MANIFEST: &str = "kairo.ddata.gcounter";
+/// Stable manifest for a full `PNCounter` value or its component delta.
 pub const PNCOUNTER_MANIFEST: &str = "kairo.ddata.pncounter";
+/// Stable manifest for a full `LWWRegister<String>` value or update delta.
 pub const LWW_REGISTER_STRING_MANIFEST: &str = "kairo.ddata.lww-register-string";
+/// Stable manifest for a full `ORSet<String>` value.
 pub const ORSET_STRING_MANIFEST: &str = "kairo.ddata.orset-string";
+/// Stable manifest for an `ORSet<String>` operation delta.
 pub const ORSET_STRING_DELTA_MANIFEST: &str = "kairo.ddata.orset-string-delta";
+/// Stable manifest for a full `ORMap<String, GSet<String>>` value.
 pub const ORMAP_STRING_GSET_MANIFEST: &str = "kairo.ddata.ormap-string-gset";
+/// Stable manifest for an `ORMap<String, GSet<String>>` operation delta.
 pub const ORMAP_STRING_GSET_DELTA_MANIFEST: &str = "kairo.ddata.ormap-string-gset-delta";
+/// Current wire version shared by the built-in CRDT payload codecs.
 pub const CRDT_CODEC_VERSION: u16 = 1;
 
 const ORSET_DELTA_ADD_TAG: u8 = 1;
@@ -29,6 +49,10 @@ const ORMAP_DELTA_REMOVE_TAG: u8 = 3;
 const ORMAP_DELTA_GROUP_TAG: u8 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A manifest-tagged, versioned CRDT payload.
+///
+/// This record is transport-neutral and contains no Rust type name or memory
+/// representation. A matching [`CrdtDataCodec`] is required to interpret it.
 pub struct SerializedCrdt {
     manifest: &'static str,
     version: u16,
@@ -36,6 +60,7 @@ pub struct SerializedCrdt {
 }
 
 impl SerializedCrdt {
+    /// Creates a serialized CRDT record from stable metadata and payload bytes.
     pub fn new(manifest: &'static str, version: u16, payload: Bytes) -> Self {
         Self {
             manifest,
@@ -44,34 +69,49 @@ impl SerializedCrdt {
         }
     }
 
+    /// Returns the stable CRDT data manifest.
     pub fn manifest(&self) -> &'static str {
         self.manifest
     }
 
+    /// Returns the codec version attached to the payload.
     pub fn version(&self) -> u16 {
         self.version
     }
 
+    /// Borrows the opaque encoded payload.
     pub fn payload(&self) -> &Bytes {
         &self.payload
     }
 
+    /// Consumes the record and returns its opaque encoded payload.
     pub fn into_payload(self) -> Bytes {
         self.payload
     }
 }
 
+/// Encodes one concrete CRDT data or delta type through stable wire metadata.
+///
+/// Implementations must use a manifest that is unique within the configured
+/// CRDT family registry. Decoders are responsible for validating `version` and
+/// consuming the complete payload. The default helpers additionally require an
+/// exact manifest match before decoding.
 pub trait CrdtDataCodec<D> {
+    /// Returns the stable manifest for this encoded CRDT type.
     fn manifest(&self) -> &'static str;
 
+    /// Returns the current payload version emitted by this codec.
     fn version(&self) -> u16 {
         CRDT_CODEC_VERSION
     }
 
+    /// Encodes `data` without duplicating its manifest or version in the payload.
     fn encode_payload(&self, data: &D) -> kairo_serialization::Result<Bytes>;
 
+    /// Decodes one payload after validating the supplied wire version.
     fn decode_payload(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<D>;
 
+    /// Encodes `data` with this codec's stable manifest and current version.
     fn serialize(&self, data: &D) -> kairo_serialization::Result<SerializedCrdt> {
         Ok(SerializedCrdt::new(
             self.manifest(),
@@ -80,6 +120,7 @@ pub trait CrdtDataCodec<D> {
         ))
     }
 
+    /// Validates the manifest and decodes a serialized CRDT record.
     fn deserialize(&self, data: SerializedCrdt) -> kairo_serialization::Result<D> {
         if data.manifest() != self.manifest() {
             return Err(SerializationError::Message(format!(
@@ -115,6 +156,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Deterministic full-state codec for `GSet<String>`.
 pub struct GSetStringCodec;
 
 impl CrdtDataCodec<GSet<String>> for GSetStringCodec {
@@ -149,6 +191,7 @@ impl CrdtDataCodec<GSet<String>> for GSetStringCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Deterministic delta codec for `GSet<String>`.
 pub struct GSetStringDeltaCodec;
 
 impl CrdtDataCodec<GSet<String>> for GSetStringDeltaCodec {
@@ -171,6 +214,7 @@ impl CrdtDataCodec<GSet<String>> for GSetStringDeltaCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Deterministic codec for `GCounter` full states and absolute-component deltas.
 pub struct GCounterCodec;
 
 impl CrdtDataCodec<GCounter> for GCounterCodec {
@@ -206,6 +250,7 @@ impl CrdtDataCodec<GCounter> for GCounterCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Deterministic codec for `PNCounter` full states and component deltas.
 pub struct PNCounterCodec;
 
 impl CrdtDataCodec<PNCounter> for PNCounterCodec {
@@ -245,6 +290,7 @@ impl CrdtDataCodec<PNCounter> for PNCounterCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Deterministic codec for `LWWRegister<String>` full states and update deltas.
 pub struct LWWRegisterStringCodec;
 
 impl CrdtDataCodec<LWWRegister<String>> for LWWRegisterStringCodec {
@@ -276,6 +322,7 @@ impl CrdtDataCodec<LWWRegister<String>> for LWWRegisterStringCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Deterministic full-state codec for `ORSet<String>`.
 pub struct ORSetStringCodec;
 
 impl CrdtDataCodec<ORSet<String>> for ORSetStringCodec {
@@ -315,6 +362,7 @@ impl CrdtDataCodec<ORSet<String>> for ORSetStringCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Deterministic operation-delta codec for `ORSet<String>`.
 pub struct ORSetStringDeltaCodec;
 
 impl CrdtDataCodec<ORSetDelta<String>> for ORSetStringDeltaCodec {
@@ -342,6 +390,7 @@ impl CrdtDataCodec<ORSetDelta<String>> for ORSetStringDeltaCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Deterministic full-state codec for `ORMap<String, GSet<String>>`.
 pub struct ORMapStringGSetCodec;
 
 impl CrdtDataCodec<ORMap<String, GSet<String>>> for ORMapStringGSetCodec {
@@ -384,6 +433,7 @@ impl CrdtDataCodec<ORMap<String, GSet<String>>> for ORMapStringGSetCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Deterministic operation-delta codec for `ORMap<String, GSet<String>>`.
 pub struct ORMapStringGSetDeltaCodec;
 
 impl CrdtDataCodec<ORMapDelta<String, GSet<String>>> for ORMapStringGSetDeltaCodec {

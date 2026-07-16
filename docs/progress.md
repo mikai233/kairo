@@ -321,6 +321,12 @@ Status terms in this document mean:
   targets, the three direct-request and five reply manifests, paired typed CRDT
   codecs, mailbox-owned outcome recipients, retained reply targets, one-way
   delta behavior, and source-attributed reply conversion for aggregation.
+  The CRDT payload codec boundary now hard-gates explicit manifest/version
+  metadata, exact-manifest decode, deterministic collection ordering, complete
+  payload consumption, built-in full/delta specialization, and the intentional
+  absence of Rust implementation details or claimed Pekko protobuf byte
+  compatibility. An exhaustive regression pins all nine built-in metadata
+  tuples at wire version 1.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

@@ -293,6 +293,7 @@ fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn
         "kairo-next/crates/kairo-distributed-data/src/aggregation_transport.rs",
         "kairo-next/crates/kairo-distributed-data/src/aggregation_wire.rs",
         "kairo-next/crates/kairo-distributed-data/src/consistency.rs",
+        "kairo-next/crates/kairo-distributed-data/src/crdt_codec.rs",
         "kairo-next/crates/kairo-distributed-data/src/data.rs",
         "kairo-next/crates/kairo-distributed-data/src/delta.rs",
         "kairo-next/crates/kairo-distributed-data/src/delta_loop.rs",
