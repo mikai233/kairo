@@ -462,7 +462,11 @@ Status terms in this document mean:
   bootstrap failures. Its membership connector documents and preserves
   Pekko's asymmetric membership rule: initial snapshots accept role-matching
   non-Joining members, while later Up/WeaklyUp events add and
-  Left/Downed/Removed events remove peers.
+  Left/Downed/Removed events remove peers. The serialization-free local pubsub
+  surface now hard-gates its topic identity and state, direct versus grouped
+  delivery modes, logical-path registry, actor protocol, death-watch cleanup,
+  and immediate delivery reports. Its docs explicitly distinguish broadcast,
+  one-per-group, local `Send`, and distributed `SendToAll` re-entry semantics.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -475,9 +479,9 @@ Status terms in this document mean:
   recommended `kairo` facade, foundational actor and serialization APIs, and
   public `kairo-testkit` utility surface now deny missing public documentation;
   the primary cluster-singleton and composed distributed-pubsub facades carry
-  the same module-level hard gate. The remote ping-pong example and
-  compile-tested serialization docs now exercise the format-neutral closure
-  registration path. The
+  the same module-level hard gate, as do the local topic/pubsub APIs. The remote
+  ping-pong example and compile-tested serialization docs now exercise the
+  format-neutral closure registration path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower

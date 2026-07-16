@@ -1,27 +1,43 @@
+#![deny(missing_docs)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_actor::{ActorPath, ActorRef};
 
 use crate::{LocalTopic, TopicName, TopicPublishMode, TopicPublishReport, TopicSubscriptionChange};
 
+/// Topic identity paired with the immediate result of one publication.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubSubTopicReport {
+    /// Published topic.
     pub topic: TopicName,
+    /// Local mailbox delivery counts.
     pub report: TopicPublishReport,
 }
 
+/// Logical actor path paired with the immediate result of one send.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubSubPathReport {
+    /// Address-independent logical path used for lookup.
     pub path: String,
+    /// Local mailbox delivery counts.
     pub report: TopicPublishReport,
 }
 
+/// Result of registering or removing a logical actor path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubSubPathRegistration {
+    /// Address-independent logical path affected by the operation.
     pub path: String,
+    /// Whether the stored path mapping changed.
     pub changed: bool,
 }
 
+/// Serialization-free local pubsub topic and logical-path registry.
+///
+/// Topic delivery uses typed local actor refs. Logical paths omit transport
+/// address and actor-incarnation suffixes so a replacement registration can
+/// take over the same application path without exposing remoting details.
 #[derive(Debug, Clone)]
 pub struct LocalPubSub<M> {
     topics: BTreeMap<TopicName, LocalTopic<M>>,
@@ -35,6 +51,7 @@ impl<M: Send + 'static> Default for LocalPubSub<M> {
 }
 
 impl<M: Send + 'static> LocalPubSub<M> {
+    /// Creates an empty local pubsub registry.
     pub fn new() -> Self {
         Self {
             topics: BTreeMap::new(),
@@ -42,18 +59,22 @@ impl<M: Send + 'static> LocalPubSub<M> {
         }
     }
 
+    /// Returns the number of non-empty topics.
     pub fn topic_count(&self) -> usize {
         self.topics.len()
     }
 
+    /// Returns current topic names in deterministic order.
     pub fn current_topics(&self) -> BTreeSet<TopicName> {
         self.topics.keys().cloned().collect()
     }
 
+    /// Returns registered logical paths in deterministic order.
     pub fn current_paths(&self) -> BTreeSet<String> {
         self.paths.keys().cloned().collect()
     }
 
+    /// Returns each topic's current group names in deterministic order.
     pub fn topic_groups(&self) -> BTreeMap<TopicName, BTreeSet<String>> {
         self.topics
             .iter()
@@ -61,14 +82,19 @@ impl<M: Send + 'static> LocalPubSub<M> {
             .collect()
     }
 
+    /// Returns local state for `topic`, when it has subscribers.
     pub fn topic(&self, topic: &TopicName) -> Option<&LocalTopic<M>> {
         self.topics.get(topic)
     }
 
+    /// Resolves a registered logical path to its current local actor ref.
     pub fn path_actor(&self, path: &str) -> Option<&ActorRef<M>> {
         self.paths.get(path)
     }
 
+    /// Registers `actor` under its address-independent logical path.
+    ///
+    /// A new incarnation replaces an older mapping at the same logical path.
     pub fn register_path(&mut self, actor: ActorRef<M>) -> PubSubPathRegistration {
         let path = path_key(actor.path());
         let changed = self
@@ -79,6 +105,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
         PubSubPathRegistration { path, changed }
     }
 
+    /// Removes the actor registered at `path`, if any.
     pub fn remove_path(&mut self, path: &str) -> PubSubPathRegistration {
         let changed = self.paths.remove(path).is_some();
         PubSubPathRegistration {
@@ -87,6 +114,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
         }
     }
 
+    /// Adds a direct subscriber to `topic`.
     pub fn subscribe(
         &mut self,
         topic: TopicName,
@@ -95,6 +123,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
         self.topic_mut(topic).subscribe(subscriber)
     }
 
+    /// Adds a subscriber to a named group within `topic`.
     pub fn subscribe_group(
         &mut self,
         topic: TopicName,
@@ -104,6 +133,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
         self.topic_mut(topic).subscribe_group(group, subscriber)
     }
 
+    /// Removes a direct topic subscription and prunes an empty topic.
     pub fn unsubscribe(&mut self, topic: &TopicName, subscriber: &ActorRef<M>) -> bool {
         let Some(topic_state) = self.topics.get_mut(topic) else {
             return false;
@@ -113,6 +143,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
         removed
     }
 
+    /// Removes a grouped subscription and prunes empty group/topic state.
     pub fn unsubscribe_group(
         &mut self,
         topic: &TopicName,
@@ -127,10 +158,14 @@ impl<M: Send + 'static> LocalPubSub<M> {
         removed
     }
 
+    /// Removes every topic and path registration for `subscriber`.
+    ///
+    /// The returned topic names are exactly those whose subscription state changed.
     pub fn remove_subscriber(&mut self, subscriber: &ActorRef<M>) -> Vec<TopicName> {
         self.remove_subscriber_path(subscriber.path())
     }
 
+    /// Removes every topic and path registration matching `subscriber`.
     pub fn remove_subscriber_path(&mut self, subscriber: &ActorPath) -> Vec<TopicName> {
         let mut changed_topics = Vec::new();
         for (topic, topic_state) in &mut self.topics {
@@ -152,6 +187,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
         changed_topics
     }
 
+    /// Returns whether a topic or logical-path registration matches `subscriber`.
     pub fn contains_subscriber_path(&self, subscriber: &ActorPath) -> bool {
         self.topics
             .values()
@@ -162,6 +198,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
                 .any(|registered| registered.path() == subscriber)
     }
 
+    /// Publishes to local topic subscribers using `mode`.
     pub fn publish(
         &mut self,
         topic: &TopicName,
@@ -183,6 +220,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
         }
     }
 
+    /// Sends to the single local actor currently registered at `path`.
     pub fn send_path(&mut self, path: &str, message: M) -> PubSubPathReport
     where
         M: Clone,
@@ -194,6 +232,11 @@ impl<M: Send + 'static> LocalPubSub<M> {
         }
     }
 
+    /// Sends to the single local actor currently registered at `path`.
+    ///
+    /// Local state contains at most one actor per path, so this is equivalent
+    /// to [`LocalPubSub::send_path`]. Distributed mediators apply the
+    /// send-to-all fan-out before reaching this local boundary.
     pub fn send_path_to_all(&mut self, path: &str, message: M) -> PubSubPathReport
     where
         M: Clone,
@@ -205,6 +248,7 @@ impl<M: Send + 'static> LocalPubSub<M> {
         }
     }
 
+    /// Publishes to one live round-robin subscriber in `group`.
     pub fn publish_group(&mut self, topic: &TopicName, group: &str, message: M) -> PubSubTopicReport
     where
         M: Clone,

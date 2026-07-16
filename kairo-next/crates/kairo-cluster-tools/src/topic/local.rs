@@ -1,23 +1,35 @@
+#![deny(missing_docs)]
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use kairo_actor::{ActorPath, ActorRef};
 
 use super::TopicName;
 
+/// Delivery selection for one topic publication.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TopicPublishMode {
+    /// Delivers to every direct and grouped local subscriber.
     Broadcast,
+    /// Delivers to one round-robin subscriber in each group, excluding direct subscribers.
     OnePerGroup,
 }
 
+/// Counts the immediate outcomes of one local topic or path delivery.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TopicPublishReport {
+    /// Messages accepted by subscriber mailboxes.
     pub delivered: usize,
+    /// Non-terminal mailbox send failures.
     pub failed: usize,
+    /// Whether no live target was attempted.
+    ///
+    /// Stopped references are pruned and do not count as delivery failures.
     pub no_subscribers: bool,
 }
 
 impl TopicPublishReport {
+    /// Creates an empty report representing no live subscribers.
     pub fn empty_for_no_subscribers() -> Self {
         Self {
             delivered: 0,
@@ -37,11 +49,18 @@ impl TopicPublishReport {
     }
 }
 
+/// Result of adding one direct or grouped topic subscription.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TopicSubscriptionChange {
+    /// Whether the actor path was newly inserted at that subscription location.
     pub inserted: bool,
 }
 
+/// Serialization-free local subscription state for one topic.
+///
+/// Direct subscribers and named subscriber groups are tracked separately by
+/// actor path. Group delivery uses deterministic round-robin selection and
+/// prunes stopped actor references while searching for a live recipient.
 #[derive(Debug, Clone)]
 pub struct LocalTopic<M> {
     name: TopicName,
@@ -50,6 +69,7 @@ pub struct LocalTopic<M> {
 }
 
 impl<M: Send + 'static> LocalTopic<M> {
+    /// Creates an empty local topic.
     pub fn new(name: TopicName) -> Self {
         Self {
             name,
@@ -58,10 +78,12 @@ impl<M: Send + 'static> LocalTopic<M> {
         }
     }
 
+    /// Returns this topic's identity.
     pub fn name(&self) -> &TopicName {
         &self.name
     }
 
+    /// Returns the total direct and grouped subscription registrations.
     pub fn subscriber_count(&self) -> usize {
         self.subscribers.len()
             + self
@@ -71,18 +93,22 @@ impl<M: Send + 'static> LocalTopic<M> {
                 .sum::<usize>()
     }
 
+    /// Returns whether the topic has no direct or grouped subscribers.
     pub fn is_empty(&self) -> bool {
         self.subscriber_count() == 0
     }
 
+    /// Returns the number of non-empty subscriber groups.
     pub fn group_count(&self) -> usize {
         self.groups.len()
     }
 
+    /// Returns group names in deterministic lexical order.
     pub fn group_names(&self) -> BTreeSet<String> {
         self.groups.keys().cloned().collect()
     }
 
+    /// Returns the registration count for `group`, or zero when absent.
     pub fn group_subscriber_count(&self, group: &str) -> usize {
         self.groups
             .get(group)
@@ -90,10 +116,12 @@ impl<M: Send + 'static> LocalTopic<M> {
             .unwrap_or_default()
     }
 
+    /// Adds a direct subscriber if its actor path is not already registered.
     pub fn subscribe(&mut self, subscriber: ActorRef<M>) -> TopicSubscriptionChange {
         insert_unique(&mut self.subscribers, subscriber)
     }
 
+    /// Adds a subscriber to a named group if its actor path is not already in that group.
     pub fn subscribe_group(
         &mut self,
         group: impl Into<String>,
@@ -105,10 +133,12 @@ impl<M: Send + 'static> LocalTopic<M> {
             .subscribe(subscriber)
     }
 
+    /// Removes a direct subscription by actor path.
     pub fn unsubscribe(&mut self, subscriber: &ActorRef<M>) -> bool {
         remove_by_path(&mut self.subscribers, subscriber.path())
     }
 
+    /// Removes a grouped subscription and drops the group when it becomes empty.
     pub fn unsubscribe_group(&mut self, group: &str, subscriber: &ActorRef<M>) -> bool {
         let Some(group_state) = self.groups.get_mut(group) else {
             return false;
@@ -120,10 +150,12 @@ impl<M: Send + 'static> LocalTopic<M> {
         removed
     }
 
+    /// Removes all direct and grouped registrations for `subscriber`.
     pub fn remove_subscriber(&mut self, subscriber: &ActorRef<M>) -> bool {
         self.remove_subscriber_path(subscriber.path())
     }
 
+    /// Removes all direct and grouped registrations matching `subscriber`.
     pub fn remove_subscriber_path(&mut self, subscriber: &ActorPath) -> bool {
         let mut removed = remove_by_path(&mut self.subscribers, subscriber);
         let empty_groups: Vec<_> = self
@@ -140,6 +172,7 @@ impl<M: Send + 'static> LocalTopic<M> {
         removed
     }
 
+    /// Returns whether any direct or grouped registration matches `subscriber`.
     pub fn contains_subscriber_path(&self, subscriber: &ActorPath) -> bool {
         self.subscribers
             .iter()
@@ -150,6 +183,11 @@ impl<M: Send + 'static> LocalTopic<M> {
                 .any(|group| group.contains_subscriber_path(subscriber))
     }
 
+    /// Publishes according to `mode` and prunes stopped subscribers.
+    ///
+    /// [`TopicPublishMode::Broadcast`] visits every registration, while
+    /// [`TopicPublishMode::OnePerGroup`] visits one live member of each group
+    /// and does not deliver to direct subscribers.
     pub fn publish(&mut self, message: M, mode: TopicPublishMode) -> TopicPublishReport
     where
         M: Clone,
@@ -160,6 +198,7 @@ impl<M: Send + 'static> LocalTopic<M> {
         }
     }
 
+    /// Publishes to one live round-robin subscriber in `group`.
     pub fn publish_group(&mut self, group: &str, message: M) -> TopicPublishReport
     where
         M: Clone,

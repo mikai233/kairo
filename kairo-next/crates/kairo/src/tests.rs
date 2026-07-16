@@ -334,6 +334,11 @@ fn cluster_tools_documented_modules_deny_missing_docs() -> Result<(), Box<dyn st
         "kairo-next/crates/kairo-cluster-tools/src/cluster_singleton/connector.rs",
         "kairo-next/crates/kairo-cluster-tools/src/extension.rs",
         "kairo-next/crates/kairo-cluster-tools/src/extension/connector.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/pubsub/actor.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/pubsub/local.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/topic/mod.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/topic/local.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/topic/name.rs",
     ];
 
     for relative_path in documented_modules {
