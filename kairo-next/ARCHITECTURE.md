@@ -1794,6 +1794,22 @@ the typed public API, key identity is the pair `(CRDT family manifest, key
 string)`; the same key string may therefore be used independently by two
 families.
 
+`ReplicatorDeltaPropagation` serializer-id `3004` and manifest
+`kairo.ddata.delta-propagation` are a versioned wire contract. Both versions
+write the source `ReplicaId` string, a one-byte reply flag, a big-endian `u64`
+delta count, and each ordered delta's key, CRDT manifest, big-endian `u16` CRDT
+version, inclusive big-endian `u64` source-version range, and length-prefixed
+codec-owned payload. Version 2 then appends a big-endian `u64` pruning-entry
+count per delta. Each pruning entry writes the removed replica and a one-byte
+tag: initialized tag `1` carries owner plus an ordered seen-replica list, while
+performed tag `2` carries a big-endian `u64` obsolete deadline. Strings and
+payloads use big-endian `u32` byte-length prefixes. The checked compatibility
+fixtures are the 79-byte
+`kairo-distributed-data/tests/fixtures/delta-propagation-v1.hex` and 300-byte
+`delta-propagation-v2.hex`; v1 must remain decodable without pruning metadata,
+while v2 must decode and reproduce exactly. Incompatible changes require a new
+message version and an explicit rolling-upgrade path.
+
 Sharding uses this later for coordinator state and remember entities. MVP
 sharding may start with an in-memory coordinator store to prove the routing
 model before CRDT storage is implemented.

@@ -72,8 +72,11 @@ Status terms in this document mean:
   in both decode and encode directions. A checked cluster
   `GossipEnvelope`-v1 fixture now likewise pins the complete full-membership
   payload, including incarnation identities, deterministic membership and
-  seen ordering, reachability, causal clocks, and tombstones. Optional codec
-  helpers and broader system-protocol compatibility fixtures remain. The
+  seen ordering, reachability, causal clocks, and tombstones. Checked ddata
+  delta-propagation fixtures now prove historical v1 decode plus exact v2
+  encode/decode with CRDT metadata, causal ranges, and both pruning lifecycle
+  states. Optional codec helpers and broader system-protocol compatibility
+  fixtures remain. The
   serialization contract crate and remote-message derive crate now deny
   missing public documentation at compile time.
 - M4 remoting: complete through the composed runtime boundary. One
@@ -233,7 +236,9 @@ Status terms in this document mean:
   empty-tick counting, post-publication cleanup cadence, skipped reports, and
   transport diagnostics.
   Delta propagation v2 now carries each key's current pruning metadata, while
-  retaining v1 decode compatibility. Receive applies pruning before delta data,
+  retaining v1 decode compatibility. Checked 79-byte v1 and 300-byte v2
+  fixtures pin that rolling-upgrade boundary and the current serializer tuple.
+  Receive applies pruning before delta data,
   cleans late removed-replica contributions under performed markers, and marks
   initialized markers seen before acknowledging. Delta receive now hard-gates
   causal application, duplicate ACK and gap/decode NACK aggregation, source
@@ -6519,8 +6524,9 @@ Not yet implemented:
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and system-protocol compatibility
   fixtures beyond the checked remote-envelope frame-v1 and TCP association
-  handshake-v2 bytes, checked cluster full-gossip payload-v1 bytes, and current
-  bidirectional process-level v1/v2 remote-message migration tests.
+  handshake-v2 bytes, checked cluster full-gossip payload-v1 bytes, checked
+  ddata delta-propagation payload-v1/v2 bytes, and current bidirectional
+  process-level v1/v2 remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost

@@ -118,6 +118,14 @@ state, observer-versioned reachability, vector clocks, and tombstones. Change
 that schema only by introducing a new message version whose codec explicitly
 retains every rolling-upgrade direction that deployed nodes require.
 
+Distributed-data delta propagation demonstrates that rule across two wire
+schema generations. The checked
+`kairo-next/crates/kairo-distributed-data/tests/fixtures/delta-propagation-v1.hex`
+must continue to decode without pruning metadata, while the version-2 fixture
+in the same directory pins current encode/decode bytes including initialized
+and performed removed-replica pruning state. A future delta schema must keep
+every required older decode path rather than reinterpreting either fixture.
+
 The runnable `ask_pipe_to_self` example shows local request/reply and external
 work returning through the actor mailbox without borrowing actor state across
 an await point:
