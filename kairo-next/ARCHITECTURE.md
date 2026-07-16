@@ -1791,6 +1791,16 @@ emits a send-back only when requested and local data or pruning metadata can
 contribute. Invalid chunk ranges and a zero full-state response limit fail
 explicitly. These functions own no transport and cannot establish membership.
 
+`ReplicatorGossipTransport` maps each logical replica to separate typed status
+and full-state gossip recipients. Cloned registries share atomic target-set
+replacement, individual replacement, and removal so cluster-owned route
+projection can update active transports without reconstructing replicators.
+Each send makes one recipient attempt without retry and reports missing targets
+or message-kind-specific recipient rejection while retaining the logical
+replica. Tick and receive reports keep pure planning/application results
+separate from these delivery diagnostics. Like every remote target registry,
+this is delivery state and never membership truth.
+
 Remote association integration:
 
 - cluster-route state selects remote replicas and builds `/system/ddata`

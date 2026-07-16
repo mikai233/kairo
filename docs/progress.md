@@ -341,6 +341,11 @@ Status terms in this document mean:
   invalid-chunk/zero-limit failures. A Pekko-semantic regression also fixes the
   case where a peer's not-found digest previously failed to request a local
   value's full state.
+  Full-state gossip delivery now hard-gates shared target replacement/removal,
+  distinct typed status and gossip recipients, append-only per-attempt reports,
+  missing-target diagnostics, and message-kind-specific recipient failures.
+  Transport sends remain single-attempt delivery state; retry scheduling and
+  membership ownership stay outside the route registry.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
