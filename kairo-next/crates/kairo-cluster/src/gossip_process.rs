@@ -127,35 +127,51 @@ impl ClusterGossipState {
     /// gossip. When every candidate has seen it, round-robin selection sends a
     /// compact status instead. Self and locally unreachable peers are excluded.
     pub fn initiate(&mut self, gossip: &Gossip) -> Option<ClusterGossipAction> {
-        let mut valid: Vec<_> = gossip
-            .members()
-            .iter()
-            .map(|member| &member.unique_address)
-            .filter(|node| self.valid_target(gossip, node))
-            .cloned()
-            .collect();
-        valid.sort_by_key(UniqueAddress::ordering_key);
-
-        let different_view: Vec<_> = valid
-            .iter()
-            .filter(|node| !gossip.seen_by().contains(*node))
-            .cloned()
-            .collect();
-        let candidates = if different_view.is_empty() {
-            &valid
+        let (valid_count, different_view_count) =
+            gossip
+                .members()
+                .iter()
+                .fold((0_usize, 0_usize), |(valid, different), member| {
+                    let node = &member.unique_address;
+                    if self.valid_member_target(gossip, node) {
+                        (
+                            valid + 1,
+                            different + usize::from(!gossip.seen_by().contains(node)),
+                        )
+                    } else {
+                        (valid, different)
+                    }
+                });
+        let prefer_different_view = different_view_count != 0;
+        let candidate_count = if prefer_different_view {
+            different_view_count
         } else {
-            &different_view
+            valid_count
         };
-        if candidates.is_empty() {
+        if candidate_count == 0 {
             return None;
         }
 
-        let target = candidates[self.target_cursor % candidates.len()].clone();
+        let target_index = self.target_cursor % candidate_count;
+        // Gossip normalizes members by unique address, so filtering this slice
+        // retains the same deterministic order without rebuilding or sorting a
+        // candidate vector on every tick.
+        let target = gossip
+            .members()
+            .iter()
+            .map(|member| &member.unique_address)
+            .filter(|node| {
+                self.valid_member_target(gossip, node)
+                    && (!prefer_different_view || !gossip.seen_by().contains(*node))
+            })
+            .nth(target_index)
+            .expect("counted gossip target must remain selectable")
+            .clone();
         self.target_cursor = self.target_cursor.wrapping_add(1);
-        if gossip.seen_by().contains(&target) {
-            Some(self.status_action(gossip, target))
-        } else {
+        if prefer_different_view {
             Some(self.gossip_action(gossip, target))
+        } else {
+            Some(self.status_action(gossip, target))
         }
     }
 
@@ -192,8 +208,11 @@ impl ClusterGossipState {
     }
 
     fn valid_target(&self, gossip: &Gossip, node: &UniqueAddress) -> bool {
+        gossip.has_member(node) && self.valid_member_target(gossip, node)
+    }
+
+    fn valid_member_target(&self, gossip: &Gossip, node: &UniqueAddress) -> bool {
         node != &self.self_node
-            && gossip.has_member(node)
             && gossip.reachability().status(&self.self_node, node) == ReachabilityStatus::Reachable
     }
 
@@ -520,6 +539,86 @@ mod tests {
                 if target == peer && status.from == self_node
                     && status.seen_digest == gossip.seen_digest()
         ));
+    }
+
+    #[test]
+    fn periodic_round_uses_normalized_round_robin_across_different_view_peers() {
+        let self_node = node("self", 1);
+        let peer_a = node("a", 2);
+        let peer_b = node("b", 3);
+        let peer_c = node("c", 4);
+        let gossip = Gossip::from_members([
+            member(peer_c.clone()),
+            member(self_node.clone()),
+            member(peer_b.clone()),
+            member(peer_a.clone()),
+        ])
+        .seen(self_node.clone())
+        .seen(peer_b.clone())
+        .increment_version(&self_node);
+        let mut state = ClusterGossipState::new(self_node);
+
+        let targets = (0..5)
+            .map(|_| match state.initiate(&gossip).unwrap() {
+                ClusterGossipAction::SendGossip { target, .. } => target,
+                ClusterGossipAction::SendStatus { .. } => {
+                    panic!("an unseen candidate should receive full gossip")
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            targets,
+            vec![
+                peer_a.clone(),
+                peer_c.clone(),
+                peer_a.clone(),
+                peer_c.clone(),
+                peer_a.clone(),
+            ]
+        );
+
+        let converged = gossip.seen(peer_a.clone()).seen(peer_c.clone());
+        let targets = (0..4)
+            .map(|_| match state.initiate(&converged).unwrap() {
+                ClusterGossipAction::SendStatus { target, .. } => target,
+                ClusterGossipAction::SendGossip { .. } => {
+                    panic!("a peer that has seen the view should receive gossip status")
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(targets, vec![peer_c.clone(), peer_a, peer_b, peer_c]);
+    }
+
+    #[test]
+    fn periodic_round_excludes_self_and_locally_unreachable_peers_without_gaps() {
+        let self_node = node("self", 1);
+        let peer_a = node("a", 2);
+        let unreachable = node("b", 3);
+        let peer_c = node("c", 4);
+        let gossip = Gossip::from_members([
+            member(self_node.clone()),
+            member(peer_a.clone()),
+            member(unreachable.clone()),
+            member(peer_c.clone()),
+        ])
+        .with_reachability(crate::Reachability::new().unreachable(self_node.clone(), unreachable));
+        let mut state = ClusterGossipState::new(self_node);
+
+        let targets = (0..4)
+            .map(|_| match state.initiate(&gossip).unwrap() {
+                ClusterGossipAction::SendGossip { target, .. } => target,
+                ClusterGossipAction::SendStatus { .. } => {
+                    panic!("an unseen candidate should receive full gossip")
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            targets,
+            vec![peer_a.clone(), peer_c.clone(), peer_a, peer_c]
+        );
     }
 
     #[test]

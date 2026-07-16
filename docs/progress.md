@@ -98,6 +98,10 @@ Status terms in this document mean:
   former group-and-renormalize allocation pass. Healthy gossip merges also
   skip allowed-member set construction when both reachability tables are
   unversioned and all-reachable, while retaining healed observer-row versions.
+  Periodic gossip target selection now filters the already-normalized member
+  slice in two allocation-free linear passes, preserving unseen-peer
+  preference, local reachability filtering, and deterministic round-robin
+  order without rebuilding, re-sorting, or re-validating candidate membership.
   The 48-member release benchmark now reaches roughly 20.5k-22.5k merges per
   second versus the initial 3.7k baseline on the current Windows validation
   host. The cluster-domain event model and
