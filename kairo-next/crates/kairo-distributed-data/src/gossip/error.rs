@@ -3,9 +3,18 @@ use std::fmt::{self, Display, Formatter};
 use kairo_serialization::SerializationError;
 
 #[derive(Debug)]
+/// A failure while hashing, planning, encoding, or applying full-state gossip.
 pub enum ReplicatorGossipError {
+    /// A CRDT envelope could not be encoded or decoded.
     Serialization(SerializationError),
-    InvalidChunk { chunk: u32, total_chunks: u32 },
+    /// A chunk index was outside the declared non-empty chunk range.
+    InvalidChunk {
+        /// The zero-based chunk index supplied by the caller or peer.
+        chunk: u32,
+        /// The declared number of chunks.
+        total_chunks: u32,
+    },
+    /// A status response was requested with a zero entry limit.
     ZeroMaxEntries,
 }
 

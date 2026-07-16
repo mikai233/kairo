@@ -11,6 +11,11 @@ use super::hash::{
 };
 use super::{ReplicatorGossipError, ReplicatorGossipStatusPlan};
 
+/// Builds one chunk of the local full-state digest summary.
+///
+/// Keys are assigned with Kairo's fixed stable hash. `chunk` is zero-based and
+/// must be less than a non-zero `total_chunks`. Incarnation metadata is copied
+/// unchanged into the resulting status.
 pub fn build_gossip_status<D>(
     state: &ReplicatorState<D>,
     codec: &dyn CrdtDataCodec<D>,
@@ -42,6 +47,12 @@ where
     })
 }
 
+/// Plans full-state and missing-key responses to a peer's gossip status.
+///
+/// Different digests, including the peer's not-found sentinel, request bounded
+/// full-state gossip. Local keys absent from the peer status are also sent;
+/// peer keys absent locally produce a status carrying the not-found sentinel.
+/// `max_entries` bounds the full-state response and must be greater than zero.
 pub fn respond_to_gossip_status<D>(
     state: &ReplicatorState<D>,
     status: &ReplicatorGossipStatus,
@@ -73,9 +84,7 @@ where
         let Some(envelope) = state.envelope(&key) else {
             continue;
         };
-        if entry.digest != REPLICATOR_GOSSIP_NOT_FOUND_DIGEST
-            && digest_envelope(envelope, codec)? != entry.digest
-        {
+        if digest_envelope(envelope, codec)? != entry.digest {
             different.push(key);
         }
     }

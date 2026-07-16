@@ -5,8 +5,16 @@ use crate::{
 
 use super::ReplicatorGossipError;
 
+/// Reserved digest meaning that the status sender does not hold the key.
+///
+/// Real envelope digests are normalized away from this value.
 pub const REPLICATOR_GOSSIP_NOT_FOUND_DIGEST: u64 = 0;
 
+/// Computes the deterministic non-zero digest for a full CRDT envelope.
+///
+/// The fixed FNV-1a digest covers stable CRDT manifest/version/payload bytes and
+/// ordered pruning metadata. It is a difference detector, not a cryptographic
+/// integrity proof.
 pub fn digest_envelope<D>(
     envelope: &DataEnvelope<D>,
     codec: &dyn CrdtDataCodec<D>,

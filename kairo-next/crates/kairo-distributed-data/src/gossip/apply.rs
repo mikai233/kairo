@@ -8,6 +8,11 @@ use crate::{
 
 use super::{ReplicatorGossipApplyReport, ReplicatorGossipError};
 
+/// Decodes and merges full-state gossip into local replicator state.
+///
+/// The report contains keys whose merged envelope changed and an optional
+/// send-back gossip message. A send-back is produced only when requested and
+/// the local side already had relevant data or pruning state to contribute.
 pub fn apply_gossip<D>(
     state: &mut ReplicatorState<D>,
     gossip: &ReplicatorGossip,
@@ -113,6 +118,10 @@ where
     Ok(ReplicatorGossipApplyReport::new(changed_keys, reply))
 }
 
+/// Encodes the existing envelopes for `keys` as one full-state gossip message.
+///
+/// Requested keys that are absent locally are skipped. The supplied
+/// incarnation metadata and `send_back` flag are preserved unchanged.
 pub fn create_gossip<D>(
     state: &ReplicatorState<D>,
     keys: impl IntoIterator<Item = ReplicatorKey>,

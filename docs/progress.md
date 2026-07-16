@@ -334,6 +334,13 @@ Status terms in this document mean:
   compatibility for the version 2 direct/delta pruning additions. A regression
   pins all fourteen serializer IDs alongside the existing exhaustive
   manifest/version test.
+  Full-state gossip status, digest, planning, application, and report surfaces
+  now hard-gate fixed-hash chunking, non-zero envelope digests, the reserved
+  not-found sentinel, bounded full-state responses, independent missing-key
+  requests, stable changed-key reports, conditional send-back, and explicit
+  invalid-chunk/zero-limit failures. A Pekko-semantic regression also fixes the
+  case where a peer's not-found digest previously failed to request a local
+  value's full state.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

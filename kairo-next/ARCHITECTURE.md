@@ -1779,6 +1779,18 @@ version 1 decode compatibility for the pre-pruning shape, and full-state gossip
 always uses the pruning-aware envelope. Serializer IDs, manifests, and versions
 are explicit wire metadata rather than Rust enum or type implementation details.
 
+Full-state gossip is a pure status/plan/apply boundary over one typed CRDT
+family. `build_gossip_status` partitions keys with fixed FNV-1a and publishes
+non-zero deterministic digests covering CRDT metadata, payload, and pruning
+state; digest zero is reserved for the not-found sentinel. A peer's not-found
+digest is therefore different from any local value and requests that value's
+full state. `respond_to_gossip_status` bounds outbound full-state entries,
+sends local-only or different keys, and independently requests peer-only keys.
+`apply_gossip` merges full envelopes, reports changed keys in stable order, and
+emits a send-back only when requested and local data or pruning metadata can
+contribute. Invalid chunk ranges and a zero full-state response limit fail
+explicitly. These functions own no transport and cannot establish membership.
+
 Remote association integration:
 
 - cluster-route state selects remote replicas and builds `/system/ddata`

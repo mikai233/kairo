@@ -107,6 +107,69 @@ fn status_response_requests_keys_missing_locally() {
 }
 
 #[test]
+fn not_found_digest_requests_local_full_state() {
+    let mut local = ReplicatorState::new();
+    write_counter(&mut local, "requested", 10);
+    let status = ReplicatorGossipStatus {
+        entries: vec![ReplicatorGossipDigest {
+            key: "requested".to_string(),
+            digest: REPLICATOR_GOSSIP_NOT_FOUND_DIGEST,
+            used_timestamp_millis: 0,
+        }],
+        chunk: 0,
+        total_chunks: 1,
+        to_system_uid: Some(7),
+        from_system_uid: Some(8),
+    };
+
+    let plan = respond_to_gossip_status(&local, &status, &GCounterCodec, 10).unwrap();
+
+    let gossip = plan.gossip().expect("not-found digest must request data");
+    assert!(gossip.send_back);
+    assert_eq!(gossip.to_system_uid, Some(8));
+    assert_eq!(gossip.from_system_uid, Some(7));
+    assert_eq!(gossip.entries.len(), 1);
+    assert_eq!(gossip.entries[0].key, "requested");
+    assert!(plan.missing_status().is_none());
+}
+
+#[test]
+fn gossip_rejects_invalid_chunks_and_zero_response_limit() {
+    let state = ReplicatorState::<GCounter>::new();
+    let invalid_status = ReplicatorGossipStatus {
+        entries: Vec::new(),
+        chunk: 1,
+        total_chunks: 1,
+        to_system_uid: None,
+        from_system_uid: None,
+    };
+    let valid_status = ReplicatorGossipStatus {
+        chunk: 0,
+        total_chunks: 1,
+        ..invalid_status.clone()
+    };
+
+    assert!(matches!(
+        build_gossip_status(&state, &GCounterCodec, 0, 0, None, None),
+        Err(ReplicatorGossipError::InvalidChunk {
+            chunk: 0,
+            total_chunks: 0
+        })
+    ));
+    assert!(matches!(
+        respond_to_gossip_status(&state, &invalid_status, &GCounterCodec, 1),
+        Err(ReplicatorGossipError::InvalidChunk {
+            chunk: 1,
+            total_chunks: 1
+        })
+    ));
+    assert!(matches!(
+        respond_to_gossip_status(&state, &valid_status, &GCounterCodec, 0),
+        Err(ReplicatorGossipError::ZeroMaxEntries)
+    ));
+}
+
+#[test]
 fn applying_gossip_merges_full_state_and_replies_when_requested() {
     let mut local = ReplicatorState::new();
     write_counter(&mut local, "counter", 1);

@@ -303,6 +303,7 @@ fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn
         "kairo-next/crates/kairo-distributed-data/src/envelope.rs",
         "kairo-next/crates/kairo-distributed-data/src/errors.rs",
         "kairo-next/crates/kairo-distributed-data/src/gcounter.rs",
+        "kairo-next/crates/kairo-distributed-data/src/gossip.rs",
         "kairo-next/crates/kairo-distributed-data/src/gset.rs",
         "kairo-next/crates/kairo-distributed-data/src/key.rs",
         "kairo-next/crates/kairo-distributed-data/src/lww_register.rs",
