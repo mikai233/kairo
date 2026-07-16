@@ -41,7 +41,12 @@ Status terms in this document mean:
   messaged, stopped, observed, and routed through actor paths and providers.
   Actor mailboxes now run as throughput-limited activations on an
   ActorSystem-owned fixed worker pool, with atomic schedule-once wakeups and
-  cooperative child lifecycle progress as recorded by ADR-0102. The complete
+  cooperative child lifecycle progress as recorded by ADR-0102. Mailbox
+  enqueue now shares scheduler ownership with queue state and only wakes the
+  dispatcher on an empty-to-nonempty transition, eliminating the second
+  producer-side mutex and redundant burst wakeups. The 100k release actor-tell
+  scenario improved from roughly 0.66M-0.79M to 0.89M-1.11M operations per
+  second across current Windows host samples. The complete
   public actor API now documents its lifecycle, messaging, scheduling,
   supervision, discovery, and shutdown contracts and denies missing public
   documentation at compile time.

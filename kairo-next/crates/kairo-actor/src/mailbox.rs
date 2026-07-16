@@ -46,7 +46,6 @@ impl<M: fmt::Debug> fmt::Debug for UserEnvelope<M> {
 pub(crate) struct Mailbox<M> {
     settings: MailboxSettings,
     state: Mutex<MailboxState<M>>,
-    scheduler: Mutex<Option<Arc<dyn MailboxScheduler>>>,
 }
 
 impl<M> fmt::Debug for Mailbox<M> {
@@ -117,11 +116,21 @@ impl<T> MailboxEnqueueError<T> {
     }
 }
 
-#[derive(Debug)]
 struct MailboxState<M> {
     system: VecDeque<SystemMessage>,
     user: VecDeque<UserEnvelope<M>>,
     closed: bool,
+    scheduler: Option<Arc<dyn MailboxScheduler>>,
+}
+
+impl<M> MailboxState<M> {
+    fn scheduler_for_new_message(&self) -> Option<Arc<dyn MailboxScheduler>> {
+        if self.system.is_empty() && self.user.is_empty() {
+            self.scheduler.clone()
+        } else {
+            None
+        }
+    }
 }
 
 impl<M> Default for Mailbox<M> {
@@ -138,19 +147,20 @@ impl<M> Mailbox<M> {
                 system: VecDeque::new(),
                 user: VecDeque::new(),
                 closed: false,
+                scheduler: None,
             }),
-            scheduler: Mutex::new(None),
         }
     }
 
     pub(crate) fn set_scheduler(&self, scheduler: Arc<dyn MailboxScheduler>) {
-        *self.scheduler.lock().expect("mailbox scheduler poisoned") = Some(scheduler);
+        self.state.lock().expect("mailbox poisoned").scheduler = Some(scheduler);
     }
 
     pub(crate) fn clear_scheduler(&self) {
-        self.scheduler
+        self.state
             .lock()
-            .expect("mailbox scheduler poisoned")
+            .expect("mailbox poisoned")
+            .scheduler
             .take();
     }
 
@@ -162,9 +172,10 @@ impl<M> Mailbox<M> {
         if self.is_full(&state) {
             return Err(MailboxEnqueueError::Full(message));
         }
+        let scheduler = state.scheduler_for_new_message();
         state.user.push_back(UserEnvelope::Message(message));
         drop(state);
-        self.schedule();
+        Self::schedule(scheduler);
         Ok(())
     }
 
@@ -173,11 +184,16 @@ impl<M> Mailbox<M> {
         if state.closed {
             return Err(messages);
         }
+        let scheduler = if messages.is_empty() {
+            None
+        } else {
+            state.scheduler_for_new_message()
+        };
         for message in messages.drain(..).rev() {
             state.user.push_front(UserEnvelope::Message(message));
         }
         drop(state);
-        self.schedule();
+        Self::schedule(scheduler);
         Ok(())
     }
 
@@ -192,9 +208,10 @@ impl<M> Mailbox<M> {
         if self.is_full(&state) {
             return Err(MailboxEnqueueError::Full(timer));
         }
+        let scheduler = state.scheduler_for_new_message();
         state.user.push_back(UserEnvelope::Timer(timer));
         drop(state);
-        self.schedule();
+        Self::schedule(scheduler);
         Ok(())
     }
 
@@ -209,9 +226,10 @@ impl<M> Mailbox<M> {
         if self.is_full(&state) {
             return Err(MailboxEnqueueError::Full(timeout));
         }
+        let scheduler = state.scheduler_for_new_message();
         state.user.push_back(UserEnvelope::ReceiveTimeout(timeout));
         drop(state);
-        self.schedule();
+        Self::schedule(scheduler);
         Ok(())
     }
 
@@ -231,11 +249,12 @@ impl<M> Mailbox<M> {
         if self.is_full(&state) {
             return Err(MailboxEnqueueError::Full(message));
         }
+        let scheduler = state.scheduler_for_new_message();
         state
             .user
             .push_back(UserEnvelope::Adapted(Box::new(move || adapt(message))));
         drop(state);
-        self.schedule();
+        Self::schedule(scheduler);
         Ok(())
     }
 
@@ -244,9 +263,10 @@ impl<M> Mailbox<M> {
         if state.closed {
             return;
         }
+        let scheduler = state.scheduler_for_new_message();
         state.system.push_back(message);
         drop(state);
-        self.schedule();
+        Self::schedule(scheduler);
     }
 
     pub(crate) fn try_dequeue(&self) -> Option<Dequeued<M>> {
@@ -289,12 +309,7 @@ impl<M> Mailbox<M> {
         !state.system.is_empty() || !state.user.is_empty()
     }
 
-    fn schedule(&self) {
-        let scheduler = self
-            .scheduler
-            .lock()
-            .expect("mailbox scheduler poisoned")
-            .clone();
+    fn schedule(scheduler: Option<Arc<dyn MailboxScheduler>>) {
         if let Some(scheduler) = scheduler {
             scheduler.schedule();
         }
@@ -309,7 +324,51 @@ impl<M> Mailbox<M> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
+
+    #[derive(Default)]
+    struct CountingScheduler {
+        schedules: AtomicUsize,
+    }
+
+    impl MailboxScheduler for CountingScheduler {
+        fn schedule(self: Arc<Self>) -> bool {
+            self.schedules.fetch_add(1, Ordering::SeqCst);
+            true
+        }
+    }
+
+    #[test]
+    fn enqueue_coalesces_wakeup_until_drained_and_clear_suppresses_later_wakeup() {
+        let mailbox = Mailbox::default();
+        let scheduler = Arc::new(CountingScheduler::default());
+        mailbox.set_scheduler(scheduler.clone());
+
+        mailbox.enqueue_user("first").unwrap();
+        mailbox.enqueue_system(SystemMessage::Stop);
+        assert_eq!(scheduler.schedules.load(Ordering::SeqCst), 1);
+
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::System(SystemMessage::Stop))
+        ));
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::User(UserEnvelope::Message("first")))
+        ));
+        mailbox.enqueue_user("second").unwrap();
+        assert_eq!(scheduler.schedules.load(Ordering::SeqCst), 2);
+
+        assert!(matches!(
+            mailbox.try_dequeue(),
+            Some(Dequeued::User(UserEnvelope::Message("second")))
+        ));
+        mailbox.clear_scheduler();
+        mailbox.enqueue_user("third").unwrap();
+        assert_eq!(scheduler.schedules.load(Ordering::SeqCst), 2);
+    }
 
     #[test]
     fn dequeue_prioritizes_system_messages_over_queued_user_messages() {

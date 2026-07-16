@@ -77,6 +77,7 @@ impl DispatcherHandle {
             return false;
         }
         state.tasks.push_back(task);
+        drop(state);
         self.queue.ready.notify_one();
         true
     }
