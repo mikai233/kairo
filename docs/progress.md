@@ -451,7 +451,12 @@ Status terms in this document mean:
   subscriber without unregistering, and proves downing removes its peer route
   and registry bucket on both survivors while a new publish targets and reaches
   only the live subscriber. A checked 281-byte `PubSubDelta` v1 fixture pins
-  exact registry-gossip encode/decode compatibility, including tombstones.
+  exact registry-gossip encode/decode compatibility, including tombstones. The
+  public cluster-singleton facade now documents and hard-gates pre-bind
+  registration, post-bind activation, typed and local-only initialization,
+  proxy delivery, settings, diagnostics, and bootstrap failures; connector
+  implementation types that were not externally reachable are now explicitly
+  module-private.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -462,9 +467,10 @@ Status terms in this document mean:
   Examples, migration guidance, README feature maps, workspace doctests,
   rustdoc warning gates, and compile-tested public API snippets exist. The
   recommended `kairo` facade, foundational actor and serialization APIs, and
-  public `kairo-testkit` utility surface now deny missing public
-  documentation. The remote ping-pong example and compile-tested serialization
-  docs now exercise the format-neutral closure registration path. The
+  public `kairo-testkit` utility surface now deny missing public documentation;
+  the primary cluster-singleton facade carries the same module-level hard gate.
+  The remote ping-pong example and compile-tested serialization docs now
+  exercise the format-neutral closure registration path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower

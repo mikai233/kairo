@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::any::Any;
 use std::collections::{HashMap, VecDeque, hash_map::Entry};
 use std::fmt::{self, Display, Formatter};
@@ -28,6 +30,7 @@ use connector::{
 };
 pub use connector::{ClusterSingletonConnectorMsg, ClusterSingletonConnectorSnapshot};
 
+/// Stable manifests carried on the reliable control lane for singleton handover.
 pub const SINGLETON_SYSTEM_MANIFESTS: [&str; 4] = [
     SingletonHandOverToMe::MANIFEST,
     SingletonHandOverInProgress::MANIFEST,
@@ -35,6 +38,7 @@ pub const SINGLETON_SYSTEM_MANIFESTS: [&str; 4] = [
     SingletonTakeOverFromMe::MANIFEST,
 ];
 
+/// Stable manifests carried on the ordinary lane for singleton business messages.
 pub const SINGLETON_MESSAGE_MANIFESTS: [&str; 1] = [SingletonMessageEnvelope::MANIFEST];
 
 pub(crate) enum SingletonDeliveryMsg<M: Send + 'static> {
@@ -140,6 +144,11 @@ impl SingletonInboundRegistry {
 }
 
 #[derive(Debug, Clone)]
+/// Settings shared by every singleton initialized through one extension.
+///
+/// Manager and proxy settings control handover and buffering. Route refreshes
+/// reconcile the local singleton child with the proxy, while the shutdown
+/// timeout bounds each actor-stop task installed in the cluster shutdown phase.
 pub struct ClusterSingletonSettings {
     manager: SingletonManagerSettings,
     proxy: SingletonProxySettings,
@@ -159,38 +168,46 @@ impl Default for ClusterSingletonSettings {
 }
 
 impl ClusterSingletonSettings {
+    /// Replaces the manager handover settings.
     pub fn with_manager_settings(mut self, settings: SingletonManagerSettings) -> Self {
         self.manager = settings;
         self
     }
 
+    /// Replaces the proxy routing and buffering settings.
     pub fn with_proxy_settings(mut self, settings: SingletonProxySettings) -> Self {
         self.proxy = settings;
         self
     }
 
+    /// Sets how often the membership connector refreshes the local route.
     pub fn with_route_refresh_interval(mut self, interval: Duration) -> Self {
         self.route_refresh_interval = interval;
         self
     }
 
+    /// Sets the maximum wait for each singleton actor to stop during shutdown.
     pub fn with_shutdown_timeout(mut self, timeout: Duration) -> Self {
         self.shutdown_timeout = timeout;
         self
     }
 
+    /// Returns the manager handover settings.
     pub fn manager_settings(&self) -> &SingletonManagerSettings {
         &self.manager
     }
 
+    /// Returns the copyable proxy routing settings.
     pub fn proxy_settings(&self) -> SingletonProxySettings {
         self.proxy
     }
 
+    /// Returns the local-route refresh interval.
     pub fn route_refresh_interval(&self) -> Duration {
         self.route_refresh_interval
     }
 
+    /// Returns the per-actor coordinated-shutdown timeout.
     pub fn shutdown_timeout(&self) -> Duration {
         self.shutdown_timeout
     }
@@ -210,6 +227,11 @@ impl ClusterSingletonSettings {
     }
 }
 
+/// Definition of one named cluster-wide singleton actor.
+///
+/// The actor factory is invoked only on the oldest eligible member. The
+/// termination message is sent before a graceful handover stops that local
+/// instance. Names identify singleton registrations within an actor system.
 pub struct Singleton<A>
 where
     A: Actor,
@@ -224,6 +246,9 @@ impl<A> Singleton<A>
 where
     A: Actor,
 {
+    /// Creates an all-members singleton definition.
+    ///
+    /// `props` must create a fresh actor for each ownership period.
     pub fn new<F>(name: impl Into<String>, props: F, termination_message: A::Msg) -> Self
     where
         F: Fn() -> Props<A> + Send + Sync + 'static,
@@ -236,20 +261,27 @@ where
         }
     }
 
+    /// Restricts ownership to cluster members carrying `role`.
     pub fn with_role(mut self, role: impl Into<String>) -> Self {
         self.scope = SingletonScope::for_role(role);
         self
     }
 
+    /// Returns the logical singleton name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Returns the role scope used for oldest-member selection.
     pub fn scope(&self) -> &SingletonScope {
         &self.scope
     }
 }
 
+/// Typed location-transparent reference to a named cluster singleton.
+///
+/// Messages enter a local proxy, which routes to the current owner or applies
+/// its configured buffering policy while ownership is unavailable.
 pub struct ClusterSingletonRef<M>
 where
     M: Send + 'static,
@@ -272,6 +304,11 @@ impl<M> ClusterSingletonRef<M>
 where
     M: Send + 'static,
 {
+    /// Enqueues a message on the local singleton proxy.
+    ///
+    /// Success means the proxy accepted the message, not that a remote owner
+    /// has processed it. A stopped or unavailable proxy returns the original
+    /// message in [`SendError`].
     pub fn tell(&self, message: M) -> Result<(), SendError<M>> {
         self.proxy
             .tell(SingletonProxyMsg::Route(message))
@@ -284,6 +321,7 @@ where
             })
     }
 
+    /// Returns the underlying proxy actor reference for low-level integration.
     pub fn proxy(&self) -> &ActorRef<SingletonProxyMsg<M>> {
         &self.proxy
     }
@@ -298,6 +336,11 @@ struct ClusterSingletonRuntime {
     inbound: Arc<SingletonInboundRegistry>,
 }
 
+/// Actor-system extension that owns named cluster singleton registrations.
+///
+/// Install it with [`register_cluster_singleton`], bind the shared remote
+/// runtime, and then call [`ClusterSingletonRegistration::activate`] before
+/// retrieving or initializing singleton definitions.
 pub struct ClusterSingleton {
     runtime: ClusterSingletonRuntime,
     settings: ClusterSingletonSettings,
@@ -313,10 +356,16 @@ where
 }
 
 impl ClusterSingleton {
+    /// Retrieves the activated singleton extension from `system`.
     pub fn get(system: &ActorSystem) -> Result<Arc<Self>, ActorError> {
         system.extension::<Self>()
     }
 
+    /// Initializes a remotely routable singleton and returns its typed proxy.
+    ///
+    /// The message codec for `A::Msg` must already be present in the shared
+    /// serialization registry. Repeating the same name and message type is
+    /// idempotent; reusing the name with another type is rejected.
     pub fn init<A>(
         &self,
         singleton: Singleton<A>,
@@ -582,6 +631,9 @@ where
         })
 }
 
+/// Pre-bind registration token for the cluster singleton extension.
+///
+/// Clones share the same one-shot materialization and activation state.
 pub struct ClusterSingletonRegistration {
     settings: ClusterSingletonSettings,
     runtime: Arc<Mutex<Option<ClusterSingletonRuntime>>>,
@@ -599,6 +651,10 @@ impl Clone for ClusterSingletonRegistration {
 }
 
 impl ClusterSingletonRegistration {
+    /// Activates the extension after the shared remote runtime has bound.
+    ///
+    /// Activation requires the cluster extension to be active on the same
+    /// actor system. Repeated calls return the existing extension.
     pub fn activate(
         &self,
         runtime: &TcpRemoteActorRuntime,
@@ -630,14 +686,29 @@ impl ClusterSingletonRegistration {
 }
 
 #[derive(Debug)]
+/// Failure returned while registering, activating, or initializing a singleton.
 pub enum ClusterSingletonBootstrapError {
+    /// The actor runtime rejected an extension, child, or shutdown task.
     Actor(ActorError),
+    /// A shared extension setting was invalid.
     InvalidSettings(&'static str),
+    /// The logical singleton name was empty or whitespace-only.
     InvalidSingletonName,
+    /// The configured role was empty or whitespace-only.
     InvalidSingletonRole,
-    NameTypeConflict { name: String },
-    RemoteModeConflict { name: String },
+    /// A singleton name was already bound to another message type.
+    NameTypeConflict {
+        /// Conflicting logical singleton name.
+        name: String,
+    },
+    /// A remotely routable initialization followed an existing local-only one.
+    RemoteModeConflict {
+        /// Conflicting logical singleton name.
+        name: String,
+    },
+    /// Activation ran before the remote runtime materialized the registration.
     NotMaterialized,
+    /// The shared remoting builder or inbound boundary rejected registration.
     Remote(RemoteError),
 }
 
@@ -680,6 +751,11 @@ impl From<RemoteError> for ClusterSingletonBootstrapError {
     }
 }
 
+/// Registers singleton control and business-message handlers before TCP bind.
+///
+/// `cluster` must belong to the same remote runtime builder and must have been
+/// registered first. Call [`ClusterSingletonRegistration::activate`] after the
+/// builder binds to install the actor-system extension.
 pub fn register_cluster_singleton(
     builder: &mut TcpRemoteActorRuntimeBuilder,
     cluster: ClusterDaemonRegistration,

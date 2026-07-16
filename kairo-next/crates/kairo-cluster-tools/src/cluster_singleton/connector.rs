@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,7 +27,7 @@ pub(super) type SingletonRemoteTargetFactory<M> = Arc<
     dyn Fn(&UniqueAddress) -> Result<SingletonProxyTarget<M>, ActorError> + Send + Sync + 'static,
 >;
 
-pub struct ClusterSingletonConnector<M>
+pub(super) struct ClusterSingletonConnector<M>
 where
     M: Send + 'static,
 {
@@ -45,34 +47,44 @@ where
 }
 
 #[derive(Clone)]
+/// Internal actor protocol exposed for diagnostics and explicit snapshots.
 pub enum ClusterSingletonConnectorMsg<M: Send + 'static> {
+    /// Applies an initial cluster snapshot or one subsequent cluster event.
     Cluster(ClusterSubscriptionEvent),
+    /// Reconciles the manager's current local singleton child with the proxy.
     LocalSingleton(Option<ActorRef<M>>),
+    /// Requests another local-singleton reconciliation from the manager.
     RefreshRoute,
+    /// Replies with the connector's current ownership and route view.
     Snapshot {
+        /// Recipient for the connector snapshot.
         reply_to: ActorRef<ClusterSingletonConnectorSnapshot>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Diagnostic snapshot of singleton ownership and installed proxy routes.
 pub struct ClusterSingletonConnectorSnapshot {
+    /// Oldest eligible member according to the latest cluster view.
     pub oldest: Option<UniqueAddress>,
+    /// Eligible remote members with routes installed in the local proxy.
     pub remote_routes: Vec<UniqueAddress>,
+    /// Whether the local singleton child is installed as a proxy route.
     pub local_route_present: bool,
 }
 
-pub struct ClusterSingletonConnectorConfig<M>
+pub(super) struct ClusterSingletonConnectorConfig<M>
 where
     M: Send + 'static,
 {
-    pub cluster: Cluster,
-    pub self_node: UniqueAddress,
-    pub scope: SingletonScope,
-    pub manager: ActorRef<LocalSingletonManagerMsg<M>>,
-    pub proxy: ActorRef<SingletonProxyMsg<M>>,
-    pub remote_target_factory: Option<SingletonRemoteTargetFactory<M>>,
-    pub delivery: ActorRef<SingletonDeliveryMsg<M>>,
-    pub route_refresh_interval: Duration,
+    pub(super) cluster: Cluster,
+    pub(super) self_node: UniqueAddress,
+    pub(super) scope: SingletonScope,
+    pub(super) manager: ActorRef<LocalSingletonManagerMsg<M>>,
+    pub(super) proxy: ActorRef<SingletonProxyMsg<M>>,
+    pub(super) remote_target_factory: Option<SingletonRemoteTargetFactory<M>>,
+    pub(super) delivery: ActorRef<SingletonDeliveryMsg<M>>,
+    pub(super) route_refresh_interval: Duration,
 }
 
 impl<M> Clone for ClusterSingletonConnectorConfig<M>
@@ -97,7 +109,7 @@ impl<M> ClusterSingletonConnector<M>
 where
     M: Clone + Send + 'static,
 {
-    pub fn new(config: ClusterSingletonConnectorConfig<M>) -> Self {
+    pub(super) fn new(config: ClusterSingletonConnectorConfig<M>) -> Self {
         Self {
             cluster: config.cluster,
             self_node: config.self_node,
