@@ -12,6 +12,10 @@ use super::{
 use crate::{ReplicaId, ReplicatorDeltaAck, ReplicatorDeltaNack, ReplicatorDeltaPropagation};
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for version-ranged delta batches and their pruning metadata.
+///
+/// Decode accepts versions 1 through the current message version. Version 1
+/// records contain no per-key pruning metadata.
 pub struct ReplicatorDeltaPropagationCodec;
 
 impl MessageCodec<ReplicatorDeltaPropagation> for ReplicatorDeltaPropagationCodec {
@@ -60,6 +64,7 @@ impl MessageCodec<ReplicatorDeltaPropagation> for ReplicatorDeltaPropagationCode
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Empty-payload codec for accepted delta propagation.
 pub struct ReplicatorDeltaAckCodec;
 
 impl MessageCodec<ReplicatorDeltaAck> for ReplicatorDeltaAckCodec {
@@ -83,6 +88,7 @@ impl MessageCodec<ReplicatorDeltaAck> for ReplicatorDeltaAckCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Empty-payload codec for delta propagation requiring full-state retry.
 pub struct ReplicatorDeltaNackCodec;
 
 impl MessageCodec<ReplicatorDeltaNack> for ReplicatorDeltaNackCodec {

@@ -1,3 +1,14 @@
+#![deny(missing_docs)]
+
+//! Registered stable codecs for the distributed-data system protocol.
+//!
+//! The codecs in this module bind each [`crate::protocol`] message to an
+//! explicit serializer ID while its [`kairo_serialization::RemoteMessage`]
+//! implementation supplies the manifest and version. Decoders validate the
+//! supported version range and consume the complete payload. Version 2 direct
+//! and delta records retain version 1 decode compatibility where pruning
+//! metadata was added.
+
 mod client;
 mod delta;
 mod direct;
@@ -25,23 +36,41 @@ pub use direct::{
 };
 pub use gossip::{ReplicatorGossipCodec, ReplicatorGossipStatusCodec};
 
+/// Serializer ID for [`ReplicatorGet`].
 pub const REPLICATOR_GET_SERIALIZER_ID: u32 = 3_000;
+/// Serializer ID for [`ReplicatorUpdate`].
 pub const REPLICATOR_UPDATE_SERIALIZER_ID: u32 = 3_001;
+/// Serializer ID for [`ReplicatorSubscribe`].
 pub const REPLICATOR_SUBSCRIBE_SERIALIZER_ID: u32 = 3_002;
+/// Serializer ID for [`ReplicatorChanged`].
 pub const REPLICATOR_CHANGED_SERIALIZER_ID: u32 = 3_003;
+/// Serializer ID for [`ReplicatorDeltaPropagation`].
 pub const REPLICATOR_DELTA_PROPAGATION_SERIALIZER_ID: u32 = 3_004;
+/// Serializer ID for [`ReplicatorDeltaAck`].
 pub const REPLICATOR_DELTA_ACK_SERIALIZER_ID: u32 = 3_005;
+/// Serializer ID for [`ReplicatorDeltaNack`].
 pub const REPLICATOR_DELTA_NACK_SERIALIZER_ID: u32 = 3_006;
+/// Serializer ID for [`ReplicatorWrite`].
 pub const REPLICATOR_WRITE_SERIALIZER_ID: u32 = 3_007;
+/// Serializer ID for [`ReplicatorWriteAck`].
 pub const REPLICATOR_WRITE_ACK_SERIALIZER_ID: u32 = 3_008;
+/// Serializer ID for [`ReplicatorWriteNack`].
 pub const REPLICATOR_WRITE_NACK_SERIALIZER_ID: u32 = 3_009;
+/// Serializer ID for [`ReplicatorRead`].
 pub const REPLICATOR_READ_SERIALIZER_ID: u32 = 3_010;
+/// Serializer ID for [`ReplicatorReadResult`].
 pub const REPLICATOR_READ_RESULT_SERIALIZER_ID: u32 = 3_011;
+/// Serializer ID for [`ReplicatorGossipStatus`].
 pub const REPLICATOR_GOSSIP_STATUS_SERIALIZER_ID: u32 = 3_012;
+/// Serializer ID for [`ReplicatorGossip`].
 pub const REPLICATOR_GOSSIP_SERIALIZER_ID: u32 = 3_013;
 
 const DATA_ENVELOPE_PRUNING_WIRE_VERSION: u16 = 2;
 
+/// Registers every distributed-data system-message codec in `registry`.
+///
+/// Registration is fail-fast and returns the first duplicate serializer ID or
+/// manifest error without silently replacing an existing wire contract.
 pub fn register_ddata_protocol_codecs(registry: &mut Registry) -> kairo_serialization::Result<()> {
     registry.register::<ReplicatorGet, _>(ReplicatorGetCodec)?;
     registry.register::<ReplicatorUpdate, _>(ReplicatorUpdateCodec)?;
@@ -89,6 +118,32 @@ mod tests {
             message.version,
             Bytes::from(payload),
         )
+    }
+
+    #[test]
+    fn ddata_protocol_serializer_ids_are_stable() {
+        assert_eq!(
+            [
+                REPLICATOR_GET_SERIALIZER_ID,
+                REPLICATOR_UPDATE_SERIALIZER_ID,
+                REPLICATOR_SUBSCRIBE_SERIALIZER_ID,
+                REPLICATOR_CHANGED_SERIALIZER_ID,
+                REPLICATOR_DELTA_PROPAGATION_SERIALIZER_ID,
+                REPLICATOR_DELTA_ACK_SERIALIZER_ID,
+                REPLICATOR_DELTA_NACK_SERIALIZER_ID,
+                REPLICATOR_WRITE_SERIALIZER_ID,
+                REPLICATOR_WRITE_ACK_SERIALIZER_ID,
+                REPLICATOR_WRITE_NACK_SERIALIZER_ID,
+                REPLICATOR_READ_SERIALIZER_ID,
+                REPLICATOR_READ_RESULT_SERIALIZER_ID,
+                REPLICATOR_GOSSIP_STATUS_SERIALIZER_ID,
+                REPLICATOR_GOSSIP_SERIALIZER_ID,
+            ],
+            [
+                3_000, 3_001, 3_002, 3_003, 3_004, 3_005, 3_006, 3_007, 3_008, 3_009, 3_010, 3_011,
+                3_012, 3_013,
+            ]
+        );
     }
 
     #[test]

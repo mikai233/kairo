@@ -8,6 +8,7 @@ use super::{
 use crate::{ReplicatorChanged, ReplicatorGet, ReplicatorSubscribe, ReplicatorUpdate};
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for correlated client get requests.
 pub struct ReplicatorGetCodec;
 
 impl MessageCodec<ReplicatorGet> for ReplicatorGetCodec {
@@ -35,6 +36,7 @@ impl MessageCodec<ReplicatorGet> for ReplicatorGetCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for correlated client update requests.
 pub struct ReplicatorUpdateCodec;
 
 impl MessageCodec<ReplicatorUpdate> for ReplicatorUpdateCodec {
@@ -66,6 +68,7 @@ impl MessageCodec<ReplicatorUpdate> for ReplicatorUpdateCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for key subscriptions carrying a stable actor-ref path.
 pub struct ReplicatorSubscribeCodec;
 
 impl MessageCodec<ReplicatorSubscribe> for ReplicatorSubscribeCodec {
@@ -97,6 +100,7 @@ impl MessageCodec<ReplicatorSubscribe> for ReplicatorSubscribeCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for coalesced key-change notifications.
 pub struct ReplicatorChangedCodec;
 
 impl MessageCodec<ReplicatorChanged> for ReplicatorChangedCodec {

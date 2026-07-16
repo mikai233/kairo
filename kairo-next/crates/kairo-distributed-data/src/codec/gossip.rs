@@ -11,6 +11,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for chunked gossip digests and sender/recipient incarnation metadata.
 pub struct ReplicatorGossipStatusCodec;
 
 impl MessageCodec<ReplicatorGossipStatus> for ReplicatorGossipStatusCodec {
@@ -66,6 +67,9 @@ impl MessageCodec<ReplicatorGossipStatus> for ReplicatorGossipStatusCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for full-state gossip entries and optional send-back requests.
+///
+/// Full-state envelopes use the current pruning-aware envelope shape.
 pub struct ReplicatorGossipCodec;
 
 impl MessageCodec<ReplicatorGossip> for ReplicatorGossipCodec {

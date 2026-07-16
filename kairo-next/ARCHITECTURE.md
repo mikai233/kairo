@@ -1769,6 +1769,16 @@ forms of `GSet<String>`, `GCounter`, `PNCounter`, `LWWRegister<String>`,
 Pekko's manifest-directed semantic boundary but does not claim protobuf byte
 compatibility.
 
+The enclosing distributed-data protocol codecs bind each client, direct,
+delta, and gossip message to its own stable serializer ID in the reserved
+`3000..=3013` range. `register_ddata_protocol_codecs` installs all fourteen
+bindings through the shared serialization registry and fails on collisions.
+Each decoder validates the message version and complete payload; empty ACK/NACK
+records reject non-empty payloads, direct and delta version 2 records retain
+version 1 decode compatibility for the pre-pruning shape, and full-state gossip
+always uses the pruning-aware envelope. Serializer IDs, manifests, and versions
+are explicit wire metadata rather than Rust enum or type implementation details.
+
 Remote association integration:
 
 - cluster-route state selects remote replicas and builds `/system/ddata`

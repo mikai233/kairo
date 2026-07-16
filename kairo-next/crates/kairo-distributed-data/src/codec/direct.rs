@@ -16,6 +16,10 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for direct writes with optional source identity and CRDT envelope.
+///
+/// Decode accepts versions 1 through the current message version so version 1
+/// envelopes without pruning metadata remain readable.
 pub struct ReplicatorWriteCodec;
 
 impl MessageCodec<ReplicatorWrite> for ReplicatorWriteCodec {
@@ -50,6 +54,7 @@ impl MessageCodec<ReplicatorWrite> for ReplicatorWriteCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Empty-payload codec for accepted direct writes.
 pub struct ReplicatorWriteAckCodec;
 
 impl MessageCodec<ReplicatorWriteAck> for ReplicatorWriteAckCodec {
@@ -73,6 +78,7 @@ impl MessageCodec<ReplicatorWriteAck> for ReplicatorWriteAckCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Empty-payload codec for rejected direct writes.
 pub struct ReplicatorWriteNackCodec;
 
 impl MessageCodec<ReplicatorWriteNack> for ReplicatorWriteNackCodec {
@@ -96,6 +102,7 @@ impl MessageCodec<ReplicatorWriteNack> for ReplicatorWriteNackCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for direct reads with an optional source replica.
 pub struct ReplicatorReadCodec;
 
 impl MessageCodec<ReplicatorRead> for ReplicatorReadCodec {
@@ -123,6 +130,10 @@ impl MessageCodec<ReplicatorRead> for ReplicatorReadCodec {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Codec for direct-read results, including successful absence.
+///
+/// Decode accepts versions 1 through the current message version so version 1
+/// envelopes without pruning metadata remain readable.
 pub struct ReplicatorReadResultCodec;
 
 impl MessageCodec<ReplicatorReadResult> for ReplicatorReadResultCodec {

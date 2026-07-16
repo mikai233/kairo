@@ -327,6 +327,13 @@ Status terms in this document mean:
   absence of Rust implementation details or claimed Pekko protobuf byte
   compatibility. An exhaustive regression pins all nine built-in metadata
   tuples at wire version 1.
+  The enclosing client, direct, delta, and gossip protocol codecs now hard-gate
+  the contiguous `3000..=3013` serializer-ID allocation, fail-fast registry
+  installation, supported-version and complete-payload validation, empty
+  ACK/NACK records, pruning-aware full-state envelopes, and version 1 decode
+  compatibility for the version 2 direct/delta pruning additions. A regression
+  pins all fourteen serializer IDs alongside the existing exhaustive
+  manifest/version test.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
