@@ -12,6 +12,7 @@ use crate::{RegionId, ShardId, ShardingError};
 /// while each region's shard slice preserves allocation order.
 pub struct ShardAllocations {
     regions: BTreeMap<RegionId, Vec<ShardId>>,
+    shard_homes: BTreeMap<ShardId, RegionId>,
 }
 
 impl ShardAllocations {
@@ -54,7 +55,12 @@ impl ShardAllocations {
 
     /// Removes a region and returns the shards it owned in allocation order.
     pub fn remove_region(&mut self, region: &RegionId) -> Option<Vec<ShardId>> {
-        self.regions.remove(region)
+        let shards = self.regions.remove(region)?;
+        for shard in &shards {
+            let removed = self.shard_homes.remove(shard);
+            debug_assert_eq!(removed.as_ref(), Some(region));
+        }
+        Some(shards)
     }
 
     /// Assigns `shard` exclusively to `region`.
@@ -71,7 +77,8 @@ impl ShardAllocations {
         }
         let shard = shard.into();
         if self
-            .region_for_shard(&shard)
+            .shard_homes
+            .get(&shard)
             .is_some_and(|owner| owner == region)
         {
             return Ok(false);
@@ -81,29 +88,30 @@ impl ShardAllocations {
             .regions
             .get_mut(region)
             .expect("region existence checked before deallocation");
-        if shards.contains(&shard) {
-            return Ok(false);
-        }
-        shards.push(shard);
+        shards.push(shard.clone());
+        let previous = self.shard_homes.insert(shard, region.clone());
+        debug_assert!(previous.is_none());
         Ok(true)
     }
 
     /// Removes a shard assignment and returns its former owner.
     pub fn deallocate_shard(&mut self, shard: &ShardId) -> Option<RegionId> {
-        for (region, shards) in &mut self.regions {
-            if let Some(index) = shards.iter().position(|existing| existing == shard) {
-                shards.remove(index);
-                return Some(region.clone());
-            }
-        }
-        None
+        let region = self.shard_homes.remove(shard)?;
+        let shards = self
+            .regions
+            .get_mut(&region)
+            .expect("indexed shard home must be a registered region");
+        let index = shards
+            .iter()
+            .position(|existing| existing == shard)
+            .expect("indexed shard must be present in its region allocation");
+        shards.remove(index);
+        Some(region)
     }
 
     /// Returns the current owner of `shard`.
     pub fn region_for_shard(&self, shard: &ShardId) -> Option<&RegionId> {
-        self.regions
-            .iter()
-            .find_map(|(region, shards)| shards.contains(shard).then_some(region))
+        self.shard_homes.get(shard)
     }
 
     /// Iterates registered regions in stable identifier order.
@@ -128,7 +136,7 @@ impl ShardAllocations {
 
     /// Returns the total number of allocated shards.
     pub fn shard_count(&self) -> usize {
-        self.regions.values().map(Vec::len).sum()
+        self.shard_homes.len()
     }
 
     fn sorted_entries(&self) -> Vec<(&RegionId, &[ShardId])> {
@@ -235,9 +243,14 @@ impl ShardAllocationStrategy for LeastShardAllocationStrategy {
         current: &ShardAllocations,
     ) -> Result<RegionId, ShardingError> {
         current
-            .sorted_entries()
-            .into_iter()
-            .next()
+            .regions
+            .iter()
+            .min_by(|(left_region, left_shards), (right_region, right_shards)| {
+                left_shards
+                    .len()
+                    .cmp(&right_shards.len())
+                    .then_with(|| left_region.cmp(right_region))
+            })
             .map(|(region, _)| region.clone())
             .ok_or(ShardingError::NoShardRegions)
     }

@@ -143,6 +143,43 @@ fn coordinator_runtime_defers_requests_during_rebalance() {
 }
 
 #[test]
+fn coordinator_runtime_borrows_unfiltered_allocations_and_owns_filtered_snapshot() {
+    let mut unfiltered = coordinator_runtime_with_regions(["region-a", "region-b"]);
+    let unfiltered_address = unfiltered.state().allocations() as *const ShardAllocations as usize;
+    let borrowed_strategy = SnapshotIdentityStrategy {
+        original_address: unfiltered_address,
+        expect_borrowed: true,
+        region: "region-a".to_string(),
+    };
+
+    assert!(matches!(
+        unfiltered
+            .request_shard_home("requester", "borrowed", &borrowed_strategy)
+            .unwrap(),
+        GetShardHomePlan::Allocated { .. }
+    ));
+
+    let mut filtered = coordinator_runtime_with_regions(["region-a", "region-b"]);
+    filtered.mark_graceful_shutdown("region-a");
+    let filtered_address = filtered.state().allocations() as *const ShardAllocations as usize;
+    let owned_strategy = SnapshotIdentityStrategy {
+        original_address: filtered_address,
+        expect_borrowed: false,
+        region: "region-b".to_string(),
+    };
+
+    assert!(matches!(
+        filtered
+            .request_shard_home("requester", "owned", &owned_strategy)
+            .unwrap(),
+        GetShardHomePlan::Allocated {
+            host_region,
+            ..
+        } if host_region == "region-b"
+    ));
+}
+
+#[test]
 fn coordinator_runtime_duplicate_rebalance_preserves_deferred_requesters() {
     let strategy = LeastShardAllocationStrategy::default();
     let mut runtime = coordinator_runtime_with_regions(["region-a"]);
@@ -530,4 +567,33 @@ fn coordinator_runtime_completion_without_in_progress_rebalance_is_ignored() {
         runtime.state().shard_home(&"1".to_string()),
         Some(&"region-a".to_string())
     );
+}
+
+struct SnapshotIdentityStrategy {
+    original_address: usize,
+    expect_borrowed: bool,
+    region: String,
+}
+
+impl ShardAllocationStrategy for SnapshotIdentityStrategy {
+    fn allocate_shard(
+        &self,
+        _requester: &String,
+        _shard: &String,
+        current: &ShardAllocations,
+    ) -> Result<String, ShardingError> {
+        assert_eq!(
+            current as *const ShardAllocations as usize == self.original_address,
+            self.expect_borrowed
+        );
+        Ok(self.region.clone())
+    }
+
+    fn rebalance(
+        &self,
+        _current: &ShardAllocations,
+        _in_progress: &BTreeSet<String>,
+    ) -> Result<BTreeSet<String>, ShardingError> {
+        Ok(BTreeSet::new())
+    }
 }

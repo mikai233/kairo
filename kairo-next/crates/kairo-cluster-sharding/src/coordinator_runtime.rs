@@ -1,6 +1,7 @@
 #![deny(missing_docs)]
 //! Deterministic coordinator decisions for shard allocation, rebalance, and shutdown.
 
+use std::borrow::Cow;
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -387,7 +388,7 @@ impl CoordinatorRuntime {
             .keys()
             .cloned()
             .collect::<BTreeSet<_>>();
-        let selected = strategy.rebalance(&active_allocations, &in_progress)?;
+        let selected = strategy.rebalance(active_allocations.as_ref(), &in_progress)?;
         if selected.is_empty() {
             return Ok(RebalancePlan::Skipped {
                 reason: RebalanceSkipReason::StrategySelectedNoShards,
@@ -568,7 +569,7 @@ impl CoordinatorRuntime {
             });
         }
 
-        let region = strategy.allocate_shard(&requester, &shard, &active_allocations)?;
+        let region = strategy.allocate_shard(&requester, &shard, active_allocations.as_ref())?;
         if !active_allocations.contains_region(&region) {
             return Ok(GetShardHomePlan::Ignored {
                 shard,
@@ -595,7 +596,10 @@ impl CoordinatorRuntime {
             .insert(requester);
     }
 
-    fn active_allocations(&self) -> ShardAllocations {
+    fn active_allocations(&self) -> Cow<'_, ShardAllocations> {
+        if self.graceful_shutdown_regions.is_empty() && self.terminating_regions.is_empty() {
+            return Cow::Borrowed(self.state.allocations());
+        }
         let mut active = self.state.allocations().clone();
         for region in self
             .graceful_shutdown_regions
@@ -604,7 +608,7 @@ impl CoordinatorRuntime {
         {
             active.remove_region(region);
         }
-        active
+        Cow::Owned(active)
     }
 
     fn rebalance_participants(&self) -> BTreeSet<RegionId> {

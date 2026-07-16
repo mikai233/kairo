@@ -43,6 +43,30 @@ fn duplicate_region_registration_preserves_existing_shard_allocations() {
 }
 
 #[test]
+fn removing_region_clears_only_its_indexed_shard_homes() {
+    let region_a = "region-a".to_string();
+    let region_b = "region-b".to_string();
+    let shard_a = "shard-a".to_string();
+    let shard_b = "shard-b".to_string();
+    let mut allocations = ShardAllocations::from_regions([region_a.clone(), region_b.clone()]);
+    allocations
+        .allocate_shard(&region_a, shard_a.clone())
+        .unwrap();
+    allocations
+        .allocate_shard(&region_b, shard_b.clone())
+        .unwrap();
+
+    assert_eq!(
+        allocations.remove_region(&region_a),
+        Some(vec![shard_a.clone()])
+    );
+
+    assert_eq!(allocations.region_for_shard(&shard_a), None);
+    assert_eq!(allocations.region_for_shard(&shard_b), Some(&region_b));
+    assert_eq!(allocations.shard_count(), 1);
+}
+
+#[test]
 fn least_shard_strategy_allocates_to_region_with_fewest_shards() {
     let strategy = LeastShardAllocationStrategy::default();
     let mut allocations = ShardAllocations::from_regions([

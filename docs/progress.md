@@ -319,6 +319,11 @@ Status terms in this document mean:
   participant snapshots, rebalance completion, availability suppression, and
   graceful region shutdown. Failed shutdown handoffs release the region for a
   retry, and duplicate rebalance starts preserve existing deferred requesters.
+  Allocation state now mirrors Pekko's bidirectional shard/region ownership:
+  direct ordered shard-home lookup replaces full allocation scans, least-load
+  placement finds the minimum without sorting every region, and the coordinator
+  borrows its live allocation table unless shutdown exclusions require a
+  filtered snapshot.
   The coordinator actor now carries the same hard gate across local and remote
   registration, shard-home ownership, periodic rebalance, handoff completion,
   region death watch, graceful shutdown, remember-store loading and failure,
