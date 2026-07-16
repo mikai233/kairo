@@ -34,6 +34,9 @@ fn aggregation_wire_round_trips_manifest_tagged_data_envelopes() {
     assert_eq!(write.key, key.as_str());
     assert_eq!(write.from, Some(from));
     assert_eq!(write.envelope.crdt_manifest, crate::GCOUNTER_MANIFEST);
+    let read = encode_read(&key, Some(owner.clone()));
+    assert_eq!(read.key, key.as_str());
+    assert_eq!(read.from, Some(owner));
 
     let read_result = encode_read_result(Some(&envelope), &GCounterCodec).unwrap();
     assert_eq!(
@@ -86,4 +89,17 @@ fn aggregation_wire_round_trips_performed_pruning_markers() {
         decoded.pruning().get(&removed),
         Some(&PruningState::Performed(PruningPerformed::new(123)))
     );
+}
+
+#[test]
+fn aggregation_wire_rejects_duplicate_removed_replica_pruning_entries() {
+    let removed = replica("removed");
+    let envelope = DataEnvelope::new(GCounter::new().reset_delta())
+        .init_removed_node_pruning(removed, replica("owner"));
+    let mut wire = encode_data_envelope(&envelope, &GCounterCodec).unwrap();
+    wire.pruning.push(wire.pruning[0].clone());
+
+    let error = decode_data_envelope::<GCounter, _>(&wire, &GCounterCodec).unwrap_err();
+
+    assert!(error.to_string().contains("duplicate pruning entry"));
 }

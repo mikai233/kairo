@@ -1,3 +1,6 @@
+#![deny(missing_docs)]
+//! Stable conversions between typed aggregation values and replicator wire records.
+
 use kairo_serialization::SerializationError;
 
 use crate::{
@@ -6,6 +9,10 @@ use crate::{
     ReplicatorRead, ReplicatorReadResult, ReplicatorWrite,
 };
 
+/// Encodes CRDT data and removed-node pruning metadata into a wire envelope.
+///
+/// The CRDT codec supplies the stable manifest, version, and payload. Pruning
+/// entries are emitted in the deterministic replica order of [`PruningTable`].
 pub fn encode_data_envelope<D, Codec>(
     envelope: &DataEnvelope<D>,
     codec: &Codec,
@@ -20,6 +27,10 @@ where
     )
 }
 
+/// Decodes a wire envelope after validating its CRDT manifest and pruning table.
+///
+/// Duplicate removed-replica pruning entries are rejected instead of being
+/// silently overwritten.
 pub fn decode_data_envelope<D, Codec>(
     envelope: &ReplicatorDataEnvelope,
     codec: &Codec,
@@ -43,6 +54,7 @@ where
     ))
 }
 
+/// Encodes a direct full-state write for `key` and its optional source replica.
 pub fn encode_write<D, Codec>(
     key: &ReplicatorKey,
     from: Option<ReplicaId>,
@@ -60,6 +72,7 @@ where
     })
 }
 
+/// Encodes a direct full-state read for `key` and its optional source replica.
 pub fn encode_read(key: &ReplicatorKey, from: Option<ReplicaId>) -> ReplicatorRead {
     ReplicatorRead {
         key: key.as_str().to_string(),
@@ -67,6 +80,9 @@ pub fn encode_read(key: &ReplicatorKey, from: Option<ReplicaId>) -> ReplicatorRe
     }
 }
 
+/// Encodes an optional full-state value returned by a direct read.
+///
+/// `None` represents a successful read of a key that is absent on the replica.
 pub fn encode_read_result<D, Codec>(
     envelope: Option<&DataEnvelope<D>>,
     codec: &Codec,
@@ -82,6 +98,10 @@ where
     })
 }
 
+/// Decodes an optional direct-read value and validates its CRDT wire metadata.
+///
+/// `Ok(None)` preserves successful key absence independently from decode
+/// failure.
 pub fn decode_read_result<D, Codec>(
     result: &ReplicatorReadResult,
     codec: &Codec,

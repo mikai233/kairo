@@ -255,6 +255,9 @@ Status terms in this document mean:
   gate. Each full-state write is encoded at most once per fan-out and the stable
   wire message is cloned across resolved targets, while missing targets remain
   independently reportable without triggering serialization.
+  Aggregation wire conversion now hard-gates stable CRDT manifest/version
+  metadata, deterministic pruning projection, successful absent reads, and
+  duplicate removed-replica pruning-entry rejection.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
