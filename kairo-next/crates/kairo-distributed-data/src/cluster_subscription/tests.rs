@@ -242,7 +242,7 @@ fn connector_gates_removed_node_pruning_until_all_replicas_reachable() {
     let system = ActorSystem::builder("ddata-cluster-connector-pruning-gate")
         .build()
         .unwrap();
-    let self_node = node("self", 1);
+    let self_node = node("a-self", 1);
     let blocked = node("blocked", 2);
     let removed = node("removed", 3);
     let publisher = system
@@ -405,7 +405,7 @@ fn connector_pauses_removed_node_pruning_clock_when_peer_becomes_unreachable() {
     let system = ActorSystem::builder("ddata-cluster-connector-pruning-pause")
         .build()
         .unwrap();
-    let self_node = node("self", 1);
+    let self_node = node("a-self", 1);
     let peer = node("peer", 2);
     let removed = node("removed", 3);
     let publisher = system

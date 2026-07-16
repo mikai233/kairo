@@ -1801,6 +1801,19 @@ replica. Tick and receive reports keep pure planning/application results
 separate from these delivery diagnostics. Like every remote target registry,
 this is delivery state and never membership truth.
 
+`ReplicatorClusterRoutes` is the membership-to-delivery projection shared by
+delta, gossip, aggregation, source-attribution, and pruning paths. Every
+configured role is required. `WeaklyUp`, `Up`, `Leaving`, and `Exiting`
+replicas are routable; a replica already admitted to that set remains present
+when downed and is removed only by the final `MemberRemoved` transition.
+Reachability is tracked independently for every matching remote member,
+including joining and snapshot-only down members, so the removed-node pruning
+clock cannot advance through an unhealthy role view. Pruning leadership is
+derived from the matching member facts rather than the global cluster leader:
+candidates enter at `Up`, are address ordered, retain `Leaving` through
+`Exiting`, and must be `Up` to initiate pruning. Snapshot and event projection
+are read-only consumers of gossip membership and cannot create cluster truth.
+
 Remote association integration:
 
 - cluster-route state selects remote replicas and builds `/system/ddata`

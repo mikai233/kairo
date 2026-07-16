@@ -241,6 +241,14 @@ Status terms in this document mean:
   Replicator state now hard-gates deterministic key iteration, local update and
   delta reset, full/delta merge, coalesced change flush, and pruning transition
   contracts used by actor and gossip paths.
+  Cluster route projection now preserves Pekko's down-versus-removed boundary:
+  an admitted replica remains routable and unreachable after downing until
+  final removal. Joining and snapshot-only down unreachability now pause the
+  role-scoped all-reachable pruning clock, and pruning leadership is derived
+  from the intersection of required roles rather than the unrelated global
+  cluster leader. Address-ordered leaving candidates remain authoritative
+  through exiting and block a new leader until removal. The complete public
+  route/update/report surface carries a hard documentation gate.
   Delta propagation logs now hard-gate monotonic per-key versions, payload-free
   full-state fallback, bounded range grouping, deterministic round-robin peer
   selection, and all-current-replica cleanup semantics.
