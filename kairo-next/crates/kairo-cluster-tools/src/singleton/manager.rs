@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -5,44 +7,83 @@ use kairo_cluster::UniqueAddress;
 
 use crate::{SingletonOldestChange, SingletonOldestObservation};
 
+/// Explicit ownership and handover state of one singleton manager.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SingletonManagerState {
+    /// Waiting for the initial oldest-member observation.
     Start,
+    /// Another eligible member is currently oldest.
     Younger {
+        /// Known members that were older than self at initialization or change.
         previous_oldest: Vec<UniqueAddress>,
     },
+    /// Self is selected oldest but must establish prior-owner termination.
     BecomingOldest {
+        /// Oldest-first prior owners that may still host the singleton.
         previous_oldest: Vec<UniqueAddress>,
+        /// Whether the contacted prior owner confirmed shutdown has started.
         handover_started: bool,
     },
+    /// Self owns the singleton responsibility.
     Oldest {
+        /// Whether the singleton child is currently alive.
         singleton_running: bool,
     },
+    /// Self was oldest and is asking the newly selected oldest to take over.
     WasOldest {
+        /// Whether the singleton child is still alive.
         singleton_running: bool,
+        /// Newly selected owner, or none while the oldest set is empty.
         new_oldest: Option<UniqueAddress>,
     },
+    /// Self is stopping its singleton child for a handover.
     HandingOver {
+        /// Whether child termination is still outstanding.
         singleton_running: bool,
+        /// Requesting successor to acknowledge when termination completes.
         handover_to: Option<UniqueAddress>,
     },
+    /// Handover completed; self no longer participates while awaiting removal.
     End,
+    /// Manager termination was requested; this state is terminal.
     Stopped,
 }
 
+/// Side effect emitted by [`SingletonManagerRuntime`] for an actor adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SingletonManagerEffect {
+    /// Spawn the locally owned singleton child.
     StartSingleton,
+    /// Stop the locally owned singleton child and await termination.
     StopSingleton,
-    SendHandOverToMe { to: UniqueAddress },
-    SendHandOverInProgress { to: UniqueAddress },
-    SendHandOverDone { to: UniqueAddress },
-    SendTakeOverFromMe { to: UniqueAddress },
+    /// Ask a prior owner to stop and transfer ownership.
+    SendHandOverToMe {
+        /// Exact prior-owner incarnation.
+        to: UniqueAddress,
+    },
+    /// Tell a successor that singleton shutdown has begun.
+    SendHandOverInProgress {
+        /// Exact successor incarnation.
+        to: UniqueAddress,
+    },
+    /// Tell a successor that singleton shutdown has completed.
+    SendHandOverDone {
+        /// Exact successor incarnation.
+        to: UniqueAddress,
+    },
+    /// Ask a newly selected owner to initiate handover from self.
+    SendTakeOverFromMe {
+        /// Exact newly selected owner incarnation.
+        to: UniqueAddress,
+    },
+    /// Stop the manager actor.
     StopManager,
 }
 
+/// Invalid singleton-manager settings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SingletonManagerSettingsError {
+    /// The handover retry interval cannot be zero.
     ZeroHandOverRetryInterval,
 }
 
@@ -61,6 +102,7 @@ impl std::fmt::Display for SingletonManagerSettingsError {
 
 impl std::error::Error for SingletonManagerSettingsError {}
 
+/// Retry scheduling settings for a singleton manager actor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SingletonManagerSettings {
     hand_over_retry_interval: Duration,
@@ -68,6 +110,7 @@ pub struct SingletonManagerSettings {
 }
 
 impl SingletonManagerSettings {
+    /// Creates settings with automatic retries at a non-zero interval.
     pub fn new(hand_over_retry_interval: Duration) -> Result<Self, SingletonManagerSettingsError> {
         if hand_over_retry_interval.is_zero() {
             return Err(SingletonManagerSettingsError::ZeroHandOverRetryInterval);
@@ -78,15 +121,21 @@ impl SingletonManagerSettings {
         })
     }
 
+    /// Enables or disables actor-owned automatic handover and takeover timers.
+    ///
+    /// Disabling timers leaves explicit retry commands available for manual
+    /// time and deterministic orchestration.
     pub fn with_automatic_hand_over_retries(mut self, automatic: bool) -> Self {
         self.automatic_hand_over_retries = automatic;
         self
     }
 
+    /// Returns the interval between automatic handover/takeover attempts.
     pub fn hand_over_retry_interval(&self) -> Duration {
         self.hand_over_retry_interval
     }
 
+    /// Returns whether the actor adapter schedules retry timers automatically.
     pub fn automatic_hand_over_retries(&self) -> bool {
         self.automatic_hand_over_retries
     }
@@ -101,6 +150,12 @@ impl Default for SingletonManagerSettings {
     }
 }
 
+/// Pure singleton ownership and handover state machine.
+///
+/// The runtime consumes oldest-tracker observations and stable handover
+/// messages, then returns explicit effects for an actor adapter to execute. It
+/// performs no I/O and owns no membership source, which keeps transition tests
+/// deterministic and cluster membership authoritative.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SingletonManagerRuntime {
     self_node: UniqueAddress,
@@ -109,6 +164,7 @@ pub struct SingletonManagerRuntime {
 }
 
 impl SingletonManagerRuntime {
+    /// Creates a manager in [`SingletonManagerState::Start`] for `self_node`.
     pub fn new(self_node: UniqueAddress) -> Self {
         Self {
             self_node,
@@ -117,14 +173,20 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Returns the exact local member incarnation.
     pub fn self_node(&self) -> &UniqueAddress {
         &self.self_node
     }
 
+    /// Returns the current ownership and handover state.
     pub fn state(&self) -> &SingletonManagerState {
         &self.state
     }
 
+    /// Returns the prior owner that should receive the next handover retry.
+    ///
+    /// Once that owner confirms handover progress, retries stop while the
+    /// manager waits for completion or membership removal.
     pub fn hand_over_retry_target(&self) -> Option<&UniqueAddress> {
         match &self.state {
             SingletonManagerState::BecomingOldest {
@@ -135,6 +197,7 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Returns the new owner that should receive the next takeover retry.
     pub fn take_over_retry_target(&self) -> Option<&UniqueAddress> {
         match &self.state {
             SingletonManagerState::WasOldest {
@@ -145,10 +208,15 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Returns exact member incarnations known to be removed.
     pub fn removed_members(&self) -> &HashSet<UniqueAddress> {
         &self.removed
     }
 
+    /// Initializes ownership from the tracker's oldest and safety observation.
+    ///
+    /// Safe self-oldest starts immediately. Unsafe self-oldest waits for prior
+    /// owners, and any other oldest places the manager in the younger state.
     pub fn apply_initial_observation(
         &mut self,
         observation: SingletonOldestObservation,
@@ -169,6 +237,7 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Applies one ownership change emitted by the oldest tracker.
     pub fn apply_oldest_change(
         &mut self,
         change: SingletonOldestChange,
@@ -180,6 +249,10 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Records final member removal and advances any transition waiting on it.
+    ///
+    /// Self-removal always stops the manager. Removal of every possible prior
+    /// owner permits a becoming-oldest manager to start without a handover ack.
     pub fn mark_removed(&mut self, node: UniqueAddress) -> Vec<SingletonManagerEffect> {
         self.removed.insert(node.clone());
         if node == self.self_node {
@@ -219,6 +292,11 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Handles a successor's request that self transfer ownership.
+    ///
+    /// A current or former owner begins child shutdown. A younger manager
+    /// confirms completion immediately because it cannot host the singleton.
+    /// Duplicate requests from the active successor receive progress again.
     pub fn hand_over_to_me(&mut self, from: UniqueAddress) -> Vec<SingletonManagerEffect> {
         match &self.state {
             SingletonManagerState::Start => Vec::new(),
@@ -242,6 +320,9 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Records that the contacted prior owner began singleton shutdown.
+    ///
+    /// Only the first expected prior owner can advance this flag.
     pub fn hand_over_in_progress(&mut self, from: &UniqueAddress) -> Vec<SingletonManagerEffect> {
         if let SingletonManagerState::BecomingOldest {
             previous_oldest,
@@ -254,6 +335,7 @@ impl SingletonManagerRuntime {
         Vec::new()
     }
 
+    /// Starts the singleton after the expected prior owner confirms completion.
     pub fn hand_over_done(&mut self, from: &UniqueAddress) -> Vec<SingletonManagerEffect> {
         match &self.state {
             SingletonManagerState::BecomingOldest {
@@ -263,6 +345,7 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Re-emits a handover request while the expected owner has not made progress.
     pub fn hand_over_retry(&mut self) -> Vec<SingletonManagerEffect> {
         match &self.state {
             SingletonManagerState::BecomingOldest {
@@ -277,6 +360,7 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Re-emits a takeover request while self is still the previous owner.
     pub fn take_over_retry(&mut self) -> Vec<SingletonManagerEffect> {
         match &self.state {
             SingletonManagerState::WasOldest {
@@ -289,6 +373,10 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Handles a previous owner's request that self initiate takeover.
+    ///
+    /// Only becoming-oldest or current-oldest states respond, preventing stale
+    /// takeover messages from changing unrelated ownership transitions.
     pub fn take_over_from_me(&mut self, from: UniqueAddress) -> Vec<SingletonManagerEffect> {
         match &mut self.state {
             SingletonManagerState::BecomingOldest {
@@ -310,6 +398,7 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Records singleton child termination and completes any active handover.
     pub fn singleton_terminated(&mut self) -> Vec<SingletonManagerEffect> {
         match &self.state {
             SingletonManagerState::Oldest { .. } => {
@@ -336,6 +425,7 @@ impl SingletonManagerRuntime {
         }
     }
 
+    /// Enters the terminal stopped state and emits manager termination.
     pub fn stop_manager(&mut self) -> Vec<SingletonManagerEffect> {
         self.state = SingletonManagerState::Stopped;
         vec![SingletonManagerEffect::StopManager]

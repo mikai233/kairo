@@ -345,6 +345,8 @@ fn cluster_tools_documented_modules_deny_missing_docs() -> Result<(), Box<dyn st
         "kairo-next/crates/kairo-cluster-tools/src/pubsub/remote_delivery/mod.rs",
         "kairo-next/crates/kairo-cluster-tools/src/pubsub/registry.rs",
         "kairo-next/crates/kairo-cluster-tools/src/pubsub/wire.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/singleton/manager.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/singleton/oldest.rs",
         "kairo-next/crates/kairo-cluster-tools/src/topic/mod.rs",
         "kairo-next/crates/kairo-cluster-tools/src/topic/local.rs",
         "kairo-next/crates/kairo-cluster-tools/src/topic/name.rs",

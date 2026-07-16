@@ -480,7 +480,11 @@ Status terms in this document mean:
   commands at remote delivery adapters. The mediator actor and typed protocol
   now hard-gate subscription and path lifecycle, death-watch cleanup, cluster
   removal, local-only remote re-entry, validated delta ingress, immutable
-  delivery plans and reports, and operator snapshots.
+  delivery plans and reports, and operator snapshots. The singleton ownership
+  core now hard-gates role-scoped up-number ordering, initial takeover safety,
+  terminal self-removal/downing, prior-owner removal evidence, bidirectional
+  handover retries, child-termination ordering, and explicit state/effect
+  transitions.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -494,9 +498,9 @@ Status terms in this document mean:
   public `kairo-testkit` utility surface now deny missing public documentation;
   the primary cluster-singleton and composed distributed-pubsub facades carry
   the same module-level hard gate, as do the local topic/pubsub and distributed
-  registry/gossip, mediator, delivery, and remote wire APIs. The remote
-  ping-pong example and compile-tested serialization docs now exercise the
-  format-neutral closure registration path. The
+  registry/gossip, mediator, delivery, remote wire, and singleton ownership
+  APIs. The remote ping-pong example and compile-tested serialization docs now
+  exercise the format-neutral closure registration path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower
