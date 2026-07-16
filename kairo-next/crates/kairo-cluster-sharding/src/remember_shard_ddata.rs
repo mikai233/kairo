@@ -365,6 +365,10 @@ impl RememberShardDDataStoreActor {
         index: usize,
         response: GetResponse<ORSet<String>>,
     ) -> ActorResult {
+        if self.load_error.is_some() {
+            return Ok(());
+        }
+
         match response {
             GetResponse::Success { data, .. } => {
                 self.entities_by_key.insert(index, data.elements());
@@ -377,13 +381,14 @@ impl RememberShardDDataStoreActor {
                 self.drain_waiting_gets_if_loaded()?;
             }
             GetResponse::Failure { key, reason } => {
-                self.load_pending.remove(&index);
                 let error = ShardingError::RememberStoreReadFailed {
                     key: key.as_str().to_string(),
                     reason,
                 };
-                let retained = self.load_error.get_or_insert(error).clone();
-                self.drain_waiting_gets(Err(retained))?;
+                self.load_pending.clear();
+                self.entities_by_key.clear();
+                self.load_error = Some(error.clone());
+                self.drain_waiting_gets(Err(error))?;
             }
         }
         Ok(())
