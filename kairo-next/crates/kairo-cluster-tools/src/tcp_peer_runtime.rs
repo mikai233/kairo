@@ -288,8 +288,8 @@ where
 
     /// Clears reconnects and routes before stopping the TCP association runtime.
     ///
-    /// `timeout` is forwarded to the lower-level standalone runtime for API
-    /// symmetry; that runtime currently does not enforce a shutdown deadline.
+    /// `timeout` is forwarded to the lower-level standalone runtime as one
+    /// deadline for its owned reader and listener joins.
     ///
     /// # Errors
     ///

@@ -213,22 +213,25 @@ where
     ///
     /// The cache is cleared again after the listener joins so routes registered
     /// concurrently by a closing association cannot escape shutdown. The
-    /// timeout parameter is retained for API symmetry with the composed
-    /// remoting runtime; this legacy standalone runtime does not apply a
-    /// shutdown deadline.
+    /// supplied deadline bounds outbound-reader and listener joins; expiration
+    /// returns [`RemoteError::ShutdownTimeout`] after forceful transport close.
     ///
     /// # Errors
     ///
-    /// Returns the first route-close or listener failure.
+    /// Returns the first route-close, listener, or timeout failure.
     pub fn shutdown_with_timeout(
         self,
-        _timeout: Duration,
+        timeout: Duration,
     ) -> RemoteResult<TcpAssociationListenerReport> {
+        let deadline = Instant::now() + timeout;
+        let mut first_error = None;
         for result in self
             .association_cache
             .clear_routes_and_close(CLUSTER_TOOLS_TCP_SHUTDOWN_REASON)
         {
-            result?;
+            if let Err(error) = result {
+                first_error.get_or_insert(error);
+            }
         }
         self.listener.stop();
         self.outbound_pipelines
@@ -241,17 +244,26 @@ where
             .expect("cluster-tools tcp outbound readers lock poisoned")
             .drain(..)
             .collect::<Vec<_>>();
+        let mut readers_stopped = true;
         for reader in outbound_readers {
-            let _ = reader.join_after_stop_until(Instant::now());
+            readers_stopped &= reader.join_after_stop_until(deadline).is_some();
         }
-        let listener_report = self.listener.join()?;
+        let listener_report = self.listener.join_until(deadline);
         for result in self
             .association_cache
             .clear_routes_and_close(CLUSTER_TOOLS_TCP_SHUTDOWN_REASON)
         {
-            result?;
+            if let Err(error) = result {
+                first_error.get_or_insert(error);
+            }
         }
-        Ok(listener_report)
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+        if !readers_stopped || listener_report.is_none() {
+            return Err(RemoteError::ShutdownTimeout { timeout });
+        }
+        listener_report.expect("listener completion checked above")
     }
 }
 

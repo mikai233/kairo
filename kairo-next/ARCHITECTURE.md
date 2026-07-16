@@ -987,8 +987,10 @@ TCP association dialing:
   managed-redial worker, reliable-delivery scheduler, and remote death-watch
   actors before clearing outbound association routes and
   stopping the TCP listener, joins dialing-side lane readers after route
-  shutdown, and preserves the shutdown ordering shape Pekko uses for remoting
-  internals before transport shutdown,
+  shutdown, and uses one absolute deadline across every worker/actor/reader/
+  listener wait. Expiration force-closes transport state and returns an explicit
+  `RemoteError::ShutdownTimeout`, preserving the bounded shutdown shape Pekko
+  uses for remoting internals before transport shutdown,
 - `TcpAssociationReaderSupervisor` models the stateless inbound lane restart
   decision: by default any lane or association reader failure plans a full
   inbound-stream restart, a configured restart limit can stop the inbound
@@ -1901,8 +1903,9 @@ The complete standalone distributed-data TCP peer lifecycle denies missing
 public documentation at compile time. Its API contract covers transport and
 replica identity, membership-derived route ownership, fixed-interval reconnect
 state, one-at-a-time actor-backed route work, and coordinated shutdown. The
-legacy low-level association runtime retains a timeout parameter for API
-symmetry but does not currently enforce a shutdown deadline.
+legacy low-level association runtime now applies its timeout as one deadline
+across outbound-reader and listener joins, matching the cluster and
+cluster-tools standalone runtimes and the composed remoting boundary.
 
 The composed ActorSystem path uses `register_distributed_data` instead of that
 legacy standalone listener. Cluster daemon registration must precede it on the

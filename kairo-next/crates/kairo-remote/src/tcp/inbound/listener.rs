@@ -606,4 +606,67 @@ impl TcpAssociationListenerHandle {
             .join()
             .map_err(|_| RemoteError::Inbound("tcp association listener panicked".to_string()))?
     }
+
+    /// Waits for the accept loop to stop before `deadline`.
+    ///
+    /// Call [`Self::stop`] first when terminating an active listener. Returns
+    /// `None` when the deadline expires; dropping the handle then detaches the
+    /// final background cleanup without clearing the prior stop request.
+    pub fn join_until(self, deadline: Instant) -> Option<Result<TcpAssociationListenerReport>> {
+        while !self.join.is_finished() {
+            let now = Instant::now();
+            if now >= deadline {
+                return None;
+            }
+            thread::sleep((deadline - now).min(Duration::from_millis(1)));
+        }
+        Some(self.join())
+    }
+}
+
+#[cfg(test)]
+mod handle_tests {
+    use super::*;
+
+    fn report() -> TcpAssociationListenerReport {
+        TcpAssociationListenerReport {
+            accepted_associations: 0,
+            remote_identities: Vec::new(),
+            read: TcpAssociationReadReport::default(),
+            supervision: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn listener_join_until_returns_completed_report_before_deadline() {
+        let handle = TcpAssociationListenerHandle {
+            stop: Arc::new(AtomicBool::new(false)),
+            join: thread::spawn(|| Ok(report())),
+        };
+
+        assert_eq!(
+            handle
+                .join_until(Instant::now() + Duration::from_secs(1))
+                .expect("listener should finish before deadline")
+                .unwrap(),
+            report()
+        );
+    }
+
+    #[test]
+    fn listener_join_until_returns_none_at_deadline() {
+        let handle = TcpAssociationListenerHandle {
+            stop: Arc::new(AtomicBool::new(false)),
+            join: thread::spawn(|| {
+                thread::sleep(Duration::from_millis(50));
+                Ok(report())
+            }),
+        };
+
+        assert!(
+            handle
+                .join_until(Instant::now() + Duration::from_millis(1))
+                .is_none()
+        );
+    }
 }

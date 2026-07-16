@@ -967,16 +967,24 @@ fn shutdown_runtime(
     transport: RuntimeTransportRefs<'_>,
     timeout: Duration,
 ) -> Result<TcpAssociationListenerReport> {
-    let reconnect_stopped = transport.reconnect.stop_until(Instant::now() + timeout);
+    let deadline = Instant::now() + timeout;
+    let reconnect_stopped = transport.reconnect.stop_until(deadline);
     system.stop(system_actors.reliable_delivery);
     system.stop(system_actors.death_watch);
-    let reliable_delivery_stopped = system_actors.reliable_delivery.wait_for_stop(timeout);
-    let death_watch_stopped = system_actors.death_watch.wait_for_stop(timeout);
+    let reliable_delivery_stopped = system_actors
+        .reliable_delivery
+        .wait_for_stop(deadline.saturating_duration_since(Instant::now()));
+    let death_watch_stopped = system_actors
+        .death_watch
+        .wait_for_stop(deadline.saturating_duration_since(Instant::now()));
+    let mut first_error = None;
     for result in transport
         .association_cache
         .clear_routes_and_close(TCP_REMOTE_SHUTDOWN_REASON)
     {
-        result?;
+        if let Err(error) = result {
+            first_error.get_or_insert(error);
+        }
     }
     let listener = transport
         .listener
@@ -985,11 +993,11 @@ fn shutdown_runtime(
         .take();
 
     let Some(listener) = listener else {
+        if let Some(error) = first_error {
+            return Err(error);
+        }
         if !reconnect_stopped || !reliable_delivery_stopped || !death_watch_stopped {
-            return Err(RemoteError::Inbound(
-                "remote reconnect worker or system actors did not stop during tcp shutdown"
-                    .to_string(),
-            ));
+            return Err(RemoteError::ShutdownTimeout { timeout });
         }
         return Ok(empty_listener_report());
     };
@@ -1006,24 +1014,33 @@ fn shutdown_runtime(
         .expect("tcp remote actor system outbound readers lock poisoned")
         .drain(..)
         .collect::<Vec<_>>();
+    let mut readers_stopped = true;
     for reader in outbound_readers {
-        let _ = reader.join_after_stop_until(Instant::now());
+        readers_stopped &= reader.join_after_stop_until(deadline).is_some();
     }
-    let listener_report = listener.join();
+    let listener_report = listener.join_until(deadline);
     for result in transport
         .association_cache
         .clear_routes_and_close(TCP_REMOTE_SHUTDOWN_REASON)
     {
-        result?;
+        if let Err(error) = result {
+            first_error.get_or_insert(error);
+        }
     }
 
-    if !reconnect_stopped || !reliable_delivery_stopped || !death_watch_stopped {
-        return Err(RemoteError::Inbound(
-            "remote reconnect worker or system actors did not stop during tcp shutdown".to_string(),
-        ));
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+    if !reconnect_stopped
+        || !reliable_delivery_stopped
+        || !death_watch_stopped
+        || !readers_stopped
+        || listener_report.is_none()
+    {
+        return Err(RemoteError::ShutdownTimeout { timeout });
     }
 
-    listener_report
+    listener_report.expect("listener completion checked above")
 }
 
 fn default_reliable_manifests() -> HashSet<String> {

@@ -1227,6 +1227,31 @@ fn implementation_status_docs_do_not_mark_reader_supervision_as_future_work()
 }
 
 #[test]
+fn implementation_status_docs_do_not_mark_tcp_shutdown_deadlines_unenforced()
+-> Result<(), Box<dyn std::error::Error>> {
+    let repo_root = repo_root()?;
+    let docs = [
+        repo_root.join("docs/progress.md"),
+        repo_root.join("kairo-next/ARCHITECTURE.md"),
+    ];
+    for path in docs {
+        let text = std::fs::read_to_string(&path)?.replace("\r\n", "\n");
+        assert!(
+            !text.contains("does not currently enforce a shutdown deadline")
+                && !text.contains("shutdown timeout is\n  not yet enforced"),
+            "{} must describe the enforced TCP shutdown deadline",
+            path.display()
+        );
+        assert!(
+            text.contains("shutdown") && text.contains("deadline") && text.contains("timeout"),
+            "{} must retain the implemented bounded TCP shutdown contract",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn implementation_status_docs_do_not_mark_public_api_docs_as_unreviewed()
 -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;

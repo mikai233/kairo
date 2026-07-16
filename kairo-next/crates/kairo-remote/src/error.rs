@@ -1,5 +1,7 @@
 #![deny(missing_docs)]
 
+use std::time::Duration;
+
 use kairo_serialization::SerializationError;
 
 /// Result type used by remote APIs.
@@ -69,6 +71,12 @@ pub enum RemoteError {
     /// TCP route reconnect settings were zero or otherwise unusable.
     #[error("invalid tcp reconnect settings: {0}")]
     InvalidTcpReconnectSettings(String),
+    /// A TCP remoting runtime could not stop its owned workers within the supplied budget.
+    #[error("remote tcp shutdown timed out after {timeout:?}")]
+    ShutdownTimeout {
+        /// Total shutdown budget supplied by the caller.
+        timeout: Duration,
+    },
     /// The association is closed and cannot accept more outbound traffic.
     #[error("remote association with `{remote}` is closed: {reason}")]
     AssociationClosed {
