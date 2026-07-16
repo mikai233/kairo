@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use bytes::Bytes;
 use kairo_serialization::{MessageCodec, WireReader, WireWriter};
 
@@ -9,11 +11,16 @@ use super::wire::{
     write_versions,
 };
 
+/// Fixed serializer id for [`PubSubStatus`] version summaries.
 pub const PUBSUB_STATUS_SERIALIZER_ID: u32 = 5_000;
+/// Fixed serializer id for [`PubSubDelta`] registry updates.
 pub const PUBSUB_DELTA_SERIALIZER_ID: u32 = 5_001;
+/// Fixed serializer id for [`PubSubPublishEnvelope`] business delivery.
 pub const PUBSUB_PUBLISH_SERIALIZER_ID: u32 = 5_002;
+/// Fixed serializer id for [`PubSubPathEnvelope`] business delivery.
 pub const PUBSUB_PATH_SERIALIZER_ID: u32 = 5_003;
 
+/// Version-checking codec for the stable pubsub status wire layout.
 #[derive(Debug, Clone, Copy)]
 pub struct PubSubStatusCodec;
 
@@ -43,6 +50,7 @@ impl MessageCodec<PubSubStatus> for PubSubStatusCodec {
     }
 }
 
+/// Version-checking codec for the stable pubsub registry-delta wire layout.
 #[derive(Debug, Clone, Copy)]
 pub struct PubSubDeltaCodec;
 
@@ -70,6 +78,7 @@ impl MessageCodec<PubSubDelta> for PubSubDeltaCodec {
     }
 }
 
+/// Version-checking codec for topic, optional group, and nested business data.
 #[derive(Debug, Clone, Copy)]
 pub struct PubSubPublishEnvelopeCodec;
 
@@ -103,6 +112,7 @@ impl MessageCodec<PubSubPublishEnvelope> for PubSubPublishEnvelopeCodec {
     }
 }
 
+/// Version-checking codec for path mode and nested business data.
 #[derive(Debug, Clone, Copy)]
 pub struct PubSubPathEnvelopeCodec;
 

@@ -10,6 +10,12 @@ use crate::{LocalPubSubMsg, PubSubPathEnvelope, PubSubPublishEnvelope, TopicPubl
 
 use super::{DEFAULT_PUBSUB_REMOTE_PATH, PubSubRemoteDeliveryError, recipient_for_node};
 
+/// Typed outbound adapter from local pubsub delivery to remoting.
+///
+/// The adapter serializes `M` with its registered business codec, nests that
+/// stable payload in a publish or path envelope, and sends a canonical remote
+/// envelope to one exact cluster-member incarnation. Only delivery commands
+/// are supported; local registration and query commands are rejected.
 #[derive(Clone)]
 pub struct PubSubRemoteDeliveryOutbound<M> {
     target: UniqueAddress,
@@ -21,6 +27,7 @@ pub struct PubSubRemoteDeliveryOutbound<M> {
 }
 
 impl<M> PubSubRemoteDeliveryOutbound<M> {
+    /// Creates an adapter for one target and concrete shared-runtime outbound.
     pub fn new(
         target: UniqueAddress,
         registry: Arc<Registry>,
@@ -29,6 +36,7 @@ impl<M> PubSubRemoteDeliveryOutbound<M> {
         Self::from_arc(target, registry, Arc::new(outbound))
     }
 
+    /// Creates an adapter for one target and shared outbound trait object.
     pub fn from_arc(
         target: UniqueAddress,
         registry: Arc<Registry>,
@@ -44,20 +52,26 @@ impl<M> PubSubRemoteDeliveryOutbound<M> {
         }
     }
 
+    /// Overrides the absolute recipient path used on the target node.
+    ///
+    /// Path validity is checked when a recipient is derived or a message sent.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Sets the optional serialized sender carried by remote envelopes.
     pub fn with_sender(mut self, sender: Option<ActorRefWireData>) -> Self {
         self.sender = sender;
         self
     }
 
+    /// Returns the exact destination member incarnation.
     pub fn target(&self) -> &UniqueAddress {
         &self.target
     }
 
+    /// Derives the canonical remote recipient for the configured target.
     pub fn recipient_for_target(&self) -> Result<ActorRefWireData, PubSubRemoteDeliveryError> {
         recipient_for_node(&self.target, &self.recipient_path)
     }

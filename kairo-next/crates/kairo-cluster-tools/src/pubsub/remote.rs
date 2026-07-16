@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -8,14 +10,28 @@ use kairo_serialization::{ActorRefWireData, RemoteEnvelope, SerializationError};
 
 use super::wire::PubSubSerializedGossip;
 
+/// Canonical remote actor path used by distributed-pubsub system traffic.
 pub const DEFAULT_PUBSUB_REMOTE_PATH: &str = "/system/pubsub";
 
+/// Failure while addressing or sending a serialized pubsub gossip envelope.
 #[derive(Debug)]
 pub enum PubSubRemoteEnvelopeError {
+    /// The configured recipient path was not an absolute actor path.
     InvalidRecipientPath(String),
-    MissingRemoteHost { node: String },
+    /// The destination is local-only and cannot identify a remote association.
+    MissingRemoteHost {
+        /// Ordering key of the rejected member incarnation.
+        node: String,
+    },
+    /// Canonical actor-reference construction failed.
     Serialization(SerializationError),
-    Send { node: String, reason: String },
+    /// The shared remote outbound rejected the envelope.
+    Send {
+        /// Ordering key of the destination member incarnation.
+        node: String,
+        /// Transport-provided rejection reason.
+        reason: String,
+    },
 }
 
 impl Display for PubSubRemoteEnvelopeError {
@@ -43,6 +59,11 @@ impl From<SerializationError> for PubSubRemoteEnvelopeError {
     }
 }
 
+/// Adapter that wraps serialized pubsub gossip in canonical remote envelopes.
+///
+/// The adapter derives a recipient from each gossip value's exact destination
+/// address and the configured system path. It does not create cluster peers or
+/// membership facts; those remain outputs of cluster membership.
 #[derive(Clone)]
 pub struct PubSubRemoteEnvelopeOutbound {
     recipient_path: String,
@@ -51,10 +72,12 @@ pub struct PubSubRemoteEnvelopeOutbound {
 }
 
 impl PubSubRemoteEnvelopeOutbound {
+    /// Creates an adapter backed by a concrete shared-runtime outbound.
     pub fn new(outbound: impl RemoteOutbound + 'static) -> Self {
         Self::from_arc(Arc::new(outbound))
     }
 
+    /// Creates an adapter backed by a shared-runtime outbound trait object.
     pub fn from_arc(outbound: Arc<dyn RemoteOutbound>) -> Self {
         Self {
             recipient_path: DEFAULT_PUBSUB_REMOTE_PATH.to_string(),
@@ -63,16 +86,21 @@ impl PubSubRemoteEnvelopeOutbound {
         }
     }
 
+    /// Overrides the absolute recipient path used on every destination node.
+    ///
+    /// Path validity is checked when a recipient is derived or a message sent.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Sets the optional serialized sender carried by remote envelopes.
     pub fn with_sender(mut self, sender: Option<ActorRefWireData>) -> Self {
         self.sender = sender;
         self
     }
 
+    /// Derives the canonical remote recipient for an exact member incarnation.
     pub fn recipient_for_node(
         &self,
         node: &UniqueAddress,
@@ -95,6 +123,7 @@ impl PubSubRemoteEnvelopeOutbound {
         ))?)
     }
 
+    /// Wraps and submits one already-serialized gossip payload.
     pub fn send_serialized(
         &self,
         gossip: PubSubSerializedGossip,

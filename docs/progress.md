@@ -473,7 +473,11 @@ Status terms in this document mean:
   round-robin status exchange, unknown-node filtering, and accepted-delta
   forwarding to the mediator. Delivery planning and execution now hard-gate
   broadcast, one-per-group, local-affinity, all-but-self, exact-incarnation
-  routing, best-effort fan-out, and ordered per-target failure reports.
+  routing, best-effort fan-out, and ordered per-target failure reports. The
+  end-to-end remote boundary now also hard-gates fixed status/delta/publish/path
+  manifests and serializer ids, nested business-message metadata, canonical
+  recipient validation, typed mediator re-entry, and rejection of local-only
+  commands at remote delivery adapters.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -487,9 +491,9 @@ Status terms in this document mean:
   public `kairo-testkit` utility surface now deny missing public documentation;
   the primary cluster-singleton and composed distributed-pubsub facades carry
   the same module-level hard gate, as do the local topic/pubsub and distributed
-  registry/gossip and delivery APIs. The remote ping-pong example and
-  compile-tested serialization docs now exercise the format-neutral closure
-  registration path. The
+  registry/gossip, delivery, and remote wire APIs. The remote ping-pong example
+  and compile-tested serialization docs now exercise the format-neutral
+  closure registration path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower

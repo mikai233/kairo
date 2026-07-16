@@ -23,6 +23,11 @@ use crate::{
     SingletonTakeOverFromMe,
 };
 
+/// Registers every stable cluster-tools system protocol codec.
+///
+/// Call this before the shared remote runtime binds. Registration fails on a
+/// duplicate serializer id or message manifest instead of silently replacing
+/// an existing wire contract.
 pub fn register_cluster_tools_protocol_codecs(
     registry: &mut Registry,
 ) -> kairo_serialization::Result<()> {

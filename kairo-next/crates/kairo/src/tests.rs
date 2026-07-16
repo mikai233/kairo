@@ -330,15 +330,20 @@ fn distributed_data_documented_modules_deny_missing_docs() -> Result<(), Box<dyn
 fn cluster_tools_documented_modules_deny_missing_docs() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let documented_modules = [
+        "kairo-next/crates/kairo-cluster-tools/src/codec/pubsub.rs",
         "kairo-next/crates/kairo-cluster-tools/src/cluster_singleton.rs",
         "kairo-next/crates/kairo-cluster-tools/src/cluster_singleton/connector.rs",
         "kairo-next/crates/kairo-cluster-tools/src/extension.rs",
         "kairo-next/crates/kairo-cluster-tools/src/extension/connector.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/protocol.rs",
         "kairo-next/crates/kairo-cluster-tools/src/pubsub/actor.rs",
         "kairo-next/crates/kairo-cluster-tools/src/pubsub/delivery.rs",
         "kairo-next/crates/kairo-cluster-tools/src/pubsub/gossip.rs",
         "kairo-next/crates/kairo-cluster-tools/src/pubsub/local.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/pubsub/remote.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/pubsub/remote_delivery/mod.rs",
         "kairo-next/crates/kairo-cluster-tools/src/pubsub/registry.rs",
+        "kairo-next/crates/kairo-cluster-tools/src/pubsub/wire.rs",
         "kairo-next/crates/kairo-cluster-tools/src/topic/mod.rs",
         "kairo-next/crates/kairo-cluster-tools/src/topic/local.rs",
         "kairo-next/crates/kairo-cluster-tools/src/topic/name.rs",

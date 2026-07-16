@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -9,24 +11,41 @@ use crate::{PubSubDelta, PubSubStatus};
 
 use super::gossip::PubSubGossipMsg;
 
+/// Serialized pubsub gossip payload paired with its exact destination member.
+///
+/// This intermediate value keeps registry serialization separate from the
+/// remoting adapter that constructs the canonical `RemoteEnvelope`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PubSubSerializedGossip {
+    /// Exact cluster-member incarnation that should receive the payload.
     pub target: UniqueAddress,
+    /// Stable status or delta wire message.
     pub message: SerializedMessage,
 }
 
 impl PubSubSerializedGossip {
+    /// Creates a serialized gossip payload for one exact destination.
     pub fn new(target: UniqueAddress, message: SerializedMessage) -> Self {
         Self { target, message }
     }
 }
 
+/// Failure while encoding, validating, or delivering pubsub gossip.
 #[derive(Debug)]
 pub enum PubSubGossipWireError {
+    /// Stable message serialization or deserialization failed.
     Serialization(SerializationError),
+    /// The local gossip actor rejected a decoded message.
     Send(String),
+    /// The inbound serialized message did not use a status or delta manifest.
     UnsupportedManifest(String),
-    WrongTarget { expected: String, actual: String },
+    /// The outer gossip destination did not match this member incarnation.
+    WrongTarget {
+        /// Ordering key of the receiving member incarnation.
+        expected: String,
+        /// Ordering key carried by the outer gossip value.
+        actual: String,
+    },
 }
 
 impl Display for PubSubGossipWireError {
@@ -56,6 +75,10 @@ impl From<SerializationError> for PubSubGossipWireError {
     }
 }
 
+/// Outbound adapter from actor-local gossip commands to serialized payloads.
+///
+/// Only status and delta commands cross this boundary. Peer management,
+/// registry mutation, ticks, and snapshots remain local actor messages.
 #[derive(Clone)]
 pub struct PubSubGossipWireOutbound {
     target: UniqueAddress,
@@ -64,6 +87,7 @@ pub struct PubSubGossipWireOutbound {
 }
 
 impl PubSubGossipWireOutbound {
+    /// Creates an adapter for one exact destination and concrete payload sink.
     pub fn new(
         target: UniqueAddress,
         registry: Arc<Registry>,
@@ -76,6 +100,7 @@ impl PubSubGossipWireOutbound {
         }
     }
 
+    /// Creates an adapter for one exact destination and shared payload sink.
     pub fn from_arc(
         target: UniqueAddress,
         registry: Arc<Registry>,
@@ -88,6 +113,7 @@ impl PubSubGossipWireOutbound {
         }
     }
 
+    /// Returns the exact destination member incarnation.
     pub fn target(&self) -> &UniqueAddress {
         &self.target
     }
@@ -160,6 +186,10 @@ impl Recipient<PubSubGossipMsg> for PubSubGossipWireOutbound {
     }
 }
 
+/// Inbound adapter from serialized status/delta payloads to a gossip actor.
+///
+/// The adapter validates exact destination identity before decoding the stable
+/// manifest and preserves actor-mailbox ordering on delivery.
 #[derive(Clone)]
 pub struct PubSubGossipWireInbound {
     self_node: UniqueAddress,
@@ -168,6 +198,7 @@ pub struct PubSubGossipWireInbound {
 }
 
 impl PubSubGossipWireInbound {
+    /// Creates an inbound adapter for this member and gossip actor.
     pub fn new(
         self_node: UniqueAddress,
         registry: Arc<Registry>,
@@ -180,6 +211,7 @@ impl PubSubGossipWireInbound {
         }
     }
 
+    /// Validates the outer destination, decodes the payload, and tells gossip.
     pub fn receive(&self, envelope: PubSubSerializedGossip) -> Result<(), PubSubGossipWireError> {
         if envelope.target != self.self_node {
             return Err(PubSubGossipWireError::WrongTarget {
@@ -190,6 +222,10 @@ impl PubSubGossipWireInbound {
         self.receive_message(envelope.message)
     }
 
+    /// Decodes a payload and tells gossip without outer-destination validation.
+    ///
+    /// Use this only when a path-indexed remoting router has already validated
+    /// the canonical recipient. Direct callers should prefer [`Self::receive`].
     pub fn receive_message(&self, message: SerializedMessage) -> Result<(), PubSubGossipWireError> {
         match message.manifest.as_str() {
             PubSubStatus::MANIFEST => {

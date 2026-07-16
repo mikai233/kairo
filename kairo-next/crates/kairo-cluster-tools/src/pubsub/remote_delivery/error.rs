@@ -2,15 +2,36 @@ use std::fmt::{self, Display, Formatter};
 
 use kairo_serialization::SerializationError;
 
+/// Failure while encoding, validating, or dispatching remote pubsub delivery.
 #[derive(Debug)]
 pub enum PubSubRemoteDeliveryError {
+    /// The configured recipient path was not an absolute actor path.
     InvalidRecipientPath(String),
-    MissingRemoteHost { node: String },
+    /// The destination is local-only and cannot identify a remote association.
+    MissingRemoteHost {
+        /// Ordering key of the rejected member incarnation.
+        node: String,
+    },
+    /// Business-message, envelope, or actor-reference serialization failed.
     Serialization(SerializationError),
-    Send { target: String, reason: String },
+    /// A remote outbound or local mediator rejected the delivery.
+    Send {
+        /// Exact remote member key or local actor path that rejected delivery.
+        target: String,
+        /// Recipient- or transport-provided rejection reason.
+        reason: String,
+    },
+    /// The inbound stable message was not a publish or path envelope.
     UnsupportedManifest(String),
+    /// An actor-local command that must not cross the remote boundary was used.
     UnsupportedLocalMessage(&'static str),
-    WrongRecipient { expected: String, actual: String },
+    /// The remote envelope was addressed to a different actor path.
+    WrongRecipient {
+        /// Canonical recipient path for this inbound adapter.
+        expected: String,
+        /// Recipient path carried by the remote envelope.
+        actual: String,
+    },
 }
 
 impl Display for PubSubRemoteDeliveryError {

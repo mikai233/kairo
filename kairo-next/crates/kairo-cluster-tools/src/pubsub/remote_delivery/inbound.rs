@@ -12,6 +12,12 @@ use crate::{
 
 use super::{DEFAULT_PUBSUB_REMOTE_PATH, PubSubRemoteDeliveryError, validate_recipient};
 
+/// Typed inbound adapter for remote pubsub business-delivery envelopes.
+///
+/// Stable outer envelopes are decoded through the shared registry, then the
+/// nested business message is decoded as `M` and re-enters the local mediator
+/// through its typed mailbox. Registration and subscription commands are never
+/// accepted on this boundary.
 #[derive(Clone)]
 pub struct PubSubRemoteDeliveryInbound<M>
 where
@@ -28,6 +34,7 @@ impl<M> PubSubRemoteDeliveryInbound<M>
 where
     M: Send + 'static,
 {
+    /// Creates an inbound adapter for this member's canonical pubsub endpoint.
     pub fn new(
         self_node: UniqueAddress,
         registry: Arc<Registry>,
@@ -42,11 +49,15 @@ where
         }
     }
 
+    /// Overrides the absolute recipient path validated on inbound envelopes.
+    ///
+    /// Path validity is checked when an envelope is received.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Validates a canonical remote recipient and dispatches its stable payload.
     pub fn receive(&self, envelope: RemoteEnvelope) -> Result<(), PubSubRemoteDeliveryError>
     where
         M: RemoteMessage,
@@ -55,6 +66,10 @@ where
         self.receive_message(envelope.message)
     }
 
+    /// Decodes and dispatches a stable payload without recipient validation.
+    ///
+    /// Use this only when a path-indexed remoting router has already validated
+    /// the canonical recipient. Direct callers should prefer [`Self::receive`].
     pub fn receive_message(
         &self,
         message: SerializedMessage,
