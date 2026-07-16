@@ -7,15 +7,17 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use kairo::actor::{
-    Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props, Recipient,
-};
+use bytes::Bytes;
+use kairo::actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
 use kairo::cluster::{Gossip, Member, MemberStatus, UniqueAddress};
 use kairo::cluster_sharding::{
     ShardRegionMsg, ShardingEnvelope, ShardingEnvelopeRouter, shard_id_for,
 };
-use kairo::remote::{RemoteOutbound, RemoteOutboundRecipient};
-use kairo::serialization::{Manifest, RemoteEnvelope, SerializedMessage};
+use kairo::remote::{RemoteActorRef, RemoteOutbound};
+use kairo::serialization::{
+    ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationError,
+    SerializationRegistry, SerializerId,
+};
 
 const DEFAULT_ITERATIONS: usize = 100_000;
 const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -193,6 +195,13 @@ impl CountingOutbound {
     fn sent(&self) -> usize {
         self.sent.load(Ordering::SeqCst)
     }
+
+    fn last(&self) -> Option<RemoteEnvelope> {
+        self.last
+            .lock()
+            .expect("benchmark outbound lock poisoned")
+            .clone()
+    }
 }
 
 impl RemoteOutbound for CountingOutbound {
@@ -203,34 +212,78 @@ impl RemoteOutbound for CountingOutbound {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RemoteBenchMessage {
+    value: u8,
+}
+
+impl RemoteMessage for RemoteBenchMessage {
+    const MANIFEST: &'static str = "kairo.benchmark.RemoteSend";
+    const VERSION: u16 = 1;
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RemoteBenchMessageCodec;
+
+impl MessageCodec<RemoteBenchMessage> for RemoteBenchMessageCodec {
+    fn serializer_id(&self) -> SerializerId {
+        17
+    }
+
+    fn encode(&self, message: &RemoteBenchMessage) -> kairo::serialization::Result<Bytes> {
+        Ok(Bytes::copy_from_slice(&[message.value]))
+    }
+
+    fn decode(
+        &self,
+        payload: Bytes,
+        version: u16,
+    ) -> kairo::serialization::Result<RemoteBenchMessage> {
+        if version != RemoteBenchMessage::VERSION {
+            return Err(SerializationError::Message(format!(
+                "unsupported remote benchmark message version {version}"
+            )));
+        }
+        let [value] = payload.as_ref() else {
+            return Err(SerializationError::Message(
+                "remote benchmark message payload must contain one byte".to_string(),
+            ));
+        };
+        Ok(RemoteBenchMessage { value: *value })
+    }
+}
+
 fn bench_remote_send(iterations: usize) -> Result<BenchResult, Box<dyn std::error::Error>> {
     let outbound = Arc::new(CountingOutbound::default());
-    let recipient = RemoteOutboundRecipient::from_arc(outbound.clone() as Arc<dyn RemoteOutbound>);
-    let envelope = remote_envelope(0)?;
+    let mut registry = Registry::new();
+    registry.register::<RemoteBenchMessage, _>(RemoteBenchMessageCodec)?;
+    let remote_ref = RemoteActorRef::new(
+        ActorRefWireData::new("kairo://bench-remote@127.0.0.1:25521/user/target#1")?,
+        Arc::new(registry),
+        outbound.clone() as Arc<dyn RemoteOutbound>,
+    );
 
     let started = Instant::now();
     for index in 0..iterations {
-        let mut next = envelope.clone();
-        next.message.payload = vec![(index & 0xff) as u8].into();
-        recipient.tell(black_box(next))?;
+        remote_ref.tell(black_box(RemoteBenchMessage {
+            value: (index & 0xff) as u8,
+        }))?;
     }
     let elapsed = started.elapsed();
     assert_eq!(outbound.sent(), iterations);
+    let last = outbound
+        .last()
+        .expect("remote send benchmark must emit an envelope");
+    assert_eq!(last.recipient.path(), remote_ref.recipient().path());
+    assert_eq!(last.message.serializer_id, 17);
+    assert_eq!(last.message.manifest.as_str(), RemoteBenchMessage::MANIFEST);
+    assert_eq!(last.message.version, RemoteBenchMessage::VERSION);
+    assert_eq!(
+        last.message.payload.as_ref(),
+        &[((iterations - 1) & 0xff) as u8]
+    );
 
     Ok(BenchResult::new("remote-send", iterations, elapsed))
-}
-
-fn remote_envelope(value: u8) -> kairo::serialization::Result<RemoteEnvelope> {
-    RemoteEnvelope::from_paths(
-        "kairo://bench-remote@127.0.0.1:25521/user/target",
-        None,
-        SerializedMessage::new(
-            17,
-            Manifest::new("kairo.benchmark.RemoteSend"),
-            1,
-            vec![value].into(),
-        ),
-    )
 }
 
 fn bench_gossip_merge(iterations: usize) -> BenchResult {
@@ -334,8 +387,12 @@ fn wait_for_count(
 
 #[cfg(test)]
 mod tests {
+    use bytes::Bytes;
+    use kairo::serialization::MessageCodec;
+
     use super::{
-        BenchmarkCommand, DEFAULT_ITERATIONS, parse_benchmark_command, parse_benchmark_iterations,
+        BenchmarkCommand, DEFAULT_ITERATIONS, RemoteBenchMessage, RemoteBenchMessageCodec,
+        parse_benchmark_command, parse_benchmark_iterations,
     };
 
     #[test]
@@ -420,5 +477,29 @@ mod tests {
         let error =
             parse_benchmark_iterations(Some("many")).expect_err("non-numeric input must fail");
         assert!(error.contains("positive integer"));
+    }
+
+    #[test]
+    fn remote_benchmark_codec_validates_its_stable_wire_shape() {
+        assert_eq!(
+            RemoteBenchMessageCodec
+                .decode(Bytes::from_static(&[9]), 1)
+                .unwrap(),
+            RemoteBenchMessage { value: 9 }
+        );
+        assert!(
+            RemoteBenchMessageCodec
+                .decode(Bytes::from_static(&[9]), 2)
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported remote benchmark message version")
+        );
+        assert!(
+            RemoteBenchMessageCodec
+                .decode(Bytes::new(), 1)
+                .unwrap_err()
+                .to_string()
+                .contains("must contain one byte")
+        );
     }
 }

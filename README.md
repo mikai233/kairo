@@ -231,8 +231,8 @@ KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 ## Benchmarks
 
 The `kairo-benchmarks` crate provides a dependency-light baseline for the M13
-performance surface: actor tell throughput, remote outbound send overhead,
-gossip merge cost, and sharding route throughput.
+performance surface: actor tell throughput, typed remote-ref serialization and
+outbound send overhead, gossip merge cost, and sharding route throughput.
 
 ```bash
 cargo run -p kairo-benchmarks -- --help

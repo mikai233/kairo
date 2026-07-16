@@ -47,7 +47,7 @@ kairo-benchmarks
 
 | Crate | Why it is present |
 | --- | --- |
-| `bytes` | Stable wire buffers and frame payloads for serialization, remoting, cluster, distributed-data, sharding, tools, and examples. |
+| `bytes` | Stable wire buffers and frame payloads for serialization, remoting, cluster, distributed-data, sharding, tools, examples, and the typed remote-send benchmark codec. |
 | `sha1` | Pekko-compatible, non-security digest of the cluster gossip seen table for status negotiation. |
 | `thiserror` | Explicit error enums without hand-written `Display` boilerplate in actor, serialization, and remote crates. |
 | `proc-macro2`, `quote`, `syn` | Derive macro implementation for stable remote-message metadata. |

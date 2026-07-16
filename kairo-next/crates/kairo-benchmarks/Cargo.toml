@@ -8,4 +8,5 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+bytes.workspace = true
 kairo = { path = "../kairo", features = ["full"] }

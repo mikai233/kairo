@@ -428,9 +428,12 @@ Status terms in this document mean:
   validation, documentation, dependency audit, and benchmark scaffolding
   now include a declared Rust 1.88 MSRV, Linux/Windows/macOS stable test
   coverage, release-mode benchmark smoke, and verified release archives for
-  every public crate. Process-level remoting now also proves bidirectional
-  v1/v2 compatibility through the stable serializer-id/manifest contract and
-  codec-owned schema migration, while the facade, actor/serialization
+  every public crate. The remote-send benchmark now exercises the public typed
+  `RemoteActorRef<M>` path, registered codec lookup, stable wire metadata, and
+  payload serialization before deterministic outbound delivery instead of
+  timing prebuilt envelope cloning. Process-level remoting now also proves
+  bidirectional v1/v2 compatibility through the stable serializer-id/manifest
+  contract and codec-owned schema migration, while the facade, actor/serialization
   foundation, testkit, and typed remoting boundary now enforce complete
   public-item documentation; final sign-off focuses on release quality rather
   than replacement architecture.
