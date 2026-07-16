@@ -523,8 +523,11 @@ Status terms in this document mean:
   registry/gossip, mediator, delivery, remote wire, and singleton ownership
   APIs, including both generic and typed local singleton manager actor
   adapters, the singleton proxy/target boundary, and the singleton codec and
-  remote handover adapters, and the shared cluster-tools system ingress. The
-  remote ping-pong example and compile-tested serialization docs
+  remote handover adapters, the shared cluster-tools system ingress, and the
+  standalone cluster-tools TCP ownership boundary. The standalone outbound
+  classifier now consumes the same authoritative eight-manifest list as
+  shared registration and inbound dispatch. The remote ping-pong example and
+  compile-tested serialization docs
   now exercise the format-neutral closure registration path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and

@@ -1,3 +1,13 @@
+#![deny(missing_docs)]
+
+//! Standalone TCP association ownership for cluster-tools protocols.
+//!
+//! [`ClusterToolsTcpAssociationRuntime`] binds one listener, installs inbound
+//! pubsub and singleton routing, and owns outbound routes dialed through that
+//! listener. Applications that already use the ActorSystem-owned remoting
+//! runtime should compose cluster tools through the shared registration APIs;
+//! this runtime is the cluster-tools-only transport boundary.
+
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -14,15 +24,12 @@ use kairo_remote::{
 };
 use kairo_serialization::RemoteMessage;
 
-use crate::{
-    ClusterToolsSystemInbound, PubSubDelta, PubSubPathEnvelope, PubSubPublishEnvelope,
-    PubSubStatus, SingletonHandOverDone, SingletonHandOverInProgress, SingletonHandOverToMe,
-    SingletonTakeOverFromMe,
-};
+use crate::{CLUSTER_TOOLS_SYSTEM_MANIFESTS, ClusterToolsSystemInbound};
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 const CLUSTER_TOOLS_TCP_SHUTDOWN_REASON: &str = "cluster-tools tcp association runtime shutdown";
 
+/// Owns a cluster-tools-only TCP listener and its outbound peer associations.
 pub struct ClusterToolsTcpAssociationRuntime<M>
 where
     M: RemoteMessage + Send + 'static,
@@ -44,6 +51,16 @@ impl<M> ClusterToolsTcpAssociationRuntime<M>
 where
     M: RemoteMessage + Send + 'static,
 {
+    /// Binds a listener and installs the cluster-tools system inbound router.
+    ///
+    /// A canonical port of zero selects an ephemeral port and the runtime's
+    /// effective [`RemoteSettings`] and addresses expose the assigned port.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the listener cannot bind, its local address cannot
+    /// be read, the association identity is invalid, or the accept loop cannot
+    /// start.
     pub fn bind(
         local_system: impl Into<String>,
         node_uid: u64,
@@ -114,26 +131,37 @@ where
         })
     }
 
+    /// Returns the effective local cluster node identity.
     pub fn self_node(&self) -> &UniqueAddress {
         &self.self_node
     }
 
+    /// Returns the effective local remoting association address.
     pub fn local_address(&self) -> &RemoteAssociationAddress {
         &self.local_address
     }
 
+    /// Returns the effective remoting settings, including an assigned port.
     pub fn settings(&self) -> &RemoteSettings {
         &self.settings
     }
 
+    /// Returns the cache used to route outbound messages to active peers.
     pub fn association_cache(&self) -> &RemoteAssociationCache {
         &self.association_cache
     }
 
+    /// Returns the registry of accepted remote association identities.
     pub fn association_registry(&self) -> &RemoteAssociationRegistry {
         &self.association_registry
     }
 
+    /// Dials `address` and installs the resulting outbound route.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the TCP association cannot connect, negotiate its
+    /// lane streams, or install its route.
     pub fn dial(
         &self,
         address: RemoteAssociationAddress,
@@ -152,10 +180,16 @@ where
         Ok(registration)
     }
 
+    /// Removes and closes the route to `address` with the default reason.
+    ///
+    /// Returns `true` when an active route was removed.
     pub fn remove_route(&self, address: &RemoteAssociationAddress) -> bool {
         self.remove_route_with_reason(address, "cluster-tools tcp association route removed")
     }
 
+    /// Removes and closes the route to `address` with `reason`.
+    ///
+    /// Returns `true` when an active route was removed.
     pub fn remove_route_with_reason(
         &self,
         address: &RemoteAssociationAddress,
@@ -166,10 +200,26 @@ where
             .is_some()
     }
 
+    /// Stops the runtime using the default shutdown policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first route-close or listener failure.
     pub fn shutdown(self) -> RemoteResult<TcpAssociationListenerReport> {
         self.shutdown_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
     }
 
+    /// Closes cached routes, stops owned readers and the listener, and reports accepted peers.
+    ///
+    /// The cache is cleared again after the listener joins so routes registered
+    /// concurrently by a closing association cannot escape shutdown. The
+    /// timeout parameter is retained for API symmetry with the composed
+    /// remoting runtime; this legacy standalone runtime does not apply a
+    /// shutdown deadline.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first route-close or listener failure.
     pub fn shutdown_with_timeout(
         self,
         _timeout: Duration,
@@ -205,19 +255,24 @@ where
     }
 }
 
+/// Builds the lane classifier for cluster-tools control-plane protocols.
+///
+/// Every manifest in [`CLUSTER_TOOLS_SYSTEM_MANIFESTS`] uses the ordered
+/// control lane. Unlisted business messages retain the ordinary lane.
 pub fn cluster_tools_lane_classifier() -> RemoteLaneClassifier {
     let mut classifier = RemoteLaneClassifier::default();
-    classifier.add_control_manifest(PubSubStatus::MANIFEST);
-    classifier.add_control_manifest(PubSubDelta::MANIFEST);
-    classifier.add_control_manifest(PubSubPublishEnvelope::MANIFEST);
-    classifier.add_control_manifest(PubSubPathEnvelope::MANIFEST);
-    classifier.add_control_manifest(SingletonHandOverToMe::MANIFEST);
-    classifier.add_control_manifest(SingletonHandOverInProgress::MANIFEST);
-    classifier.add_control_manifest(SingletonHandOverDone::MANIFEST);
-    classifier.add_control_manifest(SingletonTakeOverFromMe::MANIFEST);
+    for manifest in CLUSTER_TOOLS_SYSTEM_MANIFESTS {
+        classifier.add_control_manifest(manifest);
+    }
     classifier
 }
 
+/// Builds the local association identity for a cluster-tools TCP runtime.
+///
+/// # Errors
+///
+/// Returns an error when the configured system or canonical address cannot be
+/// represented as a remote association address.
 pub fn cluster_tools_association_identity_for(
     system: &str,
     settings: &RemoteSettings,
@@ -243,14 +298,16 @@ mod tests {
     use bytes::Bytes;
     use kairo_actor::Recipient;
     use kairo_remote::{AssociationState, RemoteOutbound, RemoteStreamId};
-    use kairo_serialization::{MessageCodec, Registry, RemoteMessage, SerializationRegistry};
+    use kairo_serialization::{
+        Manifest, MessageCodec, Registry, RemoteMessage, SerializationRegistry, SerializedMessage,
+    };
     use kairo_testkit::{ActorSystemTestKit, await_assert};
 
     use super::*;
     use crate::{
         DistributedPubSubMediatorMsg, LocalPubSubMsg, PubSubGossipMsg, PubSubGossipWireInbound,
         PubSubRemoteDeliveryInbound, PubSubRemoteDeliveryOutbound, PubSubRemoteEnvelopeOutbound,
-        PubSubSerializedGossip, SingletonManagerEffect, SingletonManagerMsg,
+        PubSubSerializedGossip, PubSubStatus, SingletonManagerEffect, SingletonManagerMsg,
         SingletonManagerRemoteInbound, SingletonManagerRemoteOutbound, TopicName, TopicPublishMode,
         register_cluster_tools_protocol_codecs, test_support::cluster_tools_socket_test_lock,
     };
@@ -562,35 +619,36 @@ mod tests {
     #[test]
     fn cluster_tools_classifier_routes_system_manifests_to_control_lane() {
         let classifier = cluster_tools_lane_classifier();
-        let registry = registry();
         let recipient = kairo_serialization::ActorRefWireData::new(
             "kairo://receiver@127.0.0.1:2552/system/pubsub",
         )
         .unwrap();
-        let status = kairo_serialization::RemoteEnvelope::new(
-            recipient.clone(),
-            None,
-            registry
-                .serialize(&PubSubStatus {
-                    from: UniqueAddress::new(Address::local("sender"), 1),
-                    versions: BTreeMap::new(),
-                    reply: false,
-                })
-                .unwrap(),
-        );
-        let path = kairo_serialization::RemoteEnvelope::new(
+        for manifest in CLUSTER_TOOLS_SYSTEM_MANIFESTS {
+            let envelope = kairo_serialization::RemoteEnvelope::new(
+                recipient.clone(),
+                None,
+                SerializedMessage::new(1, Manifest::new(manifest), 1, Bytes::new()),
+            );
+            assert_eq!(
+                classifier.classify(&envelope, 128),
+                RemoteStreamId::Control,
+                "{manifest} must use the control lane"
+            );
+        }
+
+        let business = kairo_serialization::RemoteEnvelope::new(
             recipient,
             None,
-            registry
-                .serialize(&PubSubPathEnvelope {
-                    path: "/user/worker".to_string(),
-                    all: true,
-                    message: registry.serialize(&TestMessage { value: 1 }).unwrap(),
-                })
-                .unwrap(),
+            SerializedMessage::new(
+                1,
+                Manifest::new(TestMessage::MANIFEST),
+                TestMessage::VERSION,
+                Bytes::new(),
+            ),
         );
-
-        assert_eq!(classifier.classify(&status, 128), RemoteStreamId::Control);
-        assert_eq!(classifier.classify(&path, 128), RemoteStreamId::Control);
+        assert_eq!(
+            classifier.classify(&business, 128),
+            RemoteStreamId::Ordinary
+        );
     }
 }
