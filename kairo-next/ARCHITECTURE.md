@@ -1339,7 +1339,7 @@ InitJoinAck { address: Address, config_check: ClusterConfigCheck }
 InitJoinNack { address: Address }
 Join { node, roles, app_version }
 Welcome { from, gossip }
-GossipEnvelope { from, to, gossip }
+GossipEnvelope { from, to, sequence_nr, gossip }
 GossipStatus { from, version, seen_digest: bytes }
 Leave { address: Address }
 Down { address: Address }
@@ -1358,6 +1358,21 @@ or expose complete configuration data. The initial daemon manifests use stable
 
 `to` in `GossipEnvelope` must include `UniqueAddress`, not only host/port, so a
 new actor-system incarnation can ignore gossip intended for an old uid.
+
+Cluster `GossipEnvelope` payload version 1 is byte-stable. It writes the
+sender and target `UniqueAddress`, a big-endian `u64` sequence number, and the
+complete `Gossip` value. Gossip writes the normalized member list, sorted seen
+set, observer-versioned reachability table, causal vector clock, and sorted
+tombstones in that order. Collection counts and status codes are big-endian
+`u64` values; strings use big-endian `u32` byte lengths; optional host, port,
+and up-number fields have one-byte presence markers; addresses carry protocol,
+system, host, and a `u64` port; unique addresses append a big-endian `u64` UID.
+The checked 869-byte historical fixture is
+`kairo-cluster/tests/fixtures/gossip-envelope-v1.hex`. Both decoding it and
+reproducing it through the registered serializer-id `2004`, manifest
+`kairo.cluster.gossip-envelope`, and version `1` are release compatibility
+gates. Incompatible field, ordering, or numeric-code changes require a new
+message version and an explicit compatibility path.
 
 ### Cluster Core State Machine
 

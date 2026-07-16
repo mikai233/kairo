@@ -110,6 +110,14 @@ version 2 is pinned by
 in both encode and decode directions; address, incarnation UID, or lane-layout
 changes likewise require an explicit handshake-version compatibility path.
 
+Cluster membership payloads are versioned system protocols rather than Rust
+data-layout dumps. The full `GossipEnvelope` version-1 payload is pinned by
+`kairo-next/crates/kairo-cluster/tests/fixtures/gossip-envelope-v1.hex` in both
+directions, including sender and target incarnations, member ordering, seen
+state, observer-versioned reachability, vector clocks, and tombstones. Change
+that schema only by introducing a new message version whose codec explicitly
+retains every rolling-upgrade direction that deployed nodes require.
+
 The runnable `ask_pipe_to_self` example shows local request/reply and external
 work returning through the actor mailbox without borrowing actor state across
 an await point:

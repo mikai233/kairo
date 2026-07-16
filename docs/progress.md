@@ -69,8 +69,11 @@ Status terms in this document mean:
   Bidirectional v1/v2 process fixtures now prove codec-owned backward and
   explicitly forward-compatible migration over the real remoting boundary.
   A checked frame-v1 hex fixture now pins the canonical remote-envelope bytes
-  in both decode and encode directions; optional codec helpers and broader
-  system-protocol compatibility fixtures remain. The
+  in both decode and encode directions. A checked cluster
+  `GossipEnvelope`-v1 fixture now likewise pins the complete full-membership
+  payload, including incarnation identities, deterministic membership and
+  seen ordering, reachability, causal clocks, and tombstones. Optional codec
+  helpers and broader system-protocol compatibility fixtures remain. The
   serialization contract crate and remote-message derive crate now deny
   missing public documentation at compile time.
 - M4 remoting: complete through the composed runtime boundary. One
@@ -6516,8 +6519,8 @@ Not yet implemented:
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and system-protocol compatibility
   fixtures beyond the checked remote-envelope frame-v1 and TCP association
-  handshake-v2 bytes plus current bidirectional process-level v1/v2
-  remote-message migration tests.
+  handshake-v2 bytes, checked cluster full-gossip payload-v1 bytes, and current
+  bidirectional process-level v1/v2 remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
