@@ -1,3 +1,11 @@
+#![deny(missing_docs)]
+
+//! Transport-neutral wire adapters for direct replicator requests.
+//!
+//! These types bridge registered stable [`RemoteMessage`] codecs to the typed
+//! replicator mailbox. They are a lower-level transport boundary, not a
+//! replacement for Kairo's typed distributed-data API.
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -11,24 +19,35 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// A serialized replicator request paired with its logical destination.
 pub struct ReplicatorSerializedMessage {
+    /// The replica that must receive the request.
     pub target: ReplicaId,
+    /// The stable serializer metadata and payload.
     pub message: SerializedMessage,
 }
 
 impl ReplicatorSerializedMessage {
+    /// Creates a request envelope for `target`.
     pub fn new(target: ReplicaId, message: SerializedMessage) -> Self {
         Self { target, message }
     }
 }
 
 #[derive(Debug)]
+/// A failure while encoding, routing, or dispatching a replicator request.
 pub enum ReplicatorWireError {
+    /// Stable-message serialization or deserialization failed.
     Serialization(SerializationError),
+    /// The transport or typed replicator mailbox rejected delivery.
     Send(String),
+    /// The inbound request manifest is not supported by this adapter.
     UnsupportedManifest(String),
+    /// The envelope was addressed to a different logical replica.
     WrongTarget {
+        /// The local replica expected by the inbound adapter.
         expected: ReplicaId,
+        /// The target carried by the received envelope.
         actual: ReplicaId,
     },
 }
@@ -62,6 +81,7 @@ impl From<SerializationError> for ReplicatorWireError {
 }
 
 #[derive(Clone)]
+/// Serializes typed direct requests for one logical replica.
 pub struct ReplicatorWireOutbound {
     target: ReplicaId,
     registry: Arc<Registry>,
@@ -69,6 +89,7 @@ pub struct ReplicatorWireOutbound {
 }
 
 impl ReplicatorWireOutbound {
+    /// Creates an outbound adapter from an owned transport recipient.
     pub fn new(
         target: ReplicaId,
         registry: Arc<Registry>,
@@ -81,6 +102,7 @@ impl ReplicatorWireOutbound {
         }
     }
 
+    /// Creates an outbound adapter from a shared transport recipient.
     pub fn from_arc(
         target: ReplicaId,
         registry: Arc<Registry>,
@@ -93,10 +115,12 @@ impl ReplicatorWireOutbound {
         }
     }
 
+    /// Returns the logical destination attached to every request.
     pub fn target(&self) -> &ReplicaId {
         &self.target
     }
 
+    /// Serializes and sends a registered stable remote message.
     pub fn send<M>(&self, message: &M) -> Result<(), ReplicatorWireError>
     where
         M: RemoteMessage,
@@ -136,6 +160,7 @@ impl Recipient<ReplicatorRead> for ReplicatorWireOutbound {
 }
 
 #[derive(Clone)]
+/// The delta and full-state codecs for one typed CRDT family.
 pub struct ReplicatorWireCodecs<D>
 where
     D: DeltaReplicatedData + Send + 'static,
@@ -150,6 +175,7 @@ where
     D: DeltaReplicatedData + Send + 'static,
     D::Delta: Send + 'static,
 {
+    /// Creates the paired codecs used for delta and full-state operations.
     pub fn new(
         delta_codec: Arc<dyn CrdtDataCodec<D::Delta> + Send + Sync>,
         data_codec: Arc<dyn CrdtDataCodec<D> + Send + Sync>,
@@ -160,16 +186,22 @@ where
         }
     }
 
+    /// Returns the codec for this family's delta type.
     pub fn delta_codec(&self) -> Arc<dyn CrdtDataCodec<D::Delta> + Send + Sync> {
         Arc::clone(&self.delta_codec)
     }
 
+    /// Returns the codec for this family's full replicated-data type.
     pub fn data_codec(&self) -> Arc<dyn CrdtDataCodec<D> + Send + Sync> {
         Arc::clone(&self.data_codec)
     }
 }
 
 #[derive(Clone)]
+/// Mailbox recipients for direct-request outcomes.
+///
+/// Supplying actor refs keeps delta, write, and read completion inside actor
+/// turns even when the request arrived through an external transport.
 pub struct ReplicatorWireReplies {
     delta_reply_to: ActorRef<DeltaPropagationReceiveReport>,
     write_reply_to: ActorRef<DirectWriteResult>,
@@ -177,6 +209,7 @@ pub struct ReplicatorWireReplies {
 }
 
 impl ReplicatorWireReplies {
+    /// Creates the reply-recipient set used by an inbound adapter.
     pub fn new(
         delta_reply_to: ActorRef<DeltaPropagationReceiveReport>,
         write_reply_to: ActorRef<DirectWriteResult>,
@@ -191,6 +224,11 @@ impl ReplicatorWireReplies {
 }
 
 #[derive(Clone)]
+/// Validates and dispatches serialized direct requests to a typed replicator.
+///
+/// The adapter accepts only the delta-propagation, direct-write, and
+/// direct-read manifests. [`Self::receive`] additionally requires an exact
+/// logical target match before any deserialization or mailbox delivery.
 pub struct ReplicatorWireInbound<D>
 where
     D: DeltaReplicatedData + Send + 'static,
@@ -208,6 +246,7 @@ where
     D: DeltaReplicatedData + Send + 'static,
     D::Delta: Send + 'static,
 {
+    /// Creates an inbound adapter for one local replica and CRDT family.
     pub fn new(
         self_replica: ReplicaId,
         registry: Arc<Registry>,
@@ -224,6 +263,7 @@ where
         }
     }
 
+    /// Validates the envelope target and dispatches its serialized request.
     pub fn receive(
         &self,
         envelope: ReplicatorSerializedMessage,
@@ -237,6 +277,10 @@ where
         self.receive_message(envelope.message)
     }
 
+    /// Decodes and dispatches a request after target validation.
+    ///
+    /// Callers that have not independently established the logical recipient
+    /// should use [`Self::receive`] instead.
     pub fn receive_message(&self, message: SerializedMessage) -> Result<(), ReplicatorWireError> {
         match message.manifest.as_str() {
             ReplicatorDeltaPropagation::MANIFEST => {

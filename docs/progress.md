@@ -317,6 +317,10 @@ Status terms in this document mean:
   cluster-derived target replacement, stable manifest-derived family paths,
   ordinary-lane request/reply classification, and strict composed-runtime
   source attribution through the cluster-maintained address map.
+  The transport-neutral request/reply wire adapters now hard-gate exact logical
+  targets, the three direct-request and five reply manifests, paired typed CRDT
+  codecs, mailbox-owned outcome recipients, retained reply targets, one-way
+  delta behavior, and source-attributed reply conversion for aggregation.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

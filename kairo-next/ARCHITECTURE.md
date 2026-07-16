@@ -1799,6 +1799,15 @@ Remote association integration:
   delivers each reply to the exact addressed local aggregation actor. When
   configured with the canonical local remote address, it resolves owned wire
   actor refs back to local paths without accepting a foreign address.
+- The lower-level `ReplicatorWireOutbound`/`ReplicatorWireInbound` and
+  `ReplicatorReplyWireOutbound`/`ReplicatorReplyWireInbound` pairs remain
+  transport-neutral adapters rather than another user message API. Request
+  ingress requires the exact logical target and dispatches only delta,
+  direct-write, and direct-read manifests with the paired typed CRDT codecs and
+  mailbox-owned reply actors. Reply ingress requires the exact logical target,
+  accepts only delta ACK/NACK, write ACK/NACK, and read-result manifests, and
+  retains the source replica for aggregation. Direct replies without a retained
+  target fail, while one-way delta propagation deliberately emits no reply.
 - `ReplicatorTcpAssociationRuntime` is the configured-peer socket runtime for
   `/system/ddata` traffic. It binds a handshaken TCP listener, owns a shared
   `RemoteAssociationCache`, association registry, route installer, dialer, and
