@@ -48,7 +48,8 @@ The normal workspace is under `kairo-next/crates/*` and includes:
 - `kairo-examples`: runnable vertical slices for local actors, configuration,
   remoting, cluster membership, distributed data, sharding, and cluster tools.
 - `kairo-benchmarks`: dependency-light M13 benchmark runner for actor tell,
-  typed remote send, gossip merge, and `EntityRef` sharding route throughput.
+  typed remote send, gossip merge, `EntityRef` sharding route throughput, and
+  shard passivation buffering.
 
 ## Facade Features
 
@@ -233,7 +234,7 @@ KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 The `kairo-benchmarks` crate provides a dependency-light baseline for the M13
 performance surface: actor tell throughput, typed remote-ref serialization and
 outbound send overhead, gossip merge cost, and `EntityRef` sharding route
-throughput.
+throughput, plus shard passivation-buffer throughput across many entities.
 
 ```bash
 cargo run -p kairo-benchmarks -- --help
@@ -242,6 +243,7 @@ KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- actor-tell
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- remote-send
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- gossip-merge
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- shard-passivation
 ```
 
 The current M13 dependency and license audit is tracked in

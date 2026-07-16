@@ -10,7 +10,10 @@ use std::time::{Duration, Instant};
 use bytes::Bytes;
 use kairo::actor::{Actor, ActorError, ActorResult, ActorSystem, Context, Props};
 use kairo::cluster::{Gossip, Member, MemberStatus, UniqueAddress};
-use kairo::cluster_sharding::{EntityRef, ShardRegionMsg, ShardingEnvelopeRouter, shard_id_for};
+use kairo::cluster_sharding::{
+    EntityRef, PassivatePlan, ShardDeliverPlan, ShardRegionMsg, ShardRuntime, ShardingEnvelope,
+    ShardingEnvelopeRouter, shard_id_for,
+};
 use kairo::remote::{RemoteActorRef, RemoteOutbound};
 use kairo::serialization::{
     ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationError,
@@ -19,7 +22,8 @@ use kairo::serialization::{
 
 const DEFAULT_ITERATIONS: usize = 100_000;
 const WAIT_TIMEOUT: Duration = Duration::from_secs(5);
-const USAGE: &str = "usage: cargo run -p kairo-benchmarks --release -- [--help|all|actor-tell|remote-send|gossip-merge|sharding-route]";
+const USAGE: &str = "usage: cargo run -p kairo-benchmarks --release -- [--help|all|actor-tell|remote-send|gossip-merge|sharding-route|shard-passivation]";
+const SHARD_PASSIVATION_ENTITIES: usize = 1_024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BenchmarkCommand {
@@ -29,6 +33,7 @@ enum BenchmarkCommand {
     RemoteSend,
     GossipMerge,
     ShardingRoute,
+    ShardPassivation,
 }
 
 impl BenchmarkCommand {
@@ -40,6 +45,7 @@ impl BenchmarkCommand {
             "remote-send" => Ok(Self::RemoteSend),
             "gossip-merge" => Ok(Self::GossipMerge),
             "sharding-route" => Ok(Self::ShardingRoute),
+            "shard-passivation" => Ok(Self::ShardPassivation),
             other => Err(format!("unknown benchmark scenario `{other}`\n{USAGE}")),
         }
     }
@@ -85,11 +91,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             results.push(bench_remote_send(iterations)?);
             results.push(bench_gossip_merge(iterations));
             results.push(bench_sharding_route(iterations)?);
+            results.push(bench_shard_passivation(iterations)?);
         }
         BenchmarkCommand::ActorTell => results.push(bench_actor_tell(iterations)?),
         BenchmarkCommand::RemoteSend => results.push(bench_remote_send(iterations)?),
         BenchmarkCommand::GossipMerge => results.push(bench_gossip_merge(iterations)),
         BenchmarkCommand::ShardingRoute => results.push(bench_sharding_route(iterations)?),
+        BenchmarkCommand::ShardPassivation => results.push(bench_shard_passivation(iterations)?),
     }
 
     for result in results {
@@ -382,6 +390,44 @@ fn bench_sharding_route(iterations: usize) -> Result<BenchResult, Box<dyn std::e
     Ok(BenchResult::new("sharding-route", iterations, elapsed))
 }
 
+fn bench_shard_passivation(iterations: usize) -> Result<BenchResult, Box<dyn std::error::Error>> {
+    let buffer_capacity = SHARD_PASSIVATION_ENTITIES
+        .checked_add(iterations)
+        .ok_or("shard passivation benchmark capacity overflow")?;
+    let mut shard = ShardRuntime::new("bench-shard", buffer_capacity);
+
+    for index in 0..SHARD_PASSIVATION_ENTITIES {
+        let entity_id = format!("entity-{index}");
+        assert!(matches!(
+            shard.deliver(ShardingEnvelope::new(entity_id.clone(), 0_usize)),
+            ShardDeliverPlan::StartEntity { .. }
+        ));
+        assert!(matches!(
+            shard.passivate(entity_id.clone(), 0),
+            PassivatePlan::SendStop { .. }
+        ));
+        assert!(matches!(
+            shard.deliver(ShardingEnvelope::new(entity_id, 0)),
+            ShardDeliverPlan::Buffered { .. }
+        ));
+    }
+
+    let started = Instant::now();
+    for message in 0..iterations {
+        assert!(matches!(
+            shard.deliver(ShardingEnvelope::new("entity-0", black_box(message))),
+            ShardDeliverPlan::Buffered { .. }
+        ));
+    }
+    let elapsed = started.elapsed();
+    assert_eq!(
+        shard.total_buffered_count(),
+        SHARD_PASSIVATION_ENTITIES + iterations
+    );
+
+    Ok(BenchResult::new("shard-passivation", iterations, elapsed))
+}
+
 fn wait_for_count(
     observed_rx: &mpsc::Receiver<usize>,
     expected: usize,
@@ -445,6 +491,10 @@ mod tests {
         assert_eq!(
             parse_benchmark_command(&["sharding-route".to_string()]),
             Ok(BenchmarkCommand::ShardingRoute)
+        );
+        assert_eq!(
+            parse_benchmark_command(&["shard-passivation".to_string()]),
+            Ok(BenchmarkCommand::ShardPassivation)
         );
     }
 

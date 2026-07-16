@@ -99,6 +99,7 @@ fn shard_runtime_buffers_messages_while_entity_is_passivating() {
         }
     );
     assert_eq!(runtime.buffered_count(&"entity-1".to_string()), 1);
+    assert_eq!(runtime.total_buffered_count(), 1);
 }
 
 #[test]
@@ -188,6 +189,7 @@ fn shard_runtime_restarts_passivated_entity_when_buffered_messages_exist() {
         Some(ShardEntityState::Active)
     );
     assert_eq!(runtime.buffered_count(&"entity-1".to_string()), 0);
+    assert_eq!(runtime.total_buffered_count(), 0);
 }
 
 #[test]
@@ -257,6 +259,30 @@ fn shard_runtime_does_not_restart_remembered_entity_during_handoff() {
         }
     );
     assert_eq!(runtime.entity_state(&"entity-1".to_string()), None);
+}
+
+#[test]
+fn shard_runtime_reclaims_passivation_buffer_when_handoff_removes_entity() {
+    let mut runtime = ShardRuntime::new("shard-1", 1);
+    runtime.deliver(ShardingEnvelope::new("entity-1", "first"));
+    runtime.passivate("entity-1", "stop");
+    assert!(matches!(
+        runtime.deliver(ShardingEnvelope::new("entity-1", "buffered")),
+        ShardDeliverPlan::Buffered { .. }
+    ));
+    assert_eq!(runtime.total_buffered_count(), 1);
+    assert!(matches!(
+        runtime.handoff("handoff-stop"),
+        ShardHandOffPlan::StartEntityStopper { .. }
+    ));
+
+    assert_eq!(
+        runtime.entity_terminated("entity-1"),
+        crate::EntityTerminatedPlan::Removed {
+            entity_id: "entity-1".to_string(),
+        }
+    );
+    assert_eq!(runtime.total_buffered_count(), 0);
 }
 
 #[test]

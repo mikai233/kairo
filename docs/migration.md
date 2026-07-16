@@ -446,8 +446,8 @@ cargo clippy -p kairo-examples --all-targets --all-features -- -D warnings
 ```
 
 The initial M13 benchmark suite is optional for everyday edits but should be
-run when changing actor dispatch, remote outbound delivery, gossip merge, or
-sharding route behavior:
+run when changing actor dispatch, remote outbound delivery, gossip merge,
+sharding route behavior, or passivation buffering:
 
 ```bash
 cargo run -p kairo-benchmarks -- --help
@@ -457,6 +457,7 @@ KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- actor-tell
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- remote-send
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- gossip-merge
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- shard-passivation
 ```
 
 The full workspace target is:

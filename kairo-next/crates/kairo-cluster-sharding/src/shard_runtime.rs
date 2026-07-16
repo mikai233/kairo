@@ -268,6 +268,7 @@ pub struct ShardRuntime<M> {
     buffer_capacity: usize,
     entities: BTreeMap<EntityId, ShardEntityState>,
     message_buffers: BTreeMap<EntityId, VecDeque<M>>,
+    buffered_message_count: usize,
     remember: ShardRememberState,
     preparing_for_shutdown: bool,
     handoff_in_progress: bool,
@@ -284,6 +285,7 @@ impl<M> ShardRuntime<M> {
             buffer_capacity,
             entities: BTreeMap::new(),
             message_buffers: BTreeMap::new(),
+            buffered_message_count: 0,
             remember: ShardRememberState::disabled(),
             preparing_for_shutdown: false,
             handoff_in_progress: false,
@@ -337,7 +339,7 @@ impl<M> ShardRuntime<M> {
 
     /// Returns the number of messages buffered across every entity.
     pub fn total_buffered_count(&self) -> usize {
-        self.message_buffers.values().map(VecDeque::len).sum()
+        self.buffered_message_count
     }
 
     /// Reports whether an entity-stopper handoff is active.
@@ -465,7 +467,7 @@ impl<M> ShardRuntime<M> {
             if self.remember_entities() && has_buffered_messages {
                 let _ = self.remember.record_start(entity_id.clone());
             } else {
-                self.message_buffers.remove(entity_id);
+                self.remove_buffer(entity_id);
             }
         }
 
@@ -524,18 +526,18 @@ impl<M> ShardRuntime<M> {
         match self.entities.get(&entity_id).copied() {
             Some(_) if self.handoff_in_progress => {
                 self.entities.remove(&entity_id);
-                self.message_buffers.remove(&entity_id);
+                self.remove_buffer(&entity_id);
                 EntityTerminatedPlan::Removed { entity_id }
             }
             Some(ShardEntityState::Active) if self.remember_entities() => {
                 self.entities
                     .insert(entity_id.clone(), ShardEntityState::WaitingForRestart);
-                self.message_buffers.remove(&entity_id);
+                self.remove_buffer(&entity_id);
                 EntityTerminatedPlan::RestartRemembered { entity_id }
             }
             Some(ShardEntityState::Active) => {
                 self.entities.remove(&entity_id);
-                self.message_buffers.remove(&entity_id);
+                self.remove_buffer(&entity_id);
                 EntityTerminatedPlan::Removed { entity_id }
             }
             Some(ShardEntityState::Passivating) if self.remember_entities() => {
@@ -628,7 +630,7 @@ impl<M> ShardRuntime<M> {
             match self.entities.get(&entity_id).copied() {
                 Some(ShardEntityState::Active | ShardEntityState::WaitingForRestart) => {
                     self.entities.remove(&entity_id);
-                    self.message_buffers.remove(&entity_id);
+                    self.remove_buffer(&entity_id);
                     removed.push(entity_id.clone());
                     if let Some(next_update) = self.remember.record_stop(entity_id) {
                         update.get_or_insert(next_update);
@@ -701,13 +703,15 @@ impl<M> ShardRuntime<M> {
     }
 
     fn buffer_message(&mut self, entity_id: &EntityId, message: M) -> Result<(), M> {
-        if self.total_buffered_count() >= self.buffer_capacity {
+        if self.buffered_message_count >= self.buffer_capacity {
             return Err(message);
         }
         self.message_buffers
             .entry(entity_id.clone())
             .or_default()
             .push_back(message);
+        self.buffered_message_count += 1;
+        self.debug_assert_buffered_count();
         Ok(())
     }
 
@@ -738,10 +742,25 @@ impl<M> ShardRuntime<M> {
     }
 
     fn drain_buffer(&mut self, entity_id: &EntityId) -> Vec<M> {
-        self.message_buffers
-            .remove(entity_id)
+        self.remove_buffer(entity_id)
             .map(VecDeque::into_iter)
             .map(Iterator::collect)
             .unwrap_or_default()
+    }
+
+    fn remove_buffer(&mut self, entity_id: &EntityId) -> Option<VecDeque<M>> {
+        let buffer = self.message_buffers.remove(entity_id);
+        if let Some(buffer) = &buffer {
+            self.buffered_message_count -= buffer.len();
+        }
+        self.debug_assert_buffered_count();
+        buffer
+    }
+
+    fn debug_assert_buffered_count(&self) {
+        debug_assert_eq!(
+            self.buffered_message_count,
+            self.message_buffers.values().map(VecDeque::len).sum()
+        );
     }
 }

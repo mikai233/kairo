@@ -32,7 +32,8 @@ workspace split.
 - `kairo-examples`: runnable vertical slices that validate public facade
   workflows across local and distributed features.
 - `kairo-benchmarks`: dependency-light M13 benchmark runner for actor tell,
-  typed remote send, gossip merge, and `EntityRef` sharding route throughput.
+  typed remote send, gossip merge, `EntityRef` sharding route throughput, and
+  shard passivation buffering.
 
 See `ARCHITECTURE.md` for the planned public model and implementation order.
 For migration guidance from the old reference crates, see
@@ -220,7 +221,8 @@ KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 `kairo-benchmarks` is the initial M13 benchmark suite. It uses the standard
 library plus Kairo's public APIs to measure actor tell throughput, typed
 remote-ref serialization and outbound send overhead, gossip merge cost, and
-`EntityRef` sharding route throughput.
+`EntityRef` sharding route throughput, plus shard passivation-buffer throughput
+across many entities.
 Set `KAIRO_BENCH_ITERS` to a positive integer to override the default
 iteration count.
 
@@ -231,6 +233,7 @@ KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- actor-tell
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- remote-send
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- gossip-merge
 KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- sharding-route
+KAIRO_BENCH_ITERS=10000 cargo run -p kairo-benchmarks --release -- shard-passivation
 ```
 
 The M13 dependency and license audit lives in

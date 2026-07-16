@@ -448,7 +448,13 @@ Status terms in this document mean:
   timing prebuilt envelope cloning. The sharding-route benchmark likewise now
   enters through `EntityRef<M>`, wraps the business message once, hashes the
   bound entity id once in the public envelope router, and validates the region
-  command instead of bypassing the entity-ref boundary and double-hashing.
+  command instead of bypassing the entity-ref boundary and double-hashing. A
+  shard-passivation scenario now measures buffered delivery with 1,024 entity
+  buffers. `ShardRuntime` maintains the shard-wide buffered-message count
+  directly instead of rescanning every entity buffer for each capacity check;
+  the 100k release scenario improved from 0.57M to 5.97M-6.50M operations per
+  second across current Windows host samples while preserving drain and
+  handoff reclamation.
   Bounded remoting lane writers now drain already-queued bursts in FIFO batches
   of at most 64 frames, and the TCP sink sends each batch with vectored writes
   while preserving the existing per-lane capacity and immediate-overflow
