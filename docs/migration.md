@@ -104,6 +104,12 @@ message schemas. Frame version 1 is pinned by
 wire-layout changes require a new frame version and an explicit compatibility
 path rather than changing the version-1 bytes in place.
 
+The TCP lane-association handshake has its own versioned contract. Handshake
+version 2 is pinned by
+`kairo-next/crates/kairo-remote/tests/fixtures/tcp-association-handshake-v2.hex`
+in both encode and decode directions; address, incarnation UID, or lane-layout
+changes likewise require an explicit handshake-version compatibility path.
+
 The runnable `ask_pipe_to_self` example shows local request/reply and external
 work returning through the actor mailbox without borrowing actor state across
 an await point:

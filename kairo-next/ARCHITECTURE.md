@@ -891,6 +891,15 @@ TCP association dialing:
   `RemoteAssociationAddress` values, the sender system UID, and the lane id.
   Listeners reject lanes addressed to another local address, lanes from mixed
   remote association incarnations, or duplicate lane ids,
+- TCP association handshake version 2 is byte-stable. Its prefix is the four
+  ASCII bytes `KAH2`, a one-byte version `2`, and a big-endian `u32` payload
+  length. The payload is the one-byte lane id, sender address, big-endian
+  `u64` sender UID, and receiver address. Each address is protocol, system,
+  and host as length-prefixed UTF-8 strings followed by a one-byte optional
+  port marker and a big-endian `u64` port when present; decoded ports are
+  constrained to `u16`. The checked historical fixture is
+  `kairo-remote/tests/fixtures/tcp-association-handshake-v2.hex`; incompatible
+  changes require another handshake version and compatibility path,
 - `TcpHandshakeReadSettings` bounds each handshake body and read duration on
   accepted streams and symmetric dialer responses. The 64 KiB default body
   limit is checked against the declared length before allocation, and the

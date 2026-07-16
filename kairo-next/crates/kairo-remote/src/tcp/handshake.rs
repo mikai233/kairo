@@ -295,17 +295,61 @@ mod tests {
 
     use super::*;
 
+    const HANDSHAKE_V2_FIXTURE: &str =
+        include_str!("../../tests/fixtures/tcp-association-handshake-v2.hex");
+
     fn address(system: &str, port: u16) -> RemoteAssociationAddress {
         RemoteAssociationAddress::new("kairo", system, "127.0.0.1", Some(port)).unwrap()
     }
 
-    #[test]
-    fn tcp_handshake_round_trips_addresses_and_lane_id() {
-        let handshake = TcpAssociationHandshake::new(
+    fn handshake_v2() -> TcpAssociationHandshake {
+        TcpAssociationHandshake::new(
             RemoteStreamId::Ordinary,
             TcpAssociationIdentity::new(address("sender", 25521), 22),
             address("receiver", 25520),
+        )
+    }
+
+    fn handshake_v2_fixture() -> Bytes {
+        let hex = HANDSHAKE_V2_FIXTURE.split_whitespace().collect::<String>();
+        assert_eq!(hex.len() % 2, 0, "wire fixture must contain whole bytes");
+        Bytes::from(
+            (0..hex.len())
+                .step_by(2)
+                .map(|offset| {
+                    u8::from_str_radix(&hex[offset..offset + 2], 16)
+                        .expect("wire fixture must contain hexadecimal bytes")
+                })
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    #[test]
+    fn tcp_handshake_v2_fixture_decodes_stable_peer_identity_and_lane() {
+        let fixture = handshake_v2_fixture();
+        let mut reader = fixture.as_ref();
+
+        let decoded = read_tcp_association_handshake_with_limit(
+            &mut reader,
+            DEFAULT_TCP_HANDSHAKE_MAX_PAYLOAD_BYTES,
+        )
+        .unwrap();
+
+        assert_eq!(decoded, handshake_v2());
+        assert!(reader.is_empty());
+    }
+
+    #[test]
+    fn tcp_handshake_v2_encoding_matches_checked_fixture() {
+        assert_eq!(
+            encode_tcp_association_handshake(&handshake_v2()).unwrap(),
+            handshake_v2_fixture()
         );
+    }
+
+    #[test]
+    fn tcp_handshake_round_trips_addresses_and_lane_id() {
+        let handshake = handshake_v2();
 
         let mut bytes = encode_tcp_association_handshake(&handshake)
             .unwrap()

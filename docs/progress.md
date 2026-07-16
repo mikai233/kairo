@@ -78,7 +78,10 @@ Status terms in this document mean:
   bounded non-blocking lanes, provides reliable ordered lifecycle delivery,
   enforces defensive handshake and partial-assembly limits, automatically
   redials managed peers without replaying ordinary messages, and passes
-  focused process-level delivery and bounded-shutdown tests. Its implicit
+  focused process-level delivery and bounded-shutdown tests. Checked
+  handshake-v2 fixture coverage now pins the exact lane, sender address and
+  incarnation UID, and receiver address bytes in both decode and encode
+  directions. Its implicit
   shutdown budget now has a three-second floor and outlives configured connect
   attempts so reconnect work cannot consume the complete system-actor stop
   budget. The typed reference/provider, stable system protocol codecs, frame
@@ -6512,8 +6515,9 @@ Not yet implemented:
 
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and system-protocol compatibility
-  fixtures beyond the checked remote-envelope frame-v1 bytes and current
-  bidirectional process-level v1/v2 remote-message migration tests.
+  fixtures beyond the checked remote-envelope frame-v1 and TCP association
+  handshake-v2 bytes plus current bidirectional process-level v1/v2
+  remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
