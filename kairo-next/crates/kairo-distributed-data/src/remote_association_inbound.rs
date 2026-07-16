@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex};
@@ -17,7 +19,9 @@ use crate::{
     ReplicatorWriteAck, ReplicatorWriteNack,
 };
 
+/// Type-erased receiver for source-attributed replicator request envelopes.
 pub trait ReplicatorRemoteRequestReceiver: Send + Sync + 'static {
+    /// Receives one request attributed to a cluster-approved logical replica.
     fn receive_request_from(
         &self,
         from: ReplicaId,
@@ -39,7 +43,9 @@ where
     }
 }
 
+/// Type-erased receiver for source-attributed replicator reply envelopes.
 pub trait ReplicatorRemoteReplyReceiver: Send + Sync + 'static {
+    /// Receives one reply attributed to a cluster-approved logical replica.
     fn receive_reply_from(
         &self,
         from: ReplicaId,
@@ -47,6 +53,10 @@ pub trait ReplicatorRemoteReplyReceiver: Send + Sync + 'static {
     ) -> Result<(), ReplicatorRemoteReplyError>;
 }
 
+/// Shared map from current cluster-member transport addresses to logical replica identities.
+///
+/// Cluster snapshots and events own this map. Association handshakes and envelope metadata cannot
+/// add membership or source identities to it.
 pub type ReplicatorRemoteSourceMap = Arc<Mutex<BTreeMap<RemoteAssociationAddress, ReplicaId>>>;
 
 impl ReplicatorRemoteReplyReceiver for ReplicatorRemoteReplyInbound {
@@ -60,13 +70,33 @@ impl ReplicatorRemoteReplyReceiver for ReplicatorRemoteReplyInbound {
 }
 
 #[derive(Debug)]
+/// Failure while identifying, classifying, or dispatching an inbound replicator envelope.
 pub enum ReplicatorRemoteAssociationInboundError {
+    /// Shared-runtime traffic omitted the sender actor reference used for source attribution.
     MissingSender,
-    InvalidSender { reason: String },
-    UnknownSource { address: RemoteAssociationAddress },
-    UnexpectedControlLane { manifest: String },
-    UnsupportedManifest { manifest: String },
+    /// The sender actor reference could not form a canonical remote address.
+    InvalidSender {
+        /// Address parsing or validation diagnostic.
+        reason: String,
+    },
+    /// The sender address is not mapped to a current cluster replica.
+    UnknownSource {
+        /// Canonical sender address absent from the cluster-maintained map.
+        address: RemoteAssociationAddress,
+    },
+    /// Ordinary distributed-data traffic arrived on the control lane.
+    UnexpectedControlLane {
+        /// Stable manifest received on the wrong lane.
+        manifest: String,
+    },
+    /// The stable manifest belongs to neither the request nor reply protocol set.
+    UnsupportedManifest {
+        /// Unrecognized stable manifest.
+        manifest: String,
+    },
+    /// Request validation, decoding, or local dispatch failed.
     Request(ReplicatorRemoteRequestError),
+    /// Reply decoding or local aggregation delivery failed.
     Reply(ReplicatorRemoteReplyError),
 }
 
@@ -102,6 +132,11 @@ impl Display for ReplicatorRemoteAssociationInboundError {
 impl std::error::Error for ReplicatorRemoteAssociationInboundError {}
 
 #[derive(Clone)]
+/// Per-association router for ordinary-lane distributed-data request and reply manifests.
+///
+/// A configured standalone association may use a fixed or fallback replica identity. The composed
+/// ActorSystem path instead uses [`ReplicatorRemoteSystemInbound`] for strict cluster-derived
+/// source attribution.
 pub struct ReplicatorRemoteAssociationInbound {
     source: ReplicatorRemoteAssociationSource,
     requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
@@ -137,6 +172,7 @@ impl ReplicatorRemoteAssociationSource {
 }
 
 impl ReplicatorRemoteAssociationInbound {
+    /// Creates an association router with one fixed source replica identity.
     pub fn new(
         from: ReplicaId,
         requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
@@ -149,6 +185,10 @@ impl ReplicatorRemoteAssociationInbound {
         }
     }
 
+    /// Returns the fixed identity or configured fallback identity.
+    ///
+    /// For address-derived routing this is not necessarily the identity selected for a particular
+    /// envelope; current source-map entries take precedence during dispatch.
     pub fn from(&self) -> &ReplicaId {
         match &self.source {
             ReplicatorRemoteAssociationSource::Fixed(from) => from,
@@ -156,6 +196,9 @@ impl ReplicatorRemoteAssociationInbound {
         }
     }
 
+    /// Creates an association router that resolves a source address through a shared replica map.
+    ///
+    /// `fallback` is retained for the configured standalone runtime when the address is not mapped.
     pub fn from_address(
         address: RemoteAssociationAddress,
         replicas: ReplicatorRemoteSourceMap,
@@ -174,6 +217,9 @@ impl ReplicatorRemoteAssociationInbound {
         }
     }
 
+    /// Classifies and dispatches one decoded association envelope.
+    ///
+    /// Distributed-data manifests are rejected on the control lane.
     pub fn receive_envelope(
         &self,
         stream_id: RemoteStreamId,
@@ -202,6 +248,7 @@ pub struct ReplicatorRemoteSystemInbound {
 }
 
 impl ReplicatorRemoteSystemInbound {
+    /// Creates shared ingress using only cluster-maintained source identities.
     pub fn new(
         replicas: ReplicatorRemoteSourceMap,
         requests: Arc<dyn ReplicatorRemoteRequestReceiver>,
@@ -214,6 +261,7 @@ impl ReplicatorRemoteSystemInbound {
         }
     }
 
+    /// Resolves the sender through the current source map and dispatches an ordinary-lane envelope.
     pub fn receive_envelope(
         &self,
         envelope: RemoteEnvelope,
@@ -304,6 +352,7 @@ impl RemoteEnvelopeHandler for ReplicatorRemoteSystemInbound {
     }
 }
 
+/// Returns whether `manifest` is one of the five stable replicator request manifests.
 pub fn is_replicator_request_manifest(manifest: &str) -> bool {
     matches!(
         manifest,
@@ -315,6 +364,7 @@ pub fn is_replicator_request_manifest(manifest: &str) -> bool {
     )
 }
 
+/// Returns whether `manifest` is one of the five stable replicator reply manifests.
 pub fn is_replicator_reply_manifest(manifest: &str) -> bool {
     matches!(
         manifest,

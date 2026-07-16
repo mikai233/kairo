@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -12,6 +14,7 @@ use crate::{
     ReplicatorRemoteEnvelope, ReplicatorRemoteEnvelopeOutbound, ReplicatorRemoteTarget,
 };
 
+/// Canonical system actor path for the single-family distributed-data replicator.
 pub const DEFAULT_REPLICATOR_REMOTE_PATH: &str = "/system/ddata";
 const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
@@ -36,10 +39,18 @@ pub fn replicator_remote_path_for_manifest(
 }
 
 #[derive(Debug)]
+/// Failure while deriving or registering remote replicator targets.
 pub enum ReplicatorRemoteTargetError {
+    /// A typed CRDT family supplied a blank stable data manifest.
     InvalidDataManifest,
+    /// The configured actor recipient path was not absolute.
     InvalidRecipientPath(String),
-    MissingRemoteHost { node: ReplicaId },
+    /// A cluster member had no host and therefore could not form a remote actor reference.
+    MissingRemoteHost {
+        /// Logical replica derived from the invalid cluster member.
+        node: ReplicaId,
+    },
+    /// Canonical actor-reference construction failed.
     Serialization(SerializationError),
 }
 
@@ -76,17 +87,20 @@ impl From<SerializationError> for ReplicatorRemoteTargetError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Replicas installed into one transport target registry.
 pub struct ReplicatorRemoteTargetRegistrationReport {
     registered: Vec<ReplicaId>,
 }
 
 impl ReplicatorRemoteTargetRegistrationReport {
+    /// Returns registered replicas in the cluster route planner's deterministic order.
     pub fn registered(&self) -> &[ReplicaId] {
         &self.registered
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Combined target registration completed for delta, aggregation, and gossip transports.
 pub struct ReplicatorRemoteRouteRegistrationReport {
     delta_registered: Vec<ReplicaId>,
     aggregation_registered: Vec<ReplicaId>,
@@ -94,6 +108,7 @@ pub struct ReplicatorRemoteRouteRegistrationReport {
 }
 
 impl ReplicatorRemoteRouteRegistrationReport {
+    /// Creates a combined report from each transport's registered replicas.
     pub fn new(
         delta_registered: impl IntoIterator<Item = ReplicaId>,
         aggregation_registered: impl IntoIterator<Item = ReplicaId>,
@@ -106,20 +121,27 @@ impl ReplicatorRemoteRouteRegistrationReport {
         }
     }
 
+    /// Returns replicas registered for delta propagation.
     pub fn delta_registered(&self) -> &[ReplicaId] {
         &self.delta_registered
     }
 
+    /// Returns replicas registered for direct read/write aggregation.
     pub fn aggregation_registered(&self) -> &[ReplicaId] {
         &self.aggregation_registered
     }
 
+    /// Returns replicas registered for full-state gossip and status exchange.
     pub fn gossip_registered(&self) -> &[ReplicaId] {
         &self.gossip_registered
     }
 }
 
 #[derive(Clone)]
+/// Projects cluster-approved remote members into distributed-data transport target registries.
+///
+/// The route planner remains the membership authority. This adapter only creates canonical actor
+/// references, attaches optional sender metadata, and atomically replaces each target registry.
 pub struct ReplicatorRemoteRouteTargets {
     recipient_path: String,
     sender: Option<ActorRefWireData>,
@@ -128,6 +150,7 @@ pub struct ReplicatorRemoteRouteTargets {
 }
 
 impl ReplicatorRemoteRouteTargets {
+    /// Creates a target projector from a concrete remote-envelope recipient.
     pub fn new(
         registry: Arc<Registry>,
         outbound: impl Recipient<ReplicatorRemoteEnvelope> + Send + Sync + 'static,
@@ -135,6 +158,7 @@ impl ReplicatorRemoteRouteTargets {
         Self::from_arc(registry, Arc::new(outbound))
     }
 
+    /// Creates a target projector from a shared type-erased remote-envelope recipient.
     pub fn from_arc(
         registry: Arc<Registry>,
         outbound: Arc<dyn Recipient<ReplicatorRemoteEnvelope> + Send + Sync>,
@@ -147,16 +171,19 @@ impl ReplicatorRemoteRouteTargets {
         }
     }
 
+    /// Sets the absolute remote replicator path used for every projected member.
     pub fn with_recipient_path(mut self, path: impl Into<String>) -> Self {
         self.recipient_path = path.into();
         self
     }
 
+    /// Sets the canonical sender actor reference attached to projected outbound adapters.
     pub fn with_sender(mut self, sender: Option<ActorRefWireData>) -> Self {
         self.sender = sender;
         self
     }
 
+    /// Derives a logical replica and canonical remote actor reference from a cluster member.
     pub fn target_for_node(
         &self,
         node: &UniqueAddress,
@@ -178,6 +205,7 @@ impl ReplicatorRemoteRouteTargets {
         Ok(ReplicatorRemoteTarget::new(replica, recipient))
     }
 
+    /// Replaces a delta transport's targets with all current remote cluster routes.
     pub fn set_delta_targets<Codec>(
         &self,
         routes: &ReplicatorClusterRoutes,
@@ -186,6 +214,7 @@ impl ReplicatorRemoteRouteTargets {
         self.set_delta_target_registry(routes, &transport.target_registry())
     }
 
+    /// Replaces a shared delta target registry with all current remote cluster routes.
     pub fn set_delta_target_registry(
         &self,
         routes: &ReplicatorClusterRoutes,
@@ -204,6 +233,7 @@ impl ReplicatorRemoteRouteTargets {
         Ok(ReplicatorRemoteTargetRegistrationReport { registered })
     }
 
+    /// Replaces an aggregation transport's direct read/write targets.
     pub fn set_aggregation_targets<Codec>(
         &self,
         routes: &ReplicatorClusterRoutes,
@@ -212,6 +242,7 @@ impl ReplicatorRemoteRouteTargets {
         self.set_aggregation_target_registry(routes, &transport.target_registry())
     }
 
+    /// Replaces a shared aggregation target registry with all current remote cluster routes.
     pub fn set_aggregation_target_registry(
         &self,
         routes: &ReplicatorClusterRoutes,
@@ -230,6 +261,7 @@ impl ReplicatorRemoteRouteTargets {
         Ok(ReplicatorRemoteTargetRegistrationReport { registered })
     }
 
+    /// Replaces a gossip transport's full-state and status targets.
     pub fn set_gossip_targets(
         &self,
         routes: &ReplicatorClusterRoutes,
@@ -238,6 +270,7 @@ impl ReplicatorRemoteRouteTargets {
         self.set_gossip_target_registry(routes, &transport.target_registry())
     }
 
+    /// Replaces a shared gossip target registry with all current remote cluster routes.
     pub fn set_gossip_target_registry(
         &self,
         routes: &ReplicatorClusterRoutes,

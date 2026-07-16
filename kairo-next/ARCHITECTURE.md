@@ -1768,6 +1768,19 @@ Remote association integration:
   source of cluster membership truth,
 - concrete socket associations are expected to populate the shared cache once
   socket-backed transport exists.
+- `ReplicatorRemoteRouteTargets` projects only cluster-approved remote members
+  into delta, direct read/write, and gossip target registries. Multi-family
+  paths use fixed FNV-1a over the stable CRDT data manifest; local-only members
+  without a remote host are rejected rather than becoming transport targets.
+- Explicit logical-replica routes and the canonical-address association cache
+  are interchangeable outbound adapters, but both remain delivery state.
+  Cloned route handles share later changes, missing routes reject the original
+  envelope, and transport failures retain the logical replica in diagnostics.
+- Per-association ingress classifies the five request and five reply manifests
+  as ordinary-lane traffic. The composed shared-runtime ingress derives the
+  source replica strictly from the current cluster-maintained address map and
+  rejects missing, malformed, or unknown senders. The standalone configured
+  association may retain an explicit fallback replica for its known peer.
 - `ReplicatorRemoteEnvelopeOutbound` attaches the canonical temporary reply
   actor when a request expects a response, serializes through the registered
   stable codec, and retains the logical replica separately from the wire actor

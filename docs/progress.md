@@ -312,7 +312,11 @@ Status terms in this document mean:
   hard-gates exact recipient validation, preserved reply actor metadata,
   supported-manifest dispatch, reply-required sender checks, single-use reply
   actors, exact aggregation delivery, and collision-free multi-family request
-  registration.
+  registration. Association routing and remote target projection now carry the
+  same gate across logical-replica and canonical-address routes, deterministic
+  cluster-derived target replacement, stable manifest-derived family paths,
+  ordinary-lane request/reply classification, and strict composed-runtime
+  source attribution through the cluster-maintained address map.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex};
@@ -8,9 +10,20 @@ use kairo_remote::{RemoteAssociationCache, RemoteOutbound};
 use crate::{ReplicaId, ReplicatorRemoteEnvelope};
 
 #[derive(Debug)]
+/// Failure while selecting or using a distributed-data association route.
 pub enum ReplicatorRemoteAssociationError {
-    MissingRoute { target: ReplicaId },
-    Send { target: ReplicaId, reason: String },
+    /// No explicitly registered transport route exists for the target replica.
+    MissingRoute {
+        /// Logical replica whose route was absent.
+        target: ReplicaId,
+    },
+    /// The selected transport route rejected the envelope.
+    Send {
+        /// Logical replica whose send failed.
+        target: ReplicaId,
+        /// Underlying remoting diagnostic.
+        reason: String,
+    },
 }
 
 impl Display for ReplicatorRemoteAssociationError {
@@ -37,15 +50,21 @@ impl Display for ReplicatorRemoteAssociationError {
 impl std::error::Error for ReplicatorRemoteAssociationError {}
 
 #[derive(Clone, Default)]
+/// Shared explicit transport routes keyed by logical distributed-data replica.
+///
+/// This is delivery state only. Adding or removing a route does not add or remove cluster
+/// membership, and cloned handles observe the same later route updates.
 pub struct ReplicatorRemoteAssociationRoutes {
     routes: Arc<Mutex<BTreeMap<ReplicaId, Arc<dyn RemoteOutbound>>>>,
 }
 
 impl ReplicatorRemoteAssociationRoutes {
+    /// Creates an empty shared route table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Installs a route and returns the previously registered outbound, if any.
     pub fn set_route(
         &self,
         target: ReplicaId,
@@ -57,6 +76,7 @@ impl ReplicatorRemoteAssociationRoutes {
             .insert(target, outbound)
     }
 
+    /// Removes and returns the route for one logical replica, if present.
     pub fn remove_route(&self, target: &ReplicaId) -> Option<Arc<dyn RemoteOutbound>> {
         self.routes
             .lock()
@@ -64,6 +84,7 @@ impl ReplicatorRemoteAssociationRoutes {
             .remove(target)
     }
 
+    /// Removes every explicit route without changing cluster membership.
     pub fn clear(&self) {
         self.routes
             .lock()
@@ -71,6 +92,7 @@ impl ReplicatorRemoteAssociationRoutes {
             .clear();
     }
 
+    /// Returns the number of registered replica routes.
     pub fn target_count(&self) -> usize {
         self.routes
             .lock()
@@ -78,6 +100,7 @@ impl ReplicatorRemoteAssociationRoutes {
             .len()
     }
 
+    /// Returns registered replicas in deterministic identity order.
     pub fn targets(&self) -> Vec<ReplicaId> {
         self.routes
             .lock()
@@ -87,6 +110,7 @@ impl ReplicatorRemoteAssociationRoutes {
             .collect()
     }
 
+    /// Returns whether the exact logical replica has an explicit route.
     pub fn contains_target(&self, target: &ReplicaId) -> bool {
         self.routes
             .lock()
@@ -104,19 +128,25 @@ impl ReplicatorRemoteAssociationRoutes {
 }
 
 #[derive(Clone)]
+/// Delivers replica-targeted envelopes through explicit logical-replica routes.
 pub struct ReplicatorRemoteAssociationOutbound {
     routes: ReplicatorRemoteAssociationRoutes,
 }
 
 impl ReplicatorRemoteAssociationOutbound {
+    /// Creates an outbound adapter backed by the shared explicit route table.
     pub fn new(routes: ReplicatorRemoteAssociationRoutes) -> Self {
         Self { routes }
     }
 
+    /// Returns the shared explicit route table.
     pub fn routes(&self) -> &ReplicatorRemoteAssociationRoutes {
         &self.routes
     }
 
+    /// Sends one envelope through its logical replica route.
+    ///
+    /// A missing route and an underlying transport failure remain distinguishable errors.
     pub fn send(
         &self,
         envelope: ReplicatorRemoteEnvelope,
@@ -154,19 +184,26 @@ impl Recipient<ReplicatorRemoteEnvelope> for ReplicatorRemoteAssociationOutbound
 }
 
 #[derive(Clone)]
+/// Delivers replica envelopes through remoting's canonical-address association cache.
+///
+/// Route selection uses the wire recipient address; the logical replica is retained for error
+/// diagnostics. The cache is transport state and is not a source of membership truth.
 pub struct ReplicatorRemoteAssociationCacheOutbound {
     cache: RemoteAssociationCache,
 }
 
 impl ReplicatorRemoteAssociationCacheOutbound {
+    /// Creates an outbound adapter backed by a shared association cache.
     pub fn new(cache: RemoteAssociationCache) -> Self {
         Self { cache }
     }
 
+    /// Returns the shared canonical-address association cache.
     pub fn cache(&self) -> &RemoteAssociationCache {
         &self.cache
     }
 
+    /// Sends one envelope through the route selected from its recipient address.
     pub fn send(
         &self,
         envelope: ReplicatorRemoteEnvelope,
