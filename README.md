@@ -48,7 +48,7 @@ The normal workspace is under `kairo-next/crates/*` and includes:
 - `kairo-examples`: runnable vertical slices for local actors, configuration,
   remoting, cluster membership, distributed data, sharding, and cluster tools.
 - `kairo-benchmarks`: dependency-light M13 benchmark runner for actor tell,
-  remote send, gossip merge, and sharding route throughput.
+  typed remote send, gossip merge, and `EntityRef` sharding route throughput.
 
 ## Facade Features
 
@@ -232,7 +232,8 @@ KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 
 The `kairo-benchmarks` crate provides a dependency-light baseline for the M13
 performance surface: actor tell throughput, typed remote-ref serialization and
-outbound send overhead, gossip merge cost, and sharding route throughput.
+outbound send overhead, gossip merge cost, and `EntityRef` sharding route
+throughput.
 
 ```bash
 cargo run -p kairo-benchmarks -- --help

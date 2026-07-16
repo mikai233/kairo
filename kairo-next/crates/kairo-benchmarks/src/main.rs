@@ -8,11 +8,9 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use kairo::actor::{Actor, ActorError, ActorRef, ActorResult, ActorSystem, Context, Props};
+use kairo::actor::{Actor, ActorError, ActorResult, ActorSystem, Context, Props};
 use kairo::cluster::{Gossip, Member, MemberStatus, UniqueAddress};
-use kairo::cluster_sharding::{
-    ShardRegionMsg, ShardingEnvelope, ShardingEnvelopeRouter, shard_id_for,
-};
+use kairo::cluster_sharding::{EntityRef, ShardRegionMsg, ShardingEnvelopeRouter, shard_id_for};
 use kairo::remote::{RemoteActorRef, RemoteOutbound};
 use kairo::serialization::{
     ActorRefWireData, MessageCodec, Registry, RemoteEnvelope, RemoteMessage, SerializationError,
@@ -324,15 +322,28 @@ fn gossip_view(start: u64, end: u64) -> Gossip {
 struct RouteSink {
     count: usize,
     observed: mpsc::Sender<usize>,
+    expected_entity_id: String,
+    expected_shard: String,
 }
 
 impl Actor for RouteSink {
     type Msg = ShardRegionMsg<String>;
 
     fn receive(&mut self, _ctx: &mut Context<Self::Msg>, msg: Self::Msg) -> ActorResult {
-        if matches!(msg, ShardRegionMsg::RouteToLocalShard { .. }) {
+        if let ShardRegionMsg::RouteToLocalShard { shard, message, .. } = msg {
+            let (entity_id, business_message) = message.into_parts();
+            if shard != self.expected_shard
+                || entity_id != self.expected_entity_id
+                || business_message != "hit"
+            {
+                return Err(ActorError::Message(
+                    "sharding benchmark observed an invalid routed command".to_string(),
+                ));
+            }
             self.count += 1;
-            let _ = self.observed.send(self.count);
+            self.observed
+                .send(self.count)
+                .map_err(|error| ActorError::Message(error.to_string()))?;
         }
         Ok(())
     }
@@ -341,22 +352,23 @@ impl Actor for RouteSink {
 fn bench_sharding_route(iterations: usize) -> Result<BenchResult, Box<dyn std::error::Error>> {
     let system = ActorSystem::builder("bench-sharding-route").build()?;
     let (observed_tx, observed_rx) = mpsc::channel();
+    let entity_id = "entity-1";
+    let expected_shard = shard_id_for(entity_id, 128)?;
     let region = system.spawn(
         "region-sink",
         Props::new(move || RouteSink {
             count: 0,
             observed: observed_tx.clone(),
+            expected_entity_id: entity_id.to_string(),
+            expected_shard: expected_shard.clone(),
         }),
     )?;
-    let router: ActorRef<ShardingEnvelope<String>> =
-        system.spawn("router", ShardingEnvelopeRouter::props(region.clone(), 128))?;
+    let router = system.spawn("router", ShardingEnvelopeRouter::props(region.clone(), 128))?;
+    let entity_ref = EntityRef::new(entity_id, router.clone());
 
     let started = Instant::now();
-    for index in 0..iterations {
-        let entity_id = format!("entity-{index}");
-        let shard = shard_id_for(&entity_id, 128)?;
-        black_box(shard);
-        router.tell(ShardingEnvelope::new(entity_id, "hit".to_string()))?;
+    for _ in 0..iterations {
+        entity_ref.tell(black_box("hit".to_string()))?;
     }
     wait_for_count(&observed_rx, iterations)?;
     let elapsed = started.elapsed();

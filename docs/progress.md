@@ -431,7 +431,11 @@ Status terms in this document mean:
   every public crate. The remote-send benchmark now exercises the public typed
   `RemoteActorRef<M>` path, registered codec lookup, stable wire metadata, and
   payload serialization before deterministic outbound delivery instead of
-  timing prebuilt envelope cloning. Process-level remoting now also proves
+  timing prebuilt envelope cloning. The sharding-route benchmark likewise now
+  enters through `EntityRef<M>`, wraps the business message once, hashes the
+  bound entity id once in the public envelope router, and validates the region
+  command instead of bypassing the entity-ref boundary and double-hashing.
+  Process-level remoting now also proves
   bidirectional v1/v2 compatibility through the stable serializer-id/manifest
   contract and codec-owned schema migration, while the facade, actor/serialization
   foundation, testkit, and typed remoting boundary now enforce complete
