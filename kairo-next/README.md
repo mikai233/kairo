@@ -128,8 +128,9 @@ coordinator in focused modules while demonstrating `Context::ask` and
 `Context::pipe_to_self` as mailbox-returning local actor patterns.
 
 The `remote_ping_pong` example binds two TCP remoting actor systems, registers
-an explicit stable codec for a typed ping/pong protocol, sends a remote ping,
-and returns a remote pong through the sender's canonical actor ref.
+an explicit stable codec through the format-neutral `Registry::register_with`
+helper, sends a remote ping, and returns a remote pong through the sender's
+canonical actor ref.
 
 The `ddata_counter` example runs a local distributed-data
 `ReplicatorActor<GCounter>`, subscribes to a key, applies a local increment,

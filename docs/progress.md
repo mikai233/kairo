@@ -85,7 +85,11 @@ Status terms in this document mean:
   tombstones in exact encode/decode directions. Optional codec helpers and
   broader system-protocol compatibility fixtures remain. The
   serialization contract crate and remote-message derive crate now deny
-  missing public documentation at compile time.
+  missing public documentation at compile time. Format-neutral
+  `Registry::register_with` closure codecs now remove the one-off codec-type
+  boilerplate while retaining explicit serializer ids, wire versions, duplicate
+  checks, and panic isolation; the facade prelude now exports `Registry` as the
+  corresponding user entry point.
 - M4 remoting: complete through the composed runtime boundary. One
   ActorSystem-owned runtime carries heterogeneous registered protocols over
   bounded non-blocking lanes, provides reliable ordered lifecycle delivery,
@@ -459,7 +463,9 @@ Status terms in this document mean:
   rustdoc warning gates, and compile-tested public API snippets exist. The
   recommended `kairo` facade, foundational actor and serialization APIs, and
   public `kairo-testkit` utility surface now deny missing public
-  documentation. The `cluster_sharding_tcp` example
+  documentation. The remote ping-pong example and compile-tested serialization
+  docs now exercise the format-neutral closure registration path. The
+  `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower
   diagnostic/bootstrap roles.

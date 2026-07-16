@@ -1,6 +1,9 @@
 use std::any::{Any, TypeId, type_name};
 use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
 use std::sync::Arc;
+
+use bytes::Bytes;
 
 use crate::{
     DynCodec, Manifest, MessageCodec, RemoteMessage, Result, SerializationError, SerializedMessage,
@@ -19,6 +22,25 @@ pub trait SerializationRegistry {
     where
         M: RemoteMessage,
         C: MessageCodec<M>;
+
+    /// Registers version-aware encode and decode closures for one message type.
+    ///
+    /// This is a format-neutral convenience for compact hand-written codecs.
+    /// It preserves the same manifest, serializer-id, duplicate-registration,
+    /// and panic-isolation behavior as [`Self::register`].
+    fn register_with<M, Encode, Decode>(
+        &mut self,
+        serializer_id: SerializerId,
+        encode: Encode,
+        decode: Decode,
+    ) -> Result<()>
+    where
+        M: RemoteMessage,
+        Encode: Fn(&M) -> Result<Bytes> + Send + Sync + 'static,
+        Decode: Fn(Bytes, u16) -> Result<M> + Send + Sync + 'static,
+    {
+        self.register::<M, _>(ClosureCodec::new(serializer_id, encode, decode))
+    }
 
     /// Resolves the outbound codec for a typed message.
     fn codec_for_type<M>(&self) -> Result<&dyn DynCodec>
@@ -53,6 +75,30 @@ impl Registry {
     /// Creates an empty registry.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Registers version-aware encode and decode closures for one message type.
+    ///
+    /// The closures form the payload codec only. [`RemoteMessage`] still owns
+    /// the stable manifest and current version, while `serializer_id` remains
+    /// an explicit wire-contract value.
+    pub fn register_with<M, Encode, Decode>(
+        &mut self,
+        serializer_id: SerializerId,
+        encode: Encode,
+        decode: Decode,
+    ) -> Result<()>
+    where
+        M: RemoteMessage,
+        Encode: Fn(&M) -> Result<Bytes> + Send + Sync + 'static,
+        Decode: Fn(Bytes, u16) -> Result<M> + Send + Sync + 'static,
+    {
+        <Self as SerializationRegistry>::register_with::<M, Encode, Decode>(
+            self,
+            serializer_id,
+            encode,
+            decode,
+        )
     }
 
     /// Serializes a typed remote message with its stable metadata.
@@ -158,5 +204,42 @@ impl SerializationRegistry for Registry {
 
     fn deserialize_dyn(&self, message: SerializedMessage) -> Result<Box<dyn Any + Send>> {
         Registry::deserialize_dyn(self, message)
+    }
+}
+
+struct ClosureCodec<M, Encode, Decode> {
+    serializer_id: SerializerId,
+    encode: Encode,
+    decode: Decode,
+    _message: PhantomData<fn(M)>,
+}
+
+impl<M, Encode, Decode> ClosureCodec<M, Encode, Decode> {
+    fn new(serializer_id: SerializerId, encode: Encode, decode: Decode) -> Self {
+        Self {
+            serializer_id,
+            encode,
+            decode,
+            _message: PhantomData,
+        }
+    }
+}
+
+impl<M, Encode, Decode> MessageCodec<M> for ClosureCodec<M, Encode, Decode>
+where
+    M: RemoteMessage,
+    Encode: Fn(&M) -> Result<Bytes> + Send + Sync + 'static,
+    Decode: Fn(Bytes, u16) -> Result<M> + Send + Sync + 'static,
+{
+    fn serializer_id(&self) -> SerializerId {
+        self.serializer_id
+    }
+
+    fn encode(&self, message: &M) -> Result<Bytes> {
+        (self.encode)(message)
+    }
+
+    fn decode(&self, payload: Bytes, version: u16) -> Result<M> {
+        (self.decode)(payload, version)
     }
 }

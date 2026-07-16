@@ -212,8 +212,8 @@ pub mod prelude {
     };
     #[cfg(feature = "serialization")]
     pub use kairo_serialization::{
-        DynCodec, Manifest, MessageCodec, RemoteMessage, SerializationError, SerializationRegistry,
-        SerializedMessage, SerializerId,
+        DynCodec, Manifest, MessageCodec, Registry, RemoteMessage, SerializationError,
+        SerializationRegistry, SerializedMessage, SerializerId,
     };
     #[cfg(feature = "testkit")]
     pub use kairo_testkit::{

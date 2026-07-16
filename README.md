@@ -103,7 +103,8 @@ format-neutral structs.
 
 The `remote_ping_pong` example demonstrates two local TCP remoting actor
 systems exchanging typed messages through stable remote manifests and an
-explicit registered codec.
+explicit codec registered through the format-neutral `Registry::register_with`
+helper.
 
 The `ddata_counter` example demonstrates a local distributed-data
 `ReplicatorActor<GCounter>` update, change notification, and readback.

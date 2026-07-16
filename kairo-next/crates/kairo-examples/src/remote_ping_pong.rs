@@ -11,8 +11,7 @@ use kairo::remote::{
     register_remote_protocol_codecs,
 };
 use kairo::serialization::{
-    ActorRefWireData, MessageCodec, Registry, RemoteMessage, SerializationError,
-    SerializationRegistry, SerializerId,
+    ActorRefWireData, Registry, RemoteMessage, SerializationError, SerializerId,
 };
 
 const REMOTE_PING_PONG_SERIALIZER_ID: SerializerId = 12_001;
@@ -35,63 +34,54 @@ impl RemoteMessage for RemotePingPongMsg {
     const VERSION: u16 = 1;
 }
 
-struct RemotePingPongCodec;
-
-impl MessageCodec<RemotePingPongMsg> for RemotePingPongCodec {
-    fn serializer_id(&self) -> SerializerId {
-        REMOTE_PING_PONG_SERIALIZER_ID
-    }
-
-    fn encode(&self, message: &RemotePingPongMsg) -> kairo::serialization::Result<Bytes> {
-        match message {
-            RemotePingPongMsg::Ping { value, reply_to } => {
-                let reply_to = reply_to.path().as_bytes();
-                let reply_to_len: u16 = reply_to.len().try_into().map_err(|_| {
-                    SerializationError::Message(
-                        "remote ping-pong reply path exceeds u16 length".to_string(),
-                    )
-                })?;
-                let mut bytes = Vec::with_capacity(1 + 8 + 2 + reply_to.len());
-                bytes.push(1);
-                bytes.extend_from_slice(&value.to_be_bytes());
-                bytes.extend_from_slice(&reply_to_len.to_be_bytes());
-                bytes.extend_from_slice(reply_to);
-                Ok(Bytes::from(bytes))
-            }
-            RemotePingPongMsg::Pong { value } => {
-                let mut bytes = Vec::with_capacity(1 + 8);
-                bytes.push(2);
-                bytes.extend_from_slice(&value.to_be_bytes());
-                Ok(Bytes::from(bytes))
-            }
+fn encode_remote_ping_pong(message: &RemotePingPongMsg) -> kairo::serialization::Result<Bytes> {
+    match message {
+        RemotePingPongMsg::Ping { value, reply_to } => {
+            let reply_to = reply_to.path().as_bytes();
+            let reply_to_len: u16 = reply_to.len().try_into().map_err(|_| {
+                SerializationError::Message(
+                    "remote ping-pong reply path exceeds u16 length".to_string(),
+                )
+            })?;
+            let mut bytes = Vec::with_capacity(1 + 8 + 2 + reply_to.len());
+            bytes.push(1);
+            bytes.extend_from_slice(&value.to_be_bytes());
+            bytes.extend_from_slice(&reply_to_len.to_be_bytes());
+            bytes.extend_from_slice(reply_to);
+            Ok(Bytes::from(bytes))
+        }
+        RemotePingPongMsg::Pong { value } => {
+            let mut bytes = Vec::with_capacity(1 + 8);
+            bytes.push(2);
+            bytes.extend_from_slice(&value.to_be_bytes());
+            Ok(Bytes::from(bytes))
         }
     }
+}
 
-    fn decode(
-        &self,
-        payload: Bytes,
-        version: u16,
-    ) -> kairo::serialization::Result<RemotePingPongMsg> {
-        if version != RemotePingPongMsg::VERSION {
-            return Err(SerializationError::Message(format!(
-                "unsupported RemotePingPongMsg version {version}"
-            )));
-        }
+fn decode_remote_ping_pong(
+    payload: Bytes,
+    version: u16,
+) -> kairo::serialization::Result<RemotePingPongMsg> {
+    if version != RemotePingPongMsg::VERSION {
+        return Err(SerializationError::Message(format!(
+            "unsupported RemotePingPongMsg version {version}"
+        )));
+    }
 
-        let payload = payload.as_ref();
-        let Some((&tag, rest)) = payload.split_first() else {
-            return Err(SerializationError::Message(
-                "remote ping-pong payload is empty".to_string(),
-            ));
-        };
+    let payload = payload.as_ref();
+    let Some((&tag, rest)) = payload.split_first() else {
+        return Err(SerializationError::Message(
+            "remote ping-pong payload is empty".to_string(),
+        ));
+    };
 
-        match tag {
-            1 => decode_ping(rest),
-            2 => decode_pong(rest),
-            other => Err(SerializationError::Message(format!(
-                "unknown remote ping-pong tag {other}"
-            ))),
-        }
+    match tag {
+        1 => decode_ping(rest),
+        2 => decode_pong(rest),
+        other => Err(SerializationError::Message(format!(
+            "unknown remote ping-pong tag {other}"
+        ))),
     }
 }
 
@@ -267,7 +257,11 @@ pub fn run_remote_ping_pong(
 
 fn registry() -> Result<Arc<Registry>, Box<dyn Error>> {
     let mut registry = Registry::new();
-    registry.register::<RemotePingPongMsg, _>(RemotePingPongCodec)?;
+    registry.register_with::<RemotePingPongMsg, _, _>(
+        REMOTE_PING_PONG_SERIALIZER_ID,
+        encode_remote_ping_pong,
+        decode_remote_ping_pong,
+    )?;
     register_remote_protocol_codecs(&mut registry)?;
     Ok(Arc::new(registry))
 }

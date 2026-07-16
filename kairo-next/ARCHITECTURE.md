@@ -594,35 +594,52 @@ Owns stable wire payloads.
 The user path should be derive metadata plus register a codec once:
 
 ```rust
-use kairo::prelude::*;
-use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize, Deserialize, KairoRemoteMessage)]
-#[kairo(manifest = "example.counter.CounterCmd", version = 1)]
+use kairo::prelude::*;
+use kairo::remote::register_remote_protocol_codecs;
+
+#[derive(Debug, Clone, KairoRemoteMessage)]
+#[kairo(manifest = "example.counter.CounterCmd")]
+#[kairo(version = 1)]
 enum CounterCmd {
     Increment,
-    Get { reply_to: ActorRef<CounterValue> },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, KairoRemoteMessage)]
-#[kairo(manifest = "example.counter.CounterValue", version = 1)]
-struct CounterValue(i64);
-
-let system = ActorSystem::builder("app")
-    .serialization(|registry| {
-        registry.register_serde_cbor::<CounterCmd>()?;
-        registry.register_serde_cbor::<CounterValue>()?;
-        Ok(())
-    })
-    .build()?;
+let mut registry = Registry::new();
+registry.register_with::<CounterCmd, _, _>(
+    12_001,
+    |message| match message {
+        CounterCmd::Increment => Ok(vec![1].into()),
+    },
+    |payload, version| {
+        if version != CounterCmd::VERSION {
+            return Err(SerializationError::Message(format!(
+                "unsupported CounterCmd version {version}"
+            )));
+        }
+        match payload.as_ref() {
+            [1] => Ok(CounterCmd::Increment),
+            _ => Err(SerializationError::Message("invalid CounterCmd".into())),
+        }
+    },
+)?;
+register_remote_protocol_codecs(&mut registry)?;
+let system = ActorSystem::builder("app").build()?;
 ```
 
-After registration, remote sends use normal typed refs:
+After registration, the registry is supplied to the remoting runtime and sends
+use typed remote refs:
 
 ```rust
-let counter: ActorRef<CounterCmd> = system
-    .remote()
-    .resolve("kairo://app@127.0.0.1:2552/user/counter")?;
+let remote = TcpRemoteActorSystem::<CounterCmd>::bind(
+    system.clone(),
+    Arc::new(registry),
+    RemoteSettings::new("127.0.0.1", 2552),
+    1,
+)?;
+let counter: RemoteActorRef<CounterCmd> =
+    remote.resolve("kairo://app@127.0.0.1:2552/user/counter#1")?;
 
 counter.tell(CounterCmd::Increment)?;
 ```
@@ -710,6 +727,17 @@ pub trait SerializationRegistry {
         M: RemoteMessage,
         C: MessageCodec<M>;
 
+    fn register_with<M, Encode, Decode>(
+        &mut self,
+        serializer_id: SerializerId,
+        encode: Encode,
+        decode: Decode,
+    ) -> Result<()>
+    where
+        M: RemoteMessage,
+        Encode: Fn(&M) -> Result<Bytes> + Send + Sync + 'static,
+        Decode: Fn(Bytes, u16) -> Result<M> + Send + Sync + 'static;
+
     fn codec_for_type<M: RemoteMessage>(&self) -> Result<&dyn DynCodec>;
     fn codec_for_wire(&self, serializer_id: SerializerId, manifest: &Manifest)
         -> Result<&dyn DynCodec>;
@@ -725,6 +753,7 @@ Registry:
   migration rule exists,
 - supports system serializers and user serializers,
 - exposes explicit registration APIs without requiring macros,
+- exposes format-neutral closure registration for compact hand-written codecs,
 - exposes helper registration APIs for optional codec crates.
 
 The derive macro only supplies stable metadata. It must not choose the wire

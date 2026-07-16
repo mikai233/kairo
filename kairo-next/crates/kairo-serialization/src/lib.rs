@@ -22,8 +22,7 @@
 //! ```
 //! use bytes::Bytes;
 //! use kairo_serialization::{
-//!     MessageCodec, Registry, RemoteMessage, SerializationError,
-//!     SerializationRegistry, SerializerId,
+//!     Registry, RemoteMessage, SerializationError,
 //! };
 //!
 //! #[derive(Debug, PartialEq, Eq)]
@@ -34,18 +33,12 @@
 //!     const VERSION: u16 = 1;
 //! }
 //!
-//! struct GreetingCodec;
-//!
-//! impl MessageCodec<Greeting> for GreetingCodec {
-//!     fn serializer_id(&self) -> SerializerId {
-//!         1001
-//!     }
-//!
-//!     fn encode(&self, message: &Greeting) -> kairo_serialization::Result<Bytes> {
-//!         Ok(Bytes::from(message.0.clone()))
-//!     }
-//!
-//!     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<Greeting> {
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut registry = Registry::new();
+//! registry.register_with::<Greeting, _, _>(
+//!     1001,
+//!     |message| Ok(Bytes::from(message.0.clone())),
+//!     |payload, version| {
 //!         if version != Greeting::VERSION {
 //!             return Err(SerializationError::Message(format!(
 //!                 "unsupported Greeting version {version}"
@@ -55,12 +48,8 @@
 //!         String::from_utf8(payload.to_vec())
 //!             .map(Greeting)
 //!             .map_err(|error| SerializationError::Message(error.to_string()))
-//!     }
-//! }
-//!
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut registry = Registry::new();
-//! registry.register::<Greeting, _>(GreetingCodec)?;
+//!     },
+//! )?;
 //!
 //! let serialized = registry.serialize(&Greeting("hello".to_string()))?;
 //! assert_eq!(serialized.serializer_id, 1001);

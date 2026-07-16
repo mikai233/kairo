@@ -4365,3 +4365,29 @@ Consequences:
   existing responsibility for pruning convergence from older senders.
 - New senders emit version 2; manifests and serializer identifiers remain
   unchanged because the codec version owns the schema evolution.
+
+## ADR-0137: Closure Codecs Remain Format-Neutral And Explicit
+
+Status: Accepted
+
+Context:
+Kairo intentionally keeps `kairo-serialization` independent from serde, JSON,
+CBOR, protobuf, and other payload formats. Small application protocols still
+had to declare a one-off type implementing `MessageCodec<M>`, even when their
+complete codec was two stateless functions. Adding a default format dependency
+would weaken the core boundary and select a wire format on the user's behalf.
+
+Decision:
+`SerializationRegistry::register_with` and the inherent `Registry` convenience
+method accept an explicit serializer id plus `Send + Sync` encode and
+version-aware decode closures. Registration wraps those closures in the same
+typed dynamic bridge used by named `MessageCodec` implementations. Manifests
+and current versions remain owned by `RemoteMessage`; duplicate checks and
+codec-panic isolation remain registry behavior.
+
+Consequences:
+- Compact hand-written codecs no longer require a public or local wrapper type.
+- Closure registration introduces no payload format, dependency, inferred
+  serializer id, or automatic schema policy.
+- Named codecs remain the appropriate API for reusable configuration or codec
+  state, and optional format-specific helper crates can still be added later.

@@ -304,6 +304,23 @@ Wire compatibility is based on manifests, versions, serializer ids, and
 registered codecs. Do not rely on Rust type names, enum discriminants, memory
 layout, or compiler-generated details as the wire contract.
 
+For compact hand-written formats, register the payload functions directly
+without defining a one-off codec type:
+
+```rust
+let mut registry = Registry::new();
+registry.register_with::<CounterCommand, _, _>(
+    12_001,
+    encode_counter_command,
+    decode_counter_command,
+)?;
+```
+
+The decode function receives the wire version so it can retain every schema
+generation needed during a rolling upgrade. Named `MessageCodec`
+implementations remain available when a codec owns reusable configuration or
+state; `register_with` adds no implicit format and does not choose metadata.
+
 Remote inbound paths can attach backend-neutral diagnostics for decode and
 delivery failures:
 

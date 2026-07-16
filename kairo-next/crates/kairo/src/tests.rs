@@ -1,5 +1,5 @@
 #[cfg(feature = "remote")]
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct PreludeRemoteMsg;
 
 fn repo_root() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
@@ -2113,6 +2113,30 @@ fn prelude_exposes_remote_entry_points() {
     assert_remote_outbound::<dyn RemoteOutbound>();
     let queue_settings = RemoteOutboundQueueSettings::new(8, 32, 2).unwrap();
     assert_eq!(queue_settings.control_capacity(), 8);
+    let mut registry = Registry::new();
+    registry
+        .register_with::<PreludeRemoteMsg, _, _>(
+            12_345,
+            |_message| Ok(Vec::<u8>::new().into()),
+            |payload, version| {
+                if version == PreludeRemoteMsg::VERSION && payload.is_empty() {
+                    Ok(PreludeRemoteMsg)
+                } else {
+                    Err(SerializationError::Message(
+                        "invalid prelude remote message".to_string(),
+                    ))
+                }
+            },
+        )
+        .unwrap();
+    let serialized = registry.serialize(&PreludeRemoteMsg).unwrap();
+    assert_eq!(serialized.serializer_id, 12_345);
+    assert_eq!(
+        registry
+            .deserialize::<PreludeRemoteMsg>(serialized)
+            .unwrap(),
+        PreludeRemoteMsg
+    );
     let system = ActorSystem::builder("facade-remote-prelude")
         .build()
         .unwrap();

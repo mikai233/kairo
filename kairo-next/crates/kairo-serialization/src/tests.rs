@@ -227,6 +227,78 @@ fn registry_serializes_with_stable_wire_metadata() {
 }
 
 #[test]
+fn registry_register_with_keeps_explicit_metadata_and_wire_version_migration() {
+    let mut registry = Registry::new();
+    registry
+        .register_with::<RollingCommand, _, _>(
+            52,
+            |message| Ok(Bytes::from(vec![message.amount, message.tag])),
+            |payload, version| match version {
+                1 => Ok(RollingCommand {
+                    amount: payload[0],
+                    tag: 0,
+                }),
+                2 => Ok(RollingCommand {
+                    amount: payload[0],
+                    tag: payload[1],
+                }),
+                other => Err(SerializationError::Message(format!(
+                    "unsupported closure codec version {other}"
+                ))),
+            },
+        )
+        .unwrap();
+
+    let current = registry
+        .serialize(&RollingCommand { amount: 8, tag: 3 })
+        .unwrap();
+    assert_eq!(current.serializer_id, 52);
+    assert_eq!(current.manifest.as_str(), RollingCommand::MANIFEST);
+    assert_eq!(current.version, RollingCommand::VERSION);
+    assert_eq!(current.payload, Bytes::from_static(&[8, 3]));
+
+    let old = SerializedMessage::new(
+        52,
+        Manifest::new(RollingCommand::MANIFEST),
+        1,
+        Bytes::from_static(&[9]),
+    );
+    assert_eq!(
+        registry.deserialize::<RollingCommand>(old).unwrap(),
+        RollingCommand { amount: 9, tag: 0 }
+    );
+}
+
+#[test]
+fn registry_register_with_preserves_duplicate_checks_and_panic_isolation() {
+    let mut registry = Registry::new();
+    registry
+        .register_with::<CounterCommand, _, _>(
+            53,
+            |_message| panic!("closure encode boom"),
+            |payload, _version| Ok(CounterCommand { amount: payload[0] }),
+        )
+        .unwrap();
+
+    let duplicate = registry
+        .register_with::<OtherCommand, _, _>(
+            53,
+            |message| Ok(Bytes::from(vec![message.amount])),
+            |payload, _version| Ok(OtherCommand { amount: payload[0] }),
+        )
+        .expect_err("closure codecs must not bypass duplicate serializer checks");
+    assert_eq!(duplicate, SerializationError::DuplicateSerializerId(53));
+
+    let panic = registry
+        .serialize(&CounterCommand { amount: 5 })
+        .expect_err("closure codec panic should become a serialization error");
+    assert_eq!(
+        panic,
+        SerializationError::Message("codec encode panicked: closure encode boom".to_string())
+    );
+}
+
+#[test]
 fn registry_rejects_duplicate_serializer_ids() {
     let mut registry = Registry::new();
     registry
