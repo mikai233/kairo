@@ -4,7 +4,7 @@ use kairo_cluster::UniqueAddress;
 
 use crate::singleton::{SingletonOldestChange, SingletonOldestObservation, SingletonProxyTarget};
 
-pub struct SingletonProxyRoutes<M>
+pub(super) struct SingletonProxyRoutes<M>
 where
     M: Send + 'static,
 {
@@ -16,22 +16,22 @@ impl<M> SingletonProxyRoutes<M>
 where
     M: Send + 'static,
 {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             current_oldest: None,
             routes: HashMap::new(),
         }
     }
 
-    pub fn current_oldest(&self) -> Option<&UniqueAddress> {
+    pub(super) fn current_oldest(&self) -> Option<&UniqueAddress> {
         self.current_oldest.as_ref()
     }
 
-    pub fn registered_routes(&self) -> usize {
+    pub(super) fn registered_routes(&self) -> usize {
         self.routes.len()
     }
 
-    pub fn register_route(
+    pub(super) fn register_route(
         &mut self,
         node: UniqueAddress,
         singleton: SingletonProxyTarget<M>,
@@ -41,23 +41,26 @@ where
         is_current_oldest
     }
 
-    pub fn remove_route(&mut self, node: &UniqueAddress) -> bool {
+    pub(super) fn remove_route(&mut self, node: &UniqueAddress) -> bool {
         let removed = self.routes.remove(node).is_some();
         removed && self.current_oldest.as_ref() == Some(node)
     }
 
-    pub fn apply_initial_observation(&mut self, observation: SingletonOldestObservation) -> bool {
+    pub(super) fn apply_initial_observation(
+        &mut self,
+        observation: SingletonOldestObservation,
+    ) -> bool {
         self.set_current_oldest(observation.oldest().cloned())
     }
 
-    pub fn apply_oldest_change(&mut self, change: SingletonOldestChange) -> bool {
+    pub(super) fn apply_oldest_change(&mut self, change: SingletonOldestChange) -> bool {
         match change {
             SingletonOldestChange::OldestChanged(oldest) => self.set_current_oldest(oldest),
             SingletonOldestChange::SelfRemoved | SingletonOldestChange::SelfDowned => false,
         }
     }
 
-    pub fn current_target(&self) -> Option<SingletonProxyTarget<M>> {
+    pub(super) fn current_target(&self) -> Option<SingletonProxyTarget<M>> {
         self.current_oldest
             .as_ref()
             .and_then(|node| self.routes.get(node))

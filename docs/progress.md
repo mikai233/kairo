@@ -490,6 +490,11 @@ Status terms in this document mean:
   effect-sink contract, while the typed local adapter documents lazy child
   creation, watched termination before handover completion, local effect
   execution, remote-only transport forwarding, and deterministic snapshots.
+  The singleton proxy boundary now hard-gates bounded oldest-drop buffering,
+  membership-selected exact-incarnation routes, local target death watch,
+  remote and custom typed targets, best-effort delivery, self-removal
+  termination, and operator snapshots. Its route table is module-private
+  implementation state rather than an accidental public API.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
@@ -505,7 +510,8 @@ Status terms in this document mean:
   the same module-level hard gate, as do the local topic/pubsub and distributed
   registry/gossip, mediator, delivery, remote wire, and singleton ownership
   APIs, including both generic and typed local singleton manager actor
-  adapters. The remote ping-pong example and compile-tested serialization docs
+  adapters and the singleton proxy/target boundary. The remote ping-pong
+  example and compile-tested serialization docs
   now exercise the format-neutral closure registration path. The
   `cluster_sharding_tcp` example
   provides the final three-node acceptance workflow through that facade and
