@@ -3,10 +3,19 @@ use std::fmt::{self, Display, Formatter};
 use kairo_serialization::SerializationError;
 
 #[derive(Debug)]
+/// Failure while encoding, delivering, or validating a distributed-data remote envelope.
 pub enum ReplicatorRemoteEnvelopeError {
+    /// Stable remote-message serialization failed.
     Serialization(SerializationError),
+    /// The configured outbound recipient rejected delivery.
     Send(String),
-    WrongRecipient { expected: String, actual: String },
+    /// An inbound envelope targeted a different actor reference.
+    WrongRecipient {
+        /// Actor reference owned by the inbound adapter.
+        expected: String,
+        /// Actor reference carried by the rejected envelope.
+        actual: String,
+    },
 }
 
 impl Display for ReplicatorRemoteEnvelopeError {

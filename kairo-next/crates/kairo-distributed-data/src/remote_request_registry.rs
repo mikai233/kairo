@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::collections::BTreeMap;
 use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex};
@@ -7,14 +9,22 @@ use kairo_serialization::RemoteEnvelope;
 use crate::{ReplicaId, ReplicatorRemoteRequestError, ReplicatorRemoteRequestReceiver};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Failure while registering a typed CRDT family in the shared request router.
 pub enum ReplicatorRemoteRequestRegistrationError {
+    /// The stable CRDT data manifest was blank.
     BlankManifest,
+    /// Another typed family already owns the same stable CRDT data manifest.
     DuplicateManifest {
+        /// Manifest already present in the registry.
         manifest: String,
     },
+    /// Another typed family already owns the same canonical remote recipient path.
     PathCollision {
+        /// Canonical path with conflicting ownership.
         path: String,
+        /// Stable manifest that already owns the path.
         registered_manifest: String,
+        /// Stable manifest whose registration was rejected.
         requested_manifest: String,
     },
 }
@@ -55,6 +65,9 @@ pub struct ReplicatorRemoteRequestRegistry {
 }
 
 impl ReplicatorRemoteRequestRegistry {
+    /// Registers one typed CRDT family under a unique manifest and canonical recipient path.
+    ///
+    /// Registration is all-or-error: neither manifest nor path ownership changes on failure.
     pub fn register(
         &self,
         manifest: impl Into<String>,
@@ -87,6 +100,7 @@ impl ReplicatorRemoteRequestRegistry {
         Ok(())
     }
 
+    /// Returns registered manifests in deterministic recipient-path order.
     pub fn registered_manifests(&self) -> Vec<String> {
         self.by_path
             .lock()

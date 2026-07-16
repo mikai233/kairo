@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
@@ -17,9 +19,18 @@ use crate::{
 };
 
 #[derive(Debug)]
+/// Failure while decoding or delivering a remote replicator reply.
 pub enum ReplicatorRemoteReplyError {
+    /// Stable-message deserialization failed.
     Serialization(SerializationError),
-    Send { recipient: String, reason: String },
+    /// The addressed local aggregation actor rejected the decoded reply.
+    Send {
+        /// Canonical local recipient path used for delivery.
+        recipient: String,
+        /// Actor delivery failure diagnostic.
+        reason: String,
+    },
+    /// The serialized message manifest is not a supported replicator reply.
     UnsupportedManifest(String),
 }
 
@@ -52,6 +63,10 @@ impl From<SerializationError> for ReplicatorRemoteReplyError {
 }
 
 #[derive(Clone)]
+/// Converts local direct-operation results into remote reply envelopes.
+///
+/// The target actor reference is normally copied from the originating request sender. The
+/// optional sender identifies the local replicator for diagnostics and later protocol extension.
 pub struct ReplicatorRemoteReplyOutbound {
     target: ReplicatorRemoteTarget,
     sender: Option<ActorRefWireData>,
@@ -60,6 +75,7 @@ pub struct ReplicatorRemoteReplyOutbound {
 }
 
 impl ReplicatorRemoteReplyOutbound {
+    /// Creates a reply adapter from a concrete envelope recipient.
     pub fn new(
         target: ReplicatorRemoteTarget,
         sender: Option<ActorRefWireData>,
@@ -74,6 +90,7 @@ impl ReplicatorRemoteReplyOutbound {
         }
     }
 
+    /// Creates a reply adapter from a shared type-erased envelope recipient.
     pub fn from_arc(
         target: ReplicatorRemoteTarget,
         sender: Option<ActorRefWireData>,
@@ -88,14 +105,19 @@ impl ReplicatorRemoteReplyOutbound {
         }
     }
 
+    /// Returns the destination replica and aggregation actor reference.
     pub fn target(&self) -> &ReplicatorRemoteTarget {
         &self.target
     }
 
+    /// Returns the sender actor reference attached to replies, if configured.
     pub fn sender(&self) -> Option<&ActorRefWireData> {
         self.sender.as_ref()
     }
 
+    /// Sends the report's ACK or NACK when one was requested.
+    ///
+    /// Returns `true` when a reply was present and delivered, or `false` for a one-way delta.
     pub fn send_delta_report(
         &self,
         report: &DeltaPropagationReceiveReport,
@@ -113,6 +135,7 @@ impl ReplicatorRemoteReplyOutbound {
         }
     }
 
+    /// Sends a direct write ACK or NACK to the originating aggregation actor.
     pub fn send_write_result(
         &self,
         result: &DirectWriteResult,
@@ -123,6 +146,7 @@ impl ReplicatorRemoteReplyOutbound {
         }
     }
 
+    /// Sends a direct read result, including successful absence, to the originating aggregator.
     pub fn send_read_result(
         &self,
         result: &DirectReadResult,
@@ -182,6 +206,10 @@ impl Recipient<Result<DirectReadResult, String>> for ReplicatorRemoteReplyOutbou
 }
 
 #[derive(Clone)]
+/// Decodes remote replicator replies and delivers them to addressed local aggregation actors.
+///
+/// With canonical remote settings, owned remote actor references are reduced to local paths
+/// before resolution. Unknown manifests are rejected rather than delivered through a fallback.
 pub struct ReplicatorRemoteReplyInbound {
     system: ActorSystem,
     canonical_address: Option<CanonicalLocalAddress>,
@@ -189,6 +217,7 @@ pub struct ReplicatorRemoteReplyInbound {
 }
 
 impl ReplicatorRemoteReplyInbound {
+    /// Creates an inbound reply adapter for local-path actor references.
     pub fn new(system: ActorSystem, registry: Arc<Registry>) -> Self {
         Self {
             system,
@@ -197,6 +226,7 @@ impl ReplicatorRemoteReplyInbound {
         }
     }
 
+    /// Creates an inbound adapter that recognizes the ActorSystem's canonical remote address.
     pub fn with_remote_settings(
         system: ActorSystem,
         settings: RemoteSettings,
@@ -211,10 +241,12 @@ impl ReplicatorRemoteReplyInbound {
         }
     }
 
+    /// Returns the ActorSystem used to resolve aggregation actors.
     pub fn system(&self) -> &ActorSystem {
         &self.system
     }
 
+    /// Dispatches a complete envelope using the supplied source replica identity.
     pub fn receive_from(
         &self,
         from: ReplicaId,
@@ -223,6 +255,7 @@ impl ReplicatorRemoteReplyInbound {
         self.receive_message(from, envelope.recipient, envelope.message)
     }
 
+    /// Decodes and delivers a serialized reply to its exact read or write aggregator.
     pub fn receive_message(
         &self,
         from: ReplicaId,

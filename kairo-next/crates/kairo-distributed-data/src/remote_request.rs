@@ -1,3 +1,5 @@
+#![deny(missing_docs)]
+
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -18,13 +20,21 @@ use crate::{
 };
 
 #[derive(Debug)]
+/// Failure while validating, decoding, or dispatching a remote replicator request.
 pub enum ReplicatorRemoteRequestError {
+    /// Recipient validation or reply-envelope delivery failed.
     Envelope(ReplicatorRemoteEnvelopeError),
+    /// Stable-message deserialization failed.
     Serialization(SerializationError),
+    /// A request requiring a reply omitted its sender actor reference.
     MissingSender(&'static str),
+    /// A single-use reply actor could not be spawned.
     Spawn(String),
+    /// The local replicator actor rejected the decoded request.
     Send(String),
+    /// No registered typed CRDT family owns the addressed recipient path.
     UnknownRecipient(String),
+    /// The serialized message manifest is not a supported replicator request.
     UnsupportedManifest(String),
 }
 
@@ -70,6 +80,11 @@ impl From<SerializationError> for ReplicatorRemoteRequestError {
     }
 }
 
+/// Decodes remote requests for one typed CRDT family and dispatches them to its replicator.
+///
+/// Direct reads, writes, and acknowledged deltas require a sender actor reference. Their replies
+/// flow through single-use local actors so completion re-enters the actor mailbox instead of
+/// borrowing replicator state across asynchronous transport work. Gossip remains one-way here.
 pub struct ReplicatorRemoteRequestInbound<D>
 where
     D: DeltaReplicatedData + Send + 'static,
@@ -91,6 +106,7 @@ where
     D: DeltaReplicatedData + Send + 'static,
     D::Delta: Send + 'static,
 {
+    /// Creates an inbound adapter from a concrete remote-envelope recipient.
     pub fn new(
         system: ActorSystem,
         recipient: ActorRefWireData,
@@ -113,6 +129,7 @@ where
         }
     }
 
+    /// Creates an inbound adapter from a shared type-erased remote-envelope recipient.
     pub fn from_arc(
         system: ActorSystem,
         recipient: ActorRefWireData,
@@ -135,15 +152,21 @@ where
         }
     }
 
+    /// Returns the exact remote actor reference accepted for this CRDT family.
     pub fn recipient(&self) -> &ActorRefWireData {
         self.envelope.recipient()
     }
 
+    /// Sets the prefix used for single-use delta, read, and write reply actor names.
     pub fn with_reply_actor_prefix(mut self, value: impl Into<String>) -> Self {
         self.reply_actor_prefix = value.into();
         self
     }
 
+    /// Validates and dispatches one envelope attributed to the supplied source replica.
+    ///
+    /// Unsupported manifests and missing reply senders are rejected before the local replicator
+    /// receives a command.
     pub fn receive_from(
         &self,
         from: ReplicaId,

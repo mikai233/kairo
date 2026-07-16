@@ -1768,6 +1768,24 @@ Remote association integration:
   source of cluster membership truth,
 - concrete socket associations are expected to populate the shared cache once
   socket-backed transport exists.
+- `ReplicatorRemoteEnvelopeOutbound` attaches the canonical temporary reply
+  actor when a request expects a response, serializes through the registered
+  stable codec, and retains the logical replica separately from the wire actor
+  reference used for routing. Inbound validation requires the exact intended
+  recipient and preserves sender metadata.
+- `ReplicatorRemoteRequestInbound` dispatches only supported direct-write,
+  direct-read, delta, and gossip manifests into one typed CRDT-family
+  replicator. Reply-required requests without a sender are rejected. Direct
+  and acknowledged-delta replies leave through single-use local actors, so the
+  response flow remains mailbox-owned.
+- `ReplicatorRemoteRequestRegistry` composes multiple typed CRDT families on
+  the ordinary lane by unique stable data manifest and canonical recipient
+  path. Duplicate manifests, path collisions, and unknown recipients fail
+  without a fallback family.
+- `ReplicatorRemoteReplyInbound` decodes only supported reply manifests and
+  delivers each reply to the exact addressed local aggregation actor. When
+  configured with the canonical local remote address, it resolves owned wire
+  actor refs back to local paths without accepting a foreign address.
 - `ReplicatorTcpAssociationRuntime` is the configured-peer socket runtime for
   `/system/ddata` traffic. It binds a handshaken TCP listener, owns a shared
   `RemoteAssociationCache`, association registry, route installer, dialer, and

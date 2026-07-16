@@ -308,7 +308,11 @@ Status terms in this document mean:
   lifecycle now carries that hard gate across association runtime, bootstrap,
   reconnect state, route ownership, peer runtime, and connector surfaces,
   including an explicit legacy caveat that the low-level shutdown timeout is
-  not yet enforced.
+  not yet enforced. The remote envelope and request/reply boundary now also
+  hard-gates exact recipient validation, preserved reply actor metadata,
+  supported-manifest dispatch, reply-required sender checks, single-use reply
+  actors, exact aggregation delivery, and collision-free multi-family request
+  registration.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

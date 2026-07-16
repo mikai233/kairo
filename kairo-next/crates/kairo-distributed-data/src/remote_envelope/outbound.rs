@@ -10,6 +10,10 @@ use crate::{
 };
 
 #[derive(Clone)]
+/// Serializes stable replicator messages into replica-targeted remote envelopes.
+///
+/// The optional sender is the canonical reply actor reference for request/reply protocols. Gossip
+/// and one-way delta traffic may omit it when no response is expected.
 pub struct ReplicatorRemoteEnvelopeOutbound {
     target: ReplicatorRemoteTarget,
     sender: Option<ActorRefWireData>,
@@ -18,6 +22,7 @@ pub struct ReplicatorRemoteEnvelopeOutbound {
 }
 
 impl ReplicatorRemoteEnvelopeOutbound {
+    /// Creates an outbound adapter from a concrete envelope recipient.
     pub fn new(
         target: ReplicatorRemoteTarget,
         sender: Option<ActorRefWireData>,
@@ -32,6 +37,7 @@ impl ReplicatorRemoteEnvelopeOutbound {
         }
     }
 
+    /// Creates an outbound adapter from a shared type-erased envelope recipient.
     pub fn from_arc(
         target: ReplicatorRemoteTarget,
         sender: Option<ActorRefWireData>,
@@ -46,19 +52,23 @@ impl ReplicatorRemoteEnvelopeOutbound {
         }
     }
 
+    /// Returns the destination replica and actor reference.
     pub fn target(&self) -> &ReplicatorRemoteTarget {
         &self.target
     }
 
+    /// Returns the reply actor reference attached to outgoing envelopes, if any.
     pub fn sender(&self) -> Option<&ActorRefWireData> {
         self.sender.as_ref()
     }
 
+    /// Replaces the reply actor reference attached to subsequent envelopes.
     pub fn with_sender(mut self, sender: Option<ActorRefWireData>) -> Self {
         self.sender = sender;
         self
     }
 
+    /// Serializes and publishes one stable remote message to the configured replica target.
     pub fn send<M>(&self, message: &M) -> Result<(), ReplicatorRemoteEnvelopeError>
     where
         M: RemoteMessage,
