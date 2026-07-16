@@ -250,6 +250,11 @@ Status terms in this document mean:
   NACK exhaustion and insufficient known replicas after a successful local
   update, now return Pekko-aligned `UpdateResponse::Timeout` rather than a
   generic failure.
+  Aggregation transport targets, shared route registries, sender-aware fallback,
+  and per-replica delivery diagnostics now carry a hard public-documentation
+  gate. Each full-state write is encoded at most once per fan-out and the stable
+  wire message is cloned across resolved targets, while missing targets remain
+  independently reportable without triggering serialization.
 - M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities

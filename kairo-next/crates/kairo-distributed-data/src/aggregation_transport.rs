@@ -1,3 +1,6 @@
+#![deny(missing_docs)]
+//! Delivery targets, fan-out, and diagnostics for quorum aggregation requests.
+
 mod report;
 mod target;
 mod transport;
