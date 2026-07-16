@@ -21,7 +21,7 @@ kairo-cluster-tools = { version = "0.1.0", path = "kairo-next/crates/kairo-clust
 kairo-cluster-sharding = { version = "0.1.0", path = "kairo-next/crates/kairo-cluster-sharding" }
 kairo-testkit = { version = "0.1.0", path = "kairo-next/crates/kairo-testkit" }
 bytes = "1.11"
-sha1 = "0.10"
+sha1 = "0.11"
 thiserror = "2.0"
 toml = "1.1"
 
