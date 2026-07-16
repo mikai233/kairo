@@ -104,6 +104,15 @@ message schemas. Frame version 1 is pinned by
 wire-layout changes require a new frame version and an explicit compatibility
 path rather than changing the version-1 bytes in place.
 
+Reliable system delivery has a separate stable message contract above that
+envelope body. The checked
+`kairo-next/crates/kairo-remote/tests/fixtures/reliable-system-envelope-v1.hex`
+pins sender/receiver incarnation UIDs, the ordered sequence number, and a
+nested remote-watch envelope. The companion `reliable-system-reply-v1.hex`
+pins the shared cumulative ACK/NACK payload while the serializer id and
+manifest keep those reply meanings distinct. Both fixtures must decode and be
+reproduced exactly; incompatible changes require new reliable-message versions.
+
 The TCP lane-association handshake has its own versioned contract. Handshake
 version 2 is pinned by
 `kairo-next/crates/kairo-remote/tests/fixtures/tcp-association-handshake-v2.hex`

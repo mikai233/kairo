@@ -1069,6 +1069,20 @@ the exact registry-owned incarnation and report retained messages through
 `ReliableSystemDeliveryObserver`. A handshake for a new UID replaces terminal
 state and begins again at sequence one.
 
+All three reliable-delivery messages use wire version 1.
+`ReliableSystemEnvelope` uses serializer id `1010` and manifest
+`kairo.remote.system.reliable-envelope`; its payload is the big-endian `u64`
+sender UID, receiver UID, and sequence number followed by a canonical
+`RemoteEnvelope` body with a big-endian `u32` length prefix.
+`ReliableSystemAck` and `ReliableSystemNack` use serializer ids `1011` and
+`1012` plus manifests
+`kairo.remote.system.reliable-ack` and `kairo.remote.system.reliable-nack`;
+both payloads are the big-endian `u64` sender UID, receiver UID, and cumulative
+sequence value. The checked 280-byte envelope fixture and 24-byte shared reply
+fixture under `kairo-remote/tests/fixtures/` pin exact encode/decode behavior,
+including a nested version-1 remote-watch message. Incompatible changes require
+new message versions and explicit rolling-upgrade decode paths.
+
 ### Remote Watch
 
 `RemoteWatcher` maintains:

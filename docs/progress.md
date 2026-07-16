@@ -69,10 +69,13 @@ Status terms in this document mean:
   Bidirectional v1/v2 process fixtures now prove codec-owned backward and
   explicitly forward-compatible migration over the real remoting boundary.
   A checked frame-v1 hex fixture now pins the canonical remote-envelope bytes
-  in both decode and encode directions. A checked cluster
-  `GossipEnvelope`-v1 fixture now likewise pins the complete full-membership
-  payload, including incarnation identities, deterministic membership and
-  seen ordering, reachability, causal clocks, and tombstones. Checked ddata
+  in both decode and encode directions. Checked reliable-system-delivery v1
+  fixtures now pin the retained sender/receiver incarnations, ordered sequence,
+  nested death-watch envelope, and cumulative ACK/NACK reply bytes. A checked
+  cluster `GossipEnvelope`-v1 fixture now likewise pins the complete
+  full-membership payload, including incarnation identities, deterministic
+  membership and seen ordering, reachability, causal clocks, and tombstones.
+  Checked ddata
   delta-propagation fixtures now prove historical v1 decode plus exact v2
   encode/decode with CRDT metadata, causal ranges, and both pruning lifecycle
   states. Checked sharding v1 fixtures now pin exact shard-home ownership and
@@ -91,7 +94,8 @@ Status terms in this document mean:
   focused process-level delivery and bounded-shutdown tests. Checked
   handshake-v2 fixture coverage now pins the exact lane, sender address and
   incarnation UID, and receiver address bytes in both decode and encode
-  directions. Its implicit
+  directions. Checked 280-byte reliable-envelope and 24-byte reply fixtures now
+  also pin the reliable control protocol in both directions. Its implicit
   shutdown budget now has a three-second floor and outlives configured connect
   attempts so reconnect work cannot consume the complete system-actor stop
   budget. The typed reference/provider, stable system protocol codecs, frame
@@ -6535,8 +6539,8 @@ Not yet implemented:
   handshake-v2 bytes, checked cluster full-gossip payload-v1 bytes, checked
   ddata delta-propagation payload-v1/v2 bytes, checked sharding ownership and
   routed-envelope payload-v1 bytes, checked cluster-tools pubsub-delta
-  payload-v1 bytes, and current bidirectional process-level v1/v2
-  remote-message migration tests.
+  payload-v1 bytes, checked reliable-system envelope/reply payload-v1 bytes,
+  and current bidirectional process-level v1/v2 remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
