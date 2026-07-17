@@ -2612,6 +2612,10 @@ Cluster-tools TCP runtime:
 - it routes live socket frames into the existing `ClusterToolsSystemInbound<M>`
   boundary and can send return traffic over the same bidirectional
   association,
+- shutdown clears cached routes, stops dialing-side readers and the listener,
+  and applies one caller-supplied deadline across the reader and listener
+  joins. Expiration returns `RemoteError::ShutdownTimeout` after transport
+  close instead of allowing standalone teardown to wait indefinitely,
 - `ClusterToolsTcpPeerRoutes` consumes cluster membership-derived
   `ClusterAssociationPeerChange` values, applies them to
   `ClusterToolsTcpAssociationRuntime<M>`, owns per-peer route registrations,

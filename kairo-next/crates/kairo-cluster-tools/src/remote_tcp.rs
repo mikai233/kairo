@@ -204,7 +204,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns the first route-close or listener failure.
+    /// Returns the first route-close or listener failure, or
+    /// [`RemoteError::ShutdownTimeout`] when the default shutdown deadline
+    /// expires.
     pub fn shutdown(self) -> RemoteResult<TcpAssociationListenerReport> {
         self.shutdown_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
     }
@@ -218,7 +220,8 @@ where
     ///
     /// # Errors
     ///
-    /// Returns the first route-close, listener, or timeout failure.
+    /// Returns the first route-close or listener failure, or
+    /// [`RemoteError::ShutdownTimeout`] when `timeout` expires.
     pub fn shutdown_with_timeout(
         self,
         timeout: Duration,

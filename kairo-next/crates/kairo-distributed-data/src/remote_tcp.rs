@@ -280,6 +280,12 @@ impl ReplicatorTcpAssociationRuntime {
     }
 
     /// Stops the runtime using the default shutdown timeout policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first route-close or listener failure, or
+    /// [`RemoteError::ShutdownTimeout`] when the default shutdown deadline
+    /// expires.
     pub fn shutdown(self) -> RemoteResult<TcpAssociationListenerReport> {
         self.shutdown_with_timeout(DEFAULT_SHUTDOWN_TIMEOUT)
     }
@@ -289,6 +295,11 @@ impl ReplicatorTcpAssociationRuntime {
     /// The cache is cleared again after the listener joins so routes registered concurrently by a
     /// closing association cannot escape shutdown. One deadline bounds outbound-reader and listener
     /// joins; expiration returns [`RemoteError::ShutdownTimeout`] after forceful transport close.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first route-close or listener failure, or
+    /// [`RemoteError::ShutdownTimeout`] when `timeout` expires.
     pub fn shutdown_with_timeout(
         self,
         timeout: Duration,

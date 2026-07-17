@@ -281,7 +281,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns the first route-close or listener failure.
+    /// Returns the first route-close or listener failure, or
+    /// [`kairo_remote::RemoteError::ShutdownTimeout`] when the default
+    /// shutdown deadline expires.
     pub fn shutdown(self) -> RemoteResult<ClusterToolsTcpPeerRuntimeShutdownReport> {
         self.shutdown_with_timeout(Duration::from_secs(1))
     }
@@ -293,7 +295,8 @@ where
     ///
     /// # Errors
     ///
-    /// Returns the first route-close or listener failure.
+    /// Returns the first route-close or listener failure, or
+    /// [`kairo_remote::RemoteError::ShutdownTimeout`] when `timeout` expires.
     pub fn shutdown_with_timeout(
         mut self,
         timeout: Duration,

@@ -297,6 +297,12 @@ impl ReplicatorTcpPeerRuntime {
     }
 
     /// Clears peer state and stops the TCP association runtime with its default policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first route-close or listener failure, or
+    /// [`kairo_remote::RemoteError::ShutdownTimeout`] when the default
+    /// shutdown deadline expires.
     pub fn shutdown(self) -> RemoteResult<ReplicatorTcpPeerRuntimeShutdownReport> {
         self.shutdown_with_timeout(Duration::from_secs(1))
     }
@@ -304,6 +310,11 @@ impl ReplicatorTcpPeerRuntime {
     /// Clears reconnects and routes before stopping the TCP association runtime.
     ///
     /// `timeout` is forwarded to the lower-level runtime, which owns listener shutdown semantics.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first route-close or listener failure, or
+    /// [`kairo_remote::RemoteError::ShutdownTimeout`] when `timeout` expires.
     pub fn shutdown_with_timeout(
         mut self,
         timeout: Duration,

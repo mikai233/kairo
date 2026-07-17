@@ -578,7 +578,8 @@ Status terms in this document mean:
   same protocol-owned list, preventing classifier/transport drift.
   The complete standalone TCP peer lifecycle now hard-gates bootstrap,
   connector scheduling and diagnostics, reconnect policy, membership-derived
-  route ownership, runtime cleanup, and the legacy shutdown-timeout caveat.
+  route ownership, runtime cleanup, and bounded shutdown-timeout failures
+  across the cluster-tools association runtime and peer-runtime facade.
   Connector route work is serialized off-turn and returns through typed
   mailbox completions, keeping snapshots responsive while transport work is in
   flight.
