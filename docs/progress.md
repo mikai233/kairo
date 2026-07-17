@@ -477,6 +477,11 @@ Status terms in this document mean:
   registration and home retries, two-phase local handoff, generation-checked
   shard restart, graceful shutdown, and diagnostic snapshots while remaining
   explicitly separate from the stable wire protocol.
+  Region-side remote control acknowledgements now match coordinator-side and
+  Pekko best-effort delivery semantics: transient route loss no longer stops a
+  region after its local state transition, while serialization failures remain
+  fatal. Composed sharding fixture shutdown now waits for the cluster root
+  before closing transport, removing the previous suite-load lifecycle race.
   The shard runtime now hard-gates entity activation, shard-wide bounded FIFO
   buffering, passivation, remember-store sequencing, unexpected termination and
   restart, moved-entity cleanup, coordinated shutdown, and handoff completion.
@@ -1176,19 +1181,19 @@ checkpoint, not an individual agent turn, test case, or validation command.
 
 ## Known Validation Status
 
-- Latest M13 sharding hardening validates buffered shard-home retry and
-  best-effort coordinator delivery under transient route gaps:
+- Latest M13 sharding hardening validates buffered shard-home retry,
+  best-effort coordinator and region control delivery under transient route
+  gaps, and ordered composed-runtime teardown. Three consecutive complete
+  sharding-suite stress runs passed with 304 unit tests, 4 wire tests, and
+  doctests per run:
 
   ```bash
-  cargo test -p kairo-cluster-sharding region_actor_requests_shard_home_from_registered_coordinator_for_local_route --lib --all-features
-  cargo test -p kairo-cluster-sharding extension::tests::singleton_successor_recovers_shard_from_transport_ddata --lib --all-features # 10 stress runs
-  cargo test -p kairo-cluster-sharding --lib --all-features # 5 stress runs
-  cargo test -p kairo-cluster wire_outbound_actor_survives_transient_transport_failure
-  cargo test -p kairo-examples --test sharding_tcp_acceptance --all-features -- --nocapture # 5 stress runs
-  cargo test -p kairo-testkit --all-targets --all-features
+  cargo test -p kairo-cluster-sharding region_survives_transient_remote_control_reply_failure --lib --all-features
+  cargo test -p kairo-cluster-sharding singleton_successor_recovers_shard_from_transport_ddata --all-features
+  cargo test -p kairo-cluster-sharding public_ddata_remember_entities_recovers_entity_after_region_failover --all-features
+  cargo test -p kairo-cluster-sharding --all-features # 3 complete stress runs
   cargo fmt --all -- --check
   cargo clippy --workspace --all-targets --all-features -- -D warnings
-  cargo test --workspace --all-targets --all-features
   git diff --check
   ```
 
@@ -2055,12 +2060,13 @@ checkpoint, not an individual agent turn, test case, or validation command.
 - Continue treating repeated full-workspace validation as an M13 readiness
   gate; one green run is useful evidence but does not remove the need for
   ongoing hardening around multi-node and lifecycle timing.
-- Current Windows suite-load reruns intermittently stop either
-  `public_ddata_remember_entities_recovers_entity_after_region_failover` or
-  `singleton_successor_recovers_shard_from_transport_ddata`; both pass
-  immediately in isolation, and the remaining 301 sharding unit tests plus all
-  four wire fixtures pass together. This remains an M13 lifecycle-timing gap,
-  not an external blocker.
+- The latest full-workspace Windows rerun passed formatting and clippy, then
+  exposed an intermittent one-second transport shutdown timeout in
+  `tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally`;
+  the cluster-tools case passed immediately in isolation. The prior sharding
+  suite-load lifecycle gap is closed by best-effort region acknowledgements
+  and ordered fixture teardown; the cluster-tools timeout is the next M13
+  lifecycle-timing gap, not an external blocker.
 - No external blockers are recorded in `docs/blocked.md`.
 
 ## Detailed Implementation Log

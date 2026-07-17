@@ -571,7 +571,12 @@ impl ComposedShardingNode {
     }
 
     fn shutdown(self) {
-        self.kit.system().stop(self.cluster.root());
+        let cluster_root = self.cluster.root().clone();
+        self.kit.system().stop(&cluster_root);
+        assert!(
+            cluster_root.wait_for_stop(Duration::from_secs(2)),
+            "cluster root should stop before the composed transport runtime"
+        );
         self.runtime.shutdown().unwrap();
         self.kit.shutdown(Duration::from_secs(1)).unwrap();
     }

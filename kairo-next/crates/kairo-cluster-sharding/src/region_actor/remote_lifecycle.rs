@@ -18,9 +18,7 @@ where
         let plan = self.maybe_start_local_shard_from_host_plan(ctx, plan)?;
         let plan = self.replay_buffered_from_host_plan(plan)?;
         if let HostShardPlan::AlreadyStarted { started, .. } = plan {
-            reply
-                .send_shard_started(started.shard_id)
-                .map_err(|error| ActorError::Message(error.to_string()))?;
+            tolerate_remote_control_reply_send(reply.send_shard_started(started.shard_id))?;
         }
         Ok(())
     }
@@ -32,9 +30,7 @@ where
     ) -> ActorResult {
         let plan = self.runtime.begin_handoff(shard);
         if let crate::BeginHandOffPlan::Ack { ack, .. } = plan {
-            reply
-                .send_begin_handoff_ack(ack.shard_id)
-                .map_err(|error| ActorError::Message(error.to_string()))?;
+            tolerate_remote_control_reply_send(reply.send_begin_handoff_ack(ack.shard_id))?;
         }
         Ok(())
     }
@@ -126,9 +122,7 @@ where
         let plan = self.runtime.handoff(shard);
         match plan_remote_handoff(plan, self.remote_handoff.as_ref()) {
             RegionRemoteHandOffAction::ReplyShardStopped { stopped, .. } => {
-                reply
-                    .send_shard_stopped(stopped.shard_id)
-                    .map_err(|error| ActorError::Message(error.to_string()))?;
+                tolerate_remote_control_reply_send(reply.send_shard_stopped(stopped.shard_id))?;
             }
             RegionRemoteHandOffAction::ForwardToLocalShard {
                 shard,
@@ -224,10 +218,41 @@ where
         }
         self.runtime.mark_shard_stopped(&shard);
         self.local_shards.remove(&shard);
-        let result = reply
-            .send_shard_stopped(shard)
-            .map_err(|error| ActorError::Message(error.to_string()));
+        let result = tolerate_remote_control_reply_send(reply.send_shard_stopped(shard));
         self.try_complete_graceful_shutdown(ctx)?;
         result
+    }
+}
+
+fn tolerate_remote_control_reply_send(
+    result: Result<(), crate::ShardRegionRemoteError>,
+) -> ActorResult {
+    match result {
+        Ok(()) | Err(crate::ShardRegionRemoteError::Send { .. }) => Ok(()),
+        Err(error) => Err(ActorError::Message(error.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use kairo_serialization::SerializationError;
+
+    use super::*;
+
+    #[test]
+    fn region_survives_transient_remote_control_reply_failure() {
+        assert!(
+            tolerate_remote_control_reply_send(Err(crate::ShardRegionRemoteError::Send {
+                target: "coordinator".to_string(),
+                reason: "route unavailable".to_string(),
+            }))
+            .is_ok()
+        );
+        assert!(
+            tolerate_remote_control_reply_send(Err(crate::ShardRegionRemoteError::Serialization(
+                SerializationError::Message("invalid reply".to_string(),)
+            ),))
+            .is_err()
+        );
     }
 }

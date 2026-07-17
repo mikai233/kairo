@@ -2286,6 +2286,10 @@ Implementation shape:
   transitions, replies with stable `ShardStarted`/`BeginHandOffAck`, and
   replies with `ShardStopped` when a remote handoff targets a shard that is no
   longer local.
+- Region-side remote control acknowledgements are best effort after the local
+  state transition has completed: a transient transport send failure leaves
+  the region running so coordinator retry or timeout policy remains in charge,
+  while serialization failures remain fatal protocol errors.
 - Region-side remote handoff keeps the stable remote `HandOff` command limited
   to the shard id. The receiving region supplies the local entity stop message
   through an explicit stop-message factory, forwards handoff to the hosted
