@@ -2,7 +2,7 @@
 
 ## Current Milestone
 
-As of 2026-07-16, `kairo-next` has broad component coverage across local
+As of 2026-07-17, `kairo-next` has broad component coverage across local
 actors, serialization, remoting, gossip state, distributed data, sharding, and
 cluster tools. The component depth, composed acceptance workflows, and
 validation history now place the rewrite in its M13 hardening phase. The production
@@ -23,6 +23,9 @@ Remaining work is tuning, compatibility depth, documentation, and release
 hardening rather than foundational redesign. The workspace now declares and
 checks Rust 1.88 as its MSRV, runs the full stable test gate on Linux, Windows,
 and macOS, and executes benchmark smoke coverage with release optimizations.
+The legacy root `crates/` tree has now been removed after its documented facade,
+example, CI, manifest-independence, and release-gap gates were verified;
+historical sources remain available through Git history.
 
 Status terms in this document mean:
 
@@ -35,8 +38,8 @@ Status terms in this document mean:
 ## Milestone Snapshot
 
 - M0 workspace, contracts, and roadmap: complete. New implementation lives in
-  `kairo-next`, old `crates/` remains reference-only, the multi-crate boundary
-  is enforced, and the Pekko reference path is documented.
+  `kairo-next`, the legacy root `crates/` tree is absent, the multi-crate
+  boundary is enforced, and the Pekko reference path is documented.
 - M1 local actor vertical slice: complete. Typed local actors can be spawned,
   messaged, stopped, observed, and routed through actor paths and providers.
   Actor mailboxes now run as throughput-limited activations on an
@@ -1120,8 +1123,8 @@ Exit gate:
   independently running nodes;
 - ddata, sharding, singleton, and pubsub fault scenarios run on the same
   ActorSystem-owned transport and cluster runtime;
-- the old `crates/` implementation is unnecessary for normal development and
-  examples.
+- the legacy root `crates/` implementation is absent from normal development
+  and examples.
 
 Do not change: sharded entity IDs stay outside business messages; stable shard
 hashing and `EntityRef<M>` remain the user boundary.
@@ -5938,9 +5941,9 @@ Implemented:
   live in a focused sibling test module, leaving the parent test module for
   shared fixtures.
 - The repository README and `kairo-next` README now describe the active
-  Rust-first rewrite workspace, the old `crates/` implementation as
-  reference-only, the gossip-not-etcd cluster constraint, typed actor and
-  sharding APIs, and the current runnable examples.
+  Rust-first rewrite workspace, the verified removal of the legacy root
+  `crates/` implementation, the gossip-not-etcd cluster constraint, typed
+  actor and sharding APIs, and the current runnable examples.
 - The `kairo` facade test suite now pins the root workspace boundary so normal
   Cargo builds include only `kairo-next/crates/*` and do not point members or
   workspace dependencies at the legacy `crates/` reference tree; it also scans
@@ -5964,9 +5967,10 @@ Implemented:
   membership constraints, and validation commands. `docs/blocked.md` now
   records that there are no current external blockers.
 - `docs/migration.md` now also records the legacy `crates/` deprecation and
-  removal plan: the old tree remains reference-only, new work stays under
-  `kairo-next/`, and removal waits for documented facade, example, CI,
-  manifest-boundary, and tracked-release-gap gates.
+  removal contract: the old tree was removed after the documented facade,
+  example, CI, manifest-boundary, and tracked-release-gap gates were verified;
+  new work stays under `kairo-next/` and historical sources remain in Git
+  history.
 - The README files and migration notes now describe the configured-counter
   example as a facade configuration path for both actor dispatcher settings
   and current `[cluster.sharding]` timing/remember-entity helpers, keeping
@@ -6296,13 +6300,12 @@ Implemented:
   lockfile.
 - The `kairo` facade test suite now also pins the `docs/dependency-audit.md`
   active workspace member list against `kairo-next/crates/*/Cargo.toml`, so the
-  release audit cannot omit or retain stale active crates while the old
-  `crates/` implementation remains reference-only.
+  release audit cannot omit or retain stale active crates after the legacy
+  root `crates/` implementation's removal.
 - The `kairo` facade test suite now pins the `docs/migration.md` legacy
-  removal-plan gates, keeping the old `crates/` tree documented as
-  reference-only until facade entry points, example coverage, CI validation,
-  manifest boundaries, and tracked release gaps are all visible in migration
-  guidance.
+  removal record and verifies the root `crates/` tree remains absent after
+  facade entry points, example coverage, CI validation, manifest boundaries,
+  and tracked release gaps satisfied the documented removal gates.
 - The `kairo` facade test suite now also pins the user-facing module re-exports
   for the cluster, distributed-data, and cluster-tools TCP peer bootstrap
   facades, connector settings, connector message/snapshot types, and bootstrap
@@ -6764,6 +6767,24 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation after verified legacy-tree removal:
+
+```bash
+cargo test -p kairo root_workspace_members_stay_on_kairo_next --all-targets --all-features -- --nocapture
+cargo test -p kairo migration_notes_record_verified_legacy_removal --all-targets --all-features -- --nocapture
+cargo test -p kairo --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
+cargo test --doc --workspace --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo test -p kairo-testkit multi_node --all-targets --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks --allow-dirty
+KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
+git diff --check
+```
 
 Latest Phase 4 validation after composed removed-node pruning:
 
@@ -7406,10 +7427,10 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 git diff --check
 ```
 
-Latest M13 validation refresh after migration legacy-removal gate coverage:
+Latest M13 validation refresh after migration legacy-removal policy coverage:
 
 ```bash
-cargo test -p kairo migration_notes_pin_legacy_removal_gates --all-targets --all-features -- --nocapture
+cargo test -p kairo migration_notes_record_verified_legacy_removal --all-targets --all-features -- --nocapture
 cargo test -p kairo --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings

@@ -4,8 +4,9 @@ This document is the implementation blueprint for the Kairo rewrite. It uses
 Apache Pekko as the semantic reference, but the API and internal shape are
 Rust-first.
 
-The old implementation under `crates/` is reference material only. New code
-must live under `kairo-next/`.
+The legacy root `crates/` implementation was removed after the M13 removal
+gates were verified. Historical sources remain available through Git history;
+new code must live under `kairo-next/`.
 
 ## Non Goals
 

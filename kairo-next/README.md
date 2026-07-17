@@ -1,8 +1,8 @@
 # kairo-next
 
-`kairo-next` is the rewrite workspace for Kairo. The old implementation under
-`crates/` is intentionally kept as reference code but is no longer part of the
-root Cargo workspace.
+`kairo-next` is the rewrite workspace for Kairo. The legacy root `crates/`
+implementation was removed after the M13 removal gates were verified;
+historical sources remain available through Git history.
 
 The rewrite starts with final crate boundaries instead of a temporary single
 crate so remote, cluster, sharding, and tooling can evolve without a later
@@ -36,7 +36,7 @@ workspace split.
   shard passivation buffering.
 
 See `ARCHITECTURE.md` for the planned public model and implementation order.
-For migration guidance from the old reference crates, see
+For migration guidance from the historical implementation, see
 `../docs/migration.md`.
 
 `kairo-examples` and `kairo-benchmarks` are leaf support crates. Runtime crates

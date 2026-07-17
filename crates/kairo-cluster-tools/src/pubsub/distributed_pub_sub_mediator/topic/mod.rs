@@ -1,2 +1,0 @@
-mod group;
-mod topic;

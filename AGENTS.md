@@ -6,7 +6,8 @@ actor, remoting, cluster, and sharding framework. Agents should treat
 [kairo-next/ARCHITECTURE.md](kairo-next/ARCHITECTURE.md) as the technical
 contract.
 
-The old implementation under `crates/` is reference material only. New
+The legacy root `crates/` implementation was removed after its M13 removal
+gates were verified. Historical sources are available through Git history; all
 implementation work belongs under `kairo-next/`.
 
 ## Start Of Each Turn
@@ -31,8 +32,8 @@ implementation work belongs under `kairo-next/`.
 
 ## Hard Constraints
 
-- Do not revive the old `crates/` workspace as active implementation. It is
-  reference code only.
+- Do not recreate or revive the legacy root `crates/` workspace. Use Git
+  history for archaeology and keep all implementation under `kairo-next/`.
 - Use `~/IdeaProjects/pekko` as the local semantic reference for
   Pekko/Akka behavior before implementing actor, remote, cluster, distributed
   data, sharding, or cluster-tools logic.

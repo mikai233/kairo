@@ -1,8 +1,8 @@
 # Dependency And License Audit
 
 This audit covers the active `kairo-next` workspace with all features enabled.
-The old `crates/` implementation is reference material only and is not part of
-the normal build surface.
+The legacy root `crates/` implementation was removed after the M13 removal
+gates were verified and is not part of the normal build surface.
 
 Regenerate the dependency list with:
 

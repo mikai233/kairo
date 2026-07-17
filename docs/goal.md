@@ -6,8 +6,9 @@ cluster sharding, cluster tools, and test utilities without copying Pekko's
 Scala API shape.
 
 The rewrite is a replacement architecture, not an incremental cleanup of the
-old code. The old implementation under `crates/` remains useful as reference
-material, but the active implementation lives under `kairo-next/`.
+old code. The legacy root `crates/` implementation was removed after the M13
+removal gates were verified; its historical sources remain available through
+Git history, and the active implementation lives under `kairo-next/`.
 
 By the end of the milestone plan below, Kairo should be close to a complete
 refactor: old workspace code is no longer needed for normal builds, the new
@@ -150,7 +151,7 @@ Scope:
 
 ```text
 root workspace includes only kairo-next/crates/*
-old crates/ remains reference-only
+legacy root crates/ is absent from the active tree
 minimal external dependencies
 kairo-next crate boundaries established
 kairo-next/ARCHITECTURE.md documents module design
@@ -163,7 +164,7 @@ Acceptance:
 
 ```text
 cargo check --workspace --all-targets --all-features passes
-old crates/ are not workspace members
+legacy root crates/ is absent and is not a workspace member
 architecture explicitly rejects etcd membership
 architecture explicitly uses synchronous Actor::receive
 architecture defines remote message metadata and codec registration
@@ -562,7 +563,7 @@ sharding allocation and passivation tuning
 dependency/license audit
 CI validation matrix
 old README/status update
-deprecation or removal plan for old crates/
+verified removal of the legacy root crates/ tree
 ```
 
 Acceptance:
@@ -570,7 +571,7 @@ Acceptance:
 ```text
 cargo fmt, clippy, tests, examples, and benchmarks all pass where applicable
 new kairo facade is the recommended user entrypoint
-old crates/ are not needed for normal development or examples
+legacy root crates/ is absent from normal development and examples
 public APIs have docs and compile-tested examples
 cluster sharding demo survives node join, leave, rebalance, and entity restart
 known remaining gaps are release issues, not foundational architecture gaps

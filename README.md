@@ -2,8 +2,9 @@
 
 Kairo is being rewritten as a Rust-first actor framework inspired by Apache
 Pekko/Akka. The active implementation lives in [`kairo-next`](kairo-next/).
-The old crates under [`crates`](crates/) are retained as reference material and
-are not part of the normal workspace build.
+The legacy root `crates/` tree was removed after the M13 removal gates were
+verified. Its historical sources remain available through Git history and are
+not part of the normal workspace build.
 
 The rewrite is intentionally typed and modular:
 
@@ -20,8 +21,8 @@ The rewrite is intentionally typed and modular:
 See [`docs/goal.md`](docs/goal.md) for the product roadmap,
 [`kairo-next/ARCHITECTURE.md`](kairo-next/ARCHITECTURE.md) for the technical
 contract, and [`docs/progress.md`](docs/progress.md) for current
-implementation status. Migration guidance from the old reference crates to the
-new facade lives in [`docs/migration.md`](docs/migration.md).
+implementation status. Migration guidance from the historical implementation
+to the new facade lives in [`docs/migration.md`](docs/migration.md).
 
 ## Current Workspace
 

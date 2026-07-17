@@ -1,9 +1,9 @@
 # Migration Notes
 
-These notes describe the current path from the old `crates/` implementation to
-the Rust-first rewrite under `kairo-next/`. The old crates remain reference
-material only; normal development, examples, and validation should use the
-`kairo-next` workspace.
+These notes describe migration from the historical root `crates/`
+implementation to the Rust-first rewrite under `kairo-next/`. The legacy tree
+was removed after its M13 gates were verified; normal development, examples,
+and validation use the `kairo-next` workspace.
 
 ## Recommended Entry Point
 
@@ -45,18 +45,10 @@ use kairo_actor::{Actor, ActorSystem, Context, Props};
 use kairo_cluster_sharding::{EntityRef, ShardingEnvelope};
 ```
 
-## Legacy Crates Status And Removal Plan
+## Legacy Crates Removal
 
-The old `crates/` tree is reference material only. It is intentionally excluded
-from the root workspace, normal validation, runnable examples, and new
-implementation work.
-
-Do not add new features, fixes, or examples to `crates/` unless the change is
-strictly needed to preserve reference material for the rewrite. New user-facing
-work belongs under `kairo-next/`, and migration examples should use the `kairo`
-facade or focused `kairo-next/crates/*` crates.
-
-The legacy tree can be removed after these release-hardening gates are met:
+The legacy `crates/` tree was removed after the M13 removal gates were
+verified. The verified gates were:
 
 - the `kairo` facade is the documented entry point for normal users;
 - examples cover the local actor, configuration, remote, cluster,
@@ -68,10 +60,10 @@ The legacy tree can be removed after these release-hardening gates are met:
 - remaining migration gaps are tracked as release issues rather than requiring
   the old implementation for normal builds or examples.
 
-Removal should happen as a separate `chore` or `docs` checkpoint so it can be
-reviewed independently from behavior changes. That checkpoint should update the
-root README, migration notes, progress log, and any CI or packaging references
-that still mention the legacy tree.
+Removal is recorded as a separate `chore` checkpoint so it remains independently
+reviewable from behavior changes. The historical implementation remains
+recoverable from Git history for archaeology. The root `crates/` directory must
+not be recreated or used by normal builds, examples, or new implementation work.
 
 ## Actor Protocols
 

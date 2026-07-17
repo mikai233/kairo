@@ -117,11 +117,15 @@ fn root_workspace_members_stay_on_kairo_next() -> Result<(), Box<dyn std::error:
     );
     assert!(
         !root_manifest.contains("\"crates/"),
-        "legacy crates/ must remain reference-only, not workspace members"
+        "legacy root crates/ must not be reintroduced as workspace members"
     );
     assert!(
         !root_manifest.contains("path = \"crates/"),
         "workspace dependencies must not point at legacy crates/"
+    );
+    assert!(
+        !repo_root.join("crates").exists(),
+        "legacy root crates/ must remain absent after the verified M13 removal"
     );
 
     Ok(())
@@ -1310,30 +1314,28 @@ fn implementation_status_docs_do_not_mark_observability_facade_wiring_as_future_
 }
 
 #[test]
-fn migration_notes_pin_legacy_removal_gates() -> Result<(), Box<dyn std::error::Error>> {
+fn migration_notes_record_verified_legacy_removal() -> Result<(), Box<dyn std::error::Error>> {
     let repo_root = repo_root()?;
     let migration_path = repo_root.join("docs").join("migration.md");
     let migration = std::fs::read_to_string(&migration_path)?.replace("\r\n", "\n");
 
     let required_legacy_section_phrases = [
-        "The old `crates/` tree is reference material only.",
-        "intentionally excluded",
-        "from the root workspace",
-        "normal validation, runnable examples",
-        "implementation work",
-        "The legacy tree can be removed after these release-hardening gates are met:",
+        "The legacy `crates/` tree was removed after the M13 removal gates were",
+        "verified. The verified gates were:",
         "the `kairo` facade is the documented entry point for normal users",
         "examples cover the local actor, configuration, remote, cluster",
         "full workspace CI runs formatting, clippy with warnings denied, and tests",
         "workspace and active crate manifests do not depend on `crates/`",
         "remaining migration gaps are tracked as release issues",
-        "Removal should happen as a separate `chore` or `docs` checkpoint",
+        "Removal is recorded as a separate `chore` checkpoint",
+        "recoverable from Git history",
+        "not be recreated or used by normal builds",
     ];
 
     for phrase in required_legacy_section_phrases {
         assert!(
             migration.contains(phrase),
-            "{} must keep legacy-removal gate `{phrase}` documented",
+            "{} must record verified legacy removal contract `{phrase}`",
             migration_path.display()
         );
     }
