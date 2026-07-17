@@ -129,6 +129,14 @@ state, observer-versioned reachability, vector clocks, and tombstones. Change
 that schema only by introducing a new message version whose codec explicitly
 retains every rolling-upgrade direction that deployed nodes require.
 
+Cluster heartbeat correlation is independently pinned by the checked
+`heartbeat-v1.hex` and `heartbeat-rsp-v1.hex` fixtures in the same cluster
+fixture directory. The request fixes the exact requester incarnation, sequence
+number, and creation timestamp; the response fixes the responder incarnation
+and must echo both correlation fields unchanged. Both version-1 payloads must
+decode and be reproduced exactly. Layout changes require a new heartbeat
+message version rather than reinterpretation of these bytes.
+
 Distributed-data delta propagation demonstrates that rule across two wire
 schema generations. The checked
 `kairo-next/crates/kairo-distributed-data/tests/fixtures/delta-propagation-v1.hex`

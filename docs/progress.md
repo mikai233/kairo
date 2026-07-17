@@ -75,6 +75,9 @@ Status terms in this document mean:
   cluster `GossipEnvelope`-v1 fixture now likewise pins the complete
   full-membership payload, including incarnation identities, deterministic
   membership and seen ordering, reachability, causal clocks, and tombstones.
+  Checked heartbeat request/response v1 fixtures now pin exact requester and
+  responder incarnations plus the sequence and creation-time fields that the
+  receiver must echo unchanged.
   Checked ddata
   delta-propagation fixtures now prove historical v1 decode plus exact v2
   encode/decode with CRDT metadata, causal ranges, and both pruning lifecycle
@@ -153,8 +156,10 @@ Status terms in this document mean:
   removal contracts and deny missing public documentation. The stable
   membership protocol records, manifests, versions, serializer identifiers,
   binary codecs, and registry entry points are now documented under the same
-  hard missing-documentation gate. The remote-envelope and typed membership
-  wire adapters also hard-gate their canonical-path resolution,
+  hard missing-documentation gate. Checked heartbeat request/response v1
+  fixtures also freeze the unique-incarnation identities and echoed correlation
+  fields used by failure-detector traffic. The remote-envelope and typed
+  membership wire adapters also hard-gate their canonical-path resolution,
   unique-incarnation validation, supported-command boundary, reply-route
   ownership, and transient delivery-failure contracts. Seed contact now carries
   the same hard gate across its pure retry/self-formation state machine, actor

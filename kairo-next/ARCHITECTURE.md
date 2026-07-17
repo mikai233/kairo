@@ -1371,6 +1371,17 @@ Remote heartbeat transport:
 - `HeartbeatRemoteResponseInbound` deserializes response envelopes and feeds
   `HeartbeatSenderMsg::HeartbeatResponse` back into the local heartbeat sender.
 
+Heartbeat wire compatibility:
+
+- `Heartbeat` version 1 writes the requesting `UniqueAddress`, followed by the
+  sender-local big-endian `u64` sequence number and creation-time nanoseconds,
+- `HeartbeatRsp` version 1 writes the responder's `UniqueAddress`, followed by
+  the exact sequence number and creation time copied from the request,
+- the checked `heartbeat-v1.hex` and `heartbeat-rsp-v1.hex` fixtures must both
+  decode to those exact values and be reproduced by serializer ids `2000` and
+  `2001`. An incompatible identity or correlation-field layout requires a new
+  message version and an explicit rolling-upgrade compatibility path.
+
 Heartbeat must feed reachability only. It does not directly remove members.
 Removal is a leader action after gossip convergence.
 
