@@ -51,9 +51,27 @@ pub(super) fn parse_cluster(value: &Value) -> Result<ClusterConfig, ConfigError>
     reject_unknown(
         table,
         "cluster",
-        &["seed", "heartbeat", "downing", "sharding", "tools"],
+        &[
+            "roles",
+            "app_version",
+            "data_center",
+            "seed",
+            "heartbeat",
+            "downing",
+            "sharding",
+            "tools",
+        ],
     )?;
     let mut config = ClusterConfig::default();
+    if let Some(roles) = table.get("roles") {
+        config.roles = parse_string_array(roles, "cluster.roles")?;
+    }
+    if let Some(app_version) = table.get("app_version") {
+        config.app_version = parse_string(app_version, "cluster.app_version")?;
+    }
+    if let Some(data_center) = table.get("data_center") {
+        config.data_center = parse_string(data_center, "cluster.data_center")?;
+    }
     if let Some(seed) = table.get("seed") {
         config.seed = parse_cluster_seed(seed)?;
     }

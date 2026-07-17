@@ -159,6 +159,11 @@ canonical_hostname = "10.0.0.12"
 canonical_port = 25521
 connect_timeout = "250ms"
 
+[cluster]
+roles = ["backend", "worker"]
+app_version = "2.4.1"
+data_center = "west"
+
 [cluster.seed]
 nodes = [
   "kairo://kairo@10.0.0.10:25520",
@@ -221,6 +226,9 @@ gossip_state_changes = true
         settings.remote.transport.connect_timeout,
         Some(Duration::from_millis(250))
     );
+    assert_eq!(settings.cluster.roles, ["backend", "worker"]);
+    assert_eq!(settings.cluster.app_version, "2.4.1");
+    assert_eq!(settings.cluster.data_center, "west");
     assert_eq!(settings.cluster.seed.nodes.len(), 2);
     assert_eq!(settings.cluster.heartbeat.monitored_by_nr_of_members, 7);
     assert_eq!(settings.cluster.heartbeat.interval, Duration::from_secs(2));
@@ -1139,6 +1147,69 @@ number_of_shards = 0
 }
 
 #[test]
+fn toml_config_rejects_reserved_or_blank_cluster_identity() {
+    for (toml, path, reason) in [
+        (
+            r#"
+[cluster]
+roles = ["backend", "dc-west"]
+"#,
+            "cluster.roles[1]",
+            "must not use the reserved dc- prefix",
+        ),
+        (
+            r#"
+[cluster]
+roles = ["   "]
+"#,
+            "cluster.roles[0]",
+            "must not be empty",
+        ),
+        (
+            r#"
+[cluster]
+app_version = "   "
+"#,
+            "cluster.app_version",
+            "must not be empty",
+        ),
+        (
+            r#"
+[cluster]
+data_center = "   "
+"#,
+            "cluster.data_center",
+            "must not be empty",
+        ),
+    ] {
+        assert_eq!(
+            parse_toml_str(toml).unwrap_err(),
+            ConfigError::InvalidValue {
+                path: path.to_string(),
+                reason: reason.to_string(),
+            }
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "cluster")]
+fn toml_config_rejects_invalid_cluster_application_version() {
+    let error = parse_toml_str(
+        r#"
+[cluster]
+app_version = "1.two"
+"#,
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        ConfigError::InvalidValue { path, .. } if path == "cluster.app_version"
+    ));
+}
+
+#[test]
 fn toml_config_rejects_zero_remote_connect_timeout() {
     let error = parse_toml_str(
         r#"
@@ -1508,6 +1579,11 @@ canonical_hostname = "127.0.0.42"
 canonical_port = 26666
 connect_timeout = "1500ms"
 
+[cluster]
+roles = ["backend", "worker", "backend"]
+app_version = "2.7.1-RC1"
+data_center = "west"
+
 [cluster.seed]
 nodes = [
   "kairo://cluster@seed-a.example.test:25520",
@@ -1562,6 +1638,14 @@ expected_response_after = "750ms"
         heartbeat.heartbeat_expected_response_after,
         Duration::from_millis(750)
     );
+
+    let daemon = settings.cluster.to_daemon_bootstrap_settings(42).unwrap();
+    assert_eq!(daemon.roles(), ["backend", "worker", "dc-west"]);
+    assert_eq!(daemon.app_version().as_str(), "2.7.1-RC1");
+    assert_eq!(daemon.seed_nodes().len(), 2);
+    assert_eq!(daemon.seed_nodes()[0].system(), "cluster");
+    assert_eq!(daemon.seed_nodes()[0].host(), Some("seed-a.example.test"));
+    assert_eq!(daemon.seed_nodes()[0].port(), Some(25520));
 }
 
 #[test]

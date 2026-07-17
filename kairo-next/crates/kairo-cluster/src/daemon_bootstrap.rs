@@ -88,6 +88,18 @@ impl ClusterDaemonBootstrapSettings {
         self.app_version = value;
         self
     }
+    /// Returns the ordered seed addresses contacted during automatic join.
+    pub fn seed_nodes(&self) -> &[kairo_actor::Address] {
+        &self.seed_nodes
+    }
+    /// Returns the roles advertised by the local cluster member.
+    pub fn roles(&self) -> &[String] {
+        &self.roles
+    }
+    /// Returns the application version advertised through cluster membership.
+    pub fn app_version(&self) -> &ApplicationVersion {
+        &self.app_version
+    }
     /// Sets the configuration compatibility digest exchanged during seed contact.
     ///
     /// `None` disables compatibility checking for incoming join attempts.

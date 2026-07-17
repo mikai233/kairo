@@ -211,6 +211,11 @@ workers = 4
 workers = 4
 queue_capacity = 1024
 
+[cluster]
+roles = ["backend"]
+app_version = "1.0.0"
+data_center = "west"
+
 [cluster.seed]
 nodes = ["kairo://cluster@seed-a.example.test:25520"]
 
@@ -264,6 +269,15 @@ code:
 
 ```rust
 let seed_contacts = settings.cluster.seed.to_remote_association_addresses()?;
+```
+
+When cluster support is enabled, the facade can project identity, seed, and
+heartbeat settings into daemon bootstrap settings. The configured data center
+is advertised as the reserved `dc-<name>` role, matching Pekko membership
+semantics; duplicate configured roles collapse during that projection:
+
+```rust
+let daemon = settings.cluster.to_daemon_bootstrap_settings(node_uid)?;
 ```
 
 Cluster downing settings can be mapped into runtime hooks for `none`,

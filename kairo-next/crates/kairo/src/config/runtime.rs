@@ -275,12 +275,86 @@ impl RemoteConfig {
 impl ClusterConfig {
     /// Validates cluster, sharding, and cluster-tools settings.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        for (index, role) in self.roles.iter().enumerate() {
+            if role.trim().is_empty() {
+                return Err(ConfigError::InvalidValue {
+                    path: format!("cluster.roles[{index}]"),
+                    reason: "must not be empty".to_string(),
+                });
+            }
+            if role.starts_with("dc-") {
+                return Err(ConfigError::InvalidValue {
+                    path: format!("cluster.roles[{index}]"),
+                    reason: "must not use the reserved dc- prefix".to_string(),
+                });
+            }
+        }
+        if self.app_version.trim().is_empty() {
+            return Err(ConfigError::InvalidValue {
+                path: "cluster.app_version".to_string(),
+                reason: "must not be empty".to_string(),
+            });
+        }
+        #[cfg(feature = "cluster")]
+        self.app_version
+            .parse::<kairo_cluster::ApplicationVersion>()
+            .map_err(|error| ConfigError::InvalidValue {
+                path: "cluster.app_version".to_string(),
+                reason: error.to_string(),
+            })?;
+        if self.data_center.trim().is_empty() {
+            return Err(ConfigError::InvalidValue {
+                path: "cluster.data_center".to_string(),
+                reason: "must not be empty".to_string(),
+            });
+        }
         self.seed.validate()?;
         self.heartbeat.validate()?;
         self.downing.validate()?;
         self.sharding.validate()?;
         self.tools.validate()?;
         Ok(())
+    }
+
+    #[cfg(feature = "cluster")]
+    /// Converts cluster identity, seed, and heartbeat settings into daemon bootstrap settings.
+    pub fn to_daemon_bootstrap_settings(
+        &self,
+        node_uid: u64,
+    ) -> Result<kairo_cluster::ClusterDaemonBootstrapSettings, ConfigError> {
+        self.validate()?;
+        let app_version = self
+            .app_version
+            .parse::<kairo_cluster::ApplicationVersion>()
+            .map_err(|error| ConfigError::InvalidValue {
+                path: "cluster.app_version".to_string(),
+                reason: error.to_string(),
+            })?;
+        let seed_nodes = self
+            .seed
+            .to_remote_association_addresses()?
+            .into_iter()
+            .map(|address| {
+                kairo_actor::Address::new(
+                    address.protocol(),
+                    address.system(),
+                    Some(address.host().to_string()),
+                    address.port(),
+                )
+            })
+            .collect();
+        let mut roles = Vec::with_capacity(self.roles.len() + 1);
+        for role in &self.roles {
+            if !roles.contains(role) {
+                roles.push(role.clone());
+            }
+        }
+        roles.push(format!("dc-{}", self.data_center));
+        Ok(kairo_cluster::ClusterDaemonBootstrapSettings::new(node_uid)
+            .with_seed_nodes(seed_nodes)
+            .with_roles(roles)
+            .with_app_version(app_version)
+            .with_heartbeat_sender_settings(self.heartbeat.to_heartbeat_sender_settings()?))
     }
 }
 

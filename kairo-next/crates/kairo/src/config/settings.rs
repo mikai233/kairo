@@ -108,8 +108,16 @@ impl Default for RemoteTransportConfig {
 }
 
 /// Cluster-family settings grouped under one format-neutral root.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClusterConfig {
+    /// User-defined roles advertised by this cluster member.
+    ///
+    /// The `dc-` prefix is reserved for the derived data-center role.
+    pub roles: Vec<String>,
+    /// Application version advertised through cluster membership.
+    pub app_version: String,
+    /// Logical data center advertised through the reserved `dc-` member role.
+    pub data_center: String,
     /// Seed/contact points used to discover existing cluster members.
     pub seed: ClusterSeedConfig,
     /// Failure-detector and heartbeat timing settings.
@@ -120,6 +128,21 @@ pub struct ClusterConfig {
     pub sharding: ClusterShardingConfig,
     /// Cluster singleton and pubsub settings.
     pub tools: ClusterToolsConfig,
+}
+
+impl Default for ClusterConfig {
+    fn default() -> Self {
+        Self {
+            roles: Vec::new(),
+            app_version: "0.0.0".to_string(),
+            data_center: "default".to_string(),
+            seed: ClusterSeedConfig::default(),
+            heartbeat: ClusterHeartbeatConfig::default(),
+            downing: ClusterDowningConfig::default(),
+            sharding: ClusterShardingConfig::default(),
+            tools: ClusterToolsConfig::default(),
+        }
+    }
 }
 
 /// Cluster seed/contact point settings.

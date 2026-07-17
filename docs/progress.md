@@ -5195,6 +5195,11 @@ Implemented:
   `[observability.diagnostics]` into backend-neutral diagnostic category flags
   for dead letters, remote delivery failures, serialization failures,
   quarantine events, and gossip state changes.
+- Format-neutral `[cluster]` settings now carry user roles, application
+  version, and data center. Validation reserves Pekko's `dc-` role prefix, and
+  the cluster-enabled facade projects those settings with seed contacts and
+  heartbeat policy into `ClusterDaemonBootstrapSettings`, deriving exactly one
+  `dc-<data_center>` membership role.
 - `KairoSettings::actor_system_builder` now maps the dead-letter diagnostic
   flag into `ActorSystemBuilder::publish_dead_letters_to_event_stream`, so
   applications can disable dead-letter event-stream publication while retaining
@@ -6780,6 +6785,18 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation after format-neutral cluster identity settings and daemon
+bootstrap projection:
+
+```bash
+cargo test -p kairo --all-targets --all-features
+cargo test -p kairo-cluster --all-targets --all-features
+cargo test -p kairo-examples --all-targets --all-features
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation after cluster membership-control v1 fixture coverage:
 

@@ -6,6 +6,11 @@ canonical_hostname = "0.0.0.0"
 canonical_port = 25520
 connect_timeout = "1s"
 
+[cluster]
+roles = ["backend"]
+app_version = "1.0.0"
+data_center = "default"
+
 [cluster.sharding]
 number_of_shards = 64
 remember_entities = false

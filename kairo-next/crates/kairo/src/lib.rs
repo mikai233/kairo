@@ -45,6 +45,11 @@
 //! canonical_port = 25521
 //! connect_timeout = "1s"
 //!
+//! [cluster]
+//! roles = ["worker"]
+//! app_version = "1.0.0"
+//! data_center = "west"
+//!
 //! [cluster.seed]
 //! nodes = ["kairo://worker@127.0.0.1:25521"]
 //!
@@ -78,6 +83,9 @@
 //! assert_eq!(settings.actor.default_mailbox()?.capacity, Some(1024));
 //! assert_eq!(settings.remote.transport.canonical_port, 25521);
 //! assert_eq!(settings.remote.transport.connect_timeout, Some(Duration::from_secs(1)));
+//! assert_eq!(settings.cluster.roles, ["worker"]);
+//! assert_eq!(settings.cluster.app_version, "1.0.0");
+//! assert_eq!(settings.cluster.data_center, "west");
 //! assert_eq!(settings.cluster.seed.nodes.len(), 1);
 //! assert_eq!(settings.cluster.heartbeat.interval, Duration::from_millis(500));
 //! assert_eq!(settings.cluster.sharding.number_of_shards, 100);

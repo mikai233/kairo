@@ -180,6 +180,9 @@ Suggested top-level sections:
 [remote.transport]
 
 [cluster]
+# roles = ["backend"]
+# app_version = "1.0.0"
+# data_center = "default"
 [cluster.seed]
 [cluster.downing]
 
@@ -190,6 +193,13 @@ Suggested top-level sections:
 
 [observability.diagnostics]
 ```
+
+`cluster.roles` contains user roles only, is projected with set semantics, and
+reserves the `dc-` prefix.
+Cluster bootstrap derives the Pekko-compatible `dc-<data_center>` role and
+parses `cluster.app_version` into the comparable membership version before
+forming or joining a cluster. Seed addresses remain discovery contacts rather
+than an authoritative membership store.
 
 ## Public API Shape
 
