@@ -91,9 +91,11 @@ Status terms in this document mean:
   Checked ddata
   delta-propagation fixtures now prove historical v1 decode plus exact v2
   encode/decode with CRDT metadata, causal ranges, and both pruning lifecycle
-  states. Checked sharding v1 fixtures now pin exact shard-home ownership and
-  routed entity-envelope bytes, including nested application serializer
-  metadata. A checked cluster-tools `PubSubDelta`-v1 fixture now pins source
+  states. Checked sharding v1 fixtures now pin exact shard-home ownership,
+  routed entity-envelope bytes including nested application serializer
+  metadata, and every coordinator control payload across registration, shard
+  discovery/hosting, two-phase handoff, graceful shutdown, and region stop.
+  A checked cluster-tools `PubSubDelta`-v1 fixture now pins source
   and bucket incarnations, registry versions, every key tag, and removal
   tombstones in exact encode/decode directions. Checked singleton handover and
   business-envelope v1 fixtures now also pin the exact sending incarnation and
@@ -1185,6 +1187,19 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- Latest M13 compatibility hardening pins exact v1 payload bytes and registered
+  metadata for all 12 sharding coordinator control manifests, in addition to
+  the routed business envelope. The focused wire gate and complete sharding
+  crate gate pass:
+
+  ```bash
+  cargo test -p kairo-cluster-sharding --test wire_compatibility --all-features
+  cargo test -p kairo-cluster-sharding --all-targets --all-features
+  cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+  cargo fmt --all -- --check
+  git diff --check
+  ```
 
 - Latest M13 process-fault hardening kills a live receiver after a successful
   dial, observes exact route removal, and rejects the next typed send. The full
@@ -6757,8 +6772,9 @@ Not yet implemented:
   fixtures beyond the checked remote-envelope frame-v1 and TCP association
   handshake-v2 bytes, checked cluster full-gossip, heartbeat, and complete
   membership-control payload-v1 bytes, checked ddata delta-propagation
-  payload-v1/v2 bytes, checked sharding ownership and routed-envelope payload-v1
-  bytes, checked cluster-tools pubsub-delta and singleton-control payload-v1
+  payload-v1/v2 bytes, checked sharding ownership, routed-envelope, and complete
+  coordinator-control payload-v1 bytes, checked cluster-tools pubsub-delta and
+  singleton-control payload-v1
   bytes, checked reliable-system envelope/reply payload-v1 bytes, and current
   bidirectional process-level v1/v2 remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the

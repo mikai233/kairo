@@ -2137,8 +2137,14 @@ business serializer-id as big-endian `u32`, nested manifest, nested big-endian
 big-endian `u32` byte-length prefixes. The checked 80-byte
 `kairo-cluster-sharding/tests/fixtures/shard-home-v1.hex` and 77-byte
 `routed-shard-envelope-v1.hex` fixtures must decode and reproduce exactly.
-Incompatible ownership, routing, or nested-metadata changes require new message
-versions and explicit compatibility paths.
+The shared `shard-id-v1.hex`, `region-ref-v1.hex`, and
+`coordinator-ref-v1.hex` fixtures additionally pin every version-1 coordinator
+control payload: register, register-ack, get-shard-home, shard-home, host-shard,
+shard-started, begin-handoff, begin-handoff-ack, handoff, shard-stopped,
+graceful-shutdown-request, and region-stopped. Their distinct serializer ids
+and manifests remain part of the compatibility gate even where payload layouts
+are shared. Incompatible ownership, routing, lifecycle-control, or nested
+metadata changes require new message versions and explicit compatibility paths.
 
 `ClusterSharding::init` currently requires an explicit stop message because
 the coordinator's host-shard and handoff transport are one lifecycle boundary.
