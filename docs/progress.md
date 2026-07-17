@@ -683,10 +683,12 @@ Status terms in this document mean:
   while preserving the existing per-lane capacity and immediate-overflow
   behavior. Process-level remoting now also proves
   bidirectional v1/v2 compatibility through the stable serializer-id/manifest
-  contract and codec-owned schema migration, while the facade, actor/serialization
-  foundation, testkit, and typed remoting boundary now enforce complete
-  public-item documentation; final sign-off focuses on release quality rather
-  than replacement architecture.
+  contract and codec-owned schema migration. A forced receiver-process crash
+  now proves dialing-side reader completion removes the exact association route
+  and makes later typed sends reject instead of retaining a stale transport.
+  The facade, actor/serialization foundation, testkit, and typed remoting
+  boundary now enforce complete public-item documentation; final sign-off
+  focuses on release quality rather than replacement architecture.
 
 ## Execution Plan Before M13
 
@@ -1183,6 +1185,15 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- Latest M13 process-fault hardening kills a live receiver after a successful
+  dial, observes exact route removal, and rejects the next typed send. The full
+  six-case process-remoting suite passed five consecutive stress runs:
+
+  ```bash
+  cargo test -p kairo-remote --test process_remoting composed_runtime_removes_route_after_receiver_process_crashes --all-features -- --nocapture
+  cargo test -p kairo-remote --test process_remoting --all-features # 5 stress runs
+  ```
 
 - Latest M13 sharding hardening validates buffered shard-home retry,
   best-effort coordinator and region control delivery under transient route

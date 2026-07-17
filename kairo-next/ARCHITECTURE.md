@@ -993,7 +993,9 @@ TCP association dialing:
   an OS-process boundary. The receiver child publishes only its bound canonical
   address and typed actor path; the independent sender builds its own codec
   registry and ActorSystem, dials over TCP, delivers through `RemoteActorRef<M>`,
-  and both processes complete bounded shutdown without shared runtime state,
+  and both processes complete bounded shutdown without shared runtime state.
+  A forced receiver-process exit also proves dialing-side reader completion
+  removes the exact cached route and rejects later typed sends,
 - `TcpRemoteActorRuntime::shutdown_with_timeout` stops the runtime-owned
   managed-redial worker, reliable-delivery scheduler, and remote death-watch
   actors before clearing outbound association routes and

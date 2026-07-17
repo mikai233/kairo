@@ -317,6 +317,54 @@ fn composed_runtime_decodes_v2_message_into_forward_compatible_v1_type_across_pr
     child.wait_success(PROCESS_TIMEOUT);
 }
 
+#[test]
+fn composed_runtime_removes_route_after_receiver_process_crashes() {
+    let (mut child, _lines, port, remote_path) = spawn_ready_receiver("process_receiver_child");
+
+    let system = ActorSystem::builder("crash-sender").build().unwrap();
+    let mut builder = TcpRemoteActorRuntime::builder(
+        system.clone(),
+        current_registry(),
+        RemoteSettings::new("127.0.0.1", 0),
+        55,
+    );
+    builder.register::<ProcessPing>().unwrap();
+    let runtime = builder.bind().unwrap();
+    let receiver_address =
+        RemoteAssociationAddress::new("kairo", "receiver", "127.0.0.1", Some(port)).unwrap();
+    let _registration = runtime.dial(receiver_address.clone()).unwrap();
+    let remote_target = runtime.resolve::<ProcessPing>(remote_path).unwrap();
+    assert!(
+        runtime
+            .association_cache()
+            .contains_route(&receiver_address)
+    );
+
+    child.kill_and_wait(PROCESS_TIMEOUT);
+    let deadline = Instant::now() + PROCESS_TIMEOUT;
+    while runtime
+        .association_cache()
+        .contains_route(&receiver_address)
+    {
+        assert!(
+            Instant::now() < deadline,
+            "sender route remained active after receiver process crashed"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
+
+    let error = remote_target
+        .tell(ProcessPing { value: 99, tag: 1 })
+        .expect_err("typed send after receiver crash should reject");
+    assert!(
+        error.reason().contains("no remote association route"),
+        "unexpected post-crash send error: {error:?}"
+    );
+
+    runtime.shutdown().unwrap();
+    system.terminate(Duration::from_secs(1)).unwrap();
+}
+
 fn spawn_ready_receiver(receiver_test: &str) -> (ChildGuard, mpsc::Receiver<String>, u16, String) {
     let mut child = ChildGuard::spawn_receiver(receiver_test);
     let lines = child.take_stdout_lines();
@@ -397,6 +445,24 @@ impl ChildGuard {
                 }
                 None if Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
                 None => panic!("receiver child did not exit within {timeout:?}"),
+            }
+        }
+    }
+
+    fn kill_and_wait(&mut self, timeout: Duration) {
+        self.child.kill().expect("receiver child kill failed");
+        let deadline = Instant::now() + timeout;
+        loop {
+            match self.child.try_wait().expect("receiver child wait failed") {
+                Some(status) => {
+                    assert!(
+                        !status.success(),
+                        "killed receiver child exited successfully"
+                    );
+                    return;
+                }
+                None if Instant::now() < deadline => thread::sleep(Duration::from_millis(5)),
+                None => panic!("killed receiver child did not exit within {timeout:?}"),
             }
         }
     }
