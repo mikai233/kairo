@@ -464,6 +464,11 @@ Status terms in this document mean:
   before applying coordinator discovery, so singleton handover cannot allocate
   a new shard to a late-registering leaving region and strand an accepted
   envelope there; removed regions also clear retained availability markers.
+  The same connector now projects initial and live cluster reachability into
+  the coordinator's unavailable-region set for members in the local data
+  center, suppressing periodic rebalance during a partition and clearing the
+  gate when reachability heals without letting cross-data-center observations
+  block local balancing.
   The region runtime now hard-gates its bidirectional home cache, globally
   bounded per-shard FIFO buffers, local startup, remote forwarding, region-stop
   cleanup, and Pekko-aligned begin-handoff and reorder-prevention contracts.
@@ -2033,7 +2038,7 @@ checkpoint, not an individual agent turn, test case, or validation command.
   git diff --check
   ```
 
-- The current full M13 validation gate passes on this tree:
+- The full M13 validation gate has passed on this tree:
   `cargo fmt --all -- --check`,
   `cargo clippy --workspace --all-targets --all-features -- -D warnings`,
   `cargo test --workspace --all-targets --all-features`,
@@ -2050,6 +2055,12 @@ checkpoint, not an individual agent turn, test case, or validation command.
 - Continue treating repeated full-workspace validation as an M13 readiness
   gate; one green run is useful evidence but does not remove the need for
   ongoing hardening around multi-node and lifecycle timing.
+- Current Windows suite-load reruns intermittently stop either
+  `public_ddata_remember_entities_recovers_entity_after_region_failover` or
+  `singleton_successor_recovers_shard_from_transport_ddata`; both pass
+  immediately in isolation, and the remaining 301 sharding unit tests plus all
+  four wire fixtures pass together. This remains an M13 lifecycle-timing gap,
+  not an external blocker.
 - No external blockers are recorded in `docs/blocked.md`.
 
 ## Detailed Implementation Log
@@ -6785,6 +6796,19 @@ Not yet implemented:
   cluster-tools, and focused peer-runtime partial-failure retry coverage.
 
 ## Last Validation
+
+Latest M13 validation after projecting cluster reachability into the sharding
+rebalance gate:
+
+```bash
+cargo test -p kairo-cluster-sharding --all-features connector::tests -- --test-threads=1
+cargo test -p kairo-cluster-sharding --all-targets --all-features -- --test-threads=1 --skip extension::tests::public_ddata_remember_entities_recovers_entity_after_region_failover --skip extension::tests::singleton_successor_recovers_shard_from_transport_ddata
+cargo test -p kairo-cluster-sharding --all-features extension::tests::public_ddata_remember_entities_recovers_entity_after_region_failover -- --exact --test-threads=1
+cargo test -p kairo-cluster-sharding --all-features extension::tests::singleton_successor_recovers_shard_from_transport_ddata -- --exact --test-threads=1
+cargo fmt --all -- --check
+cargo clippy -p kairo-cluster-sharding --all-targets --all-features -- -D warnings
+git diff --check
+```
 
 Latest M13 validation after format-neutral cluster identity settings and daemon
 bootstrap projection:

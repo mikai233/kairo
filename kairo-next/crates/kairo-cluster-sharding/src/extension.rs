@@ -15,7 +15,7 @@
 //! envelopes and control messages form the wire boundary.
 
 use std::any::Any;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::{self, Display, Formatter};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -26,7 +26,8 @@ use kairo_actor::{
 };
 use kairo_cluster::{
     Cluster, ClusterDaemonRegistration, ClusterEvent, ClusterExtension, ClusterSubscriptionEvent,
-    ClusterSubscriptionInitialState, Member, MemberEvent, MemberStatus, UniqueAddress,
+    ClusterSubscriptionInitialState, Member, MemberEvent, MemberStatus, ReachabilityEvent,
+    UniqueAddress,
 };
 use kairo_cluster_tools::{
     ClusterSingleton, ClusterSingletonBootstrapError, ClusterSingletonRef,

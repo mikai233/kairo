@@ -2412,6 +2412,7 @@ pub struct CoordinatorState {
 Runtime state:
 
 - `alive_regions`,
+- same-data-center `unavailable_regions` derived from cluster reachability,
 - `rebalance_in_progress: HashMap<ShardId, PendingRequestSet>`,
 - `rebalance_workers`,
 - `graceful_shutdown_in_progress`,
@@ -2475,7 +2476,8 @@ Default strategy:
 - rebalance from most-loaded regions to least-loaded regions,
 - limit by absolute and relative rebalance limits,
 - never rebalance a shard already in progress,
-- avoid allocating to leaving/down/unreachable regions.
+- avoid allocating to leaving/down regions,
+- suppress rebalance while any same-data-center member is unreachable.
 
 ### Passivation
 

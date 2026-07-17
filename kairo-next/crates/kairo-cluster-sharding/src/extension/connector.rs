@@ -59,6 +59,16 @@ fn member_event_member(event: &MemberEvent) -> &Member {
     }
 }
 
+fn member_is_in_self_data_center(
+    members: &BTreeMap<String, Member>,
+    self_node: &UniqueAddress,
+    member: &Member,
+) -> bool {
+    members
+        .get(&self_node.ordering_key())
+        .is_none_or(|self_member| self_member.data_center() == member.data_center())
+}
+
 impl<M> ClusterShardingConnector<M>
 where
     M: Clone + Send + 'static,
@@ -133,10 +143,7 @@ where
         let region = remote_region_id(&region_wire);
         match coordinator_region_lifecycle(&member.status) {
             CoordinatorRegionLifecycle::Eligible => {
-                self.tell_coordinator(ShardCoordinatorMsg::UnmarkRegionTerminating {
-                    region: region.clone(),
-                })?;
-                self.tell_coordinator(ShardCoordinatorMsg::UnmarkRegionUnavailable { region })
+                self.tell_coordinator(ShardCoordinatorMsg::UnmarkRegionTerminating { region })
             }
             CoordinatorRegionLifecycle::Pending => Ok(()),
             CoordinatorRegionLifecycle::Terminating => {
@@ -146,6 +153,31 @@ where
                 self.tell_coordinator(ShardCoordinatorMsg::RegionStopped { region })
             }
         }
+    }
+
+    fn sync_coordinator_region_reachability(
+        &self,
+        member: &Member,
+        unavailable: bool,
+    ) -> ActorResult {
+        if !self.member_is_in_self_data_center(member) {
+            return Ok(());
+        }
+        let region_wire = ActorRefWireData::new(format!(
+            "{}{}",
+            member.unique_address.address, self.config.region_path
+        ))
+        .map_err(|error| ActorError::Message(error.to_string()))?;
+        let region = remote_region_id(&region_wire);
+        if unavailable {
+            self.tell_coordinator(ShardCoordinatorMsg::MarkRegionUnavailable { region })
+        } else {
+            self.tell_coordinator(ShardCoordinatorMsg::UnmarkRegionUnavailable { region })
+        }
+    }
+
+    fn member_is_in_self_data_center(&self, member: &Member) -> bool {
+        member_is_in_self_data_center(&self.members, &self.config.self_node, member)
     }
 
     fn tell_coordinator(&self, message: ShardCoordinatorMsg<M>) -> ActorResult {
@@ -211,8 +243,17 @@ where
                     .cloned()
                     .map(|member| (member.unique_address.ordering_key(), member))
                     .collect();
+                let unreachable = state
+                    .unreachable
+                    .iter()
+                    .map(|member| member.unique_address.ordering_key())
+                    .collect::<BTreeSet<_>>();
                 for member in &state.members {
                     self.sync_coordinator_region_lifecycle(member)?;
+                    self.sync_coordinator_region_reachability(
+                        member,
+                        unreachable.contains(&member.unique_address.ordering_key()),
+                    )?;
                 }
                 self.update_targets()?;
                 self.config
@@ -223,6 +264,16 @@ where
             ClusterShardingConnectorMsg::Cluster(ClusterSubscriptionEvent::Event(event)) => {
                 if let ClusterEvent::Member(member_event) = &event {
                     self.sync_coordinator_region_lifecycle(member_event_member(member_event))?;
+                }
+                if let ClusterEvent::Reachability(reachability_event) = &event {
+                    match reachability_event {
+                        ReachabilityEvent::Unreachable(member) => {
+                            self.sync_coordinator_region_reachability(member, true)?;
+                        }
+                        ReachabilityEvent::Reachable(member) => {
+                            self.sync_coordinator_region_reachability(member, false)?;
+                        }
+                    }
                 }
                 self.apply_event(&event);
                 self.update_targets()?;
@@ -238,6 +289,30 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    use kairo_actor::{Address, IgnoreRef};
+    use kairo_cluster::{ClusterEventPublisher, ClusterEventPublisherMsg, Gossip, Reachability};
+    use kairo_testkit::ActorSystemTestKit;
+
+    #[derive(Clone)]
+    struct ConnectorTestMessage;
+
+    impl RemoteMessage for ConnectorTestMessage {
+        const MANIFEST: &'static str = "kairo.sharding.test.ConnectorMessage";
+        const VERSION: u16 = 1;
+    }
+
+    fn node(system: &str, port: u16, uid: u64) -> UniqueAddress {
+        UniqueAddress::new(
+            Address::new("kairo", system, Some("127.0.0.1".to_string()), Some(port)),
+            uid,
+        )
+    }
+
+    fn member(node: UniqueAddress, data_center: &str) -> Member {
+        Member::new(node, vec![format!("dc-{data_center}")]).with_status(MemberStatus::Up)
+    }
 
     #[test]
     fn coordinator_region_lifecycle_excludes_departing_members() {
@@ -265,5 +340,112 @@ mod tests {
             coordinator_region_lifecycle(&MemberStatus::Removed),
             CoordinatorRegionLifecycle::Removed
         );
+    }
+
+    #[test]
+    fn connector_tracks_reachability_only_within_self_data_center() {
+        let self_node = node("connector-dc", 2660, 1);
+        let self_member = member(self_node.clone(), "east");
+        let same_dc = member(node("connector-dc", 2661, 2), "east");
+        let other_dc = member(node("connector-dc", 2662, 3), "west");
+        let members = BTreeMap::from([(self_node.ordering_key(), self_member)]);
+
+        assert!(member_is_in_self_data_center(
+            &members, &self_node, &same_dc
+        ));
+        assert!(!member_is_in_self_data_center(
+            &members, &self_node, &other_dc
+        ));
+    }
+
+    #[test]
+    fn connector_projects_snapshot_and_events_into_rebalance_availability() {
+        let kit = ActorSystemTestKit::new("connector-reachability").unwrap();
+        let self_node = node("connector-reachability", 2670, 1);
+        let peer_node = node("connector-reachability", 2671, 2);
+        let self_member = member(self_node.clone(), "east");
+        let peer_member = member(peer_node.clone(), "east");
+        let publisher = kit
+            .system()
+            .spawn(
+                "cluster-events",
+                Props::new({
+                    let self_node = self_node.clone();
+                    move || ClusterEventPublisher::new(self_node.clone())
+                }),
+            )
+            .unwrap();
+        let unreachable = Gossip::from_members([self_member.clone(), peer_member.clone()])
+            .with_reachability(
+                Reachability::new().unreachable(self_node.clone(), peer_node.clone()),
+            );
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(unreachable))
+            .unwrap();
+        let published = kit
+            .create_probe::<kairo_cluster::CurrentClusterState>("published-state")
+            .unwrap();
+        publisher
+            .tell(ClusterEventPublisherMsg::SendCurrentState {
+                reply_to: published.actor_ref(),
+            })
+            .unwrap();
+        let published = published.expect_msg(Duration::from_secs(1)).unwrap();
+        assert_eq!(
+            published.unreachable.as_slice(),
+            std::slice::from_ref(&peer_member)
+        );
+
+        let coordinator = kit
+            .create_probe::<ShardCoordinatorMsg<ConnectorTestMessage>>("coordinator")
+            .unwrap();
+        let region = kit
+            .create_probe::<ShardRegionMsg<ConnectorTestMessage>>("region")
+            .unwrap();
+        let cluster = Cluster::new(publisher.clone());
+        let connector = kit
+            .system()
+            .spawn_system(
+                "connector",
+                ClusterShardingConnector::props(ClusterShardingConnectorConfig {
+                    cluster,
+                    self_node: self_node.clone(),
+                    coordinator: coordinator.actor_ref(),
+                    region: region.actor_ref(),
+                    region_wire: ActorRefWireData::new(format!(
+                        "{}/system/region",
+                        self_node.address
+                    ))
+                    .unwrap(),
+                    coordinator_path: "/system/coordinator".to_string(),
+                    region_path: "/system/region".to_string(),
+                    registry: Arc::new(Registry::new()),
+                    outbound: Arc::new(IgnoreRef::<RemoteEnvelope>::new()),
+                }),
+            )
+            .unwrap();
+
+        let initial = coordinator
+            .receive_messages(4, Duration::from_secs(1))
+            .unwrap();
+        assert!(initial.iter().any(|message| matches!(
+            message,
+            ShardCoordinatorMsg::MarkRegionUnavailable { region }
+                if region.starts_with(&peer_node.address.to_string())
+        )));
+
+        publisher
+            .tell(ClusterEventPublisherMsg::PublishChanges(
+                Gossip::from_members([self_member, peer_member]),
+            ))
+            .unwrap();
+        assert!(matches!(
+            coordinator.expect_msg(Duration::from_secs(1)).unwrap(),
+            ShardCoordinatorMsg::UnmarkRegionUnavailable { region }
+                if region.starts_with(&peer_node.address.to_string())
+        ));
+
+        kit.system().stop(&connector);
+        kit.system().terminate(Duration::from_secs(1)).unwrap();
     }
 }
