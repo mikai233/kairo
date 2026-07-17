@@ -441,6 +441,75 @@ mod tests {
     }
 
     #[test]
+    fn gossip_merge_is_idempotent_for_membership_facts() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let removed = node("removed", 3);
+        let gossip = Gossip::from_parts(
+            [
+                member(node_a.clone(), MemberStatus::Up),
+                member(node_b.clone(), MemberStatus::Leaving),
+            ],
+            [node_a.clone()],
+            Reachability::new().unreachable(node_a.clone(), node_b),
+            VectorClock::new().increment(vclock_node(&node_a)),
+            [(removed, 42)],
+        );
+
+        let merged = gossip.merge(&gossip);
+
+        assert_same_membership_facts(&merged, &gossip);
+        assert!(merged.seen_by().is_empty());
+    }
+
+    #[test]
+    fn gossip_merge_is_associative_for_membership_facts() {
+        let node_a = node("a", 1);
+        let node_b = node("b", 2);
+        let node_c = node("c", 3);
+        let stale = node("stale", 4);
+        let left = Gossip::from_parts(
+            [
+                member(node_a.clone(), MemberStatus::Joining),
+                member(node_b.clone(), MemberStatus::Up),
+                member(stale.clone(), MemberStatus::Up),
+            ],
+            [node_a.clone()],
+            Reachability::new(),
+            VectorClock::new().increment(vclock_node(&node_a)),
+            [],
+        );
+        let middle = Gossip::from_parts(
+            [
+                member(node_a.clone(), MemberStatus::Up),
+                member(node_c.clone(), MemberStatus::Joining),
+            ],
+            [node_c.clone()],
+            Reachability::new(),
+            VectorClock::new().increment(vclock_node(&node_b)),
+            [(stale.clone(), 42)],
+        );
+        let right = Gossip::from_parts(
+            [
+                member(node_a.clone(), MemberStatus::Leaving),
+                member(node_b, MemberStatus::Up),
+                member(node_c.clone(), MemberStatus::Up),
+            ],
+            [node_c.clone()],
+            Reachability::new(),
+            VectorClock::new().increment(vclock_node(&node_c)),
+            [(stale, 42)],
+        );
+
+        let left_associated = left.merge(&middle).merge(&right);
+        let right_associated = left.merge(&middle.merge(&right));
+
+        assert_same_membership_facts(&left_associated, &right_associated);
+        assert!(left_associated.seen_by().is_empty());
+        assert!(right_associated.seen_by().is_empty());
+    }
+
+    #[test]
     fn member_merge_preserves_two_sided_members_even_when_tombstoned() {
         let statuses = [
             MemberStatus::Joining,
@@ -570,6 +639,12 @@ mod tests {
 
     fn member(unique_address: UniqueAddress, status: MemberStatus) -> Member {
         Member::new(unique_address, Vec::new()).with_status(status)
+    }
+
+    fn assert_same_membership_facts(left: &Gossip, right: &Gossip) {
+        assert_eq!(left.members(), right.members());
+        assert_eq!(left.version(), right.version());
+        assert_eq!(left.tombstones(), right.tombstones());
     }
 
     fn node(system: &str, uid: u64) -> UniqueAddress {
