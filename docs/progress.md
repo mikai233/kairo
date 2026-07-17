@@ -74,7 +74,10 @@ Status terms in this document mean:
   A checked frame-v1 hex fixture now pins the canonical remote-envelope bytes
   in both decode and encode directions. Checked reliable-system-delivery v1
   fixtures now pin the retained sender/receiver incarnations, ordered sequence,
-  nested death-watch envelope, and cumulative ACK/NACK reply bytes. A checked
+  nested death-watch envelope, and cumulative ACK/NACK reply bytes. Checked
+  remote death-watch v1 fixtures now pin watch/unwatch actor pairs, heartbeat
+  and acknowledgement incarnations, address termination, and actor termination
+  across all six registered manifests. A checked
   cluster `GossipEnvelope`-v1 fixture now likewise pins the complete
   full-membership payload, including incarnation identities, deterministic
   membership and seen ordering, reachability, causal clocks, and tombstones.
@@ -1187,6 +1190,19 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- Latest M13 compatibility hardening pins exact payload bytes and literal
+  metadata for all six version-1 remote death-watch messages. The focused wire
+  gate and complete remoting crate gate pass:
+
+  ```bash
+  cargo test -p kairo-remote --test wire_compatibility --all-features
+  cargo test -p kairo-remote --all-targets --all-features
+  cargo test -p kairo-remote --doc --all-features
+  cargo clippy -p kairo-remote --all-targets --all-features -- -D warnings
+  cargo fmt --all -- --check
+  git diff --check
+  ```
 
 - Latest M13 compatibility hardening pins exact v1 payload bytes and registered
   metadata for all 12 sharding coordinator control manifests, in addition to
@@ -6775,7 +6791,8 @@ Not yet implemented:
   payload-v1/v2 bytes, checked sharding ownership, routed-envelope, and complete
   coordinator-control payload-v1 bytes, checked cluster-tools pubsub-delta and
   singleton-control payload-v1
-  bytes, checked reliable-system envelope/reply payload-v1 bytes, and current
+  bytes, checked remote death-watch and reliable-system envelope/reply
+  payload-v1 bytes, and current
   bidirectional process-level v1/v2 remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer

@@ -1146,7 +1146,20 @@ Protocol:
 - `UnwatchRemote`,
 - `RemoteHeartbeat`,
 - `RemoteHeartbeatAck { uid }`,
+- `RemoteTerminated`,
 - `AddressTerminated`.
+
+All six remote-watch messages use wire version 1 and serializer ids `1000`
+through `1005`. `WatchRemote` and `UnwatchRemote` write the watchee and watcher
+actor paths; heartbeat and acknowledgement write one big-endian `u64`
+incarnation; `AddressTerminated` writes the canonical address and optional
+incarnation; and `RemoteTerminated` writes the watchee path plus its
+existence-confirmed flag. The checked `remote-watch-pair-v1.hex`,
+`remote-watch-uid-v1.hex`, `address-terminated-v1.hex`, and
+`remote-terminated-v1.hex` fixtures under `kairo-remote/tests/fixtures/` pin
+every serializer id, manifest, version, and payload in both encode and decode
+directions. Incompatible actor-path, incarnation, or termination-field changes
+require a new message version and an explicit rolling-upgrade decode path.
 
 If heartbeat failure detector marks an address unavailable:
 
