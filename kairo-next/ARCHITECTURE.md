@@ -2647,6 +2647,20 @@ the expected registry state and be reproduced exactly by the encoder. An
 incompatible layout change requires a new message version and an explicit
 rolling-upgrade compatibility path.
 
+The remaining pubsub messages also use wire version 1. `PubSubStatus` uses
+serializer id `5000` and writes its source `UniqueAddress`, reply marker, and
+deterministically ordered owner-version summary. `PubSubPublishEnvelope` and
+`PubSubPathEnvelope` use serializer ids `5002` and `5003`; they write the topic
+plus optional selected group, or logical path plus all-routees marker,
+respectively, followed by the nested business serializer id, manifest, version,
+and payload. The checked 177-byte `pubsub-status-v1.hex`, 63-byte
+`pubsub-publish-v1.hex`, and 59-byte `pubsub-path-v1.hex` fixtures pin their
+literal ids, manifests, versions, optional-field markers, deterministic status
+ordering, and nested business metadata in both directions. Together with
+`pubsub-delta-v1.hex`, these are the complete version-1 pubsub wire gate.
+Incompatible status, routing, or nested-message changes require a new message
+version and an explicit rolling-upgrade compatibility path.
+
 Remote publish and path delivery:
 
 - remote pubsub user-message delivery uses a stable `PubSubPublishEnvelope`

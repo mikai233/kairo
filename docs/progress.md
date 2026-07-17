@@ -98,12 +98,14 @@ Status terms in this document mean:
   routed entity-envelope bytes including nested application serializer
   metadata, and every coordinator control payload across registration, shard
   discovery/hosting, two-phase handoff, graceful shutdown, and region stop.
-  A checked cluster-tools `PubSubDelta`-v1 fixture now pins source
-  and bucket incarnations, registry versions, every key tag, and removal
-  tombstones in exact encode/decode directions. Checked singleton handover and
-  business-envelope v1 fixtures now also pin the exact sending incarnation and
-  nested serializer metadata in both encode and decode directions. Optional
-  codec helpers and broader system-protocol compatibility fixtures remain. The
+  A checked cluster-tools pubsub v1 fixture family now pins status summaries,
+  source and bucket incarnations, registry versions, every key tag, removal
+  tombstones, remote topic/group selection, path delivery mode, and nested
+  business metadata in exact encode/decode directions. Checked singleton
+  handover and business-envelope v1 fixtures now also pin the exact sending
+  incarnation and nested serializer metadata in both encode and decode
+  directions. Optional codec helpers and broader system-protocol compatibility
+  fixtures remain. The
   serialization contract crate and remote-message derive crate now deny
   missing public documentation at compile time. Format-neutral
   `Registry::register_with` closure codecs now remove the one-off codec-type
@@ -1190,6 +1192,19 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- Latest M13 compatibility hardening completes exact version-1 fixture coverage
+  for cluster-tools pubsub status, delta, publish, and path messages. The
+  focused wire gate and complete cluster-tools crate gate pass:
+
+  ```bash
+  cargo test -p kairo-cluster-tools --test wire_compatibility --all-features
+  cargo test -p kairo-cluster-tools --all-targets --all-features
+  cargo test -p kairo-cluster-tools --doc --all-features
+  cargo clippy -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  cargo fmt --all -- --check
+  git diff --check
+  ```
 
 - Latest M13 compatibility hardening pins exact payload bytes and literal
   metadata for all six version-1 remote death-watch messages. The focused wire
@@ -6789,8 +6804,8 @@ Not yet implemented:
   handshake-v2 bytes, checked cluster full-gossip, heartbeat, and complete
   membership-control payload-v1 bytes, checked ddata delta-propagation
   payload-v1/v2 bytes, checked sharding ownership, routed-envelope, and complete
-  coordinator-control payload-v1 bytes, checked cluster-tools pubsub-delta and
-  singleton-control payload-v1
+  coordinator-control payload-v1 bytes, checked complete cluster-tools pubsub
+  and singleton-control payload-v1
   bytes, checked remote death-watch and reliable-system envelope/reply
   payload-v1 bytes, and current
   bidirectional process-level v1/v2 remote-message migration tests.
