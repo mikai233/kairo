@@ -66,7 +66,7 @@ Status terms in this document mean:
   `Terminated` instead of `ChildFailed`. Testkit-owned actor systems now use a
   bounded two-worker dispatcher and one-worker task executor by default so
   parallel tests do not multiply the host CPU count into a thread storm.
-- M3 serialization and message metadata: mostly complete. Stable
+- M3 serialization and message metadata: complete. Stable
   `RemoteMessage` metadata, derive support, codec registration, manifests,
   remote envelopes, and actor-ref serialization boundaries exist.
   Bidirectional v1/v2 process fixtures now prove codec-owned backward and
@@ -77,8 +77,8 @@ Status terms in this document mean:
   nested death-watch envelope, and cumulative ACK/NACK reply bytes. Checked
   remote death-watch v1 fixtures now pin watch/unwatch actor pairs, heartbeat
   and acknowledgement incarnations, address termination, and actor termination
-  across all six registered manifests. A checked
-  cluster `GossipEnvelope`-v1 fixture now likewise pins the complete
+  across all six registered manifests. A checked cluster `GossipEnvelope`-v1
+  fixture now likewise pins the complete
   full-membership payload, including incarnation identities, deterministic
   membership and seen ordering, reachability, causal clocks, and tombstones.
   Checked heartbeat request/response v1 fixtures now pin exact requester and
@@ -91,23 +91,25 @@ Status terms in this document mean:
   controls. Checked Join, Welcome, and GossipEnvelope v2 fixtures now pin
   Pekko-compatible application-version metadata in current encode/decode while
   their v1 decoders map absent versions to zero.
-  Checked ddata
-  delta-propagation fixtures now prove historical v1 decode plus exact v2
-  encode/decode with CRDT metadata, causal ranges, and both pruning lifecycle
-  states. Checked sharding v1 fixtures now pin exact shard-home ownership,
-  routed entity-envelope bytes including nested application serializer
-  metadata, and every coordinator control payload across registration, shard
-  discovery/hosting, two-phase handoff, graceful shutdown, and region stop.
+  Checked ddata fixtures now cover all 14 registered client, direct,
+  acknowledgement, gossip, and delta messages. They prove historical v1 decode
+  plus exact v2 encode/decode for direct and delta pruning metadata, causal
+  ranges, both pruning lifecycle states, system UIDs, digest chunks, nested
+  CRDT metadata, and empty ACK/NACK payloads. Checked sharding v1 fixtures now
+  pin exact shard-home ownership, routed entity-envelope bytes including nested
+  application serializer metadata, and every coordinator control payload
+  across registration, shard discovery/hosting, two-phase handoff, graceful
+  shutdown, and region stop.
   A checked cluster-tools pubsub v1 fixture family now pins status summaries,
   source and bucket incarnations, registry versions, every key tag, removal
   tombstones, remote topic/group selection, path delivery mode, and nested
   business metadata in exact encode/decode directions. Checked singleton
   handover and business-envelope v1 fixtures now also pin the exact sending
   incarnation and nested serializer metadata in both encode and decode
-  directions. Optional codec helpers and broader system-protocol compatibility
-  fixtures remain. The
-  serialization contract crate and remote-message derive crate now deny
-  missing public documentation at compile time. Format-neutral
+  directions. Every currently registered remote, cluster, distributed-data,
+  sharding, and cluster-tools system protocol now has exact compatibility
+  coverage. The serialization contract crate and remote-message derive crate
+  now deny missing public documentation at compile time. Format-neutral
   `Registry::register_with` closure codecs now remove the one-off codec-type
   boilerplate while retaining explicit serializer ids, wire versions, duplicate
   checks, and panic isolation; the facade prelude now exports `Registry` as the
@@ -1192,6 +1194,22 @@ checkpoint, not an individual agent turn, test case, or validation command.
   when a phase, exit gate, or known gap actually changes.
 
 ## Known Validation Status
+
+- Latest M13 compatibility hardening pins every registered distributed-data
+  message across client, direct, gossip, and delta protocol families, including
+  historical v1/current v2 pruning migration. The focused wire gate and complete
+  distributed-data crate gate pass. Together with the other checked protocol
+  families, this closes the M3 compatibility-depth gap:
+
+  ```bash
+  cargo test -p kairo-distributed-data --test wire_compatibility --all-features
+  cargo test -p kairo-distributed-data --all-targets --all-features
+  cargo test -p kairo-distributed-data --doc --all-features
+  cargo fmt --all -- --check
+  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  cargo test --workspace --all-targets --all-features
+  git diff --check
+  ```
 
 - Latest M13 compatibility hardening completes exact version-1 fixture coverage
   for cluster-tools pubsub status, delta, publish, and path messages. The
@@ -6798,17 +6816,6 @@ Implemented:
 
 Not yet implemented:
 
-- Optional codec helper crates, richer actor-system lifecycle wiring around the
-  existing TCP association primitives, and system-protocol compatibility
-  fixtures beyond the checked remote-envelope frame-v1 and TCP association
-  handshake-v2 bytes, checked cluster full-gossip, heartbeat, and complete
-  membership-control payload-v1 bytes, checked ddata delta-propagation
-  payload-v1/v2 bytes, checked sharding ownership, routed-envelope, and complete
-  coordinator-control payload-v1 bytes, checked complete cluster-tools pubsub
-  and singleton-control payload-v1
-  bytes, checked remote death-watch and reliable-system envelope/reply
-  payload-v1 bytes, and current
-  bidirectional process-level v1/v2 remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost

@@ -1853,6 +1853,22 @@ version 1 decode compatibility for the pre-pruning shape, and full-state gossip
 always uses the pruning-aware envelope. Serializer IDs, manifests, and versions
 are explicit wire metadata rather than Rust enum or type implementation details.
 
+The checked fixtures under `kairo-distributed-data/tests/fixtures/` cover the
+complete registered protocol family. `client-request-v1.hex` is shared by Get
+and Update while their literal ids and manifests stay distinct;
+`subscribe-v1.hex` and `changed-v1.hex` pin subscription paths and change keys.
+`write-v1.hex` and `read-result-v1.hex` are historical pre-pruning decode
+gates, while `write-v2.hex` and `read-result-v2.hex` pin current pruning-aware
+encoding; `read-v1.hex` pins the direct read and optional source replica.
+`gossip-status-v1.hex` pins chunking, digests, timestamps, and both system UIDs,
+and `gossip-v1.hex` pins send-back, full-state entries, timestamps, and pruning.
+The wire test also pins empty version-1 payloads for write and delta ACK/NACK.
+Together with both delta-propagation fixtures, every serializer id in
+`3000..=3013`, stable manifest, current version, and payload is an encode/decode
+gate, including explicit version-1 decode for every record upgraded to version
+2. Incompatible client, direct, gossip, acknowledgement, or pruning changes
+require new message versions and explicit rolling-upgrade paths.
+
 Full-state gossip is a pure status/plan/apply boundary over one typed CRDT
 family. `build_gossip_status` partitions keys with fixed FNV-1a and publishes
 non-zero deterministic digests covering CRDT metadata, payload, and pruning
