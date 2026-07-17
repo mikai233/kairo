@@ -376,6 +376,138 @@ fn connector_serves_snapshots_while_runtime_command_is_blocked() {
 }
 
 #[test]
+fn connector_stop_does_not_wait_for_in_flight_runtime_command() {
+    let _guard = cluster_tools_socket_test_lock();
+    let kit = ActorSystemTestKit::new("cluster-tools-tcp-peer-stop-in-flight").unwrap();
+    let runtime = bind_peer_runtime(
+        "stop-in-flight",
+        1,
+        11,
+        RemoteSettings::new("127.0.0.1", 0),
+        Duration::from_millis(25),
+        &kit,
+        registry(),
+    );
+    let cache = runtime.association_cache().clone();
+    cache.insert_route(
+        RemoteAssociationAddress::new("kairo", "stop-in-flight-route", "127.0.0.1", Some(2552))
+            .unwrap(),
+        Arc::new(NoopOutbound),
+    );
+    let self_node = runtime.self_node().clone();
+    let publisher = spawn_publisher(&kit, self_node);
+    let cluster = Cluster::new(publisher);
+    let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let gate = ClusterToolsTcpPeerConnectorRuntimeCommandGate {
+        started: Arc::clone(&started),
+        released: Arc::clone(&released),
+    };
+    let connector = kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ClusterToolsTcpPeerConnector::with_settings(
+                    cluster,
+                    runtime,
+                    ClusterToolsTcpPeerConnectorSettings::default()
+                        .with_automatic_retry_ticks(false),
+                )
+                .with_runtime_command_gate(gate)
+            }),
+        )
+        .unwrap();
+
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        started
+            .load(std::sync::atomic::Ordering::SeqCst)
+            .then_some(())
+            .ok_or_else(|| "runtime command has not acquired ownership".to_string())
+    })
+    .unwrap();
+    kit.system().stop(&connector);
+    let stopped_before_release = connector.wait_for_stop(Duration::from_millis(100));
+    released.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    assert!(
+        stopped_before_release,
+        "connector stop must not wait for blocking transport work"
+    );
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        (cache.route_count() == 0)
+            .then_some(())
+            .ok_or_else(|| "stopped connector runtime has not cleared routes".to_string())
+    })
+    .unwrap();
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn connector_shutdown_waits_for_in_flight_command_cleanup_off_turn() {
+    let _guard = cluster_tools_socket_test_lock();
+    let kit = ActorSystemTestKit::new("cluster-tools-tcp-peer-shutdown-in-flight").unwrap();
+    let runtime = bind_peer_runtime(
+        "shutdown-in-flight",
+        1,
+        11,
+        RemoteSettings::new("127.0.0.1", 0),
+        Duration::from_millis(25),
+        &kit,
+        registry(),
+    );
+    let cache = runtime.association_cache().clone();
+    cache.insert_route(
+        RemoteAssociationAddress::new("kairo", "shutdown-in-flight-route", "127.0.0.1", Some(2552))
+            .unwrap(),
+        Arc::new(NoopOutbound),
+    );
+    let self_node = runtime.self_node().clone();
+    let publisher = spawn_publisher(&kit, self_node);
+    let cluster = Cluster::new(publisher);
+    let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let released = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let gate = ClusterToolsTcpPeerConnectorRuntimeCommandGate {
+        started: Arc::clone(&started),
+        released: Arc::clone(&released),
+    };
+    let connector = kit
+        .system()
+        .spawn(
+            "tcp-peer-connector",
+            Props::new(move || {
+                ClusterToolsTcpPeerConnector::with_settings(
+                    cluster,
+                    runtime,
+                    ClusterToolsTcpPeerConnectorSettings::default()
+                        .with_automatic_retry_ticks(false),
+                )
+                .with_runtime_command_gate(gate)
+            }),
+        )
+        .unwrap();
+
+    await_assert(Duration::from_secs(1), Duration::from_millis(1), || {
+        started
+            .load(std::sync::atomic::Ordering::SeqCst)
+            .then_some(())
+            .ok_or_else(|| "runtime command has not acquired ownership".to_string())
+    })
+    .unwrap();
+    connector
+        .tell(ClusterToolsTcpPeerConnectorMsg::Shutdown {
+            timeout: Duration::from_secs(1),
+        })
+        .unwrap();
+    assert!(!connector.wait_for_stop(Duration::from_millis(100)));
+    released.store(true, std::sync::atomic::Ordering::SeqCst);
+
+    assert!(connector.wait_for_stop(Duration::from_secs(2)));
+    assert_eq!(cache.route_count(), 0);
+    kit.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
 fn connector_subscribes_to_cluster_and_applies_tcp_peer_routes() {
     let _guard = connector_socket_test_lock();
     let sender_kit = ActorSystemTestKit::new("cluster-tools-tcp-peer-connector-sender").unwrap();

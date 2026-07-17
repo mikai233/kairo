@@ -1,11 +1,9 @@
 #![deny(missing_docs)]
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-#[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 use kairo_cluster::{
@@ -106,13 +104,16 @@ impl Default for ClusterToolsTcpPeerConnectorSettings {
 /// Potentially blocking transport operations execute outside synchronous actor
 /// turns one at a time. Their completions re-enter through the mailbox, while
 /// snapshots are served from the last completed runtime state. Stopping the
-/// actor unsubscribes from cluster events and shuts down the owned runtime.
+/// actor unsubscribes from cluster events and shuts down the owned runtime. If
+/// stop races an in-flight command, the actor terminates without waiting on
+/// transport I/O and the command owner performs the bounded runtime cleanup.
 pub struct ClusterToolsTcpPeerConnector<M>
 where
     M: RemoteMessage + Send + 'static,
 {
     cluster: Cluster,
     runtime: Arc<Mutex<Option<ClusterToolsTcpPeerRuntime<M>>>>,
+    runtime_shutdown_requested: Arc<AtomicBool>,
     runtime_state: ClusterToolsTcpPeerConnectorRuntimeState,
     pending_commands: VecDeque<ClusterToolsTcpPeerConnectorRuntimeCommand>,
     command_in_flight: bool,
@@ -148,6 +149,7 @@ where
         Self {
             cluster,
             runtime: Arc::new(Mutex::new(Some(runtime))),
+            runtime_shutdown_requested: Arc::new(AtomicBool::new(false)),
             runtime_state,
             pending_commands: VecDeque::new(),
             command_in_flight: false,
@@ -196,6 +198,11 @@ pub enum ClusterToolsTcpPeerConnectorMsg {
     RetryTimerTick,
     /// Clears managed peer routes while leaving pending reconnect deadlines intact.
     ClearRoutes,
+    /// Shuts down the owned runtime off-turn and stops the connector after cleanup completes.
+    Shutdown {
+        /// Maximum time allowed for the runtime's reader and listener joins.
+        timeout: Duration,
+    },
     /// Completes the serialized runtime command currently in flight.
     RuntimeCommandComplete(ClusterToolsTcpPeerConnectorRuntimeCommandResult),
     /// Requests the connector's last completed runtime and route diagnostics.
@@ -210,6 +217,7 @@ pub enum ClusterToolsTcpPeerConnectorMsg {
 pub struct ClusterToolsTcpPeerConnectorRuntimeCommandResult {
     outcome: Result<ClusterToolsTcpPeerRouteReport, String>,
     state: Option<ClusterToolsTcpPeerConnectorRuntimeState>,
+    shutdown_complete: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -239,6 +247,7 @@ enum ClusterToolsTcpPeerConnectorRuntimeCommand {
     ApplyClusterEvent(Box<ClusterSubscriptionEvent>),
     RetryDuePeerRoutes { now: Duration },
     ClearRoutes,
+    Shutdown { timeout: Duration },
 }
 
 #[cfg(test)]
@@ -306,14 +315,7 @@ where
             let _ = self.cluster.unsubscribe(subscription);
         }
         self.pending_commands.clear();
-        if let Some(runtime) = self
-            .runtime
-            .lock()
-            .expect("cluster-tools tcp peer connector runtime lock poisoned")
-            .take()
-        {
-            let _ = runtime.shutdown();
-        }
+        request_runtime_shutdown(&self.runtime, &self.runtime_shutdown_requested);
         Ok(())
     }
 
@@ -343,6 +345,13 @@ where
                 ctx,
                 ClusterToolsTcpPeerConnectorRuntimeCommand::ClearRoutes,
             ),
+            ClusterToolsTcpPeerConnectorMsg::Shutdown { timeout } => {
+                self.pending_commands.clear();
+                self.enqueue_runtime_command(
+                    ctx,
+                    ClusterToolsTcpPeerConnectorRuntimeCommand::Shutdown { timeout },
+                )
+            }
             ClusterToolsTcpPeerConnectorMsg::RuntimeCommandComplete(result) => {
                 self.finish_runtime_command(ctx, result)
             }
@@ -378,14 +387,17 @@ where
         };
         self.command_in_flight = true;
         let runtime = Arc::clone(&self.runtime);
+        let runtime_shutdown_requested = Arc::clone(&self.runtime_shutdown_requested);
         #[cfg(test)]
         let runtime_command_gate = self.runtime_command_gate.clone();
         ctx.spawn_task(move |myself| {
-            #[cfg(test)]
-            if let Some(gate) = runtime_command_gate {
-                gate.block_until_released();
-            }
-            let result = run_runtime_command(runtime, command);
+            let result = run_runtime_command(
+                runtime,
+                runtime_shutdown_requested,
+                command,
+                #[cfg(test)]
+                runtime_command_gate,
+            );
             let _ = myself.tell(ClusterToolsTcpPeerConnectorMsg::RuntimeCommandComplete(
                 result,
             ));
@@ -395,10 +407,14 @@ where
 
     fn finish_runtime_command(
         &mut self,
-        ctx: &Context<ClusterToolsTcpPeerConnectorMsg>,
+        ctx: &mut Context<ClusterToolsTcpPeerConnectorMsg>,
         result: ClusterToolsTcpPeerConnectorRuntimeCommandResult,
     ) -> ActorResult {
         self.command_in_flight = false;
+        if result.shutdown_complete {
+            self.record_route_outcome(result.outcome);
+            return ctx.stop(ctx.myself());
+        }
         if let Some(state) = result.state {
             self.runtime_state = state;
         }
@@ -421,38 +437,122 @@ where
 
 fn run_runtime_command<M>(
     runtime: Arc<Mutex<Option<ClusterToolsTcpPeerRuntime<M>>>>,
+    runtime_shutdown_requested: Arc<AtomicBool>,
     command: ClusterToolsTcpPeerConnectorRuntimeCommand,
+    #[cfg(test)] runtime_command_gate: Option<ClusterToolsTcpPeerConnectorRuntimeCommandGate>,
 ) -> ClusterToolsTcpPeerConnectorRuntimeCommandResult
 where
     M: RemoteMessage + Send + 'static,
 {
-    let mut guard = runtime
-        .lock()
-        .expect("cluster-tools tcp peer connector runtime lock poisoned");
-    let Some(runtime) = guard.as_mut() else {
-        return ClusterToolsTcpPeerConnectorRuntimeCommandResult {
-            outcome: Err("cluster-tools tcp peer connector runtime is stopped".to_string()),
-            state: None,
-        };
-    };
-
-    let outcome = match command {
-        ClusterToolsTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(event) => match *event {
-            ClusterSubscriptionEvent::CurrentState(state) => runtime.apply_snapshot(state),
-            ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
-        },
-        ClusterToolsTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now } => {
-            runtime.retry_due_peer_routes(now)
+    let result = {
+        let mut guard = runtime
+            .lock()
+            .expect("cluster-tools tcp peer connector runtime lock poisoned");
+        #[cfg(test)]
+        if let Some(gate) = runtime_command_gate {
+            gate.block_until_released();
         }
-        ClusterToolsTcpPeerConnectorRuntimeCommand::ClearRoutes => Ok(runtime.clear_peer_routes()),
+        match command {
+            ClusterToolsTcpPeerConnectorRuntimeCommand::Shutdown { timeout } => {
+                let Some(runtime) = guard.take() else {
+                    return ClusterToolsTcpPeerConnectorRuntimeCommandResult {
+                        outcome: Err(
+                            "cluster-tools tcp peer connector runtime is stopped".to_string()
+                        ),
+                        state: None,
+                        shutdown_complete: true,
+                    };
+                };
+                drop(guard);
+                ClusterToolsTcpPeerConnectorRuntimeCommandResult {
+                    outcome: runtime
+                        .shutdown_with_timeout(timeout)
+                        .map(|_| ClusterToolsTcpPeerRouteReport::default())
+                        .map_err(|error| error.to_string()),
+                    state: None,
+                    shutdown_complete: true,
+                }
+            }
+            command => {
+                let Some(runtime) = guard.as_mut() else {
+                    return ClusterToolsTcpPeerConnectorRuntimeCommandResult {
+                        outcome: Err(
+                            "cluster-tools tcp peer connector runtime is stopped".to_string()
+                        ),
+                        state: None,
+                        shutdown_complete: false,
+                    };
+                };
+                let outcome = match command {
+                    ClusterToolsTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(event) => {
+                        match *event {
+                            ClusterSubscriptionEvent::CurrentState(state) => {
+                                runtime.apply_snapshot(state)
+                            }
+                            ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
+                        }
+                    }
+                    ClusterToolsTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now } => {
+                        runtime.retry_due_peer_routes(now)
+                    }
+                    ClusterToolsTcpPeerConnectorRuntimeCommand::ClearRoutes => {
+                        Ok(runtime.clear_peer_routes())
+                    }
+                    ClusterToolsTcpPeerConnectorRuntimeCommand::Shutdown { .. } => {
+                        unreachable!("shutdown handled before runtime borrowing")
+                    }
+                }
+                .map_err(|error| error.to_string());
+                ClusterToolsTcpPeerConnectorRuntimeCommandResult {
+                    outcome,
+                    state: Some(ClusterToolsTcpPeerConnectorRuntimeState::from_runtime(
+                        runtime,
+                    )),
+                    shutdown_complete: false,
+                }
+            }
+        }
+    };
+    if !result.shutdown_complete {
+        finish_runtime_shutdown_if_requested(&runtime, &runtime_shutdown_requested);
     }
-    .map_err(|error| error.to_string());
+    result
+}
 
-    ClusterToolsTcpPeerConnectorRuntimeCommandResult {
-        outcome,
-        state: Some(ClusterToolsTcpPeerConnectorRuntimeState::from_runtime(
-            runtime,
-        )),
+fn request_runtime_shutdown<M>(
+    runtime: &Arc<Mutex<Option<ClusterToolsTcpPeerRuntime<M>>>>,
+    requested: &Arc<AtomicBool>,
+) where
+    M: RemoteMessage + Send + 'static,
+{
+    requested.store(true, Ordering::Release);
+    let runtime = match runtime.try_lock() {
+        Ok(mut guard) => guard.take(),
+        Err(std::sync::TryLockError::WouldBlock) => return,
+        Err(std::sync::TryLockError::Poisoned(_)) => {
+            panic!("cluster-tools tcp peer connector runtime lock poisoned")
+        }
+    };
+    if let Some(runtime) = runtime {
+        let _ = runtime.shutdown();
+    }
+}
+
+fn finish_runtime_shutdown_if_requested<M>(
+    runtime: &Arc<Mutex<Option<ClusterToolsTcpPeerRuntime<M>>>>,
+    requested: &Arc<AtomicBool>,
+) where
+    M: RemoteMessage + Send + 'static,
+{
+    if !requested.load(Ordering::Acquire) {
+        return;
+    }
+    let runtime = runtime
+        .lock()
+        .expect("cluster-tools tcp peer connector runtime lock poisoned")
+        .take();
+    if let Some(runtime) = runtime {
+        let _ = runtime.shutdown();
     }
 }
 

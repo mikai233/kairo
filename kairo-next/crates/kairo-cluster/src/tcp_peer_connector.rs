@@ -1,6 +1,7 @@
 #![deny(missing_docs)]
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -92,13 +93,18 @@ impl Default for ClusterTcpPeerConnectorSettings {
 ///
 /// Runtime operations may block on transport I/O, so they execute outside synchronous actor turns
 /// one at a time. The actor subscribes with a current-state snapshot, retains diagnostic state,
-/// and shuts down the entire owned runtime when stopped.
+/// and shuts down the entire owned runtime when stopped. If stop races an in-flight runtime
+/// command, the actor terminates without waiting on transport I/O and the command owner performs
+/// the bounded runtime cleanup after releasing ownership.
 pub struct ClusterTcpPeerConnector {
     cluster: Cluster,
     runtime: Arc<Mutex<Option<ClusterTcpPeerRuntime>>>,
+    runtime_shutdown_requested: Arc<AtomicBool>,
     runtime_state: ClusterTcpPeerConnectorRuntimeState,
     pending_commands: VecDeque<ClusterTcpPeerConnectorRuntimeCommand>,
     command_in_flight: bool,
+    #[cfg(test)]
+    runtime_command_gate: Option<ClusterTcpPeerConnectorRuntimeCommandGate>,
     settings: ClusterTcpPeerConnectorSettings,
     subscription: Option<ActorRef<ClusterSubscriptionEvent>>,
     last_report: Option<ClusterTcpPeerRouteReport>,
@@ -122,9 +128,12 @@ impl ClusterTcpPeerConnector {
         Self {
             cluster,
             runtime: Arc::new(Mutex::new(Some(runtime))),
+            runtime_shutdown_requested: Arc::new(AtomicBool::new(false)),
             runtime_state,
             pending_commands: VecDeque::new(),
             command_in_flight: false,
+            #[cfg(test)]
+            runtime_command_gate: None,
             settings,
             subscription: None,
             last_report: None,
@@ -143,6 +152,15 @@ impl ClusterTcpPeerConnector {
             last_error: self.last_error.clone(),
         }
     }
+
+    #[cfg(test)]
+    fn with_runtime_command_gate(
+        mut self,
+        gate: ClusterTcpPeerConnectorRuntimeCommandGate,
+    ) -> Self {
+        self.runtime_command_gate = Some(gate);
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +177,11 @@ pub enum ClusterTcpPeerConnectorMsg {
     RetryTimerTick,
     /// Clears managed peer routes while leaving pending reconnect deadlines intact.
     ClearRoutes,
+    /// Shuts down the owned runtime off-turn and stops the connector after cleanup completes.
+    Shutdown {
+        /// Maximum time allowed for the runtime's reader and listener joins.
+        timeout: Duration,
+    },
     /// Completes the serialized runtime command currently in flight.
     RuntimeCommandComplete(ClusterTcpPeerConnectorRuntimeCommandResult),
     /// Requests the connector's last observed runtime and route diagnostics.
@@ -173,6 +196,7 @@ pub enum ClusterTcpPeerConnectorMsg {
 pub struct ClusterTcpPeerConnectorRuntimeCommandResult {
     outcome: Result<ClusterTcpPeerRouteReport, String>,
     state: Option<ClusterTcpPeerConnectorRuntimeState>,
+    shutdown_complete: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -199,6 +223,24 @@ enum ClusterTcpPeerConnectorRuntimeCommand {
     ApplyClusterEvent(Box<ClusterSubscriptionEvent>),
     RetryDuePeerRoutes { now: Duration },
     ClearRoutes,
+    Shutdown { timeout: Duration },
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+struct ClusterTcpPeerConnectorRuntimeCommandGate {
+    started: Arc<AtomicBool>,
+    released: Arc<AtomicBool>,
+}
+
+#[cfg(test)]
+impl ClusterTcpPeerConnectorRuntimeCommandGate {
+    fn block_until_released(&self) {
+        self.started.store(true, Ordering::SeqCst);
+        while !self.released.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -246,14 +288,7 @@ impl Actor for ClusterTcpPeerConnector {
             let _ = self.cluster.unsubscribe(subscription);
         }
         self.pending_commands.clear();
-        if let Some(runtime) = self
-            .runtime
-            .lock()
-            .expect("cluster tcp peer connector runtime lock poisoned")
-            .take()
-        {
-            let _ = runtime.shutdown();
-        }
+        request_runtime_shutdown(&self.runtime, &self.runtime_shutdown_requested);
         Ok(())
     }
 
@@ -280,6 +315,13 @@ impl Actor for ClusterTcpPeerConnector {
             }
             ClusterTcpPeerConnectorMsg::ClearRoutes => self
                 .enqueue_runtime_command(ctx, ClusterTcpPeerConnectorRuntimeCommand::ClearRoutes),
+            ClusterTcpPeerConnectorMsg::Shutdown { timeout } => {
+                self.pending_commands.clear();
+                self.enqueue_runtime_command(
+                    ctx,
+                    ClusterTcpPeerConnectorRuntimeCommand::Shutdown { timeout },
+                )
+            }
             ClusterTcpPeerConnectorMsg::RuntimeCommandComplete(result) => {
                 self.finish_runtime_command(ctx, result)
             }
@@ -312,8 +354,17 @@ impl ClusterTcpPeerConnector {
         };
         self.command_in_flight = true;
         let runtime = Arc::clone(&self.runtime);
+        let runtime_shutdown_requested = Arc::clone(&self.runtime_shutdown_requested);
+        #[cfg(test)]
+        let runtime_command_gate = self.runtime_command_gate.clone();
         ctx.spawn_task(move |myself| {
-            let result = run_runtime_command(runtime, command);
+            let result = run_runtime_command(
+                runtime,
+                runtime_shutdown_requested,
+                command,
+                #[cfg(test)]
+                runtime_command_gate,
+            );
             let _ = myself.tell(ClusterTcpPeerConnectorMsg::RuntimeCommandComplete(result));
         })?;
         Ok(())
@@ -321,10 +372,14 @@ impl ClusterTcpPeerConnector {
 
     fn finish_runtime_command(
         &mut self,
-        ctx: &Context<ClusterTcpPeerConnectorMsg>,
+        ctx: &mut Context<ClusterTcpPeerConnectorMsg>,
         result: ClusterTcpPeerConnectorRuntimeCommandResult,
     ) -> ActorResult {
         self.command_in_flight = false;
+        if result.shutdown_complete {
+            self.record_route_outcome(result.outcome);
+            return ctx.stop(ctx.myself());
+        }
         if let Some(state) = result.state {
             self.runtime_state = state;
         }
@@ -347,33 +402,108 @@ impl ClusterTcpPeerConnector {
 
 fn run_runtime_command(
     runtime: Arc<Mutex<Option<ClusterTcpPeerRuntime>>>,
+    runtime_shutdown_requested: Arc<AtomicBool>,
     command: ClusterTcpPeerConnectorRuntimeCommand,
+    #[cfg(test)] runtime_command_gate: Option<ClusterTcpPeerConnectorRuntimeCommandGate>,
 ) -> ClusterTcpPeerConnectorRuntimeCommandResult {
-    let mut guard = runtime
-        .lock()
-        .expect("cluster tcp peer connector runtime lock poisoned");
-    let Some(runtime) = guard.as_mut() else {
-        return ClusterTcpPeerConnectorRuntimeCommandResult {
-            outcome: Err("cluster tcp peer connector runtime is stopped".to_string()),
-            state: None,
-        };
-    };
-
-    let outcome = match command {
-        ClusterTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(event) => match *event {
-            ClusterSubscriptionEvent::CurrentState(state) => runtime.apply_snapshot(state),
-            ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
-        },
-        ClusterTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now } => {
-            runtime.retry_due_peer_routes(now)
+    let result = {
+        let mut guard = runtime
+            .lock()
+            .expect("cluster tcp peer connector runtime lock poisoned");
+        #[cfg(test)]
+        if let Some(gate) = runtime_command_gate {
+            gate.block_until_released();
         }
-        ClusterTcpPeerConnectorRuntimeCommand::ClearRoutes => Ok(runtime.clear_peer_routes()),
+        match command {
+            ClusterTcpPeerConnectorRuntimeCommand::Shutdown { timeout } => {
+                let Some(runtime) = guard.take() else {
+                    return ClusterTcpPeerConnectorRuntimeCommandResult {
+                        outcome: Err("cluster tcp peer connector runtime is stopped".to_string()),
+                        state: None,
+                        shutdown_complete: true,
+                    };
+                };
+                drop(guard);
+                ClusterTcpPeerConnectorRuntimeCommandResult {
+                    outcome: runtime
+                        .shutdown_with_timeout(timeout)
+                        .map(|_| ClusterTcpPeerRouteReport::default())
+                        .map_err(|error| error.to_string()),
+                    state: None,
+                    shutdown_complete: true,
+                }
+            }
+            command => {
+                let Some(runtime) = guard.as_mut() else {
+                    return ClusterTcpPeerConnectorRuntimeCommandResult {
+                        outcome: Err("cluster tcp peer connector runtime is stopped".to_string()),
+                        state: None,
+                        shutdown_complete: false,
+                    };
+                };
+                let outcome = match command {
+                    ClusterTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(event) => match *event
+                    {
+                        ClusterSubscriptionEvent::CurrentState(state) => {
+                            runtime.apply_snapshot(state)
+                        }
+                        ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
+                    },
+                    ClusterTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now } => {
+                        runtime.retry_due_peer_routes(now)
+                    }
+                    ClusterTcpPeerConnectorRuntimeCommand::ClearRoutes => {
+                        Ok(runtime.clear_peer_routes())
+                    }
+                    ClusterTcpPeerConnectorRuntimeCommand::Shutdown { .. } => {
+                        unreachable!("shutdown handled before runtime borrowing")
+                    }
+                }
+                .map_err(|error| error.to_string());
+                ClusterTcpPeerConnectorRuntimeCommandResult {
+                    outcome,
+                    state: Some(ClusterTcpPeerConnectorRuntimeState::from_runtime(runtime)),
+                    shutdown_complete: false,
+                }
+            }
+        }
+    };
+    if !result.shutdown_complete {
+        finish_runtime_shutdown_if_requested(&runtime, &runtime_shutdown_requested);
     }
-    .map_err(|error| error.to_string());
+    result
+}
 
-    ClusterTcpPeerConnectorRuntimeCommandResult {
-        outcome,
-        state: Some(ClusterTcpPeerConnectorRuntimeState::from_runtime(runtime)),
+fn request_runtime_shutdown(
+    runtime: &Arc<Mutex<Option<ClusterTcpPeerRuntime>>>,
+    requested: &Arc<AtomicBool>,
+) {
+    requested.store(true, Ordering::Release);
+    let runtime = match runtime.try_lock() {
+        Ok(mut guard) => guard.take(),
+        Err(std::sync::TryLockError::WouldBlock) => return,
+        Err(std::sync::TryLockError::Poisoned(_)) => {
+            panic!("cluster tcp peer connector runtime lock poisoned")
+        }
+    };
+    if let Some(runtime) = runtime {
+        let _ = runtime.shutdown();
+    }
+}
+
+fn finish_runtime_shutdown_if_requested(
+    runtime: &Arc<Mutex<Option<ClusterTcpPeerRuntime>>>,
+    requested: &Arc<AtomicBool>,
+) {
+    if !requested.load(Ordering::Acquire) {
+        return;
+    }
+    let runtime = runtime
+        .lock()
+        .expect("cluster tcp peer connector runtime lock poisoned")
+        .take();
+    if let Some(runtime) = runtime {
+        let _ = runtime.shutdown();
     }
 }
 

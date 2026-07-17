@@ -1568,11 +1568,14 @@ Membership transport:
   actor timers, and shuts the runtime down when the actor stops. Potentially
   blocking route work runs one command at a time outside synchronous actor
   turns; completions return through the mailbox and snapshots use the last
-  completed runtime state.
+  completed runtime state. A stop racing an in-flight command records shutdown
+  intent without waiting on the runtime mutex; the command owner performs
+  bounded runtime cleanup after releasing transport work.
 - `ClusterTcpPeerBootstrap` binds the cluster TCP peer runtime, spawns the
   connector under an explicit actor name, and registers coordinated shutdown to
-  stop the connector before cluster shutdown so socket routes are cleared
-  through the actor stop path.
+  send an explicit bounded shutdown command. The connector stops only after
+  that off-turn runtime cleanup completes, so socket routes are cleared before
+  cluster shutdown without blocking a dispatcher turn.
 - `TcpRemotePeerManager` is the cloneable control handle for the composed
   ActorSystem remoting runtime. It can add or remove managed reconnect intent,
   but it cannot bind, fork, or shut down the shared listener.
@@ -1893,11 +1896,14 @@ Remote association integration:
   shuts down the owned runtime when the actor stops. Potentially blocking route
   work runs one command at a time outside synchronous actor turns; completions
   return through the mailbox and snapshots use the last completed runtime
-  state.
+  state. A stop racing an in-flight command records shutdown intent without
+  waiting on the runtime mutex; the command owner performs bounded runtime
+  cleanup after releasing transport work.
 - `ReplicatorTcpPeerBootstrap` binds the distributed-data TCP peer runtime,
   spawns the connector under an explicit actor name, and registers coordinated
-  shutdown to stop the connector before cluster shutdown so socket routes are
-  cleared through the same actor stop path.
+  shutdown to send an explicit bounded shutdown command. The connector stops
+  only after that off-turn runtime cleanup completes, so socket routes are
+  cleared before cluster shutdown without blocking a dispatcher turn.
 
 The complete standalone distributed-data TCP peer lifecycle denies missing
 public documentation at compile time. Its API contract covers transport and
@@ -2631,11 +2637,15 @@ Cluster-tools TCP runtime:
   snapshots for diagnostics, and can schedule fixed-delay retry ticks through
   actor timers. Potentially blocking route work runs one command at a time
   outside synchronous actor turns; completions return through the mailbox and
-  snapshots use the last completed runtime state,
+  snapshots use the last completed runtime state. A stop racing an in-flight
+  command records shutdown intent without waiting on the runtime mutex; the
+  command owner performs bounded runtime cleanup after releasing transport
+  work,
 - `ClusterToolsTcpPeerBootstrap<M>` binds the cluster-tools TCP peer runtime,
   spawns the connector under the actor system, and registers a coordinated
-  shutdown actor-termination task so configured socket routes are stopped
-  before cluster shutdown,
+  shutdown task that sends an explicit bounded shutdown command and waits for
+  connector termination only after off-turn runtime cleanup, so configured
+  socket routes are stopped before cluster shutdown,
 - peer selection still comes from cluster membership/tool state; the TCP
   runtime and route table do not become cluster membership sources.
 

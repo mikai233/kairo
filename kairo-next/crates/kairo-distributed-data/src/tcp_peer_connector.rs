@@ -1,11 +1,9 @@
 #![deny(missing_docs)]
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-#[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use kairo_actor::{Actor, ActorError, ActorRef, ActorResult, Context};
 use kairo_cluster::{
@@ -103,10 +101,13 @@ impl Default for ReplicatorTcpPeerConnectorSettings {
 /// Potentially blocking transport operations execute outside synchronous actor
 /// turns one at a time. Their completions re-enter through the mailbox, while
 /// snapshots are served from the last completed runtime state. Stopping the
-/// actor unsubscribes from cluster events and shuts down the owned runtime.
+/// actor unsubscribes from cluster events and shuts down the owned runtime. If
+/// stop races an in-flight command, the actor terminates without waiting on
+/// transport I/O and the command owner performs the bounded runtime cleanup.
 pub struct ReplicatorTcpPeerConnector {
     cluster: Cluster,
     runtime: Arc<Mutex<Option<ReplicatorTcpPeerRuntime>>>,
+    runtime_shutdown_requested: Arc<AtomicBool>,
     runtime_state: ReplicatorTcpPeerConnectorRuntimeState,
     pending_commands: VecDeque<ReplicatorTcpPeerConnectorRuntimeCommand>,
     command_in_flight: bool,
@@ -139,6 +140,7 @@ impl ReplicatorTcpPeerConnector {
         Self {
             cluster,
             runtime: Arc::new(Mutex::new(Some(runtime))),
+            runtime_shutdown_requested: Arc::new(AtomicBool::new(false)),
             runtime_state,
             pending_commands: VecDeque::new(),
             command_in_flight: false,
@@ -187,6 +189,11 @@ pub enum ReplicatorTcpPeerConnectorMsg {
     RetryTimerTick,
     /// Clears managed peer routes while leaving pending reconnect deadlines intact.
     ClearRoutes,
+    /// Shuts down the owned runtime off-turn and stops the connector after cleanup completes.
+    Shutdown {
+        /// Maximum time allowed for the runtime's reader and listener joins.
+        timeout: Duration,
+    },
     /// Completes the serialized runtime command currently in flight.
     RuntimeCommandComplete(ReplicatorTcpPeerConnectorRuntimeCommandResult),
     /// Requests the connector's last completed runtime and route diagnostics.
@@ -201,6 +208,7 @@ pub enum ReplicatorTcpPeerConnectorMsg {
 pub struct ReplicatorTcpPeerConnectorRuntimeCommandResult {
     outcome: Result<ReplicatorTcpPeerRouteReport, String>,
     state: Option<ReplicatorTcpPeerConnectorRuntimeState>,
+    shutdown_complete: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -227,6 +235,7 @@ enum ReplicatorTcpPeerConnectorRuntimeCommand {
     ApplyClusterEvent(Box<ClusterSubscriptionEvent>),
     RetryDuePeerRoutes { now: Duration },
     ClearRoutes,
+    Shutdown { timeout: Duration },
 }
 
 #[cfg(test)]
@@ -291,14 +300,7 @@ impl Actor for ReplicatorTcpPeerConnector {
             let _ = self.cluster.unsubscribe(subscription);
         }
         self.pending_commands.clear();
-        if let Some(runtime) = self
-            .runtime
-            .lock()
-            .expect("distributed-data tcp peer connector runtime lock poisoned")
-            .take()
-        {
-            let _ = runtime.shutdown();
-        }
+        request_runtime_shutdown(&self.runtime, &self.runtime_shutdown_requested);
         Ok(())
     }
 
@@ -328,6 +330,13 @@ impl Actor for ReplicatorTcpPeerConnector {
                 ctx,
                 ReplicatorTcpPeerConnectorRuntimeCommand::ClearRoutes,
             ),
+            ReplicatorTcpPeerConnectorMsg::Shutdown { timeout } => {
+                self.pending_commands.clear();
+                self.enqueue_runtime_command(
+                    ctx,
+                    ReplicatorTcpPeerConnectorRuntimeCommand::Shutdown { timeout },
+                )
+            }
             ReplicatorTcpPeerConnectorMsg::RuntimeCommandComplete(result) => {
                 self.finish_runtime_command(ctx, result)
             }
@@ -360,14 +369,17 @@ impl ReplicatorTcpPeerConnector {
         };
         self.command_in_flight = true;
         let runtime = Arc::clone(&self.runtime);
+        let runtime_shutdown_requested = Arc::clone(&self.runtime_shutdown_requested);
         #[cfg(test)]
         let runtime_command_gate = self.runtime_command_gate.clone();
         ctx.spawn_task(move |myself| {
-            #[cfg(test)]
-            if let Some(gate) = runtime_command_gate {
-                gate.block_until_released();
-            }
-            let result = run_runtime_command(runtime, command);
+            let result = run_runtime_command(
+                runtime,
+                runtime_shutdown_requested,
+                command,
+                #[cfg(test)]
+                runtime_command_gate,
+            );
             let _ = myself.tell(ReplicatorTcpPeerConnectorMsg::RuntimeCommandComplete(
                 result,
             ));
@@ -377,10 +389,14 @@ impl ReplicatorTcpPeerConnector {
 
     fn finish_runtime_command(
         &mut self,
-        ctx: &Context<ReplicatorTcpPeerConnectorMsg>,
+        ctx: &mut Context<ReplicatorTcpPeerConnectorMsg>,
         result: ReplicatorTcpPeerConnectorRuntimeCommandResult,
     ) -> ActorResult {
         self.command_in_flight = false;
+        if result.shutdown_complete {
+            self.record_route_outcome(result.outcome);
+            return ctx.stop(ctx.myself());
+        }
         if let Some(state) = result.state {
             self.runtime_state = state;
         }
@@ -403,35 +419,115 @@ impl ReplicatorTcpPeerConnector {
 
 fn run_runtime_command(
     runtime: Arc<Mutex<Option<ReplicatorTcpPeerRuntime>>>,
+    runtime_shutdown_requested: Arc<AtomicBool>,
     command: ReplicatorTcpPeerConnectorRuntimeCommand,
+    #[cfg(test)] runtime_command_gate: Option<ReplicatorTcpPeerConnectorRuntimeCommandGate>,
 ) -> ReplicatorTcpPeerConnectorRuntimeCommandResult {
-    let mut guard = runtime
-        .lock()
-        .expect("distributed-data tcp peer connector runtime lock poisoned");
-    let Some(runtime) = guard.as_mut() else {
-        return ReplicatorTcpPeerConnectorRuntimeCommandResult {
-            outcome: Err("distributed-data tcp peer connector runtime is stopped".to_string()),
-            state: None,
-        };
-    };
-
-    let outcome = match command {
-        ReplicatorTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(event) => match *event {
-            ClusterSubscriptionEvent::CurrentState(state) => runtime.apply_snapshot(state),
-            ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
-        },
-        ReplicatorTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now } => {
-            runtime.retry_due_peer_routes(now)
+    let result = {
+        let mut guard = runtime
+            .lock()
+            .expect("distributed-data tcp peer connector runtime lock poisoned");
+        #[cfg(test)]
+        if let Some(gate) = runtime_command_gate {
+            gate.block_until_released();
         }
-        ReplicatorTcpPeerConnectorRuntimeCommand::ClearRoutes => Ok(runtime.clear_peer_routes()),
+        match command {
+            ReplicatorTcpPeerConnectorRuntimeCommand::Shutdown { timeout } => {
+                let Some(runtime) = guard.take() else {
+                    return ReplicatorTcpPeerConnectorRuntimeCommandResult {
+                        outcome: Err(
+                            "distributed-data tcp peer connector runtime is stopped".to_string()
+                        ),
+                        state: None,
+                        shutdown_complete: true,
+                    };
+                };
+                drop(guard);
+                ReplicatorTcpPeerConnectorRuntimeCommandResult {
+                    outcome: runtime
+                        .shutdown_with_timeout(timeout)
+                        .map(|_| ReplicatorTcpPeerRouteReport::default())
+                        .map_err(|error| error.to_string()),
+                    state: None,
+                    shutdown_complete: true,
+                }
+            }
+            command => {
+                let Some(runtime) = guard.as_mut() else {
+                    return ReplicatorTcpPeerConnectorRuntimeCommandResult {
+                        outcome: Err(
+                            "distributed-data tcp peer connector runtime is stopped".to_string()
+                        ),
+                        state: None,
+                        shutdown_complete: false,
+                    };
+                };
+                let outcome = match command {
+                    ReplicatorTcpPeerConnectorRuntimeCommand::ApplyClusterEvent(event) => {
+                        match *event {
+                            ClusterSubscriptionEvent::CurrentState(state) => {
+                                runtime.apply_snapshot(state)
+                            }
+                            ClusterSubscriptionEvent::Event(event) => runtime.apply_event(event),
+                        }
+                    }
+                    ReplicatorTcpPeerConnectorRuntimeCommand::RetryDuePeerRoutes { now } => {
+                        runtime.retry_due_peer_routes(now)
+                    }
+                    ReplicatorTcpPeerConnectorRuntimeCommand::ClearRoutes => {
+                        Ok(runtime.clear_peer_routes())
+                    }
+                    ReplicatorTcpPeerConnectorRuntimeCommand::Shutdown { .. } => {
+                        unreachable!("shutdown handled before runtime borrowing")
+                    }
+                }
+                .map_err(|error| error.to_string());
+                ReplicatorTcpPeerConnectorRuntimeCommandResult {
+                    outcome,
+                    state: Some(ReplicatorTcpPeerConnectorRuntimeState::from_runtime(
+                        runtime,
+                    )),
+                    shutdown_complete: false,
+                }
+            }
+        }
+    };
+    if !result.shutdown_complete {
+        finish_runtime_shutdown_if_requested(&runtime, &runtime_shutdown_requested);
     }
-    .map_err(|error| error.to_string());
+    result
+}
 
-    ReplicatorTcpPeerConnectorRuntimeCommandResult {
-        outcome,
-        state: Some(ReplicatorTcpPeerConnectorRuntimeState::from_runtime(
-            runtime,
-        )),
+fn request_runtime_shutdown(
+    runtime: &Arc<Mutex<Option<ReplicatorTcpPeerRuntime>>>,
+    requested: &Arc<AtomicBool>,
+) {
+    requested.store(true, Ordering::Release);
+    let runtime = match runtime.try_lock() {
+        Ok(mut guard) => guard.take(),
+        Err(std::sync::TryLockError::WouldBlock) => return,
+        Err(std::sync::TryLockError::Poisoned(_)) => {
+            panic!("distributed-data tcp peer connector runtime lock poisoned")
+        }
+    };
+    if let Some(runtime) = runtime {
+        let _ = runtime.shutdown();
+    }
+}
+
+fn finish_runtime_shutdown_if_requested(
+    runtime: &Arc<Mutex<Option<ReplicatorTcpPeerRuntime>>>,
+    requested: &Arc<AtomicBool>,
+) {
+    if !requested.load(Ordering::Acquire) {
+        return;
+    }
+    let runtime = runtime
+        .lock()
+        .expect("distributed-data tcp peer connector runtime lock poisoned")
+        .take();
+    if let Some(runtime) = runtime {
+        let _ = runtime.shutdown();
     }
 }
 

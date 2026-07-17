@@ -181,7 +181,12 @@ Status terms in this document mean:
   The standalone cluster TCP runtime, control-lane classifier, fixed-interval
   reconnect policy, and membership-derived route owner now hard-gate effective
   bind identity, cache adoption, duplicate suppression, replacement redial,
-  owned-route cleanup, and late-route-safe shutdown contracts.
+  owned-route cleanup, and late-route-safe shutdown contracts. Connector stop
+  no longer waits on an in-flight transport command's runtime mutex; the
+  command owner observes shutdown intent and performs bounded cleanup after
+  releasing transport work. Coordinated shutdown instead queues an explicit
+  bounded runtime-shutdown command and observes connector termination only
+  after that cleanup completes.
   The composed TCP peer runtime, connector actor, and bootstrap now hard-gate
   cluster-versus-remoting UID identity, snapshot/event projection, explicit
   reconnect clocks, one-at-a-time background route work, diagnostic snapshots,
@@ -324,7 +329,12 @@ Status terms in this document mean:
   and its low-level shutdown timeout is now one enforced deadline across owned
   reader and listener joins. The same bounded-wait contract now applies to the
   cluster and cluster-tools standalone runtimes and the composed remoting
-  runtime, with explicit timeout failures after forceful transport close. The
+  runtime, with explicit timeout failures after forceful transport close.
+  Standalone connector actors also terminate without waiting on an in-flight
+  transport command's runtime mutex, while that command retains responsibility
+  for eventual bounded runtime cleanup. Their coordinated-shutdown tasks use an
+  explicit off-turn shutdown command so successful phase completion still
+  proves runtime cleanup finished. The
   remote envelope and request/reply boundary now also
   hard-gates exact recipient validation, preserved reply actor metadata,
   supported-manifest dispatch, reply-required sender checks, single-use reply
@@ -582,7 +592,9 @@ Status terms in this document mean:
   across the cluster-tools association runtime and peer-runtime facade.
   Connector route work is serialized off-turn and returns through typed
   mailbox completions, keeping snapshots responsive while transport work is in
-  flight.
+  flight; stop records deferred cleanup intent instead of waiting on the
+  command's runtime mutex, while coordinated shutdown waits for an explicit
+  off-turn runtime-shutdown command before connector termination.
 - M11 configuration and observability: substantial implementation. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter

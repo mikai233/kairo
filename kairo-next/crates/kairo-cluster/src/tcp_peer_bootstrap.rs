@@ -171,8 +171,9 @@ impl ClusterTcpPeerBootstrapSettings {
 
 /// Handle to a spawned membership-driven TCP peer connector and its bound identity.
 ///
-/// The connector owns the runtime after spawn. Stopping it unsubscribes from cluster events,
-/// clears pending work, closes managed routes, and shuts down the listener.
+/// The connector owns the runtime after spawn. Coordinated shutdown sends it a
+/// bounded off-turn shutdown command, then waits for connector termination
+/// after managed routes and the listener are closed.
 pub struct ClusterTcpPeerBootstrap {
     connector: ActorRef<ClusterTcpPeerConnectorMsg>,
     self_node: UniqueAddress,
@@ -228,7 +229,9 @@ impl ClusterTcpPeerBootstrap {
             &shutdown_task_name,
             shutdown_timeout,
         ) {
-            system.stop(&connector);
+            let _ = connector.tell(ClusterTcpPeerConnectorMsg::Shutdown {
+                timeout: shutdown_timeout,
+            });
             let _ = connector.wait_for_stop(shutdown_timeout);
             return Err(error.into());
         }
@@ -267,7 +270,7 @@ fn register_connector_shutdown(
     system
         .coordinated_shutdown()
         .add_task(phase, task_name, move || {
-            system.stop(&connector);
+            let _ = connector.tell(ClusterTcpPeerConnectorMsg::Shutdown { timeout });
             if connector.wait_for_stop(timeout) {
                 Ok(())
             } else {
