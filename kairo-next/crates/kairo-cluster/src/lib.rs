@@ -60,6 +60,7 @@
 //! );
 //! ```
 
+mod app_version;
 mod association_peers;
 mod cluster;
 mod codec;
@@ -107,6 +108,7 @@ mod test_support;
 mod vector_clock;
 mod wire;
 
+pub use app_version::{ApplicationVersion, ApplicationVersionError};
 pub use association_peers::{
     ClusterAssociationPeerChange, ClusterAssociationPeerError, ClusterAssociationPeerResult,
     ClusterAssociationPeerState, ClusterAssociationPeerTarget,
@@ -166,7 +168,9 @@ pub use init_join_responder::{
 };
 pub use leader::LeaderSelection;
 pub use leader_actions::{LeaderActionError, LeaderActionOutcome, LeaderActions};
-pub use member::{Member, MemberStatus, UniqueAddress};
+pub use member::{
+    DATA_CENTER_ROLE_PREFIX, DEFAULT_DATA_CENTER, Member, MemberStatus, UniqueAddress,
+};
 pub use membership_actor::{ClusterMembership, ClusterMembershipMsg};
 pub use protocol::{
     ClusterConfigCheck, Down, ExitingConfirmed, GossipEnvelope, GossipStatus, Heartbeat,

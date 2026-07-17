@@ -616,6 +616,7 @@ fn connector_preserves_successful_route_when_later_snapshot_dial_fails() {
             join: Join {
                 node: sender_node.clone(),
                 roles: vec!["partial-active-route".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -844,6 +845,7 @@ fn connector_keeps_route_and_clears_pending_reconnect_when_peer_leaves_membershi
             join: Join {
                 node: sender_node.clone(),
                 roles: vec!["mixed-shrink-active-route".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -991,6 +993,7 @@ fn connector_keeps_remaining_membership_route_delivering_after_member_removed_ev
             join: Join {
                 node: sender_node.clone(),
                 roles: vec!["after-connector-member-removed".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -1016,6 +1019,7 @@ fn connector_keeps_remaining_membership_route_delivering_after_member_removed_ev
             join: Join {
                 node: sender_node,
                 roles: vec!["after-connector-removed-member".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })

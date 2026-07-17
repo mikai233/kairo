@@ -672,6 +672,7 @@ fn bootstrap_shutdown_clears_adopted_existing_peer_route() {
         Join {
             node: sender_node.clone(),
             roles: vec!["before-adopted-route-shutdown".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -684,6 +685,7 @@ fn bootstrap_shutdown_clears_adopted_existing_peer_route() {
             join: Join {
                 node: sender_node,
                 roles: vec!["after-adopted-route-shutdown".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -796,6 +798,7 @@ fn bootstrap_installed_peer_route_delivers_membership_join_to_receiver() {
             join: Join {
                 node: sender_node.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -1106,6 +1109,7 @@ fn bootstrap_preserves_successful_route_when_later_snapshot_dial_fails() {
         Join {
             node: sender_node.clone(),
             roles: vec!["partial-active-route".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1228,6 +1232,7 @@ fn bootstrap_keeps_route_and_clears_pending_reconnect_when_peer_leaves_membershi
         Join {
             node: sender_node.clone(),
             roles: vec!["mixed-shrink-active-route".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1451,6 +1456,7 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         Join {
             node: sender_node.clone(),
             roles: vec!["before-replacement".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1463,6 +1469,7 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
             join: Join {
                 node: sender_node.clone(),
                 roles: vec!["after-old-removed".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -1499,6 +1506,7 @@ fn bootstrap_reinstalls_peer_route_for_replacement_unique_address() {
         Join {
             node: sender_node.clone(),
             roles: vec!["after-replacement".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1577,6 +1585,7 @@ fn bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_remov
         Join {
             node: first_node.clone(),
             roles: vec!["before-removal-second".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1586,6 +1595,7 @@ fn bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_remov
         Join {
             node: first_node.clone(),
             roles: vec!["before-removal-third".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1602,6 +1612,7 @@ fn bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_remov
             join: Join {
                 node: first_node.clone(),
                 roles: vec!["after-removal-third".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -1623,6 +1634,7 @@ fn bootstrap_sender_keeps_remaining_membership_route_delivering_after_peer_remov
         Join {
             node: first_node.clone(),
             roles: vec!["after-removal".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1699,6 +1711,7 @@ fn bootstrap_clears_peer_routes_when_self_member_is_removed() {
         Join {
             node: sender_node.clone(),
             roles: vec!["before-self-removal".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1712,6 +1725,7 @@ fn bootstrap_clears_peer_routes_when_self_member_is_removed() {
             join: Join {
                 node: sender_node,
                 roles: vec!["after-self-removal".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -1829,6 +1843,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
             join: Join {
                 node: first_node.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -1838,6 +1853,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
             join: Join {
                 node: first_node.clone(),
                 roles: vec!["frontend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -1896,6 +1912,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Join {
             node: second_node.clone(),
             roles: vec!["second-to-third".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1912,6 +1929,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Join {
             node: third_node.clone(),
             roles: vec!["third-to-second".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1928,6 +1946,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Join {
             node: second_node.clone(),
             roles: vec!["second-to-first".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1944,6 +1963,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Join {
             node: third_node.clone(),
             roles: vec!["third-to-first".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -1986,6 +2006,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
             join: Join {
                 node: first_node.clone(),
                 roles: vec!["first-to-third-after-reduction".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -2001,6 +2022,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
             join: Join {
                 node: second_node.clone(),
                 roles: vec!["second-to-third-after-reduction".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -2021,6 +2043,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
             join: Join {
                 node: third_node.clone(),
                 roles: vec!["third-to-first-after-reduction".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -2042,6 +2065,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Join {
             node: first_node.clone(),
             roles: vec!["first-to-second-after-reduction".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -2052,6 +2076,7 @@ fn bootstrap_three_nodes_install_full_mesh_peer_routes_from_cluster_membership()
         Join {
             node: second_node.clone(),
             roles: vec!["second-to-first-after-reduction".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );

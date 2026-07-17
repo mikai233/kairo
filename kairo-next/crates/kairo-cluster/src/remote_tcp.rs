@@ -458,6 +458,7 @@ mod tests {
                 join: Join {
                     node: sender.self_node().clone(),
                     roles: vec!["backend".to_string()],
+                    app_version: crate::ApplicationVersion::default(),
                 },
                 reply_to: None,
             })

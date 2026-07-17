@@ -1,24 +1,28 @@
 use bytes::Bytes;
 use kairo_actor::Address;
 use kairo_cluster::{
-    ClusterConfigCheck, DOWN_SERIALIZER_ID, Down, EXITING_CONFIRMED_SERIALIZER_ID,
-    ExitingConfirmed, GOSSIP_ENVELOPE_SERIALIZER_ID, GOSSIP_STATUS_SERIALIZER_ID, Gossip,
-    GossipEnvelope, GossipStatus, HEARTBEAT_RSP_SERIALIZER_ID, HEARTBEAT_SERIALIZER_ID, Heartbeat,
-    HeartbeatRsp, INIT_JOIN_ACK_SERIALIZER_ID, INIT_JOIN_NACK_SERIALIZER_ID,
-    INIT_JOIN_SERIALIZER_ID, InitJoin, InitJoinAck, InitJoinNack, JOIN_SERIALIZER_ID, Join,
-    LEAVE_SERIALIZER_ID, Leave, Member, MemberStatus, Reachability, UniqueAddress, VectorClock,
-    VectorClockNode, WELCOME_SERIALIZER_ID, Welcome, register_cluster_protocol_codecs,
+    ApplicationVersion, ClusterConfigCheck, DOWN_SERIALIZER_ID, Down,
+    EXITING_CONFIRMED_SERIALIZER_ID, ExitingConfirmed, GOSSIP_ENVELOPE_SERIALIZER_ID,
+    GOSSIP_STATUS_SERIALIZER_ID, Gossip, GossipEnvelope, GossipStatus, HEARTBEAT_RSP_SERIALIZER_ID,
+    HEARTBEAT_SERIALIZER_ID, Heartbeat, HeartbeatRsp, INIT_JOIN_ACK_SERIALIZER_ID,
+    INIT_JOIN_NACK_SERIALIZER_ID, INIT_JOIN_SERIALIZER_ID, InitJoin, InitJoinAck, InitJoinNack,
+    JOIN_SERIALIZER_ID, Join, LEAVE_SERIALIZER_ID, Leave, Member, MemberStatus, Reachability,
+    UniqueAddress, VectorClock, VectorClockNode, WELCOME_SERIALIZER_ID, Welcome,
+    register_cluster_protocol_codecs,
 };
 use kairo_serialization::{Manifest, Registry, RemoteMessage, SerializedMessage};
 
 const GOSSIP_ENVELOPE_V1_FIXTURE: &str = include_str!("fixtures/gossip-envelope-v1.hex");
+const GOSSIP_ENVELOPE_V2_FIXTURE: &str = include_str!("fixtures/gossip-envelope-v2.hex");
 const HEARTBEAT_V1_FIXTURE: &str = include_str!("fixtures/heartbeat-v1.hex");
 const HEARTBEAT_RSP_V1_FIXTURE: &str = include_str!("fixtures/heartbeat-rsp-v1.hex");
 const INIT_JOIN_V1_FIXTURE: &str = include_str!("fixtures/init-join-v1.hex");
 const INIT_JOIN_ACK_V1_FIXTURE: &str = include_str!("fixtures/init-join-ack-v1.hex");
 const INIT_JOIN_NACK_V1_FIXTURE: &str = include_str!("fixtures/init-join-nack-v1.hex");
 const JOIN_V1_FIXTURE: &str = include_str!("fixtures/join-v1.hex");
+const JOIN_V2_FIXTURE: &str = include_str!("fixtures/join-v2.hex");
 const WELCOME_V1_FIXTURE: &str = include_str!("fixtures/welcome-v1.hex");
+const WELCOME_V2_FIXTURE: &str = include_str!("fixtures/welcome-v2.hex");
 const GOSSIP_STATUS_V1_FIXTURE: &str = include_str!("fixtures/gossip-status-v1.hex");
 const LEAVE_V1_FIXTURE: &str = include_str!("fixtures/leave-v1.hex");
 const DOWN_V1_FIXTURE: &str = include_str!("fixtures/down-v1.hex");
@@ -49,7 +53,10 @@ fn node(system: &str, port: u16, uid: u64) -> UniqueAddress {
     )
 }
 
-fn gossip_envelope_v1() -> GossipEnvelope {
+fn gossip_envelope(
+    alpha_version: ApplicationVersion,
+    beta_version: ApplicationVersion,
+) -> GossipEnvelope {
     let alpha = node("alpha", 25_520, 0x0102_0304_0506_0708);
     let beta = node("beta", 25_521, 0x1112_1314_1516_1718);
     let gamma = node("gamma", 25_522, 0x2122_2324_2526_2728);
@@ -59,10 +66,12 @@ fn gossip_envelope_v1() -> GossipEnvelope {
             vec!["backend".to_string(), "blue".to_string()],
         )
         .with_status(MemberStatus::Up)
-        .with_up_number(7),
+        .with_up_number(7)
+        .with_app_version(alpha_version),
         Member::new(beta.clone(), vec!["frontend".to_string()])
             .with_status(MemberStatus::Leaving)
-            .with_up_number(8),
+            .with_up_number(8)
+            .with_app_version(beta_version),
     ];
     let reachability = Reachability::new()
         .unreachable(alpha.clone(), beta.clone())
@@ -86,6 +95,17 @@ fn gossip_envelope_v1() -> GossipEnvelope {
     }
 }
 
+fn gossip_envelope_v1() -> GossipEnvelope {
+    gossip_envelope(ApplicationVersion::default(), ApplicationVersion::default())
+}
+
+fn gossip_envelope_v2() -> GossipEnvelope {
+    gossip_envelope(
+        ApplicationVersion::new("2.4.1").unwrap(),
+        ApplicationVersion::new("2.5.0-RC1").unwrap(),
+    )
+}
+
 fn registry() -> Registry {
     let mut registry = Registry::new();
     register_cluster_protocol_codecs(&mut registry).unwrap();
@@ -93,10 +113,10 @@ fn registry() -> Registry {
 }
 
 #[test]
-fn gossip_envelope_v1_encoding_matches_checked_fixture() {
-    let envelope = gossip_envelope_v1();
+fn gossip_envelope_v2_encoding_matches_checked_fixture() {
+    let envelope = gossip_envelope_v2();
     let serialized = registry().serialize(&envelope).unwrap();
-    let fixture = fixture_bytes(GOSSIP_ENVELOPE_V1_FIXTURE);
+    let fixture = fixture_bytes(GOSSIP_ENVELOPE_V2_FIXTURE);
 
     assert_eq!(serialized.serializer_id, GOSSIP_ENVELOPE_SERIALIZER_ID);
     assert_eq!(serialized.manifest.as_str(), GossipEnvelope::MANIFEST);
@@ -104,7 +124,7 @@ fn gossip_envelope_v1_encoding_matches_checked_fixture() {
     assert_eq!(
         serialized.payload,
         fixture,
-        "encoded payload: {}",
+        "encoded v2 payload: {}",
         encode_hex(&serialized.payload)
     );
 }
@@ -114,7 +134,7 @@ fn gossip_envelope_v1_fixture_decodes_full_cluster_state() {
     let serialized = SerializedMessage::new(
         GOSSIP_ENVELOPE_SERIALIZER_ID,
         Manifest::new(GossipEnvelope::MANIFEST),
-        GossipEnvelope::VERSION,
+        1,
         fixture_bytes(GOSSIP_ENVELOPE_V1_FIXTURE),
     );
 
@@ -123,6 +143,23 @@ fn gossip_envelope_v1_fixture_decodes_full_cluster_state() {
             .deserialize::<GossipEnvelope>(serialized)
             .unwrap(),
         gossip_envelope_v1()
+    );
+}
+
+#[test]
+fn gossip_envelope_v2_fixture_decodes_application_versions() {
+    let serialized = SerializedMessage::new(
+        GOSSIP_ENVELOPE_SERIALIZER_ID,
+        Manifest::new(GossipEnvelope::MANIFEST),
+        GossipEnvelope::VERSION,
+        fixture_bytes(GOSSIP_ENVELOPE_V2_FIXTURE),
+    );
+
+    assert_eq!(
+        registry()
+            .deserialize::<GossipEnvelope>(serialized)
+            .unwrap(),
+        gossip_envelope_v2()
     );
 }
 
@@ -243,6 +280,14 @@ fn join_v1() -> Join {
     Join {
         node: node("joining-node", 25_542, 0x6162_6364_6566_6768),
         roles: vec!["backend".to_string(), "dc-a".to_string()],
+        app_version: ApplicationVersion::default(),
+    }
+}
+
+fn join_v2() -> Join {
+    Join {
+        app_version: ApplicationVersion::new("3.2.1+10-ed316bd024").unwrap(),
+        ..join_v1()
     }
 }
 
@@ -252,6 +297,107 @@ fn welcome_v1() -> Welcome {
         from: envelope.from,
         gossip: envelope.gossip,
     }
+}
+
+fn welcome_v2() -> Welcome {
+    let envelope = gossip_envelope_v2();
+    Welcome {
+        from: envelope.from,
+        gossip: envelope.gossip,
+    }
+}
+
+fn assert_current_fixture<M: RemoteMessage>(message: &M, serializer_id: u32, fixture: &Bytes) {
+    let serialized = registry().serialize(message).unwrap();
+    assert_eq!(serialized.serializer_id, serializer_id);
+    assert_eq!(serialized.manifest.as_str(), M::MANIFEST);
+    assert_eq!(serialized.version, M::VERSION);
+    assert_eq!(
+        &serialized.payload,
+        fixture,
+        "{} v{} payload: {}",
+        M::MANIFEST,
+        M::VERSION,
+        encode_hex(&serialized.payload)
+    );
+}
+
+#[test]
+fn join_v1_fixture_decodes_zero_application_version() {
+    let serialized = SerializedMessage::new(
+        JOIN_SERIALIZER_ID,
+        Manifest::new(Join::MANIFEST),
+        1,
+        fixture_bytes(JOIN_V1_FIXTURE),
+    );
+
+    assert_eq!(
+        registry().deserialize::<Join>(serialized).unwrap(),
+        join_v1()
+    );
+}
+
+#[test]
+fn join_v2_encoding_matches_checked_fixture() {
+    assert_current_fixture::<Join>(
+        &join_v2(),
+        JOIN_SERIALIZER_ID,
+        &fixture_bytes(JOIN_V2_FIXTURE),
+    );
+}
+
+#[test]
+fn join_v2_fixture_decodes_application_version() {
+    let serialized = SerializedMessage::new(
+        JOIN_SERIALIZER_ID,
+        Manifest::new(Join::MANIFEST),
+        Join::VERSION,
+        fixture_bytes(JOIN_V2_FIXTURE),
+    );
+
+    assert_eq!(
+        registry().deserialize::<Join>(serialized).unwrap(),
+        join_v2()
+    );
+}
+
+#[test]
+fn welcome_v1_fixture_decodes_zero_member_application_versions() {
+    let serialized = SerializedMessage::new(
+        WELCOME_SERIALIZER_ID,
+        Manifest::new(Welcome::MANIFEST),
+        1,
+        fixture_bytes(WELCOME_V1_FIXTURE),
+    );
+
+    assert_eq!(
+        registry().deserialize::<Welcome>(serialized).unwrap(),
+        welcome_v1()
+    );
+}
+
+#[test]
+fn welcome_v2_encoding_matches_checked_fixture() {
+    assert_current_fixture::<Welcome>(
+        &welcome_v2(),
+        WELCOME_SERIALIZER_ID,
+        &fixture_bytes(WELCOME_V2_FIXTURE),
+    );
+}
+
+#[test]
+fn welcome_v2_fixture_decodes_member_application_versions() {
+    let serialized = SerializedMessage::new(
+        WELCOME_SERIALIZER_ID,
+        Manifest::new(Welcome::MANIFEST),
+        Welcome::VERSION,
+        fixture_bytes(WELCOME_V2_FIXTURE),
+    );
+
+    assert_eq!(
+        registry().deserialize::<Welcome>(serialized).unwrap(),
+        welcome_v2()
+    );
 }
 
 fn gossip_status_v1() -> GossipStatus {
@@ -342,22 +488,6 @@ membership_control_v1_fixture_tests!(
     init_join_nack_v1,
     INIT_JOIN_NACK_SERIALIZER_ID,
     INIT_JOIN_NACK_V1_FIXTURE
-);
-membership_control_v1_fixture_tests!(
-    join_v1_encoding_matches_checked_fixture,
-    join_v1_fixture_decodes_incarnation_and_roles,
-    Join,
-    join_v1,
-    JOIN_SERIALIZER_ID,
-    JOIN_V1_FIXTURE
-);
-membership_control_v1_fixture_tests!(
-    welcome_v1_encoding_matches_checked_fixture,
-    welcome_v1_fixture_decodes_sender_and_full_gossip,
-    Welcome,
-    welcome_v1,
-    WELCOME_SERIALIZER_ID,
-    WELCOME_V1_FIXTURE
 );
 membership_control_v1_fixture_tests!(
     gossip_status_v1_encoding_matches_checked_fixture,

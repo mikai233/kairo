@@ -386,6 +386,7 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
         Join {
             node: sender_node.clone(),
             roles: vec!["before-removal-second".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -395,6 +396,7 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
         Join {
             node: sender_node.clone(),
             roles: vec!["before-removal-third".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -420,6 +422,7 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
             join: Join {
                 node: sender_node.clone(),
                 roles: vec!["after-removal-third".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -440,6 +443,7 @@ fn peer_runtime_keeps_remaining_route_when_one_peer_is_removed() {
         Join {
             node: sender_node,
             roles: vec!["after-removal".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -537,6 +541,7 @@ fn peer_runtime_replaces_routes_on_reachability_changed_self_observer_set() {
         Join {
             node: sender_node.clone(),
             roles: vec!["after-first-unreachable".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -545,6 +550,7 @@ fn peer_runtime_replaces_routes_on_reachability_changed_self_observer_set() {
             join: Join {
                 node: sender_node.clone(),
                 roles: vec!["after-first-unreachable-first".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -579,6 +585,7 @@ fn peer_runtime_replaces_routes_on_reachability_changed_self_observer_set() {
         Join {
             node: sender_node.clone(),
             roles: vec!["after-first-redial".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -587,6 +594,7 @@ fn peer_runtime_replaces_routes_on_reachability_changed_self_observer_set() {
             join: Join {
                 node: sender_node,
                 roles: vec!["after-second-unreachable-second".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -688,6 +696,7 @@ fn peer_runtime_keeps_remaining_route_delivering_after_member_removed_event() {
         Join {
             node: sender_node.clone(),
             roles: vec!["after-member-removed-event".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -696,6 +705,7 @@ fn peer_runtime_keeps_remaining_route_delivering_after_member_removed_event() {
             join: Join {
                 node: sender_node,
                 roles: vec!["after-member-removed-third".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -763,6 +773,7 @@ fn peer_runtime_clears_routes_when_self_member_is_removed() {
         Join {
             node: sender_node.clone(),
             roles: vec!["before-self-removal".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -784,6 +795,7 @@ fn peer_runtime_clears_routes_when_self_member_is_removed() {
             join: Join {
                 node: sender_node,
                 roles: vec!["after-self-removal".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -841,6 +853,7 @@ fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
         Join {
             node: sender_node.clone(),
             roles: vec!["before-shutdown".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         },
         Duration::from_secs(1),
     );
@@ -854,6 +867,7 @@ fn peer_runtime_shutdown_clears_active_peer_routes_before_listener_stop() {
             join: Join {
                 node: sender_node,
                 roles: vec!["after-shutdown".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })

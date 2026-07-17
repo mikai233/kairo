@@ -4,7 +4,7 @@ use bytes::Bytes;
 use kairo_actor::Address;
 use kairo_serialization::RemoteMessage;
 
-use crate::{Gossip, UniqueAddress, VectorClock};
+use crate::{ApplicationVersion, Gossip, UniqueAddress, VectorClock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Result of comparing a joining node's cluster configuration with a seed node.
@@ -94,11 +94,30 @@ pub struct Join {
     pub node: UniqueAddress,
     /// Roles advertised by the joining node.
     pub roles: Vec<String>,
+    /// Comparable application version advertised by the joining node.
+    pub app_version: ApplicationVersion,
+}
+
+impl Join {
+    /// Creates a join request with the historical zero application version.
+    pub fn new(node: UniqueAddress, roles: Vec<String>) -> Self {
+        Self {
+            node,
+            roles,
+            app_version: ApplicationVersion::default(),
+        }
+    }
+
+    /// Sets the application version advertised by this join request.
+    pub fn with_app_version(mut self, app_version: ApplicationVersion) -> Self {
+        self.app_version = app_version;
+        self
+    }
 }
 
 impl RemoteMessage for Join {
     const MANIFEST: &'static str = "kairo.cluster.join";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,7 +131,7 @@ pub struct Welcome {
 
 impl RemoteMessage for Welcome {
     const MANIFEST: &'static str = "kairo.cluster.welcome";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,7 +152,7 @@ pub struct GossipEnvelope {
 
 impl RemoteMessage for GossipEnvelope {
     const MANIFEST: &'static str = "kairo.cluster.gossip-envelope";
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -213,7 +232,9 @@ mod tests {
         );
         assert_eq!(Heartbeat::VERSION, 1);
         assert_eq!(HeartbeatRsp::VERSION, 1);
-        assert_eq!(Join::VERSION, 1);
+        assert_eq!(Join::VERSION, 2);
+        assert_eq!(Welcome::VERSION, 2);
+        assert_eq!(GossipEnvelope::VERSION, 2);
         assert!(!Heartbeat::MANIFEST.contains(std::any::type_name::<Heartbeat>()));
         assert!(!GossipEnvelope::MANIFEST.contains(std::any::type_name::<GossipEnvelope>()));
         assert!(!InitJoin::MANIFEST.contains(std::any::type_name::<InitJoin>()));

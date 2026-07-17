@@ -226,10 +226,10 @@ impl ClusterTcpExampleNode {
                 as Arc<dyn RemoteOutbound>),
         );
         outbound.send_membership(ClusterMembershipMsg::Join {
-            join: Join {
-                node: self.self_node().clone(),
-                roles: roles.into_iter().map(Into::into).collect(),
-            },
+            join: Join::new(
+                self.self_node().clone(),
+                roles.into_iter().map(Into::into).collect(),
+            ),
             reply_to: None,
         })?;
         Ok(())

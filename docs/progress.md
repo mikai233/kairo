@@ -83,8 +83,11 @@ Status terms in this document mean:
   receiver must echo unchanged.
   Checked membership-control v1 fixtures now pin seed init/ack/nack, join,
   welcome, causal gossip status, leave, down, and exiting-confirmation payloads
-  in both directions, including config checks, canonical IPv4/IPv6 addresses,
-  role ordering, full welcome gossip, and incarnation-sensitive controls.
+  as historical decode gates, including config checks, canonical IPv4/IPv6
+  addresses, role ordering, full welcome gossip, and incarnation-sensitive
+  controls. Checked Join, Welcome, and GossipEnvelope v2 fixtures now pin
+  Pekko-compatible application-version metadata in current encode/decode while
+  their v1 decoders map absent versions to zero.
   Checked ddata
   delta-propagation fixtures now prove historical v1 decode plus exact v2
   encode/decode with CRDT metadata, causal ranges, and both pruning lifecycle
@@ -163,7 +166,10 @@ Status terms in this document mean:
   removal contracts and deny missing public documentation. The stable
   membership protocol records, manifests, versions, serializer identifiers,
   binary codecs, and registry entry points are now documented under the same
-  hard missing-documentation gate. Checked heartbeat request/response v1
+  hard missing-documentation gate. Membership now retains Pekko-compatible
+  comparable application versions from daemon settings through Join and gossip;
+  data center is derived from the reserved `dc-` role, with missing historical
+  metadata mapped to `default`. Checked heartbeat request/response v1
   fixtures also freeze the unique-incarnation identities and echoed correlation
   fields used by failure-detector traffic. The remote-envelope and typed
   membership wire adapters also hard-gate their canonical-path resolution,
@@ -200,7 +206,9 @@ Status terms in this document mean:
   command owner observes shutdown intent and performs bounded cleanup after
   releasing transport work. Coordinated shutdown instead queues an explicit
   bounded runtime-shutdown command and observes connector termination only
-  after that cleanup completes.
+  after that cleanup completes. The application-version wire checkpoint passes
+  focused cluster tests and fixtures, workspace clippy with warnings denied,
+  and the full all-target/all-feature workspace suite with one test thread.
   The composed TCP peer runtime, connector actor, and bootstrap now hard-gate
   cluster-versus-remoting UID identity, snapshot/event projection, explicit
   reconnect clocks, one-at-a-time background route work, diagnostic snapshots,
@@ -6710,11 +6718,6 @@ Implemented:
 
 Not yet implemented:
 
-- Cluster `Join`/`Member` application-version metadata and retained data-center
-  metadata from the architecture still require version-2 `Join`, `Welcome`, and
-  `GossipEnvelope` encodings with explicit version-1 decode. The checked v1
-  fixtures deliberately pin the current pre-metadata layout so that addition
-  cannot silently reinterpret deployed bytes.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and system-protocol compatibility
   fixtures beyond the checked remote-envelope frame-v1 and TCP association

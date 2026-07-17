@@ -2,6 +2,13 @@
 
 use kairo_actor::Address;
 
+use crate::ApplicationVersion;
+
+/// Role prefix reserved for Pekko-compatible data-center membership metadata.
+pub const DATA_CENTER_ROLE_PREFIX: &str = "dc-";
+/// Data center used by historical members that do not advertise a reserved role.
+pub const DEFAULT_DATA_CENTER: &str = "default";
+
 /// Lifecycle state of one cluster member.
 ///
 /// Variant order is not a wire contract; cluster merge priority is defined by
@@ -114,6 +121,8 @@ pub struct Member {
     pub roles: Vec<String>,
     /// Monotonic age assigned when the member becomes `Up`.
     pub up_number: Option<u64>,
+    /// Application version advertised when this node joined.
+    pub app_version: ApplicationVersion,
 }
 
 impl Member {
@@ -124,6 +133,7 @@ impl Member {
             status: MemberStatus::Joining,
             roles,
             up_number: None,
+            app_version: ApplicationVersion::default(),
         }
     }
 
@@ -139,9 +149,26 @@ impl Member {
         self
     }
 
+    /// Returns this member with the application version advertised at join time.
+    pub fn with_app_version(mut self, app_version: ApplicationVersion) -> Self {
+        self.app_version = app_version;
+        self
+    }
+
     /// Returns whether the member advertises `role`.
     pub fn has_role(&self, role: &str) -> bool {
         self.roles.iter().any(|member_role| member_role == role)
+    }
+
+    /// Returns the Pekko-style data center derived from the reserved `dc-` role.
+    ///
+    /// Historical v1 members without that role belong to `default`.
+    pub fn data_center(&self) -> &str {
+        self.roles
+            .iter()
+            .find_map(|role| role.strip_prefix(DATA_CENTER_ROLE_PREFIX))
+            .filter(|data_center| !data_center.is_empty())
+            .unwrap_or(DEFAULT_DATA_CENTER)
     }
 
     /// Returns whether this member sorts older than `other`.
@@ -180,5 +207,26 @@ impl Member {
         } else {
             right
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node() -> UniqueAddress {
+        UniqueAddress::new(Address::local("member-metadata"), 1)
+    }
+
+    #[test]
+    fn member_defaults_historical_metadata_and_derives_reserved_data_center_role() {
+        let historical = Member::new(node(), vec!["backend".to_string()]);
+        assert!(historical.app_version.is_zero());
+        assert_eq!(historical.data_center(), DEFAULT_DATA_CENTER);
+
+        let current = Member::new(node(), vec!["backend".to_string(), "dc-west".to_string()])
+            .with_app_version(ApplicationVersion::new("2.4.1").unwrap());
+        assert_eq!(current.app_version.as_str(), "2.4.1");
+        assert_eq!(current.data_center(), "west");
     }
 }

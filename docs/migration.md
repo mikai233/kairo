@@ -115,8 +115,8 @@ changes likewise require an explicit handshake-version compatibility path.
 
 Cluster membership payloads are versioned system protocols rather than Rust
 data-layout dumps. The full `GossipEnvelope` version-1 payload is pinned by
-`kairo-next/crates/kairo-cluster/tests/fixtures/gossip-envelope-v1.hex` in both
-directions, including sender and target incarnations, member ordering, seen
+`kairo-next/crates/kairo-cluster/tests/fixtures/gossip-envelope-v1.hex` as a
+historical decode gate, including sender and target incarnations, member ordering, seen
 state, observer-versioned reachability, vector clocks, and tombstones. Change
 that schema only by introducing a new message version whose codec explicitly
 retains every rolling-upgrade direction that deployed nodes require.
@@ -124,17 +124,21 @@ retains every rolling-upgrade direction that deployed nodes require.
 The remaining membership-control version-1 payloads are pinned alongside it by
 `init-join-v1.hex`, `init-join-ack-v1.hex`, `init-join-nack-v1.hex`,
 `join-v1.hex`, `welcome-v1.hex`, `gossip-status-v1.hex`, `leave-v1.hex`,
-`down-v1.hex`, and `exiting-confirmed-v1.hex`. Bidirectional tests preserve the
+`down-v1.hex`, and `exiting-confirmed-v1.hex`. Version-1 decode tests preserve the
 seed configuration digest/check, canonical IPv4 and IPv6 addresses, joining
 incarnation and ordered roles, full welcome gossip, causal status summary,
 leave/down targets, and exiting incarnation. Those deployed version-1 bytes
 must not be reinterpreted; incompatible changes require new versions and
 explicit compatibility codecs.
 
-The checked `Join`, `Welcome`, and full-gossip version-1 fixtures also document
-the historical pre-application-version/member-metadata layout. Introducing the
-architecture-level application version and any retained data-center metadata
-requires version-2 encodings with deliberate version-1 decode support.
+The checked `Join`, `Welcome`, and full-gossip version-1 fixtures document the
+historical pre-application-version layout. Current senders emit version 2,
+pinned by `join-v2.hex`, `welcome-v2.hex`, and `gossip-envelope-v2.hex`; current
+receivers deliberately decode version 1 by assigning the zero application
+version. Application versions use Pekko-compatible comparison semantics. Data
+center remains represented by the reserved `dc-<name>` role, with an absent
+historical role interpreted as `default`, rather than adding a duplicate wire
+field.
 
 Cluster heartbeat correlation is independently pinned by the checked
 `heartbeat-v1.hex` and `heartbeat-rsp-v1.hex` fixtures in the same cluster

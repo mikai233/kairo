@@ -3,10 +3,11 @@
 use bytes::Bytes;
 use kairo_serialization::{MessageCodec, SerializationError, WireReader, WireWriter};
 
-use crate::{Heartbeat, HeartbeatRsp, Join};
+use crate::{ApplicationVersion, Heartbeat, HeartbeatRsp, Join};
 
 use super::wire::{
-    ensure_version, read_unique_address, read_vec, write_count, write_unique_address,
+    ensure_supported_version, ensure_version, read_unique_address, read_vec, write_count,
+    write_unique_address,
 };
 
 /// Stable serializer identifier for [`Heartbeat`] payloads.
@@ -93,15 +94,26 @@ impl MessageCodec<Join> for JoinCodec {
         for role in &message.roles {
             writer.write_string(role)?;
         }
+        writer.write_string(message.app_version.as_str())?;
         Ok(writer.finish())
     }
 
     fn decode(&self, payload: Bytes, version: u16) -> kairo_serialization::Result<Join> {
-        ensure_version::<Join>(version)?;
+        ensure_supported_version::<Join>(version, 1)?;
         let mut reader = WireReader::new(&payload);
+        let node = read_unique_address(&mut reader)?;
+        let roles = read_vec(&mut reader, |reader| reader.read_string())?;
+        let app_version = if version >= 2 {
+            ApplicationVersion::new(reader.read_string()?).map_err(|error| {
+                SerializationError::Message(format!("invalid join application version: {error}"))
+            })?
+        } else {
+            ApplicationVersion::default()
+        };
         let message = Join {
-            node: read_unique_address(&mut reader)?,
-            roles: read_vec(&mut reader, |reader| reader.read_string())?,
+            node,
+            roles,
+            app_version,
         };
         reader.ensure_finished()?;
         Ok(message)

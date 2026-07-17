@@ -105,6 +105,7 @@ pub enum ClusterMembershipMsg {
 pub struct ClusterMembership {
     self_node: UniqueAddress,
     roles: Vec<String>,
+    app_version: crate::ApplicationVersion,
     gossip: Gossip,
     event_publisher: ActorRef<ClusterEventPublisherMsg>,
     sequence_nr: u64,
@@ -126,6 +127,7 @@ impl ClusterMembership {
         Self {
             self_node,
             roles,
+            app_version: crate::ApplicationVersion::default(),
             gossip: Gossip::new(),
             event_publisher,
             sequence_nr: 0,
@@ -138,6 +140,12 @@ impl ClusterMembership {
         }
     }
 
+    /// Sets the application version advertised for the local member.
+    pub fn with_app_version(mut self, app_version: crate::ApplicationVersion) -> Self {
+        self.app_version = app_version;
+        self
+    }
+
     /// Returns the latest locally owned gossip view.
     pub fn gossip(&self) -> &Gossip {
         &self.gossip
@@ -148,6 +156,7 @@ impl ClusterMembership {
             Join {
                 node: self.self_node.clone(),
                 roles: self.roles.clone(),
+                app_version: self.app_version.clone(),
             },
             None,
         );
@@ -169,7 +178,10 @@ impl ClusterMembership {
                 let gossip = self
                     .gossip
                     .remove(&existing.unique_address, removal_timestamp)
-                    .add_member(Member::new(join.node.clone(), join.roles));
+                    .add_member(
+                        Member::new(join.node.clone(), join.roles)
+                            .with_app_version(join.app_version),
+                    );
                 self.update_latest_gossip(gossip);
                 self.reply_welcome(reply_to);
             } else {
@@ -186,11 +198,14 @@ impl ClusterMembership {
             return;
         }
 
-        let mut gossip = self
-            .gossip
-            .add_member(Member::new(join.node.clone(), join.roles));
+        let mut gossip = self.gossip.add_member(
+            Member::new(join.node.clone(), join.roles).with_app_version(join.app_version),
+        );
         if !gossip.has_member(&self.self_node) {
-            gossip = gossip.add_member(Member::new(self.self_node.clone(), self.roles.clone()));
+            gossip = gossip.add_member(
+                Member::new(self.self_node.clone(), self.roles.clone())
+                    .with_app_version(self.app_version.clone()),
+            );
         }
         self.initialized = true;
         self.update_latest_gossip(gossip);

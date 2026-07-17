@@ -113,6 +113,7 @@ fn system_inbound_reports_missing_membership_handler_after_recipient_validation(
             .serialize(&Join {
                 node: sender,
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             })
             .unwrap(),
     );
@@ -184,6 +185,7 @@ fn system_inbound_rejects_wrong_cluster_recipient() {
             .serialize(&Join {
                 node: sender,
                 roles: vec![],
+                app_version: crate::ApplicationVersion::default(),
             })
             .unwrap(),
     );

@@ -93,6 +93,7 @@ fn cluster_control_codecs_round_trip_join() {
     let join = Join {
         node: unique(9),
         roles: vec!["backend".to_string(), "blue".to_string()],
+        app_version: crate::ApplicationVersion::new("2.7.1-RC1").unwrap(),
     };
 
     let serialized = registry.serialize(&join).unwrap();
@@ -113,6 +114,7 @@ fn cluster_control_codecs_reject_unknown_versions() {
             .serialize(&Join {
                 node: unique(1),
                 roles: vec![],
+                app_version: crate::ApplicationVersion::default(),
             })
             .unwrap()
             .payload,
@@ -271,6 +273,7 @@ fn cluster_control_codecs_reject_trailing_payload_bytes() {
         .serialize(&Join {
             node: unique(1),
             roles: vec!["backend".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         })
         .unwrap();
     let mut payload = join.payload.to_vec();

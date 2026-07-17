@@ -97,6 +97,7 @@ fn wire_outbound_serializes_join_welcome_and_gossip_for_target_node() {
             join: Join {
                 node: node_a.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -319,6 +320,7 @@ fn wire_inbound_delivers_join_and_routes_welcome_reply() {
                 .serialize(&Join {
                     node: joining.clone(),
                     roles: vec!["backend".to_string()],
+                    app_version: crate::ApplicationVersion::default(),
                 })
                 .unwrap(),
         ))

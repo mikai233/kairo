@@ -2,17 +2,18 @@ use kairo_actor::Address;
 use kairo_serialization::{RemoteMessage, SerializationError, WireReader, WireWriter};
 
 use crate::{
-    Gossip, Member, MemberStatus, Reachability, ReachabilityRecord, ReachabilityStatus,
-    UniqueAddress, VectorClock, VectorClockNode,
+    ApplicationVersion, Gossip, Member, MemberStatus, Reachability, ReachabilityRecord,
+    ReachabilityStatus, UniqueAddress, VectorClock, VectorClockNode,
 };
 
 pub(super) fn write_gossip(
     writer: &mut WireWriter,
     gossip: &Gossip,
+    version: u16,
 ) -> kairo_serialization::Result<()> {
     write_count(writer, gossip.members().len())?;
     for member in gossip.members() {
-        write_member(writer, member)?;
+        write_member(writer, member, version)?;
     }
 
     let mut seen: Vec<_> = gossip.seen_by().iter().collect();
@@ -35,8 +36,11 @@ pub(super) fn write_gossip(
     Ok(())
 }
 
-pub(super) fn read_gossip(reader: &mut WireReader<'_>) -> kairo_serialization::Result<Gossip> {
-    let members = read_vec(reader, read_member)?;
+pub(super) fn read_gossip(
+    reader: &mut WireReader<'_>,
+    version: u16,
+) -> kairo_serialization::Result<Gossip> {
+    let members = read_vec(reader, |reader| read_member(reader, version))?;
     let seen = read_vec(reader, read_unique_address)?;
     let reachability = read_reachability(reader)?;
     let version = read_vector_clock(reader)?;
@@ -55,7 +59,11 @@ pub(super) fn read_gossip(reader: &mut WireReader<'_>) -> kairo_serialization::R
     ))
 }
 
-fn write_member(writer: &mut WireWriter, member: &Member) -> kairo_serialization::Result<()> {
+fn write_member(
+    writer: &mut WireWriter,
+    member: &Member,
+    version: u16,
+) -> kairo_serialization::Result<()> {
     write_unique_address(writer, &member.unique_address)?;
     writer.write_u64(member_status_code(member.status));
     write_count(writer, member.roles.len())?;
@@ -63,15 +71,27 @@ fn write_member(writer: &mut WireWriter, member: &Member) -> kairo_serialization
         writer.write_string(role)?;
     }
     writer.write_optional_u64(member.up_number);
+    if version >= 2 {
+        writer.write_string(member.app_version.as_str())?;
+    }
     Ok(())
 }
 
-fn read_member(reader: &mut WireReader<'_>) -> kairo_serialization::Result<Member> {
+fn read_member(reader: &mut WireReader<'_>, version: u16) -> kairo_serialization::Result<Member> {
     let unique_address = read_unique_address(reader)?;
     let status = member_status_from_code(reader.read_u64()?)?;
     let roles = read_vec(reader, |reader| reader.read_string())?;
     let up_number = reader.read_optional_u64()?;
-    let mut member = Member::new(unique_address, roles).with_status(status);
+    let app_version = if version >= 2 {
+        ApplicationVersion::new(reader.read_string()?).map_err(|error| {
+            SerializationError::Message(format!("invalid member application version: {error}"))
+        })?
+    } else {
+        ApplicationVersion::default()
+    };
+    let mut member = Member::new(unique_address, roles)
+        .with_status(status)
+        .with_app_version(app_version);
     if let Some(up_number) = up_number {
         member = member.with_up_number(up_number);
     }
@@ -269,6 +289,23 @@ where
     M: RemoteMessage,
 {
     if version == M::VERSION {
+        Ok(())
+    } else {
+        Err(SerializationError::Message(format!(
+            "unsupported {} version {version}",
+            M::MANIFEST
+        )))
+    }
+}
+
+pub(super) fn ensure_supported_version<M>(
+    version: u16,
+    oldest: u16,
+) -> kairo_serialization::Result<()>
+where
+    M: RemoteMessage,
+{
+    if (oldest..=M::VERSION).contains(&version) {
         Ok(())
     } else {
         Err(SerializationError::Message(format!(

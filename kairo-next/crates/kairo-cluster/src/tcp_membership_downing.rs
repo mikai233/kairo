@@ -61,6 +61,7 @@ fn tcp_membership_socket_updates_downing_provider_state() {
             join: Join {
                 node: sender.self_node().clone(),
                 roles: Vec::new(),
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -187,6 +188,7 @@ fn tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender() 
                 join: Join {
                     node: sender.self_node().clone(),
                     roles: Vec::new(),
+                    app_version: crate::ApplicationVersion::default(),
                 },
                 reply_to: None,
             })
@@ -269,6 +271,7 @@ fn tcp_membership_socket_preserves_remaining_peer_after_one_peer_downs_sender() 
             join: Join {
                 node: late_node.clone(),
                 roles: vec!["late".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })

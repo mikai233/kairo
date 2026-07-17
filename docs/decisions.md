@@ -4391,3 +4391,34 @@ Consequences:
   serializer id, or automatic schema policy.
 - Named codecs remain the appropriate API for reusable configuration or codec
   state, and optional format-specific helper crates can still be added later.
+
+## ADR-0138: Cluster Application Versions Advance Membership Gossip To V2
+
+Status: Accepted
+
+Context:
+Pekko carries a comparable application version in `Join` and every `Member`.
+Kairo's checked version-1 Join, Welcome, and GossipEnvelope fixtures predated
+that metadata. The architecture also names data-center membership, while Pekko
+represents it through one reserved `dc-<name>` role rather than a separate
+serialized member field.
+
+Decision:
+Kairo introduces `ApplicationVersion` with Pekko `Version` parsing, ordering,
+equality, and zero-version behavior. Daemon bootstrap settings propagate the
+configured value through self formation and remote Join into Member gossip.
+Join, Welcome, and GossipEnvelope advance to wire version 2; Join appends its
+version after roles and gossip members append theirs after the optional up
+number. Their codecs continue to accept version 1 and map missing versions to
+zero. Member data center is derived from the reserved `dc-` role, with a
+missing role interpreted as `default`, so version 2 adds no duplicate
+data-center field.
+
+Consequences:
+- Rolling upgrades retain an explicit decode path for every checked v1 payload,
+  while new senders emit byte-pinned v2 payloads.
+- Application-version ordering can support version-aware allocation and rollout
+  policies without relying on Rust type identity or memory layout.
+- Data-center identity remains part of the normalized role contract. Dedicated
+  data-center settings and broader cross-data-center policies can be added
+  without another member wire field.

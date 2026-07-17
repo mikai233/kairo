@@ -38,6 +38,31 @@ fn join_self_forms_cluster_and_promotes_self_to_up() {
 }
 
 #[test]
+fn join_self_advertises_configured_application_version() {
+    let kit = ActorSystemTestKit::new("cluster-membership-self-version").unwrap();
+    let self_node = node("self", 1);
+    let app_version = crate::ApplicationVersion::new("4.2.0").unwrap();
+    let (membership, _events) =
+        spawn_membership_with_version(&kit, self_node.clone(), "membership", app_version.clone());
+    let gossip_probe = kit.create_probe::<Gossip>("gossip").unwrap();
+
+    membership.tell(ClusterMembershipMsg::JoinSelf).unwrap();
+    membership
+        .tell(ClusterMembershipMsg::SendCurrentGossip {
+            reply_to: gossip_probe.actor_ref(),
+        })
+        .unwrap();
+
+    let gossip = gossip_probe.expect_msg(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        gossip
+            .member(&self_node)
+            .map(|member| member.app_version.clone()),
+        Some(app_version)
+    );
+}
+
+#[test]
 fn membership_feeds_seed_responder_from_uninitialized_through_up_and_down() {
     let kit = ActorSystemTestKit::new("cluster-membership-seed-responder").unwrap();
     let self_node = node("self", 1);
@@ -88,6 +113,7 @@ fn remote_join_adds_joining_member_and_replies_with_welcome() {
     let joining = node("joining", 2);
     let (membership, _events) = spawn_membership(&kit, self_node.clone(), "membership");
     let reply_probe = kit.create_probe::<ClusterMembershipMsg>("welcome").unwrap();
+    let app_version = crate::ApplicationVersion::new("3.5.0+7-cafebabe").unwrap();
 
     membership.tell(ClusterMembershipMsg::JoinSelf).unwrap();
     membership
@@ -95,6 +121,7 @@ fn remote_join_adds_joining_member_and_replies_with_welcome() {
             join: Join {
                 node: joining.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: app_version.clone(),
             },
             reply_to: Some(reply_probe.actor_ref()),
         })
@@ -109,6 +136,13 @@ fn remote_join_adds_joining_member_and_replies_with_welcome() {
     assert_eq!(
         welcome.gossip.member(&joining).map(|member| member.status),
         Some(MemberStatus::Joining)
+    );
+    assert_eq!(
+        welcome
+            .gossip
+            .member(&joining)
+            .map(|member| member.app_version.clone()),
+        Some(app_version)
     );
 }
 
@@ -137,6 +171,7 @@ fn retried_join_from_existing_member_replies_with_current_welcome() {
             join: Join {
                 node: joining.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -152,6 +187,7 @@ fn retried_join_from_existing_member_replies_with_current_welcome() {
             join: Join {
                 node: joining.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: Some(reply_probe.actor_ref()),
         })
@@ -199,6 +235,7 @@ fn new_incarnation_join_downs_existing_same_address_without_welcome() {
             join: Join {
                 node: old_peer.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -208,6 +245,7 @@ fn new_incarnation_join_downs_existing_same_address_without_welcome() {
             join: Join {
                 node: new_peer.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: Some(reply_probe.actor_ref()),
         })
@@ -260,6 +298,7 @@ fn new_incarnation_retry_after_downing_rejoins_same_address() {
             join: Join {
                 node: old_peer.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -269,6 +308,7 @@ fn new_incarnation_retry_after_downing_rejoins_same_address() {
             join: Join {
                 node: new_peer.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -286,6 +326,7 @@ fn new_incarnation_retry_after_downing_rejoins_same_address() {
             join: Join {
                 node: new_peer.clone(),
                 roles: vec!["backend".to_string()],
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: Some(reply_probe.actor_ref()),
         })
@@ -383,6 +424,7 @@ fn gossip_merge_updates_local_state_and_talks_back_when_remote_has_old_view() {
             join: Join {
                 node: peer.clone(),
                 roles: Vec::new(),
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -439,6 +481,7 @@ fn down_marks_member_down_and_publishes_event() {
             join: Join {
                 node: peer.clone(),
                 roles: Vec::new(),
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -481,6 +524,7 @@ fn leave_address_moves_member_to_leaving_idempotently() {
             join: Join {
                 node: peer.clone(),
                 roles: Vec::new(),
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -593,6 +637,7 @@ fn reachability_updates_publish_unreachable_and_reachable_events() {
             join: Join {
                 node: peer.clone(),
                 roles: Vec::new(),
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -663,6 +708,7 @@ fn registered_downing_provider_observes_gossip_and_applies_stable_decision() {
             join: Join {
                 node: peer.clone(),
                 roles: Vec::new(),
+                app_version: crate::ApplicationVersion::default(),
             },
             reply_to: None,
         })
@@ -730,6 +776,18 @@ fn spawn_membership(
     ActorRef<ClusterMembershipMsg>,
     kairo_testkit::TestProbe<ClusterEvent>,
 ) {
+    spawn_membership_with_version(kit, self_node, name, crate::ApplicationVersion::default())
+}
+
+fn spawn_membership_with_version(
+    kit: &ActorSystemTestKit,
+    self_node: UniqueAddress,
+    name: &str,
+    app_version: crate::ApplicationVersion,
+) -> (
+    ActorRef<ClusterMembershipMsg>,
+    kairo_testkit::TestProbe<ClusterEvent>,
+) {
     let publisher = kit
         .system()
         .spawn(
@@ -755,6 +813,7 @@ fn spawn_membership(
             name,
             Props::new(move || {
                 ClusterMembership::new(self_node.clone(), Vec::new(), publisher.clone())
+                    .with_app_version(app_version.clone())
             }),
         )
         .unwrap();

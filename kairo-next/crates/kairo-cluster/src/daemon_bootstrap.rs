@@ -15,12 +15,12 @@ use kairo_serialization::ActorRefWireData;
 
 use crate::leave_coordinator::{ClusterLeaveCoordinator, register_cluster_coordinated_shutdown};
 use crate::{
-    CLUSTER_SYSTEM_MANIFESTS, Cluster, ClusterEventPublisher, ClusterGossipProcess,
-    ClusterGossipProcessMsg, ClusterGossipProcessSettings, ClusterGossipState,
-    ClusterGossipWireInbound, ClusterGossipWireOutbound, ClusterHeartbeatConnector,
-    ClusterInitJoinResponder, ClusterInitJoinResponderMsg, ClusterInitJoinResponderPort,
-    ClusterInitJoinResponderState, ClusterMembership, ClusterMembershipMsg,
-    ClusterMembershipRemoteEnvelopeOutbound, ClusterMembershipWireInbound,
+    ApplicationVersion, CLUSTER_SYSTEM_MANIFESTS, Cluster, ClusterEventPublisher,
+    ClusterGossipProcess, ClusterGossipProcessMsg, ClusterGossipProcessSettings,
+    ClusterGossipState, ClusterGossipWireInbound, ClusterGossipWireOutbound,
+    ClusterHeartbeatConnector, ClusterInitJoinResponder, ClusterInitJoinResponderMsg,
+    ClusterInitJoinResponderPort, ClusterInitJoinResponderState, ClusterMembership,
+    ClusterMembershipMsg, ClusterMembershipRemoteEnvelopeOutbound, ClusterMembershipWireInbound,
     ClusterMembershipWireOutbound, ClusterMembershipWireOutboundActor, ClusterRemotePeerConnector,
     ClusterSeedJoinEffect, ClusterSeedJoinProcess, ClusterSeedJoinProcessMsg,
     ClusterSeedJoinProcessSettings, ClusterSeedJoinState, ClusterSeedJoinWireInbound,
@@ -43,6 +43,7 @@ pub struct ClusterDaemonBootstrapSettings {
     node_uid: u64,
     seed_nodes: Vec<kairo_actor::Address>,
     roles: Vec<String>,
+    app_version: ApplicationVersion,
     config_digest: Option<Bytes>,
     seed_process: ClusterSeedJoinProcessSettings,
     gossip_process: ClusterGossipProcessSettings,
@@ -61,6 +62,7 @@ impl ClusterDaemonBootstrapSettings {
             node_uid,
             seed_nodes: Vec::new(),
             roles: Vec::new(),
+            app_version: ApplicationVersion::default(),
             config_digest: Some(Bytes::new()),
             seed_process: ClusterSeedJoinProcessSettings::default(),
             gossip_process: ClusterGossipProcessSettings::default(),
@@ -79,6 +81,11 @@ impl ClusterDaemonBootstrapSettings {
     /// Sets the roles advertised by the local cluster member.
     pub fn with_roles(mut self, value: Vec<String>) -> Self {
         self.roles = value;
+        self
+    }
+    /// Sets the application version advertised through cluster membership.
+    pub fn with_app_version(mut self, value: ApplicationVersion) -> Self {
+        self.app_version = value;
         self
     }
     /// Sets the configuration compatibility digest exchanged during seed contact.
@@ -289,6 +296,7 @@ pub fn register_cluster_daemon(
         let config = DaemonConfig {
             self_node: self_node.clone(),
             roles: factory_settings.roles.clone(),
+            app_version: factory_settings.app_version.clone(),
             seed_nodes: factory_settings.seed_nodes.clone(),
             config_digest: factory_settings.config_digest.clone(),
             seed_process: factory_settings.seed_process.with_start_immediately(false),
@@ -359,6 +367,7 @@ pub fn register_cluster_daemon(
 struct DaemonConfig {
     self_node: UniqueAddress,
     roles: Vec<String>,
+    app_version: ApplicationVersion,
     seed_nodes: Vec<kairo_actor::Address>,
     config_digest: Option<Bytes>,
     seed_process: ClusterSeedJoinProcessSettings,
@@ -674,8 +683,9 @@ fn build_daemon_graph(
         Props::new({
             let n = self_node.clone();
             let r = c.roles.clone();
+            let v = c.app_version.clone();
             let p = publisher.clone();
-            move || ClusterMembership::new(n, r, p)
+            move || ClusterMembership::new(n, r, p).with_app_version(v)
         }),
     )?;
     let leave_coordinator = ctx.spawn(
@@ -764,7 +774,8 @@ fn build_daemon_graph(
         c.outbound.clone(),
         membership.clone(),
         IgnoreRef::new(),
-    );
+    )
+    .with_app_version(c.app_version.clone());
     let join_wire = wire.clone();
     let effects = ctx.spawn(
         "seed-effects",

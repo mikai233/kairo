@@ -8,8 +8,9 @@ use kairo_remote::RemoteOutbound;
 use kairo_serialization::{ActorRefWireData, Registry, RemoteEnvelope, RemoteMessage};
 
 use crate::{
-    ClusterSeedJoinEffect, ClusterSeedJoinProcessMsg, DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH,
-    InitJoin, InitJoinAck, InitJoinNack, Join, UniqueAddress,
+    ApplicationVersion, ClusterSeedJoinEffect, ClusterSeedJoinProcessMsg,
+    DEFAULT_CLUSTER_MEMBERSHIP_REMOTE_PATH, InitJoin, InitJoinAck, InitJoinNack, Join,
+    UniqueAddress,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +104,7 @@ impl From<kairo_serialization::SerializationError> for ClusterSeedJoinWireError 
 pub struct ClusterSeedJoinWireOutbound {
     self_node: UniqueAddress,
     roles: Vec<String>,
+    app_version: ApplicationVersion,
     registry: Arc<Registry>,
     outbound: Arc<dyn RemoteOutbound>,
     membership: ActorRef<crate::ClusterMembershipMsg>,
@@ -122,11 +124,18 @@ impl ClusterSeedJoinWireOutbound {
         Self {
             self_node,
             roles,
+            app_version: ApplicationVersion::default(),
             registry,
             outbound,
             membership,
             incompatible: Arc::new(incompatible),
         }
+    }
+
+    /// Sets the application version advertised by outgoing join requests.
+    pub fn with_app_version(mut self, app_version: ApplicationVersion) -> Self {
+        self.app_version = app_version;
+        self
     }
 
     /// Executes one effect emitted by [`crate::ClusterSeedJoinState`].
@@ -143,6 +152,7 @@ impl ClusterSeedJoinWireOutbound {
                 &Join {
                     node: self.self_node.clone(),
                     roles: self.roles.clone(),
+                    app_version: self.app_version.clone(),
                 },
             ),
             ClusterSeedJoinEffect::JoinSelf => self
@@ -370,6 +380,7 @@ mod tests {
         let collected = Arc::new(CollectingOutbound::default());
         let self_node = UniqueAddress::new(address("joining", 2551), 11);
         let seed = address("seed", 2552);
+        let app_version = crate::ApplicationVersion::new("5.1.0").unwrap();
         let registry = registry();
         let outbound = ClusterSeedJoinWireOutbound::new(
             self_node.clone(),
@@ -378,7 +389,8 @@ mod tests {
             collected.clone(),
             membership.actor_ref(),
             incompatible.actor_ref(),
-        );
+        )
+        .with_app_version(app_version.clone());
 
         outbound
             .send_effect(ClusterSeedJoinEffect::Contact {
@@ -440,7 +452,8 @@ mod tests {
                 .unwrap(),
             Join {
                 node: self_node,
-                roles: vec!["backend".to_string()]
+                roles: vec!["backend".to_string()],
+                app_version,
             }
         );
         kit.shutdown(Duration::from_secs(1)).unwrap();

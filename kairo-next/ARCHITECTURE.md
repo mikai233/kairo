@@ -1222,12 +1222,17 @@ pub struct UniqueAddress {
 pub struct Member {
     pub unique_address: UniqueAddress,
     pub status: MemberStatus,
-    pub roles: BTreeSet<String>,
-    pub up_number: u32,
-    pub app_version: Version,
-    pub data_center: DataCenter,
+    pub roles: Vec<String>,
+    pub up_number: Option<u64>,
+    pub app_version: ApplicationVersion,
 }
 ```
+
+`ApplicationVersion` preserves the advertised string while comparing and
+hashing with Pekko `Version` semantics. `Member::data_center()` derives the
+data center from the reserved `dc-<name>` role. A historical member without a
+reserved role is interpreted as belonging to `default`; data center is not a
+duplicate wire field.
 
 Statuses:
 
@@ -1413,23 +1418,28 @@ or expose complete configuration data. The initial daemon manifests use stable
 `Address`; incarnation-sensitive gossip and exit confirmation carry a
 `UniqueAddress`.
 
-The complete membership-control version-1 message family is byte-pinned in
+The complete historical membership-control version-1 message family is byte-pinned in
 `kairo-cluster/tests/fixtures/`: `init-join-v1.hex`, `init-join-ack-v1.hex`,
 `init-join-nack-v1.hex`, `join-v1.hex`, `welcome-v1.hex`,
 `gossip-status-v1.hex`, `leave-v1.hex`, `down-v1.hex`, and
 `exiting-confirmed-v1.hex`. The fixtures preserve seed configuration digests
 and checks, canonical IPv4/IPv6 addresses, joining incarnation and role order,
 the full welcome gossip, causal status summaries, user lifecycle targets, and
-exit-confirming incarnation. Each fixture must decode and be reproduced through
-its registered serializer id (`2002`, `2003`, and `2005` through `2011`);
-incompatible layout changes require a new message version and explicit
-rolling-upgrade path.
+exit-confirming incarnation. Every fixture remains a decode compatibility gate.
+Messages whose current version remains 1 must also reproduce their checked
+bytes through the registered serializer id; `Join` and `Welcome` now encode
+version 2. Incompatible future layout changes require another message version
+and explicit rolling-upgrade path.
 
 `join-v1.hex` and the gossip-bearing version-1 fixtures preserve the historical
-pre-application-version/member-metadata layout. Adding the contract-defined
-`app_version` and retained data-center metadata must advance `Join`, `Welcome`,
-and `GossipEnvelope` to version 2 while retaining explicit version-1 decode;
-the checked version-1 bytes must not be silently reinterpreted.
+pre-application-version/member-metadata layout. `Join`, `Welcome`, and
+`GossipEnvelope` version 2 now carry application versions and retain explicit
+version-1 decode, where absent versions map to `ApplicationVersion::default()`.
+The checked `join-v2.hex`, `welcome-v2.hex`, and `gossip-envelope-v2.hex`
+fixtures pin current encoding and decoding. Join v2 appends one version string
+after roles; gossip member v2 appends one version string after the optional up
+number. Data center remains encoded once through the reserved role, so the v2
+layout adds no separate data-center field.
 
 `to` in `GossipEnvelope` must include `UniqueAddress`, not only host/port, so a
 new actor-system incarnation can ignore gossip intended for an old uid.
@@ -1444,10 +1454,11 @@ and up-number fields have one-byte presence markers; addresses carry protocol,
 system, host, and a `u64` port; unique addresses append a big-endian `u64` UID.
 The checked 869-byte historical fixture is
 `kairo-cluster/tests/fixtures/gossip-envelope-v1.hex`. Both decoding it and
-reproducing it through the registered serializer-id `2004`, manifest
-`kairo.cluster.gossip-envelope`, and version `1` are release compatibility
-gates. Incompatible field, ordering, or numeric-code changes require a new
-message version and an explicit compatibility path.
+preserving its registered serializer-id `2004`, manifest
+`kairo.cluster.gossip-envelope`, and version `1` interpretation are release
+compatibility gates. Current encoding is pinned by `gossip-envelope-v2.hex`.
+Incompatible field, ordering, or numeric-code changes require a new message
+version and an explicit compatibility path.
 
 ### Cluster Core State Machine
 

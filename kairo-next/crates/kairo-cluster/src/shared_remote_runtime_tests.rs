@@ -200,6 +200,7 @@ fn shared_remote_runtime_carries_two_business_protocols_and_cluster_control() {
         .tell(Join {
             node: sender_node.clone(),
             roles: vec!["backend".to_string()],
+            app_version: crate::ApplicationVersion::default(),
         })
         .unwrap();
 
