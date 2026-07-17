@@ -82,8 +82,10 @@ Status terms in this document mean:
   routed entity-envelope bytes, including nested application serializer
   metadata. A checked cluster-tools `PubSubDelta`-v1 fixture now pins source
   and bucket incarnations, registry versions, every key tag, and removal
-  tombstones in exact encode/decode directions. Optional codec helpers and
-  broader system-protocol compatibility fixtures remain. The
+  tombstones in exact encode/decode directions. Checked singleton handover and
+  business-envelope v1 fixtures now also pin the exact sending incarnation and
+  nested serializer metadata in both encode and decode directions. Optional
+  codec helpers and broader system-protocol compatibility fixtures remain. The
   serialization contract crate and remote-message derive crate now deny
   missing public documentation at compile time. Format-neutral
   `Registry::register_with` closure codecs now remove the one-off codec-type
@@ -530,7 +532,10 @@ Status terms in this document mean:
   subscriber without unregistering, and proves downing removes its peer route
   and registry bucket on both survivors while a new publish targets and reaches
   only the live subscriber. A checked 281-byte `PubSubDelta` v1 fixture pins
-  exact registry-gossip encode/decode compatibility, including tombstones. The
+  exact registry-gossip encode/decode compatibility, including tombstones.
+  Checked singleton handover and business-envelope v1 fixtures pin all four
+  control manifests over one exact-incarnation payload plus the nested business
+  serializer id, manifest, version, and bytes. The
   public cluster-singleton facade now documents and hard-gates pre-bind
   registration, post-bind activation, typed and local-only initialization,
   proxy delivery, settings, diagnostics, and bootstrap failures; connector

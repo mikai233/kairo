@@ -145,6 +145,15 @@ incarnations, bucket and entry versions, topic/group/path key tags, and removal
 tombstones. Change that payload only through a new message version with the
 required rolling-upgrade decode paths.
 
+Cluster-singleton handover and business delivery are now pinned at the same
+boundary. The checked `singleton-handover-v1.hex` fixture in the cluster-tools
+fixture directory fixes the explicit sender incarnation payload shared by the
+four distinct handover controls. The companion `singleton-message-v1.hex`
+fixture fixes the nested business serializer id, manifest, version, and bytes.
+Both fixtures must decode and be reproduced exactly; incompatible changes
+require a new singleton protocol version with deliberate rolling-upgrade
+handling rather than reinterpretation of version 1.
+
 The runnable `ask_pipe_to_self` example shows local request/reply and external
 work returning through the actor mailbox without borrowing actor state across
 an await point:

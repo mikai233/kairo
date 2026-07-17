@@ -2514,6 +2514,19 @@ Composed cluster singleton:
   associations until removal, and never derives membership from transport
   reachability.
 
+Singleton wire compatibility:
+
+- the checked `singleton-handover-v1.hex` fixture pins the explicit sending
+  `UniqueAddress` payload shared by `HandOverToMe`, `HandOverInProgress`,
+  `HandOverDone`, and `TakeOverFromMe`; their distinct manifests and serializer
+  ids preserve the state-machine meaning,
+- the checked `singleton-message-v1.hex` fixture pins the nested business
+  serializer id, manifest, version, payload length, and payload bytes carried by
+  `SingletonMessageEnvelope`,
+- both fixtures must decode to the expected protocol values and be reproduced
+  exactly by version 1 encoders. An incompatible layout change requires a new
+  message version and an explicit rolling-upgrade compatibility path.
+
 ### PubSub and Topic
 
 Later modules:
