@@ -1009,7 +1009,10 @@ TCP association dialing:
 - `TcpAssociationReaderHandle::join_with_supervisor` folds lane reader
   failures into `TcpAssociationSupervisedReadReport`, and
   `TcpAssociationListenerReport` carries those structured supervision
-  decisions alongside accepted identity and frame counts,
+  decisions alongside accepted identity and frame counts. Reader handles
+  retain shared socket ownership so explicit stop shuts down every lane before
+  joining; listener teardown therefore does not depend on remote EOF or peer
+  shutdown order,
 - accepted and dialed lane readers carry weak route-lifecycle tokens rather
   than strong pipeline/cache ownership. Completion or failure of any reader
   removes and closes its still-current route, or closes its still-live stale

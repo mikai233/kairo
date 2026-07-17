@@ -112,17 +112,47 @@ fn tcp_listener_accept_loop_spawns_and_joins_lane_readers() {
     let decoded = decode_remote_envelope_frame(frame).unwrap();
     assert_eq!(decoded.message.payload, Bytes::from_static(&[34]));
 
-    listener_handle.stop();
     drop(registration);
     drop(cache);
     drop(dialer);
 
+    listener_handle.stop();
     let report = listener_handle.join().unwrap();
     assert_eq!(report.accepted_associations, 1);
     assert!(report.remote_identities.is_empty());
     assert_eq!(report.read.streams, 3);
     assert_eq!(report.read.frames, 1);
     assert!(report.supervision.is_empty());
+}
+
+#[test]
+fn tcp_listener_stop_unblocks_lane_readers_while_peer_remains_live() {
+    let (frame_tx, frame_rx) = mpsc::channel();
+    let handler = Arc::new(ChannelFrameHandler::new(frame_tx)) as Arc<dyn RemoteFrameHandler>;
+    let listener = TcpAssociationListener::bind(("127.0.0.1", 0), handler)
+        .unwrap()
+        .with_accept_poll_interval(Duration::from_millis(1));
+    let port = listener.local_addr().unwrap().port();
+    let listener_handle = listener.spawn_accept_loop().unwrap();
+
+    let cache = RemoteAssociationCache::new();
+    let installer = crate::RemoteAssociationRouteInstaller::new(cache.clone());
+    let dialer = TcpAssociationDialer::new(installer).with_connect_timeout(Duration::from_secs(1));
+    let registration = dialer.dial(address(port)).unwrap();
+
+    cache.send(envelope(port, 35)).unwrap();
+    frame_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    listener_handle.stop();
+    let report = listener_handle
+        .join_until(std::time::Instant::now() + Duration::from_secs(1))
+        .expect("listener stop should unblock owned lane readers")
+        .unwrap();
+    assert_eq!(report.accepted_associations, 1);
+
+    drop(registration);
+    drop(cache);
+    drop(dialer);
 }
 
 #[test]

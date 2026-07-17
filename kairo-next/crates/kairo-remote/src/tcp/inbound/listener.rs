@@ -296,6 +296,7 @@ impl TcpAssociationListener {
         let stop_reader_deadline = Instant::now() + STOP_READER_JOIN_TIMEOUT;
         for handle in reader_handles {
             let report = if stopped {
+                handle.stop();
                 handle
                     .join_with_supervisor_until(&mut reader_supervisor, stop_reader_deadline)
                     .unwrap_or_default()

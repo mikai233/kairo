@@ -566,6 +566,9 @@ Status terms in this document mean:
   Checked singleton handover and business-envelope v1 fixtures pin all four
   control manifests over one exact-incarnation payload plus the nested business
   serializer id, manifest, version, and bytes. The
+  shared TCP reader handle now actively shuts down listener-owned lane sockets
+  before joining, so cluster-tools transport teardown no longer depends on the
+  peer closing first or consume its bounded deadline under workspace load. The
   public cluster-singleton facade now documents and hard-gates pre-bind
   registration, post-bind activation, typed and local-only initialization,
   proxy delivery, settings, diagnostics, and bootstrap failures; connector
@@ -1197,16 +1200,17 @@ checkpoint, not an individual agent turn, test case, or validation command.
   git diff --check
   ```
 
-- Latest M13 remoting shutdown hardening validates that the implicit shutdown
-  budget outlives configured TCP connect attempts and survives repeated
-  distributed-data partition/heal teardown:
+- Latest M13 remoting shutdown hardening validates that listener stop actively
+  unblocks owned lane readers while the peer remains live. The cluster-tools
+  bidirectional transport regression now passes with its original one-second
+  deadline under the complete workspace gate:
 
   ```bash
-  cargo test -p kairo-remote default_shutdown_budget_outlives_configured_connect_attempts --all-targets --all-features
-  cargo test -p kairo-distributed-data composed_replicas_merge_divergent_updates_after_partition_heals --all-targets --all-features # 10 stress runs
-  cargo test -p kairo-examples --test sharding_tcp_acceptance --all-features -- --nocapture
+  cargo test -p kairo-remote tcp_listener_stop_unblocks_lane_readers_while_peer_remains_live --all-targets --all-features
+  cargo test -p kairo-cluster-tools remote_tcp::tests::tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally --all-targets --all-features -- --exact
   cargo fmt --all -- --check
-  cargo clippy --workspace --all-targets --all-features -- -D warnings
+  cargo clippy -p kairo-remote -p kairo-cluster-tools --all-targets --all-features -- -D warnings
+  cargo test --workspace --all-targets --all-features
   git diff --check
   ```
 
@@ -2060,13 +2064,10 @@ checkpoint, not an individual agent turn, test case, or validation command.
 - Continue treating repeated full-workspace validation as an M13 readiness
   gate; one green run is useful evidence but does not remove the need for
   ongoing hardening around multi-node and lifecycle timing.
-- The latest full-workspace Windows rerun passed formatting and clippy, then
-  exposed an intermittent one-second transport shutdown timeout in
-  `tcp_runtime_routes_pubsub_and_singleton_system_messages_bidirectionally`;
-  the cluster-tools case passed immediately in isolation. The prior sharding
-  suite-load lifecycle gap is closed by best-effort region acknowledgements
-  and ordered fixture teardown; the cluster-tools timeout is the next M13
-  lifecycle-timing gap, not an external blocker.
+- The latest full-workspace Windows rerun passes after reader handles gained
+  explicit socket shutdown. Both the prior sharding suite-load race and the
+  cluster-tools peer-order-dependent transport timeout are closed; repeated
+  multi-node and lifecycle stress remains an M13 readiness gate.
 - No external blockers are recorded in `docs/blocked.md`.
 
 ## Detailed Implementation Log

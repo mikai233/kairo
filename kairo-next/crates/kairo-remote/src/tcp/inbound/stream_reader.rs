@@ -51,12 +51,21 @@ impl TcpAssociationStreamReader {
     pub fn read_stream(
         &self,
         peer: impl Into<String>,
-        mut stream: TcpStream,
+        stream: TcpStream,
+    ) -> Result<TcpAssociationReadReport> {
+        self.read_shared_stream(peer, Arc::new(stream))
+    }
+
+    pub(crate) fn read_shared_stream(
+        &self,
+        peer: impl Into<String>,
+        stream: Arc<TcpStream>,
     ) -> Result<TcpAssociationReadReport> {
         let peer = peer.into();
         let mut inbound = StreamFrameInbound::new(self.handler.clone());
         let mut buffer = vec![0_u8; self.read_chunk_len];
         let mut frames = 0_usize;
+        let mut stream = stream.as_ref();
 
         loop {
             let read = stream

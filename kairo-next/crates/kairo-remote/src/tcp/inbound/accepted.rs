@@ -1,6 +1,7 @@
 #![deny(missing_docs)]
 
-use std::net::{SocketAddr, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpStream};
+use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -79,10 +80,14 @@ impl TcpAcceptedAssociation {
             .map(|accepted| {
                 let reader = self.reader.clone();
                 let route_lifecycle = route_lifecycle.clone();
+                let peer = accepted.peer.to_string();
+                let stream = Arc::new(accepted.stream);
+                let reader_stream = Arc::clone(&stream);
                 TcpAssociationReaderJoin {
                     stream_id: accepted.stream_id,
+                    stream,
                     join: thread::spawn(move || {
-                        let result = reader.read_stream(accepted.peer.to_string(), accepted.stream);
+                        let result = reader.read_shared_stream(peer, reader_stream);
                         if let Some(lifecycle) = route_lifecycle {
                             lifecycle.close_owned_route(
                                 "tcp accepted association lane reader completed",
@@ -110,6 +115,7 @@ pub struct TcpAssociationReaderHandle {
 
 struct TcpAssociationReaderJoin {
     stream_id: Option<RemoteStreamId>,
+    stream: Arc<TcpStream>,
     join: JoinHandle<Result<TcpAssociationReadReport>>,
 }
 
@@ -124,10 +130,13 @@ impl TcpAssociationReaderHandle {
             .map(|(peer, stream)| {
                 let reader = reader.clone();
                 let route_lifecycle = route_lifecycle.clone();
+                let stream = Arc::new(stream);
+                let reader_stream = Arc::clone(&stream);
                 TcpAssociationReaderJoin {
                     stream_id: None,
+                    stream,
                     join: thread::spawn(move || {
-                        let result = reader.read_stream(peer, stream);
+                        let result = reader.read_shared_stream(peer, reader_stream);
                         route_lifecycle
                             .close_owned_route("tcp dialed association lane reader completed");
                         result
@@ -159,20 +168,30 @@ impl TcpAssociationReaderHandle {
         self.joins.iter().all(|reader| reader.join.is_finished())
     }
 
-    /// Joins readers after marking the default supervisor stopped.
+    pub(crate) fn stop(&self) {
+        for reader in &self.joins {
+            let _ = reader.stream.shutdown(Shutdown::Both);
+        }
+    }
+
+    /// Shuts down every lane socket, then joins readers with the default supervisor stopped.
     ///
     /// Late reader failures are reported as ignored supervision decisions.
     pub fn join_after_stop(self) -> TcpAssociationSupervisedReadReport {
+        self.stop();
         let mut supervisor = TcpAssociationReaderSupervisor::default();
         supervisor.stop();
         self.join_with_supervisor(&mut supervisor)
     }
 
-    /// Joins stopped readers before `deadline`, or returns `None` on timeout.
+    /// Shuts down every lane socket and joins stopped readers before `deadline`.
+    ///
+    /// Returns `None` on timeout.
     pub fn join_after_stop_until(
         self,
         deadline: Instant,
     ) -> Option<TcpAssociationSupervisedReadReport> {
+        self.stop();
         let mut supervisor = TcpAssociationReaderSupervisor::default();
         supervisor.stop();
         self.join_with_supervisor_until(&mut supervisor, deadline)
