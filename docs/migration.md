@@ -121,6 +121,21 @@ state, observer-versioned reachability, vector clocks, and tombstones. Change
 that schema only by introducing a new message version whose codec explicitly
 retains every rolling-upgrade direction that deployed nodes require.
 
+The remaining membership-control version-1 payloads are pinned alongside it by
+`init-join-v1.hex`, `init-join-ack-v1.hex`, `init-join-nack-v1.hex`,
+`join-v1.hex`, `welcome-v1.hex`, `gossip-status-v1.hex`, `leave-v1.hex`,
+`down-v1.hex`, and `exiting-confirmed-v1.hex`. Bidirectional tests preserve the
+seed configuration digest/check, canonical IPv4 and IPv6 addresses, joining
+incarnation and ordered roles, full welcome gossip, causal status summary,
+leave/down targets, and exiting incarnation. Those deployed version-1 bytes
+must not be reinterpreted; incompatible changes require new versions and
+explicit compatibility codecs.
+
+The checked `Join`, `Welcome`, and full-gossip version-1 fixtures also document
+the historical pre-application-version/member-metadata layout. Introducing the
+architecture-level application version and any retained data-center metadata
+requires version-2 encodings with deliberate version-1 decode support.
+
 Cluster heartbeat correlation is independently pinned by the checked
 `heartbeat-v1.hex` and `heartbeat-rsp-v1.hex` fixtures in the same cluster
 fixture directory. The request fixes the exact requester incarnation, sequence

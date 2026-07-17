@@ -1413,6 +1413,24 @@ or expose complete configuration data. The initial daemon manifests use stable
 `Address`; incarnation-sensitive gossip and exit confirmation carry a
 `UniqueAddress`.
 
+The complete membership-control version-1 message family is byte-pinned in
+`kairo-cluster/tests/fixtures/`: `init-join-v1.hex`, `init-join-ack-v1.hex`,
+`init-join-nack-v1.hex`, `join-v1.hex`, `welcome-v1.hex`,
+`gossip-status-v1.hex`, `leave-v1.hex`, `down-v1.hex`, and
+`exiting-confirmed-v1.hex`. The fixtures preserve seed configuration digests
+and checks, canonical IPv4/IPv6 addresses, joining incarnation and role order,
+the full welcome gossip, causal status summaries, user lifecycle targets, and
+exit-confirming incarnation. Each fixture must decode and be reproduced through
+its registered serializer id (`2002`, `2003`, and `2005` through `2011`);
+incompatible layout changes require a new message version and explicit
+rolling-upgrade path.
+
+`join-v1.hex` and the gossip-bearing version-1 fixtures preserve the historical
+pre-application-version/member-metadata layout. Adding the contract-defined
+`app_version` and retained data-center metadata must advance `Join`, `Welcome`,
+and `GossipEnvelope` to version 2 while retaining explicit version-1 decode;
+the checked version-1 bytes must not be silently reinterpreted.
+
 `to` in `GossipEnvelope` must include `UniqueAddress`, not only host/port, so a
 new actor-system incarnation can ignore gossip intended for an old uid.
 

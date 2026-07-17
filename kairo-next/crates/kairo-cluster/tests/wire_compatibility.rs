@@ -1,15 +1,28 @@
 use bytes::Bytes;
 use kairo_actor::Address;
 use kairo_cluster::{
-    GOSSIP_ENVELOPE_SERIALIZER_ID, Gossip, GossipEnvelope, HEARTBEAT_RSP_SERIALIZER_ID,
-    HEARTBEAT_SERIALIZER_ID, Heartbeat, HeartbeatRsp, Member, MemberStatus, Reachability,
-    UniqueAddress, VectorClock, VectorClockNode, register_cluster_protocol_codecs,
+    ClusterConfigCheck, DOWN_SERIALIZER_ID, Down, EXITING_CONFIRMED_SERIALIZER_ID,
+    ExitingConfirmed, GOSSIP_ENVELOPE_SERIALIZER_ID, GOSSIP_STATUS_SERIALIZER_ID, Gossip,
+    GossipEnvelope, GossipStatus, HEARTBEAT_RSP_SERIALIZER_ID, HEARTBEAT_SERIALIZER_ID, Heartbeat,
+    HeartbeatRsp, INIT_JOIN_ACK_SERIALIZER_ID, INIT_JOIN_NACK_SERIALIZER_ID,
+    INIT_JOIN_SERIALIZER_ID, InitJoin, InitJoinAck, InitJoinNack, JOIN_SERIALIZER_ID, Join,
+    LEAVE_SERIALIZER_ID, Leave, Member, MemberStatus, Reachability, UniqueAddress, VectorClock,
+    VectorClockNode, WELCOME_SERIALIZER_ID, Welcome, register_cluster_protocol_codecs,
 };
 use kairo_serialization::{Manifest, Registry, RemoteMessage, SerializedMessage};
 
 const GOSSIP_ENVELOPE_V1_FIXTURE: &str = include_str!("fixtures/gossip-envelope-v1.hex");
 const HEARTBEAT_V1_FIXTURE: &str = include_str!("fixtures/heartbeat-v1.hex");
 const HEARTBEAT_RSP_V1_FIXTURE: &str = include_str!("fixtures/heartbeat-rsp-v1.hex");
+const INIT_JOIN_V1_FIXTURE: &str = include_str!("fixtures/init-join-v1.hex");
+const INIT_JOIN_ACK_V1_FIXTURE: &str = include_str!("fixtures/init-join-ack-v1.hex");
+const INIT_JOIN_NACK_V1_FIXTURE: &str = include_str!("fixtures/init-join-nack-v1.hex");
+const JOIN_V1_FIXTURE: &str = include_str!("fixtures/join-v1.hex");
+const WELCOME_V1_FIXTURE: &str = include_str!("fixtures/welcome-v1.hex");
+const GOSSIP_STATUS_V1_FIXTURE: &str = include_str!("fixtures/gossip-status-v1.hex");
+const LEAVE_V1_FIXTURE: &str = include_str!("fixtures/leave-v1.hex");
+const DOWN_V1_FIXTURE: &str = include_str!("fixtures/down-v1.hex");
+const EXITING_CONFIRMED_V1_FIXTURE: &str = include_str!("fixtures/exiting-confirmed-v1.hex");
 
 fn fixture_bytes(hex_fixture: &str) -> Bytes {
     let hex = hex_fixture.split_whitespace().collect::<String>();
@@ -196,3 +209,185 @@ fn heartbeat_rsp_v1_fixture_decodes_responder_and_echoed_correlation() {
     assert_eq!(response.sequence_nr, request.sequence_nr);
     assert_eq!(response.creation_time_nanos, request.creation_time_nanos);
 }
+
+fn init_join_v1() -> InitJoin {
+    InitJoin {
+        joining_config_digest: Bytes::from_static(b"\xde\xad\xbe\xef\x01\x23\x45\x67"),
+    }
+}
+
+fn init_join_ack_v1() -> InitJoinAck {
+    InitJoinAck {
+        address: Address::new(
+            "kairo",
+            "seed-ack",
+            Some("192.0.2.10".to_string()),
+            Some(25_540),
+        ),
+        config_check: ClusterConfigCheck::Compatible,
+    }
+}
+
+fn init_join_nack_v1() -> InitJoinNack {
+    InitJoinNack {
+        address: Address::new(
+            "kairo",
+            "seed-nack",
+            Some("2001:db8::10".to_string()),
+            Some(25_541),
+        ),
+    }
+}
+
+fn join_v1() -> Join {
+    Join {
+        node: node("joining-node", 25_542, 0x6162_6364_6566_6768),
+        roles: vec!["backend".to_string(), "dc-a".to_string()],
+    }
+}
+
+fn welcome_v1() -> Welcome {
+    let envelope = gossip_envelope_v1();
+    Welcome {
+        from: envelope.from,
+        gossip: envelope.gossip,
+    }
+}
+
+fn gossip_status_v1() -> GossipStatus {
+    GossipStatus {
+        from: node("status-node", 25_543, 0x7172_7374_7576_7778),
+        version: VectorClock::new()
+            .increment(VectorClockNode::new("status-alpha"))
+            .increment(VectorClockNode::new("status-alpha"))
+            .increment(VectorClockNode::new("status-beta")),
+        seen_digest: Bytes::from_static(b"\x81\x82\x83\x84\x85"),
+    }
+}
+
+fn leave_v1() -> Leave {
+    Leave {
+        address: node("leaving-node", 25_544, 1).address,
+    }
+}
+
+fn down_v1() -> Down {
+    Down {
+        address: node("down-node", 25_545, 1).address,
+    }
+}
+
+fn exiting_confirmed_v1() -> ExitingConfirmed {
+    ExitingConfirmed {
+        node: node("exiting-node", 25_546, 0x8182_8384_8586_8788),
+    }
+}
+
+macro_rules! membership_control_v1_fixture_tests {
+    (
+        $encode_test:ident,
+        $decode_test:ident,
+        $message_type:ty,
+        $message:ident,
+        $serializer_id:expr,
+        $fixture:ident
+    ) => {
+        #[test]
+        fn $encode_test() {
+            let serialized = registry().serialize(&$message()).unwrap();
+            assert_v1_fixture::<$message_type>(
+                &serialized,
+                $serializer_id,
+                &fixture_bytes($fixture),
+            );
+        }
+
+        #[test]
+        fn $decode_test() {
+            let serialized = SerializedMessage::new(
+                $serializer_id,
+                Manifest::new(<$message_type>::MANIFEST),
+                <$message_type>::VERSION,
+                fixture_bytes($fixture),
+            );
+
+            assert_eq!(
+                registry().deserialize::<$message_type>(serialized).unwrap(),
+                $message()
+            );
+        }
+    };
+}
+
+membership_control_v1_fixture_tests!(
+    init_join_v1_encoding_matches_checked_fixture,
+    init_join_v1_fixture_decodes_config_digest,
+    InitJoin,
+    init_join_v1,
+    INIT_JOIN_SERIALIZER_ID,
+    INIT_JOIN_V1_FIXTURE
+);
+membership_control_v1_fixture_tests!(
+    init_join_ack_v1_encoding_matches_checked_fixture,
+    init_join_ack_v1_fixture_decodes_seed_and_config_check,
+    InitJoinAck,
+    init_join_ack_v1,
+    INIT_JOIN_ACK_SERIALIZER_ID,
+    INIT_JOIN_ACK_V1_FIXTURE
+);
+membership_control_v1_fixture_tests!(
+    init_join_nack_v1_encoding_matches_checked_fixture,
+    init_join_nack_v1_fixture_decodes_declining_seed,
+    InitJoinNack,
+    init_join_nack_v1,
+    INIT_JOIN_NACK_SERIALIZER_ID,
+    INIT_JOIN_NACK_V1_FIXTURE
+);
+membership_control_v1_fixture_tests!(
+    join_v1_encoding_matches_checked_fixture,
+    join_v1_fixture_decodes_incarnation_and_roles,
+    Join,
+    join_v1,
+    JOIN_SERIALIZER_ID,
+    JOIN_V1_FIXTURE
+);
+membership_control_v1_fixture_tests!(
+    welcome_v1_encoding_matches_checked_fixture,
+    welcome_v1_fixture_decodes_sender_and_full_gossip,
+    Welcome,
+    welcome_v1,
+    WELCOME_SERIALIZER_ID,
+    WELCOME_V1_FIXTURE
+);
+membership_control_v1_fixture_tests!(
+    gossip_status_v1_encoding_matches_checked_fixture,
+    gossip_status_v1_fixture_decodes_causal_summary,
+    GossipStatus,
+    gossip_status_v1,
+    GOSSIP_STATUS_SERIALIZER_ID,
+    GOSSIP_STATUS_V1_FIXTURE
+);
+membership_control_v1_fixture_tests!(
+    leave_v1_encoding_matches_checked_fixture,
+    leave_v1_fixture_decodes_canonical_address,
+    Leave,
+    leave_v1,
+    LEAVE_SERIALIZER_ID,
+    LEAVE_V1_FIXTURE
+);
+membership_control_v1_fixture_tests!(
+    down_v1_encoding_matches_checked_fixture,
+    down_v1_fixture_decodes_canonical_address,
+    Down,
+    down_v1,
+    DOWN_SERIALIZER_ID,
+    DOWN_V1_FIXTURE
+);
+membership_control_v1_fixture_tests!(
+    exiting_confirmed_v1_encoding_matches_checked_fixture,
+    exiting_confirmed_v1_fixture_decodes_node_incarnation,
+    ExitingConfirmed,
+    exiting_confirmed_v1,
+    EXITING_CONFIRMED_SERIALIZER_ID,
+    EXITING_CONFIRMED_V1_FIXTURE
+);

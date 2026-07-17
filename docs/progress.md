@@ -81,6 +81,10 @@ Status terms in this document mean:
   Checked heartbeat request/response v1 fixtures now pin exact requester and
   responder incarnations plus the sequence and creation-time fields that the
   receiver must echo unchanged.
+  Checked membership-control v1 fixtures now pin seed init/ack/nack, join,
+  welcome, causal gossip status, leave, down, and exiting-confirmation payloads
+  in both directions, including config checks, canonical IPv4/IPv6 addresses,
+  role ordering, full welcome gossip, and incarnation-sensitive controls.
   Checked ddata
   delta-propagation fixtures now prove historical v1 decode plus exact v2
   encode/decode with CRDT metadata, causal ranges, and both pruning lifecycle
@@ -6706,14 +6710,20 @@ Implemented:
 
 Not yet implemented:
 
+- Cluster `Join`/`Member` application-version metadata and retained data-center
+  metadata from the architecture still require version-2 `Join`, `Welcome`, and
+  `GossipEnvelope` encodings with explicit version-1 decode. The checked v1
+  fixtures deliberately pin the current pre-metadata layout so that addition
+  cannot silently reinterpret deployed bytes.
 - Optional codec helper crates, richer actor-system lifecycle wiring around the
   existing TCP association primitives, and system-protocol compatibility
   fixtures beyond the checked remote-envelope frame-v1 and TCP association
-  handshake-v2 bytes, checked cluster full-gossip payload-v1 bytes, checked
-  ddata delta-propagation payload-v1/v2 bytes, checked sharding ownership and
-  routed-envelope payload-v1 bytes, checked cluster-tools pubsub-delta
-  payload-v1 bytes, checked reliable-system envelope/reply payload-v1 bytes,
-  and current bidirectional process-level v1/v2 remote-message migration tests.
+  handshake-v2 bytes, checked cluster full-gossip, heartbeat, and complete
+  membership-control payload-v1 bytes, checked ddata delta-propagation
+  payload-v1/v2 bytes, checked sharding ownership and routed-envelope payload-v1
+  bytes, checked cluster-tools pubsub-delta and singleton-control payload-v1
+  bytes, checked reliable-system envelope/reply payload-v1 bytes, and current
+  bidirectional process-level v1/v2 remote-message migration tests.
 - Distributed-data still needs broader multi-node validation around the
   focused TCP association runtime, peer-route owner, reconnect state, peer
   runtime, actor-backed connector, and bootstrap beyond the current localhost
@@ -6768,21 +6778,14 @@ Not yet implemented:
 
 ## Last Validation
 
-Latest M13 validation after verified legacy-tree removal:
+Latest M13 validation after cluster membership-control v1 fixture coverage:
 
 ```bash
-cargo test -p kairo root_workspace_members_stay_on_kairo_next --all-targets --all-features -- --nocapture
-cargo test -p kairo migration_notes_record_verified_legacy_removal --all-targets --all-features -- --nocapture
-cargo test -p kairo --all-targets --all-features
+cargo test -p kairo-cluster --test wire_compatibility --all-features -- --nocapture
+cargo test -p kairo-cluster --all-targets --all-features
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
-cargo test --doc --workspace --all-features
-cargo test -p kairo-examples --all-targets --all-features
-cargo test -p kairo-testkit multi_node --all-targets --all-features
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks --allow-dirty
-KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 git diff --check
 ```
 
