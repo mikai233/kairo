@@ -198,7 +198,7 @@ Examples and Multi-Node:
   cargo test -p kairo-examples --doc --all-features
   cargo test -p kairo-testkit multi_node --all-targets --all-features
 Rustdoc: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-Package: cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks
+Package: cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks --no-verify
 Benchmark Smoke: KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 ```
 
@@ -219,7 +219,7 @@ cargo test --doc --workspace --all-features
 cargo test -p kairo-examples --doc --all-features
 cargo test -p kairo-testkit multi_node --all-targets --all-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks
+cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks --no-verify
 KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all
 ```
 

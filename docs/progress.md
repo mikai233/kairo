@@ -5,24 +5,26 @@
 As of 2026-07-17, `kairo-next` has broad component coverage across local
 actors, serialization, remoting, gossip state, distributed data, sharding, and
 cluster tools. The component depth, composed acceptance workflows, and
-validation history now place the rewrite in its M13 hardening phase. The production
+validation history now satisfy the M0-M13 roadmap. The production
 actor execution model and composed remoting boundary are now complete. The
 composed cluster daemon and its public ActorSystem extension now cover formation,
 reachability, graceful leave, explicit join, and same-address reincarnation at
 the process boundary. Distributed integration is complete through its
 foundational acceptance boundary.
 
-Current active stage: **M13 hardening and release readiness**, with Phases 1-4
-and the final actor-tree audit complete. The three-node final acceptance workflow passes through the public
+Current active stage: **roadmap complete; release follow-up only**, with all
+milestone acceptance gates and the final actor-tree audit complete. The
+three-node final acceptance workflow passes through the public
 composed runtime, and a separate two-node acceptance test now partitions live
 ddata replicas, applies divergent local updates, heals the associations, and
 proves reachability plus CRDT convergence recover without membership removal.
 The actor audit also made startup-failure death watch deterministic by retaining
 the terminal failure cause for a watch registered after child termination.
-Remaining work is tuning, compatibility depth, documentation, and release
-hardening rather than foundational redesign. The workspace now declares and
-checks Rust 1.88 as its MSRV, runs the full stable test gate on Linux, Windows,
-and macOS, and executes benchmark smoke coverage with release optimizations.
+No foundational or milestone-acceptance gap remains. Further tuning,
+compatibility depth, fault stress, and release publishing are post-roadmap
+follow-up work. The workspace declares and checks Rust 1.88 as its MSRV, runs
+the full stable test gate on Linux, Windows, and macOS, and executes benchmark
+smoke coverage with release optimizations.
 The legacy root `crates/` tree has now been removed after its documented facade,
 example, CI, manifest-independence, and release-gap gates were verified;
 historical sources remain available through Git history.
@@ -413,7 +415,7 @@ Status terms in this document mean:
   expose a mixed refresh. Its subscription, route/report, reachability clock,
   pruning tick, timer, diagnostic snapshot, and construction surfaces now carry
   compile-time public-documentation gates.
-- M8 and M9 cluster sharding: substantial component coverage. `EntityRef`,
+- M8 and M9 cluster sharding: complete through their acceptance boundaries. `EntityRef`,
   `ShardingEnvelope`, extractors, stable shard hashing, region/shard/coordinator
   actors, allocation, handoff, rebalancing, passivation, remember-entities
   stores, remote routes, `ShardRegionBootstrap`, and focused multi-node tests
@@ -645,13 +647,15 @@ Status terms in this document mean:
   flight; stop records deferred cleanup intent instead of waiting on the
   command's runtime mutex, while coordinated shutdown waits for an explicit
   off-turn runtime-shutdown command before connector termination.
-- M11 configuration and observability: substantial implementation. TOML-based
+- M11 configuration and observability: complete through its acceptance boundary. TOML-based
   settings, builder conversion, backend-neutral diagnostic filters/observer
   helpers, dependency-free diagnostic counters/text sinks, dead-letter
   publication controls, and coordinated-shutdown surfaces exist. Distributed
-  extensions now share the ActorSystem-owned transport and shutdown lifecycle;
-  broader process and fault scenarios remain before release hardening.
-- M12 examples, migration, and documentation: substantial implementation.
+  extensions share the ActorSystem-owned transport and shutdown lifecycle;
+  typed extension lookup, operator-visible cluster snapshots, diagnostic
+  failure categories, and leave-before-remoting shutdown order have focused
+  public-boundary coverage.
+- M12 examples, migration, and documentation: complete through its acceptance boundary.
   Examples, migration guidance, README feature maps, workspace doctests,
   rustdoc warning gates, and compile-tested public API snippets exist. The
   recommended `kairo` facade, foundational actor and serialization APIs, and
@@ -672,12 +676,15 @@ Status terms in this document mean:
   provides the final three-node acceptance workflow through that facade and
   real composed membership; other distributed examples retain narrower
   diagnostic/bootstrap roles.
-- M13 hardening and release readiness: active as the remaining phase. Its
+- M13 hardening and release readiness: complete through its acceptance boundary. Its
   validation, documentation, dependency audit, and benchmark scaffolding
   now include a declared Rust 1.88 MSRV, Linux/Windows/macOS stable test
   coverage, an explicit no-default/default/per-feature facade compile matrix,
-  release-mode benchmark smoke, and verified release archives for every public
-  crate. The remote-send benchmark now exercises the public typed
+  release-mode benchmark smoke, and assembled release archives for every public
+  crate. The current local dependency graph is verified by the workspace gates;
+  exact archive verification requires a dependency-ordered staging registry
+  rather than resolving dependants against the previous registry release. The
+  remote-send benchmark now exercises the public typed
   `RemoteActorRef<M>` path, registered codec lookup, stable wire metadata, and
   payload serialization before deterministic outbound delivery instead of
   timing prebuilt envelope cloning. The sharding-route benchmark likewise now
@@ -2134,18 +2141,19 @@ checkpoint, not an individual agent turn, test case, or validation command.
   `cargo test -p kairo-examples --doc --all-features`,
   `cargo test -p kairo-testkit multi_node --all-targets --all-features`,
   `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps`,
-  `KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks -- all`, and
+  `KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all`,
+  `cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks --no-verify`, and
   `git diff --check`.
 - The previously flaky `kairo-cluster-sharding`
   `region_actor_ignores_stale_remembered_local_shard_restart_timer` case also
   passes when run directly on the current tree.
-- Continue treating repeated full-workspace validation as an M13 readiness
-  gate; one green run is useful evidence but does not remove the need for
-  ongoing hardening around multi-node and lifecycle timing.
+- Continue treating repeated full-workspace validation as a release regression
+  gate. Additional multi-node and lifecycle stress is useful follow-up work,
+  but is no longer an open milestone acceptance item.
 - The latest full-workspace Windows rerun passes after reader handles gained
   explicit socket shutdown. Both the prior sharding suite-load race and the
   cluster-tools peer-order-dependent transport timeout are closed; repeated
-  multi-node and lifecycle stress remains an M13 readiness gate.
+  multi-node and lifecycle stress remains release regression coverage.
 - No external blockers are recorded in `docs/blocked.md`.
 
 ## Detailed Implementation Log

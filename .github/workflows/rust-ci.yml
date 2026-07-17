@@ -109,8 +109,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Assemble and verify publishable crates
-        run: cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks
+      - name: Assemble publishable crate archives
+        run: cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks --no-verify
 
   benchmarks:
     name: Benchmark Smoke

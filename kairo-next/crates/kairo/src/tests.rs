@@ -92,8 +92,8 @@ const M13_VALIDATION_GATE_EXPECTATIONS: [(&str, &str); 11] = [
         "workspace rustdoc warnings must remain denied",
     ),
     (
-        "cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks",
-        "every public crate must assemble and verify from its release archive",
+        "cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks --no-verify",
+        "every public crate must assemble a release archive before coordinated publication",
     ),
     (
         "KAIRO_BENCH_ITERS=100 cargo run -p kairo-benchmarks --release -- all",
@@ -1055,7 +1055,7 @@ fn implementation_status_docs_mark_actor_tree_lifecycle_audit_complete()
     for implemented_phrase in [
         "final actor-tree audit complete",
         "late parent watch could lose a child's failure cause",
-        "Remaining work is tuning, compatibility depth, documentation, and release\nhardening rather than foundational redesign.",
+        "No foundational or milestone-acceptance gap remains. Further tuning,\ncompatibility depth, fault stress, and release publishing are post-roadmap\nfollow-up work.",
     ] {
         assert!(
             progress.contains(implemented_phrase),

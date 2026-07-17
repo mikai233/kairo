@@ -18,13 +18,18 @@ benchmark crates are marked `publish = false`; they still inherit the same
 license metadata for local builds and documentation.
 
 Every publishable crate has a package description, and internal workspace
-dependencies combine a registry version with their local path. This lets Cargo
-assemble and verify the complete release set in dependency order while normal
-development continues to use local sources:
+dependencies combine a registry version with their local path. Normal
+development and the full validation gate compile the complete local dependency
+graph. Before coordinated publication, Cargo assembles every archive without
+trying to resolve higher-level crates against the previous registry release:
 
 ```bash
-cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks
+cargo package --workspace --all-features --exclude kairo-examples --exclude kairo-benchmarks --no-verify
 ```
+
+Full archive verification requires publishing the same-version dependency set
+to a staging registry in dependency order; resolving an archive against the
+previous registry version is not a valid verification of the current workspace.
 
 Active workspace members:
 

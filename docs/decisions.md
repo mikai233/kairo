@@ -4160,19 +4160,24 @@ release.
 Decision:
 Every publishable internal workspace dependency combines the current `0.1.0`
 registry version requirement with its local path, and every public crate
-supplies a package description. Release readiness packages the ten
-public crates together with `cargo package --workspace --all-features`,
-excluding the private examples and benchmark crates. Cargo therefore stages
-the dependency graph in publish order and verifies each generated archive
-against staged local crates.
+supplies a package description. Release readiness assembles the ten public
+crates together with `cargo package --workspace --all-features --no-verify`,
+excluding the private examples and benchmark crates. The full workspace test,
+lint, documentation, and example gates verify the current local dependency
+graph. A publication rehearsal that verifies extracted archives must first
+publish the same-version dependency set to a staging registry in dependency
+order; Cargo otherwise resolves dependants against the previous registry
+release and tests the wrong API graph.
 
 Consequences:
 - Local builds continue resolving workspace sources through `path` while crate
   archives contain registry-compatible dependency requirements.
 - All publishable crate versions must move together until an intentional
   independent-versioning decision replaces this policy.
-- CI catches missing metadata, undeclared dependency versions, archive content
-  errors, and builds that only succeed from the repository checkout.
+- CI catches missing metadata, undeclared dependency versions, and archive
+  assembly errors; the local-graph gates catch builds that do not compile.
+- A staging-registry rehearsal remains the correct gate for verifying archives
+  against the exact sibling versions intended for publication.
 - Actual registry publication remains a separate authorized release action.
 
 ## ADR-0130: Default Remoting Shutdown Outlives TCP Connect Attempts
